@@ -67,6 +67,9 @@ pub struct Building {
     pub house: Option<crate::houses::House>,
     /// Animation frame counter.
     pub anim: u32,
+    /// Days of peasant labor left on a floodplain farm.
+    #[serde(default)]
+    pub labor_days: i32,
     /// Direction the next roaming walker sets off in; rotates by a quarter turn per walker.
     #[serde(default)]
     pub roam_dir: u8,

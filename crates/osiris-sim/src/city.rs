@@ -29,11 +29,17 @@ impl World {
             25 => self.update_labor(),
             27 => self.update_wells(),
             28 => self.update_shrines(),
+            33 => {
+                self.update_farms();
+                self.update_venues();
+            }
             31 => {
                 self.generate_walkers();
                 self.send_carts();
                 self.bazaar_walkers();
                 self.lodge_walkers();
+                self.work_camp_walkers();
+                self.school_walkers();
             }
             9 => self.decay_house_services(),
             36 => self.update_culture(),
@@ -69,11 +75,13 @@ impl World {
                 crate::people::figure_kind::IMMIGRANT
                 | crate::people::figure_kind::EMIGRANT
                 | crate::people::figure_kind::HOMELESS => self.update_migrant(fid),
+                crate::entertainment::JUGGLER => self.update_entertainer(fid),
                 k if crate::services::is_roamer(k) => self.update_roamer(fid),
                 crate::economy::CART_PUSHER => self.update_cart(fid),
                 crate::food::MARKET_BUYER => self.update_buyer(fid),
                 k if crate::animals::is_animal(k) => self.update_animal(fid),
                 k if crate::animals::is_hunter(k) => self.update_hunter(fid),
+                crate::farms::PEASANT => self.update_peasant(fid),
                 _ => {}
             }
             if self.figures.get(fid).is_some_and(|f| f.dead) {

@@ -69,6 +69,16 @@ pub fn draw_sprite(r: &mut Renderer, image: u32, foot: [f32; 2]) {
     r.image(image, [x, y.round()], WHITE, Space::World);
 }
 
+/// An extra image drawn over a building (crops, working animations), placed at a
+/// world pixel and sorted with tile `(x, y)`.
+#[derive(Debug, Clone, Copy)]
+pub struct Overlay {
+    pub x: i32,
+    pub y: i32,
+    pub pos: [f32; 2],
+    pub image: u32,
+}
+
 /// A per-tile highlight drawn over the terrain.
 #[derive(Debug, Clone, Copy)]
 pub struct Highlight {
@@ -91,6 +101,7 @@ impl CityView {
         highlights: &[Highlight],
         highlight_image: u32,
         sprites: &[Sprite],
+        overlays: &[Overlay],
     ) {
         let before = r.instance_count();
         let [vx0, vy0, vx1, vy1] = r.world_view();
@@ -101,6 +112,9 @@ impl CityView {
         let mut people = sprites.to_vec();
         people.sort_by_key(|s| (s.x + s.y, s.x));
         let mut next_person = 0;
+        let mut extras = overlays.to_vec();
+        extras.sort_by_key(|o| (o.x + o.y, o.x));
+        let mut next_extra = 0;
         // Back to front: by diagonal, then left to right within it.
         for d in 0..(w + h - 1) {
             let x_min = (d - (h - 1)).max(0);
@@ -127,6 +141,11 @@ impl CityView {
                     continue;
                 }
                 r.image(id, pos, WHITE, Space::World);
+            }
+            while next_extra < extras.len() && extras[next_extra].x + extras[next_extra].y <= d {
+                let o = extras[next_extra];
+                r.image(o.image, o.pos, WHITE, Space::World);
+                next_extra += 1;
             }
             // Highlights on this diagonal go over the terrain drawn so far.
             while next_mark < marks.len() && marks[next_mark].x + marks[next_mark].y <= d {

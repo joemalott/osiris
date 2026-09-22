@@ -133,6 +133,9 @@ impl World {
             }
         }
         self.map.set_footprint(x, y, size, image);
+        if let Some(farm) = self.farm_image(id) {
+            self.set_building_image(id, farm);
+        }
         self.refresh_road_access(id);
         id
     }

@@ -1,6 +1,6 @@
 //! A running city: the world, the view onto it, the sidebar and the player's tool.
 
-use crate::city_view::{self, CityView, Highlight, Sprite};
+use crate::city_view::{self, CityView, Highlight, Overlay, Sprite};
 use crate::sidebar::{Category, Click, MenuItem, Sidebar, SidebarImages};
 use crate::info::InfoPanel;
 use crate::minimap::Minimap;
@@ -450,12 +450,44 @@ impl Game {
             .collect()
     }
 
+    /// Images drawn over buildings: growing crops on farms.
+    fn overlays(&self, r: &Renderer) -> Vec<Overlay> {
+        let mut out = Vec::new();
+        for b in self.world.buildings.iter() {
+            if !self.world.is_farm(b.kind) {
+                continue;
+            }
+            let crops = self.world.crop_overlays(b.id);
+            let n = crops.len();
+            let top = city_view::tile_to_world(&self.world.map, b.x, b.y);
+            let point = [top[0] - (b.size - 1) as f32 * city_view::TILE_W / 2.0, top[1]];
+            for (i, image) in crops {
+                // Floodplain farms crop every tile; meadow farms only the front edge.
+                let (dx, dy) = if n == 9 {
+                    ((i % 3) as i32, (i / 3) as i32)
+                } else {
+                    [(0, 2), (1, 2), (2, 2), (2, 1), (2, 0)][i]
+                };
+                let (ox, oy) = (((dx - dy) * 30 + (b.size - 1) * 30) as f32, ((dx + dy) * 15) as f32);
+                let h = r.record(image).map_or(30.0, |rec| rec.height as f32);
+                out.push(Overlay {
+                    x: b.x + dx,
+                    y: b.y + dy,
+                    pos: [point[0] + ox, point[1] + oy + city_view::TILE_H - h],
+                    image,
+                });
+            }
+        }
+        out
+    }
+
     pub fn draw(&mut self, r: &mut Renderer) {
         self.next_dialog(r);
         let (marks, cost) = self.highlights();
         let marker = self.world.defs.terrain.empty_land;
         let sprites = self.sprites();
-        self.view.draw(r, &self.world.map, &marks, marker, &sprites);
+        let overlays = self.overlays(r);
+        self.view.draw(r, &self.world.map, &marks, marker, &sprites, &overlays);
         self.draw_overlay(r, cost);
     }
 

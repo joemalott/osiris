@@ -11,6 +11,8 @@ pub mod city;
 pub mod defs;
 pub mod desirability;
 pub mod economy;
+pub mod entertainment;
+pub mod farms;
 pub mod figures;
 pub mod finance;
 pub mod floods;

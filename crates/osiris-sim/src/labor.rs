@@ -59,7 +59,8 @@ impl World {
                 continue;
             }
             let want = self.workers_needed(b.kind);
-            if want <= 0 {
+            // Floodplain farms are worked by peasants from work camps instead.
+            if want <= 0 || self.is_floodplain_farm(b.id) {
                 continue;
             }
             let Some(cat) = self.defs.building(b.kind).and_then(|d| d.labor.as_deref()) else { continue };

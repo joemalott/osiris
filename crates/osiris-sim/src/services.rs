@@ -2,7 +2,7 @@
 //! roamer serves every house (or building) within two tiles, then heads home once it
 //! has walked its maximum roam length.
 
-use crate::buildings::BuildingId;
+use crate::buildings::{BuildingId, kind};
 use crate::figures::{Step, Travel};
 use crate::map::{NEIGHBOURS, terrain};
 use crate::world::World;
@@ -55,6 +55,7 @@ pub fn is_roamer(kind: u16) -> bool {
         LABOR_SEEKER | TAX_COLLECTOR | ARCHITECT | FIREMAN | PRIEST | TEACHER | LIBRARIAN | DENTIST | PHYSICIAN
             | HERBALIST | EMBALMER | WATER_CARRIER
     ) || kind == crate::food::MARKET_TRADER
+        || kind == crate::entertainment::JUGGLER
 }
 
 impl World {
@@ -98,6 +99,10 @@ impl World {
                 self.spawn_roamer(id, figure_kind::LABOR_SEEKER, 1);
             }
             let Some(b) = self.buildings.get(id) else { continue };
+            // These send their walkers through their own rules.
+            if matches!(b.kind, kind::BOOTH | kind::JUGGLER_SCHOOL | kind::BAZAAR) {
+                continue;
+            }
             let Some(kind) = self.defs.building(b.kind).and_then(|d| d.figure) else { continue };
             if !is_roamer(kind) || b.walkers[0] != 0 {
                 continue;
@@ -160,6 +165,7 @@ impl World {
                 figure_kind::TEACHER => c.school = VISIT,
                 figure_kind::LIBRARIAN => c.library = VISIT,
                 figure_kind::TAX_COLLECTOR => c.tax = 50,
+                crate::entertainment::JUGGLER => c.juggler = VISIT,
                 figure_kind::PRIEST => {
                     // Temples and shrines of each god: Osiris, Ra, Ptah, Seth, Bast.
                     let god = match home_kind {
