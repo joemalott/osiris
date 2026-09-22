@@ -1,0 +1,12 @@
+[package]
+name = "osiris-render"
+description = "GPU sprite renderer for Osiris"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+osiris-formats = { path = "../osiris-formats" }
+wgpu = "30"
+bytemuck = { version = "1", features = ["derive"] }
+log = "0.4"

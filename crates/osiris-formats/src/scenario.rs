@@ -5,9 +5,9 @@
 //! `width x height` rectangle starting at `start_offset`; map tile `(x, y)` lives at
 //! `start_offset + y * 228 + x`.
 
+use crate::Result;
 use crate::bytes::Reader;
 use crate::chunks::{ChunkFile, GRID_SIZE, GRID_TILES};
-use crate::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TilePoint {
@@ -85,15 +85,27 @@ pub struct ScenarioInfo {
 }
 
 fn points_u16(r: &mut Reader, n: usize) -> Result<Vec<TilePoint>> {
-    let xs: Vec<i32> = (0..n).map(|_| r.u16().map(|v| v as i16 as i32)).collect::<Result<_>>()?;
-    let ys: Vec<i32> = (0..n).map(|_| r.u16().map(|v| v as i16 as i32)).collect::<Result<_>>()?;
-    Ok(xs.into_iter().zip(ys).map(|(x, y)| TilePoint { x, y }).collect())
+    let xs: Vec<i32> = (0..n)
+        .map(|_| r.u16().map(|v| v as i16 as i32))
+        .collect::<Result<_>>()?;
+    let ys: Vec<i32> = (0..n)
+        .map(|_| r.u16().map(|v| v as i16 as i32))
+        .collect::<Result<_>>()?;
+    Ok(xs
+        .into_iter()
+        .zip(ys)
+        .map(|(x, y)| TilePoint { x, y })
+        .collect())
 }
 
 fn points_i32(r: &mut Reader, n: usize) -> Result<Vec<TilePoint>> {
     let xs: Vec<i32> = (0..n).map(|_| r.i32()).collect::<Result<_>>()?;
     let ys: Vec<i32> = (0..n).map(|_| r.i32()).collect::<Result<_>>()?;
-    Ok(xs.into_iter().zip(ys).map(|(x, y)| TilePoint { x, y }).collect())
+    Ok(xs
+        .into_iter()
+        .zip(ys)
+        .map(|(x, y)| TilePoint { x, y })
+        .collect())
 }
 
 fn point(r: &mut Reader) -> Result<TilePoint> {
@@ -254,8 +266,10 @@ pub struct Scenario {
 
 fn u32_grid(bytes: &[u8]) -> Vec<u32> {
     bytes
-        .chunks_exact(4)
-        .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
         .collect()
 }
 
@@ -282,9 +296,28 @@ impl Scenario {
         Ok(s)
     }
 
+    /// Campaign entries older than version 149 were written when the terrain pack started
+    /// 539 ids later; `id_shift` moves them back. A few terrain ids that no longer exist
+    /// (15600..=15616) map onto their replacements, whatever the source.
+    pub fn fix_image_ids(&mut self, id_shift: u32) {
+        for id in &mut self.images {
+            if *id == 0 {
+                continue;
+            }
+            let v = id.saturating_sub(id_shift);
+            *id = match v {
+                15600 | 15601 => 15063,
+                15602..=15616 => 15063 + v - 15602,
+                _ => v,
+            };
+        }
+    }
+
     pub fn load_map(path: &std::path::Path) -> Result<Self> {
         let data = crate::read_file(path)?;
-        Self::from_chunks(&ChunkFile::parse(&data, crate::chunks::Layout::Map)?)
+        let mut s = Self::from_chunks(&ChunkFile::parse(&data, crate::chunks::Layout::Map)?)?;
+        s.fix_image_ids(0);
+        Ok(s)
     }
 
     /// Grid offset of map tile `(x, y)`, or `None` outside the playable rectangle.

@@ -106,11 +106,15 @@ pub fn explode(data: &[u8], expected_len: usize) -> Result<Vec<u8>> {
         return Err(Error::Truncated("pkware header"));
     }
     if data[0] != 0 {
-        return Err(Error::Invalid("pkware: coded literals are not supported".into()));
+        return Err(Error::Invalid(
+            "pkware: coded literals are not supported".into(),
+        ));
     }
     let dict_bits = data[1] as u32;
     if !(4..=6).contains(&dict_bits) {
-        return Err(Error::Invalid(format!("pkware: dictionary bits {dict_bits}")));
+        return Err(Error::Invalid(format!(
+            "pkware: dictionary bits {dict_bits}"
+        )));
     }
     let length_code = Huffman::new(&LENGTH_CODE);
     let dist_code = Huffman::new(&DIST_CODE);
@@ -129,9 +133,8 @@ pub fn explode(data: &[u8], expected_len: usize) -> Result<Vec<u8>> {
                 break;
             }
             let shift = if len == 2 { 2 } else { dict_bits };
-            let dist = ((bits.decode(&dist_code)? as usize) << shift)
-                + bits.need(shift)? as usize
-                + 1;
+            let dist =
+                ((bits.decode(&dist_code)? as usize) << shift) + bits.need(shift)? as usize + 1;
             if dist > out.len() {
                 return Err(Error::Invalid("pkware: distance before start".into()));
             }

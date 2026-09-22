@@ -5,11 +5,13 @@
 
 pub mod bytes;
 pub mod chunks;
+pub mod images;
 pub mod pkware;
 pub mod scenario;
 pub mod sg3;
 
 pub use chunks::{ChunkFile, Layout, MissionPak};
+pub use images::{ImageLibrary, PackImage};
 pub use scenario::{Scenario, ScenarioInfo};
 pub use sg3::{ImageKind, ImageRecord, Rgba, Sg3, Sprite};
 

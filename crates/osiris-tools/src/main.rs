@@ -10,11 +10,18 @@ const USAGE: &str = "usage:
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+    match args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
         ["check-sg3", dir] => check_sg3(Path::new(dir)),
         ["dump-sprites", dir, pak, out] => dump_sprites(Path::new(dir), pak, Path::new(out)),
         ["info", dir, pak] => info(Path::new(dir), pak),
         ["check-maps", dir] => check_maps(Path::new(dir)),
+        ["image-histogram", dir, what] => image_histogram(Path::new(dir), what),
+        ["dump-grids", dir, what, out] => dump_grids(Path::new(dir), what, Path::new(out)),
         _ => bail!("{USAGE}"),
     }
 }
@@ -24,7 +31,8 @@ fn sg3_names(dir: &Path) -> Result<Vec<String>> {
         .filter_map(|e| e.ok())
         .filter_map(|e| {
             let p = e.path();
-            (p.extension()?.eq_ignore_ascii_case("sg3")).then(|| p.file_stem()?.to_str().map(str::to_owned))?
+            (p.extension()?.eq_ignore_ascii_case("sg3"))
+                .then(|| p.file_stem()?.to_str().map(str::to_owned))?
         })
         .collect();
     names.sort();
@@ -46,7 +54,11 @@ fn check_sg3(dir: &Path) -> Result<()> {
             }
         }
         failed += pak_failed;
-        println!("{name:24} v{} {:5} images, {pak_failed} failed", pak.version, pak.len());
+        println!(
+            "{name:24} v{} {:5} images, {pak_failed} failed",
+            pak.version,
+            pak.len()
+        );
     }
     println!("{total} images, {failed} failed");
     if failed > 0 {
@@ -66,8 +78,17 @@ fn info(dir: &Path, name: &str) -> Result<()> {
     for (i, r) in pak.records.iter().enumerate() {
         println!(
             "{i:5} {:4}x{:<4} {:?} rle={} ext={} top={} mirror={} anim={} off=({},{}) bmp={}",
-            r.width, r.height, r.kind, r.compressed as u8, r.external as u8, r.has_isometric_top as u8,
-            r.mirror_offset, r.num_animation_sprites, r.sprite_offset_x, r.sprite_offset_y, pak.bitmap_name(r)
+            r.width,
+            r.height,
+            r.kind,
+            r.compressed as u8,
+            r.external as u8,
+            r.has_isometric_top as u8,
+            r.mirror_offset,
+            r.num_animation_sprites,
+            r.sprite_offset_x,
+            r.sprite_offset_y,
+            pak.bitmap_name(r)
         );
     }
     Ok(())
@@ -94,7 +115,8 @@ pub fn write_png(path: &PathBuf, sprite: &Sprite) -> Result<()> {
     let mut enc = png::Encoder::new(file, sprite.width, sprite.height);
     enc.set_color(png::ColorType::Rgba);
     enc.set_depth(png::BitDepth::Eight);
-    enc.write_header()?.write_image_data(sprite.pixels.as_flattened())?;
+    enc.write_header()?
+        .write_image_data(sprite.pixels.as_flattened())?;
     Ok(())
 }
 
@@ -102,8 +124,18 @@ fn describe(name: &str, s: &Scenario) {
     let i = &s.info;
     println!(
         "{name:32} v{} {}x{} start={} year={} funds={} climate={} entry=({},{}) exit=({},{}) \"{}\"",
-        s.version, i.width, i.height, i.start_offset, i.start_year, i.initial_funds, i.climate,
-        i.entry_point.x, i.entry_point.y, i.exit_point.x, i.exit_point.y, i.subtitle
+        s.version,
+        i.width,
+        i.height,
+        i.start_offset,
+        i.start_year,
+        i.initial_funds,
+        i.climate,
+        i.entry_point.x,
+        i.entry_point.y,
+        i.exit_point.x,
+        i.exit_point.y,
+        i.subtitle
     );
 }
 
@@ -119,7 +151,10 @@ fn check_maps(game: &Path) -> Result<()> {
         if file.trailing != 0 {
             bail!("{}: {} trailing bytes", p.display(), file.trailing);
         }
-        describe(&p.file_name().unwrap().to_string_lossy(), &Scenario::from_chunks(&file)?);
+        describe(
+            &p.file_name().unwrap().to_string_lossy(),
+            &Scenario::from_chunks(&file)?,
+        );
     }
     let pak = MissionPak::open(&game.join("mission1.pak"))?;
     let mut n = 0;
@@ -127,10 +162,64 @@ fn check_maps(game: &Path) -> Result<()> {
         if pak.entry(i).is_none() {
             continue;
         }
-        let file = pak.scenario(i).with_context(|| format!("mission {i}"))?;
-        describe(&format!("mission1.pak #{i} (+{})", file.trailing), &Scenario::from_chunks(&file)?);
+        let file = pak.chunks(i).with_context(|| format!("mission {i}"))?;
+        describe(
+            &format!("mission1.pak #{i} (+{})", file.trailing),
+            &pak.scenario(i)?,
+        );
         n += 1;
     }
     println!("{} maps and {n} campaign missions parsed", maps.len());
+    Ok(())
+}
+
+fn image_histogram(game: &Path, what: &str) -> Result<()> {
+    let s = load_any(game, what)?;
+    let lib = osiris_formats::ImageLibrary::open(&game.join("Data"))?;
+    let mut per_pack: std::collections::BTreeMap<String, (usize, u32, u32)> = Default::default();
+    let (mut draw, mut unresolved) = (0, 0);
+    for y in 0..s.info.height {
+        for x in 0..s.info.width {
+            let off = s.offset(x, y).unwrap();
+            let id = s.images[off];
+            if s.edges[off] & 0x40 == 0 {
+                continue;
+            }
+            draw += 1;
+            match lib.resolve(id) {
+                Some(p) => {
+                    let e = per_pack
+                        .entry(lib.pack(p.pack).sg3.name.clone())
+                        .or_insert((0, u32::MAX, 0));
+                    e.0 += 1;
+                    e.1 = e.1.min(id);
+                    e.2 = e.2.max(id);
+                }
+                None => unresolved += 1,
+            }
+        }
+    }
+    println!("{draw} draw tiles, {unresolved} unresolved");
+    for (k, v) in per_pack {
+        println!("{k:20} {:6} ids {}..{}", v.0, v.1, v.2);
+    }
+    Ok(())
+}
+
+fn load_any(game: &Path, what: &str) -> Result<Scenario> {
+    Ok(if let Ok(n) = what.parse::<usize>() {
+        MissionPak::open(&game.join("mission1.pak"))?.scenario(n)?
+    } else {
+        Scenario::load_map(Path::new(what))?
+    })
+}
+
+/// Writes the image grid (u32 LE) followed by the edge grid (u8) for offline analysis.
+fn dump_grids(game: &Path, what: &str, out: &Path) -> Result<()> {
+    let s = load_any(game, what)?;
+    let mut buf: Vec<u8> = s.images.iter().flat_map(|v| v.to_le_bytes()).collect();
+    buf.extend_from_slice(&s.edges);
+    buf.extend(s.terrain.iter().flat_map(|v| v.to_le_bytes()));
+    std::fs::write(out, buf)?;
     Ok(())
 }

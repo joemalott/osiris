@@ -1,6 +1,21 @@
 [package]
 name = "osiris-app"
-version = "0.1.0"
-edition = "2024"
+description = "The Osiris game"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "osiris"
+path = "src/main.rs"
 
 [dependencies]
+osiris-formats = { path = "../osiris-formats" }
+osiris-render = { path = "../osiris-render" }
+wgpu = "30"
+winit = "0.30"
+pollster = "1"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+png = "0.18"

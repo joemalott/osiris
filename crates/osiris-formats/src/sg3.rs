@@ -26,7 +26,8 @@ const HEADER_INTS: usize = 20;
 const GROUP_COUNT: usize = 300;
 const BITMAP_NAME_LEN: usize = 200;
 const BITMAP_NAME_SLOTS: usize = 200;
-const RECORDS_START: usize = HEADER_INTS * 4 + GROUP_COUNT * 2 + BITMAP_NAME_SLOTS * BITMAP_NAME_LEN;
+const RECORDS_START: usize =
+    HEADER_INTS * 4 + GROUP_COUNT * 2 + BITMAP_NAME_SLOTS * BITMAP_NAME_LEN;
 
 pub const TILE_WIDTH: i32 = 58;
 pub const TILE_HEIGHT: i32 = 30;
@@ -175,7 +176,9 @@ impl Sg3 {
         let num_records = header[4] as usize + 1;
         let num_bitmaps = header[5] as usize;
         if num_bitmaps > BITMAP_NAME_SLOTS {
-            return Err(Error::Invalid(format!("{name}.sg3: {num_bitmaps} bitmap names")));
+            return Err(Error::Invalid(format!(
+                "{name}.sg3: {num_bitmaps} bitmap names"
+            )));
         }
 
         let mut group_starts = Vec::with_capacity(GROUP_COUNT);
@@ -275,7 +278,10 @@ impl Sg3 {
             let src = index as i64 + rec.mirror_offset as i64;
             let src_rec = self.record(src as usize)?;
             if src_rec.mirror_offset != 0 {
-                return Err(Error::Invalid(format!("{}#{index}: chained mirror", self.name)));
+                return Err(Error::Invalid(format!(
+                    "{}#{index}: chained mirror",
+                    self.name
+                )));
             }
             let mut sprite = self.decode(src as usize)?;
             sprite.flip_horizontal();
@@ -292,13 +298,22 @@ impl Sg3 {
                 std::fs::read(self.dir.join(stem)).ok()
             });
             let file = file.as_deref().ok_or_else(|| {
-                Error::Invalid(format!("{}#{index}: external file for {name} missing", self.name))
+                Error::Invalid(format!(
+                    "{}#{index}: external file for {name} missing",
+                    self.name
+                ))
             })?;
             // External offsets are 1-based.
             let start = (rec.offset as usize).saturating_sub(1);
             decode_pixels(rec, slice(file, start, rec.data_length, &self.name, index)?)
         } else {
-            let data = slice(&self.data, rec.offset as usize, rec.data_length, &self.name, index)?;
+            let data = slice(
+                &self.data,
+                rec.offset as usize,
+                rec.data_length,
+                &self.name,
+                index,
+            )?;
             decode_pixels(rec, data)
         }
     }
@@ -330,8 +345,8 @@ fn decode_pixels(rec: &ImageRecord, data: &[u8]) -> Result<Sprite> {
     } else if rec.compressed {
         decode_rle(data, &mut sprite);
     } else {
-        for (dst, px) in sprite.pixels.iter_mut().zip(data.chunks_exact(2)) {
-            *dst = rgb555_to_rgba(u16::from_le_bytes([px[0], px[1]]));
+        for (dst, px) in sprite.pixels.iter_mut().zip(data.as_chunks::<2>().0) {
+            *dst = rgb555_to_rgba(u16::from_le_bytes(*px));
         }
     }
     Ok(sprite)
@@ -371,7 +386,11 @@ fn decode_footprint(rec: &ImageRecord, data: &[u8], sprite: &mut Sprite) {
     }
     let x_start = (tiles - 1) * TILE_HEIGHT;
     let y_offset = rec.height as i32 - TILE_HEIGHT * tiles;
-    let mut px = data.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]]));
+    let mut px = data
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|p| u16::from_le_bytes(*p));
     let mut tile = |sprite: &mut Sprite, ox: i32, oy: i32| {
         for (y, &xs) in FOOTPRINT_X_START.iter().enumerate() {
             for x in xs..TILE_WIDTH - xs {

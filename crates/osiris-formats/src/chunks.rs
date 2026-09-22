@@ -27,10 +27,18 @@ struct Spec {
 }
 
 const fn c(name: &'static str, size: usize) -> Spec {
-    Spec { name, size, compressed: true }
+    Spec {
+        name,
+        size,
+        compressed: true,
+    }
 }
 const fn u(name: &'static str, size: usize) -> Spec {
-    Spec { name, size, compressed: false }
+    Spec {
+        name,
+        size,
+        compressed: false,
+    }
 }
 
 fn schema(layout: Layout, v: i32) -> Vec<Spec> {
@@ -190,9 +198,8 @@ impl ChunkFile {
                     r.bytes(spec.size)?.to_vec()
                 } else {
                     let packed = r.bytes(prefix as usize)?;
-                    pkware::explode(packed, spec.size).map_err(|e| {
-                        Error::Invalid(format!("chunk {}: {e}", spec.name))
-                    })?
+                    pkware::explode(packed, spec.size)
+                        .map_err(|e| Error::Invalid(format!("chunk {}: {e}", spec.name)))?
                 }
             } else {
                 r.bytes(spec.size)?.to_vec()
@@ -267,10 +274,18 @@ impl MissionPak {
         Some(&self.data[start..end])
     }
 
-    pub fn scenario(&self, index: usize) -> Result<ChunkFile> {
+    pub fn chunks(&self, index: usize) -> Result<ChunkFile> {
         let entry = self
             .entry(index)
             .ok_or_else(|| Error::Invalid(format!("mission pak: no entry {index}")))?;
         ChunkFile::parse(entry, Layout::Save)
+    }
+
+    /// Campaign scenario `index`, with image ids moved into the current id space.
+    pub fn scenario(&self, index: usize) -> Result<crate::Scenario> {
+        let file = self.chunks(index)?;
+        let mut s = crate::Scenario::from_chunks(&file)?;
+        s.fix_image_ids(if file.version < 149 { 539 } else { 0 });
+        Ok(s)
     }
 }

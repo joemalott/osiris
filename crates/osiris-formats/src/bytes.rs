@@ -36,7 +36,10 @@ impl<'a> Reader<'a> {
 
     pub fn bytes(&mut self, n: usize) -> Result<&'a [u8]> {
         let end = self.pos.checked_add(n).ok_or(Error::Truncated(self.what))?;
-        let s = self.data.get(self.pos..end).ok_or(Error::Truncated(self.what))?;
+        let s = self
+            .data
+            .get(self.pos..end)
+            .ok_or(Error::Truncated(self.what))?;
         self.pos = end;
         Ok(s)
     }
