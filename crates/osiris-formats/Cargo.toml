@@ -1,0 +1,9 @@
+[package]
+name = "osiris-formats"
+description = "Readers for the original Pharaoh (1999) data files"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+thiserror = "2"

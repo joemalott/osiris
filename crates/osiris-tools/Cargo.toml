@@ -1,0 +1,11 @@
+[package]
+name = "osiris-tools"
+description = "Command-line tools for inspecting Pharaoh data"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+osiris-formats = { path = "../osiris-formats" }
+png = "0.18"
+anyhow = "1"
