@@ -50,9 +50,205 @@ pub struct TerrainImages {
     pub meadow_outer: u32,
 }
 
+/// A sprite reference as written in the data files.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ImageRef {
+    pub pack: String,
+    pub group: usize,
+    #[serde(default)]
+    pub offset: i32,
+    #[serde(default)]
+    pub frames: u32,
+    #[serde(default)]
+    pub x: i32,
+    #[serde(default)]
+    pub y: i32,
+    #[serde(default)]
+    pub duration: u32,
+}
+
+/// An image reference resolved to a global image id.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Anim {
+    pub image: u32,
+    pub frames: u32,
+    pub x: i32,
+    pub y: i32,
+    pub duration: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RawBuilding {
+    id: u16,
+    key: String,
+    #[serde(default = "one")]
+    size: i32,
+    #[serde(default)]
+    labor: Option<String>,
+    #[serde(default)]
+    figure: Option<OneOrMany>,
+    #[serde(default)]
+    image: Option<ImageRef>,
+    #[serde(default)]
+    anims: std::collections::BTreeMap<String, ImageRef>,
+    #[serde(default)]
+    needs: Vec<String>,
+    #[serde(default)]
+    flags: Vec<String>,
+    #[serde(default)]
+    inputs: Vec<String>,
+    #[serde(default)]
+    outputs: Vec<String>,
+    #[serde(default)]
+    text_id: Option<i32>,
+    #[serde(default)]
+    variants: Option<toml::Value>,
+    #[serde(flatten)]
+    extra: toml::Table,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum OneOrMany {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl OneOrMany {
+    fn list(&self) -> Vec<String> {
+        match self {
+            Self::One(s) => vec![s.clone()],
+            Self::Many(v) => v.clone(),
+        }
+    }
+}
+
+fn one() -> i32 {
+    1
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BuildingDef {
+    pub id: u16,
+    pub key: String,
+    pub size: i32,
+    pub labor: Option<String>,
+    /// The walker it sends out (the first, when there are several).
+    pub figure: Option<u16>,
+    /// All walker types it can send out.
+    pub figures: Vec<u16>,
+    pub image: u32,
+    pub anims: std::collections::BTreeMap<String, Anim>,
+    /// House variants (level images), when present.
+    pub variants: Vec<u32>,
+    pub needs: Vec<String>,
+    pub flags: Vec<String>,
+    pub inputs: Vec<String>,
+    pub outputs: Vec<String>,
+    pub text_id: Option<i32>,
+    pub extra: toml::Table,
+}
+
+impl BuildingDef {
+    pub fn has_flag(&self, f: &str) -> bool {
+        self.flags.iter().any(|x| x == f)
+    }
+    pub fn needs(&self, n: &str) -> bool {
+        self.needs.iter().any(|x| x == n)
+    }
+    pub fn int(&self, key: &str) -> Option<i64> {
+        match self.extra.get(key)? {
+            toml::Value::Integer(i) => Some(*i),
+            toml::Value::Boolean(b) => Some(*b as i64),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RawFigure {
+    id: u16,
+    key: String,
+    #[serde(default)]
+    anims: std::collections::BTreeMap<String, ImageRef>,
+    #[serde(flatten)]
+    extra: toml::Table,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FigureDef {
+    pub id: u16,
+    pub key: String,
+    pub anims: std::collections::BTreeMap<String, Anim>,
+    pub extra: toml::Table,
+}
+
+impl FigureDef {
+    pub fn int(&self, key: &str) -> Option<i64> {
+        match self.extra.get(key)? {
+            toml::Value::Integer(i) => Some(*i),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Menu {
+    pub key: String,
+    #[serde(default)]
+    pub items: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct BuildingsFile {
+    building: Vec<RawBuilding>,
+}
+#[derive(Deserialize)]
+struct FiguresFile {
+    figure: Vec<RawFigure>,
+}
+#[derive(Deserialize)]
+struct MenusFile {
+    menu: Vec<Menu>,
+}
+
 pub struct Defs {
     pub contexts: ContextTables,
     pub terrain: TerrainImages,
+    /// Indexed by building type id.
+    pub buildings: Vec<Option<BuildingDef>>,
+    /// Indexed by figure type id.
+    pub figures: Vec<Option<FigureDef>>,
+    pub menus: Vec<Menu>,
+}
+
+fn resolve(lib: &ImageLibrary, r: &ImageRef) -> Option<Anim> {
+    let base = lib.group_id(&r.pack, r.group, 0).ok()?;
+    let image = base.checked_add_signed(r.offset)?;
+    Some(Anim {
+        image,
+        frames: r.frames,
+        x: r.x,
+        y: r.y,
+        duration: r.duration.max(1),
+    })
+}
+
+/// House variant tables look like `{ 1 = {pack,..}, 2 = {..} }` or a list.
+fn resolve_variants(lib: &ImageLibrary, v: &toml::Value) -> Vec<u32> {
+    let refs: Vec<toml::Value> = match v {
+        toml::Value::Table(t) => {
+            let mut items: Vec<_> = t.iter().collect();
+            items.sort_by_key(|(k, _)| k.parse::<i32>().unwrap_or(0));
+            items.into_iter().map(|(_, v)| v.clone()).collect()
+        }
+        toml::Value::Array(a) => a.clone(),
+        _ => vec![],
+    };
+    refs.into_iter()
+        .filter_map(|r| r.try_into::<ImageRef>().ok())
+        .filter_map(|r| resolve(lib, &r).map(|a| a.image))
+        .collect()
 }
 
 impl Defs {
@@ -84,6 +280,82 @@ impl Defs {
             grass_edges: t(64)?,
             meadow_outer: t(66)?,
         };
-        Ok(Self { contexts, terrain })
+        let figures_raw: FiguresFile = toml::from_str(include_str!("../data/figures.toml"))
+            .map_err(|e| format!("figures.toml: {e}"))?;
+        let mut figures: Vec<Option<FigureDef>> = Vec::new();
+        for f in figures_raw.figure {
+            let id = f.id as usize;
+            if figures.len() <= id {
+                figures.resize(id + 1, None);
+            }
+            figures[id] = Some(FigureDef {
+                id: f.id,
+                anims: f.anims.iter().filter_map(|(k, r)| Some((k.clone(), resolve(lib, r)?))).collect(),
+                key: f.key,
+                extra: f.extra,
+            });
+        }
+        let figure_id = |key: &str| {
+            figures
+                .iter()
+                .flatten()
+                .find(|f| f.key == key)
+                .map(|f| f.id)
+        };
+        let buildings_raw: BuildingsFile = toml::from_str(include_str!("../data/buildings.toml"))
+            .map_err(|e| format!("buildings.toml: {e}"))?;
+        let mut buildings: Vec<Option<BuildingDef>> = Vec::new();
+        for b in buildings_raw.building {
+            let id = b.id as usize;
+            if buildings.len() <= id {
+                buildings.resize(id + 1, None);
+            }
+            buildings[id] = Some(BuildingDef {
+                id: b.id,
+                size: b.size,
+                labor: b.labor,
+                figures: b.figure.iter().flat_map(|f| f.list()).filter_map(|k| figure_id(&k)).collect(),
+                figure: b.figure.as_ref().and_then(|f| figure_id(f.list().first()?)),
+                image: b.image.as_ref().and_then(|r| resolve(lib, r)).map_or(0, |a| a.image),
+                anims: b.anims.iter().filter_map(|(k, r)| Some((k.clone(), resolve(lib, r)?))).collect(),
+                variants: b.variants.as_ref().map(|v| resolve_variants(lib, v)).unwrap_or_default(),
+                needs: b.needs,
+                flags: b.flags,
+                inputs: b.inputs,
+                outputs: b.outputs,
+                text_id: b.text_id,
+                key: b.key,
+                extra: b.extra,
+            });
+        }
+        let menus: MenusFile = toml::from_str(include_str!("../data/menus.toml"))
+            .map_err(|e| format!("menus.toml: {e}"))?;
+        Ok(Self {
+            contexts,
+            terrain,
+            buildings,
+            figures,
+            menus: menus.menu,
+        })
+    }
+
+    pub fn building(&self, id: u16) -> Option<&BuildingDef> {
+        self.buildings.get(id as usize)?.as_ref()
+    }
+
+    pub fn building_by_key(&self, key: &str) -> Option<&BuildingDef> {
+        self.buildings.iter().flatten().find(|b| b.key == key)
+    }
+
+    pub fn figure(&self, id: u16) -> Option<&FigureDef> {
+        self.figures.get(id as usize)?.as_ref()
+    }
+
+    pub fn figure_by_key(&self, key: &str) -> Option<&FigureDef> {
+        self.figures.iter().flatten().find(|f| f.key == key)
+    }
+
+    pub fn menu(&self, key: &str) -> Option<&Menu> {
+        self.menus.iter().find(|m| m.key == key)
     }
 }

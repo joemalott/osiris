@@ -4,16 +4,24 @@
 //! return plain Rust data. Nothing depends on a renderer or the simulation.
 
 pub mod bytes;
+pub mod campaign;
 pub mod chunks;
 pub mod images;
+pub mod messages;
+pub mod model;
 pub mod pkware;
 pub mod scenario;
 pub mod sg3;
+pub mod text;
 
+pub use campaign::Campaign;
 pub use chunks::{ChunkFile, Layout, MissionPak};
 pub use images::{ImageLibrary, PackImage};
+pub use messages::{Message, MessageTable};
+pub use model::{BuildingModel, FigureModel, HouseModel, Model};
 pub use scenario::{Scenario, ScenarioInfo};
 pub use sg3::{ImageKind, ImageRecord, Rgba, Sg3, Sprite};
+pub use text::TextTable;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

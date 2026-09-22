@@ -2,7 +2,11 @@
 //! built from a scenario and advanced one tick at a time; the player changes it only
 //! through `Command`s.
 
+pub mod buildings;
 pub mod defs;
+pub mod desirability;
+pub mod figures;
+pub mod houses;
 pub mod grid;
 pub mod map;
 pub mod rng;

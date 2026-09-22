@@ -1,0 +1,133 @@
+# Sidebar build-menu structure for Osiris, transcribed from Akhenaten's
+# src/scripts/building_menu.js (var building_menu = [ ... ]), in original menu order.
+# key = menu group key (from BUILDING_MENU_x, lowercased, without the BUILDING_MENU_ prefix).
+# icon = { pack, group, offset } icon sprite shown on the sidebar category button.
+# items = ordered list of building keys (see buildings.toml) or nested menu keys
+# (prefixed 'menu_', referring to another [[menu]] key in this file) as they appear
+# in-game. Two entries share key 'large_temples' in the source (one is a dead stub
+# with empty items) -- both are kept here for fidelity.
+
+[[menu]]
+key = "vacant_house"
+icon = { pack = "Pharaoh_General", group = 117, offset = 1 }
+items = ["house_crude_hut"]
+
+[[menu]]
+key = "clear_land"
+icon = { pack = "Pharaoh_General", group = 117, offset = 9 }
+items = []
+
+[[menu]]
+key = "road"
+icon = { pack = "Pharaoh_General", group = 117, offset = 5 }
+items = ["road"]
+
+[[menu]]
+key = "water_crossings"
+icon = { pack = "Pharaoh_General", group = 117, offset = 8 }
+items = ["low_bridge", "ferry"]
+
+[[menu]]
+key = "health"
+icon = { pack = "Pharaoh_General", group = 117, offset = 4 }
+items = ["well", "water_supply", "dentist", "apothecary", "physician", "mortuary"]
+
+[[menu]]
+key = "religion"
+icon = { pack = "Pharaoh_General", group = 117, offset = 7 }
+items = ["menu_shrines", "menu_temples", "menu_temple_complex", "menu_monuments", "festival_square"]
+
+[[menu]]
+key = "education"
+icon = { pack = "Pharaoh_General", group = 117, offset = 11 }
+items = ["scribal_school", "library"]
+
+[[menu]]
+key = "entertainment"
+icon = { pack = "Pharaoh_General", group = 117, offset = 3 }
+items = ["booth", "bandstand", "pavillion", "senet_house", "juggler_school", "conservatory", "dance_school", "zoo", "bullfight_school"]
+
+[[menu]]
+key = "administration"
+icon = { pack = "Pharaoh_General", group = 117, offset = 8 }
+items = ["firehouse", "architect_post", "police_station", "tax_collector", "courthouse", "industry_office", "village_palace", "town_palace", "city_palace", "personal_mansion", "family_mansion", "dynasty_mansion", "roadblock", "menu_water_crossings", "menu_beautification"]
+
+[[menu]]
+key = "beautification"
+icon = { pack = "Pharaoh_General", group = 117, offset = 8 }
+items = ["gardens", "plaza", "small_statue", "medium_statue", "large_statue"]
+
+[[menu]]
+key = "security"
+icon = { pack = "Pharaoh_General", group = 117, offset = 12 }
+items = ["menu_defenses", "recruiter", "menu_forts", "military_academy", "weaponsmith", "chariots_workshop", "warship_wharf", "transport_wharf"]
+
+[[menu]]
+key = "industry"
+icon = { pack = "Pharaoh_General", group = 117, offset = 6 }
+items = ["menu_raw_materials", "jewels_workshop", "pottery_workshop", "brewery_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "lamp_workshop", "paint_workshop", "shipwright", "menu_consturction_guilds"]
+
+[[menu]]
+key = "farms"
+icon = { pack = "Pharaoh_General", group = 117, offset = 10 }
+items = ["grain_farm", "barley_farm", "flax_farm", "lettuce_farm", "pomegranates_farm", "chickpeas_farm", "henna_farm", "figs_farm"]
+
+[[menu]]
+key = "raw_materials"
+icon = { pack = "Pharaoh_General", group = 117, offset = 6 }
+items = ["clay_pit", "gemstone_mine", "gold_mine", "copper_mine", "stone_quarry", "limestone_quarry", "granite_quarry", "sandstone_quarry", "reed_gatherer", "wood_cutters"]
+
+[[menu]]
+key = "consturction_guilds"
+icon = { pack = "Pharaoh_General", group = 117, offset = 6 }
+items = ["carpenters_guild", "bricklayers_guild", "stonemasons_guild", "artisans_guild"]
+
+[[menu]]
+key = "temples"
+icon = { pack = "Pharaoh_General", group = 117, offset = 7 }
+items = ["temple_osiris", "temple_ra", "temple_ptah", "temple_seth", "temple_bast"]
+
+[[menu]]
+key = "large_temples"
+icon = { pack = "Pharaoh_General", group = 117, offset = 7 }
+items = []
+
+[[menu]]
+key = "temple_complex"
+icon = { pack = "Pharaoh_General", group = 117, offset = 7 }
+items = ["temple_complex_osiris", "temple_complex_ra", "temple_complex_ptah", "temple_complex_seth", "temple_complex_bast", "temple_complex_altar_amon", "temple_complex_oracle_thoth", "temple_complex_altar_anubis", "temple_complex_oracle_sekhmet", "temple_complex_altar_sebek", "temple_complex_oracle_min", "temple_complex_altar_maat", "temple_complex_oracle_horus", "temple_complex_altar_isis", "temple_complex_oracle_hathor"]
+
+[[menu]]
+key = "forts"
+icon = { pack = "Pharaoh_General", group = 117, offset = 12 }
+items = ["fort_infantry", "fort_archers", "fort_charioteers"]
+
+[[menu]]
+key = "food"
+icon = { pack = "Pharaoh_General", group = 117, offset = 10 }
+items = ["menu_farms", "water_lift", "irrigation_ditch", "dike", "fishing_wharf", "cattle_ranch", "hunting_lodge", "work_camp"]
+
+[[menu]]
+key = "distribution"
+icon = { pack = "Pharaoh_General", group = 117, offset = 2 }
+items = ["granary", "food_mill", "bazaar", "storage_yard", "dock"]
+
+[[menu]]
+key = "shrines"
+icon = { pack = "Pharaoh_General", group = 117, offset = 7 }
+items = ["shrine_osiris", "shrine_ra", "shrine_ptah", "shrine_seth", "shrine_bast"]
+
+[[menu]]
+key = "monuments"
+icon = { pack = "Pharaoh_General", group = 117, offset = 7 }
+items = ["small_mastaba", "medium_mastaba", "large_mastaba", "small_royal_tomb", "medium_royal_tomb", "small_stepped_pyramid", "medium_stepped_pyramid", "large_stepped_pyramid", "stepped_pyramid_complex", "grand_stepped_pyramid_complex", "small_bent_pyramid", "medium_bent_pyramid", "small_mudbrick_pyramid", "medium_mudbrick_pyramid", "large_mudbrick_pyramid", "mudbrick_pyramid_complex", "grand_mudbrick_pyramid_complex", "small_pyramid", "medium_pyramid", "large_pyramid", "pyramid_complex", "large_royal_tomb", "grand_royal_tomb", "pyramid", "sphinx", "small_obelisk", "large_obelisk", "sun_temple", "mausoleum", "alexandria_library", "caesareum", "pharos_lighthouse", "abu_simbel"]
+
+[[menu]]
+key = "defenses"
+icon = { pack = "Pharaoh_General", group = 117, offset = 12 }
+items = ["mud_wall", "mud_tower", "mud_gatehouse", "tower_gatehouse", "decorative_gatehouse", "brick_wall", "brick_tower", "brick_gatehouse"]
+
+[[menu]]
+key = "default"
+icon = { pack = "Pharaoh_General", group = 117, offset = 12 }
+items = ["well", "road", "clear_land", "house_crude_hut"]

@@ -1,0 +1,498 @@
+# Small shared enums referenced by buildings.toml / figures.toml, extracted from the
+# Akhenaten reference reimplementation (source of facts only; ids/keys, no logic copied).
+# Each table is a flat id/key list matching the corresponding e_* enum.
+
+# e_labor_category (src/city/labor_category.h)
+[[labor_category]]
+id = -1
+key = "invalid"
+
+[[labor_category]]
+id = 0
+key = "food_production"
+
+[[labor_category]]
+id = 1
+key = "industry_commerce"
+
+[[labor_category]]
+id = 2
+key = "entertainment"
+
+[[labor_category]]
+id = 3
+key = "religion"
+
+[[labor_category]]
+id = 4
+key = "education"
+
+[[labor_category]]
+id = 5
+key = "water_health"
+
+[[labor_category]]
+id = 6
+key = "infrastructure"
+
+[[labor_category]]
+id = 7
+key = "government"
+
+[[labor_category]]
+id = 8
+key = "military"
+
+[[labor_category]]
+id = 9
+key = "culture"
+
+[[labor_category]]
+id = 10
+key = "house"
+
+[[labor_category]]
+id = 11
+key = "storage"
+
+# e_resource (src/game/resource.h)
+[[resource]]
+id = 0
+key = "none"
+
+[[resource]]
+id = 1
+key = "grain"
+
+[[resource]]
+id = 2
+key = "meat"
+
+[[resource]]
+id = 3
+key = "lettuce"
+
+[[resource]]
+id = 4
+key = "chickpeas"
+
+[[resource]]
+id = 5
+key = "pomegranates"
+
+[[resource]]
+id = 6
+key = "figs"
+
+[[resource]]
+id = 7
+key = "fish"
+
+[[resource]]
+id = 8
+key = "gamemeat"
+
+[[resource]]
+id = 9
+key = "straw"
+
+[[resource]]
+id = 10
+key = "weapons"
+
+[[resource]]
+id = 11
+key = "clay"
+
+[[resource]]
+id = 12
+key = "bricks"
+
+[[resource]]
+id = 13
+key = "pottery"
+
+[[resource]]
+id = 14
+key = "barley"
+
+[[resource]]
+id = 15
+key = "beer"
+
+[[resource]]
+id = 16
+key = "flax"
+
+[[resource]]
+id = 17
+key = "linen"
+
+[[resource]]
+id = 18
+key = "gems"
+
+[[resource]]
+id = 19
+key = "luxury_goods"
+
+[[resource]]
+id = 20
+key = "timber"
+
+[[resource]]
+id = 21
+key = "gold"
+
+[[resource]]
+id = 22
+key = "reeds"
+
+[[resource]]
+id = 23
+key = "papyrus"
+
+[[resource]]
+id = 24
+key = "stone"
+
+[[resource]]
+id = 25
+key = "limestone"
+
+[[resource]]
+id = 26
+key = "granite"
+
+[[resource]]
+id = 27
+key = "unused12"
+
+[[resource]]
+id = 28
+key = "chariots"
+
+[[resource]]
+id = 29
+key = "copper"
+
+[[resource]]
+id = 30
+key = "sandstone"
+
+[[resource]]
+id = 31
+key = "oil"
+
+[[resource]]
+id = 32
+key = "henna"
+
+[[resource]]
+id = 33
+key = "paint"
+
+[[resource]]
+id = 34
+key = "lamps"
+
+[[resource]]
+id = 35
+key = "marble"
+
+[[resource]]
+id = 36
+key = "deben"
+
+[[resource]]
+id = 37
+key = "troops"
+
+[[resource]]
+id = 38
+key = "water"
+
+# e_terrain_usage (src/figure/figure_type.h)
+[[terrain_usage]]
+id = 0
+key = "any"
+
+[[terrain_usage]]
+id = 1
+key = "roads"
+
+[[terrain_usage]]
+id = 2
+key = "enemy"
+
+[[terrain_usage]]
+id = 3
+key = "prefer_roads"
+
+[[terrain_usage]]
+id = 4
+key = "walls"
+
+[[terrain_usage]]
+id = 5
+key = "animal"
+
+[[terrain_usage]]
+id = 6
+key = "amphibia"
+
+# e_figure_category (src/figure/figure_type.h)
+[[figure_category]]
+id = 0
+key = "inactive"
+
+[[figure_category]]
+id = 1
+key = "citizen"
+
+[[figure_category]]
+id = 2
+key = "armed"
+
+[[figure_category]]
+id = 3
+key = "hostile"
+
+[[figure_category]]
+id = 4
+key = "criminal"
+
+[[figure_category]]
+id = 5
+key = "native"
+
+[[figure_category]]
+id = 6
+key = "animal"
+
+[[figure_category]]
+id = 7
+key = "missile"
+
+[[figure_category]]
+id = 8
+key = "military"
+
+[[figure_category]]
+id = 9
+key = "transport"
+
+[[figure_category]]
+id = 10
+key = "worker"
+
+[[figure_category]]
+id = 11
+key = "entertainer"
+
+[[figure_category]]
+id = 12
+key = "religious"
+
+[[figure_category]]
+id = 13
+key = "merchant"
+
+[[figure_category]]
+id = 14
+key = "special"
+
+# e_month (src/game/simulation_time.h)
+[[month]]
+id = 0
+key = "january"
+
+[[month]]
+id = 1
+key = "february"
+
+[[month]]
+id = 2
+key = "march"
+
+[[month]]
+id = 3
+key = "april"
+
+[[month]]
+id = 4
+key = "may"
+
+[[month]]
+id = 5
+key = "june"
+
+[[month]]
+id = 6
+key = "july"
+
+[[month]]
+id = 7
+key = "august"
+
+[[month]]
+id = 8
+key = "september"
+
+[[month]]
+id = 9
+key = "october"
+
+[[month]]
+id = 10
+key = "november"
+
+[[month]]
+id = 11
+key = "december"
+
+# e_advisor (src/city/constants.h)
+[[advisor]]
+id = 0
+key = "none"
+
+[[advisor]]
+id = 1
+key = "labor"
+
+[[advisor]]
+id = 2
+key = "military"
+
+[[advisor]]
+id = 3
+key = "imperial"
+
+[[advisor]]
+id = 4
+key = "ratings"
+
+[[advisor]]
+id = 5
+key = "trade"
+
+[[advisor]]
+id = 6
+key = "population"
+
+[[advisor]]
+id = 7
+key = "health"
+
+[[advisor]]
+id = 8
+key = "education"
+
+[[advisor]]
+id = 9
+key = "entertainment"
+
+[[advisor]]
+id = 10
+key = "religion"
+
+[[advisor]]
+id = 11
+key = "financial"
+
+[[advisor]]
+id = 12
+key = "chief"
+
+[[advisor]]
+id = 13
+key = "monuments"
+
+[[advisor]]
+id = 14
+key = "water"
+
+[[advisor]]
+id = 15
+key = "food"
+
+[[advisor]]
+id = 16
+key = "production"
+
+[[advisor]]
+id = 17
+key = "environment"
+
+[[advisor]]
+id = 18
+key = "security"
+
+[[advisor]]
+id = 19
+key = "housing"
+
+[[advisor]]
+id = 20
+key = "transport"
+
+[[advisor]]
+id = 21
+key = "foreign"
+
+[[advisor]]
+id = 22
+key = "diplomacy"
+
+# e_enemy_type (src/figure/figure_type.h)
+[[enemy_nation]]
+id = 0
+key = "0_barbarian"
+
+[[enemy_nation]]
+id = 1
+key = "1_assyrian"
+
+[[enemy_nation]]
+id = 2
+key = "2_canaanite"
+
+[[enemy_nation]]
+id = 3
+key = "3_egyptian"
+
+[[enemy_nation]]
+id = 4
+key = "4_hittite"
+
+[[enemy_nation]]
+id = 5
+key = "5_hyksos"
+
+[[enemy_nation]]
+id = 6
+key = "6_kushite"
+
+[[enemy_nation]]
+id = 7
+key = "7_libian"
+
+[[enemy_nation]]
+id = 8
+key = "8_nubian"
+
+[[enemy_nation]]
+id = 9
+key = "9_persian"
+
+[[enemy_nation]]
+id = 10
+key = "10_phoenician"
+
+[[enemy_nation]]
+id = 11
+key = "11_roman"
+
+[[enemy_nation]]
+id = 12
+key = "12_seapeople"

@@ -1,0 +1,3082 @@
+# Building type data for Osiris, extracted from the Akhenaten reference reimplementation
+# (github reference: pharaoh/Akhenaten, AGPL, used here as a source of facts only).
+# Schema: id = original e_building_type id; key = snake_case name; size = footprint tiles;
+# labor = labor category key; figure = walker figure key spawned by this building (if any);
+# image = { pack, group, offset, frames?, x?, y? } base/normal sprite;
+# anims = { <name> = { pack, group, offset, frames?, x?, y?, duration?, loop? }, ... };
+# needs/flags = list of placement-need / config-flag keys set true;
+# inputs/outputs = resource keys consumed/produced; text_id/help = meta text id and help link.
+# Houses (id 10..29) additionally carry variants / variants_merged image tables.
+
+[[building]]
+id = 5
+key = "road"
+size = 1
+image = { pack = "Pharaoh_Terrain", group = 33, offset = 0 }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 33, offset = 0 } }
+flags = ["no_road_access"]
+show_in_debug = false
+
+[[building]]
+id = 6
+key = "mud_wall"
+size = 1
+image = { pack = "Pharaoh_General", group = 138, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 138, offset = 27 } }
+flags = ["is_wall", "is_defense"]
+
+[[building]]
+id = 7
+key = "water_lift"
+size = 2
+labor = "infrastructure"
+image = { pack = "Pharaoh_General", group = 151, offset = 0 }
+needs = ["water_access", "shoreline", "floodplain_shoreline"]
+flags = ["draw_normal_anim"]
+text_id = 107
+help = "message_game_concept_irrigation"
+base_irrigation_value = 32
+canal_fill_water_level = 32
+fire_proof = 1
+info_sound = "Wavs/waterwheel.WAV"
+irrigation_radius = 2
+
+[[building]]
+id = 8
+key = "irrigation_ditch"
+size = 1
+image = { pack = "Pharaoh_Terrain", group = 33, offset = 0 }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 33, offset = 0 }, set_begin = { pack = "Pharaoh_Terrain", group = 9, offset = 0 } }
+flags = ["no_road_access"]
+canal_irrigation_value_multiplier = 2
+
+[[building]]
+id = 10
+key = "house_crude_hut"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 36, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 36, offset = 0 }, house = { pack = "Pharaoh_General", group = 26, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+text_id = -1
+help = "message_housing_and_desirability"
+variants = { 1 = { pack = "Pharaoh_General", group = 26, offset = 0 }, 2 = { pack = "Pharaoh_General", group = 26, offset = 1 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 26, offset = 4 } }
+can_devolve = false
+can_merge = true
+evolve_to = "house_sturdy_hut"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = true
+
+[[building]]
+id = 11
+key = "house_sturdy_hut"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 26, offset = 2 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 26, offset = 2 }, 2 = { pack = "Pharaoh_General", group = 26, offset = 3 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 26, offset = 5 } }
+can_merge = true
+devolve_to = "house_crude_hut"
+evolve_to = "house_meager_shanty"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = true
+
+[[building]]
+id = 12
+key = "house_meager_shanty"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 27, offset = 0 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 27, offset = 0 }, 2 = { pack = "Pharaoh_General", group = 27, offset = 1 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 27, offset = 4 } }
+can_merge = true
+devolve_to = "house_sturdy_hut"
+evolve_to = "house_common_shanty"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = true
+
+[[building]]
+id = 13
+key = "house_common_shanty"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 27, offset = 2 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 27, offset = 2 }, 2 = { pack = "Pharaoh_General", group = 27, offset = 3 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 27, offset = 5 } }
+can_merge = true
+devolve_to = "house_meager_shanty"
+evolve_to = "house_rough_cottage"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = true
+
+[[building]]
+id = 14
+key = "house_rough_cottage"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 28, offset = 0 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 28, offset = 0 }, 2 = { pack = "Pharaoh_General", group = 28, offset = 1 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 28, offset = 4 } }
+can_merge = true
+devolve_to = "house_common_shanty"
+evolve_to = "house_ordinary_cottage"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = true
+
+[[building]]
+id = 15
+key = "house_ordinary_cottage"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 28, offset = 2 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 28, offset = 2 }, 2 = { pack = "Pharaoh_General", group = 28, offset = 3 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 28, offset = 5 } }
+can_merge = true
+devolve_to = "house_rough_cottage"
+evolve_to = "house_modest_homestead"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = true
+
+[[building]]
+id = 16
+key = "house_modest_homestead"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 29, offset = 0 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 0 = { pack = "Pharaoh_General", group = 29, offset = 0 }, 1 = { pack = "Pharaoh_General", group = 29, offset = 1 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 29, offset = 4 } }
+can_merge = true
+devolve_to = "house_ordinary_cottage"
+evolve_to = "house_spacious_homestead"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = true
+
+[[building]]
+id = 17
+key = "house_spacious_homestead"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 29, offset = 2 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 29, offset = 2 }, 2 = { pack = "Pharaoh_General", group = 29, offset = 3 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 29, offset = 5 } }
+can_merge = true
+devolve_to = "house_modest_homestead"
+evolve_to = "house_modest_apartment"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = true
+
+[[building]]
+id = 18
+key = "house_modest_apartment"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 30, offset = 0 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 30, offset = 0 }, 2 = { pack = "Pharaoh_General", group = 30, offset = 1 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 30, offset = 4 } }
+can_merge = true
+devolve_to = "house_spacious_homestead"
+evolve_to = "house_spacious_apartment"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = false
+
+[[building]]
+id = 19
+key = "house_spacious_apartment"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 30, offset = 2 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 30, offset = 2 }, 2 = { pack = "Pharaoh_General", group = 30, offset = 3 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 30, offset = 5 } }
+can_merge = true
+devolve_to = "house_modest_apartment"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = true
+
+[[building]]
+id = 20
+key = "house_common_residence"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 31, offset = 0 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 31, offset = 0 }, 2 = { pack = "Pharaoh_General", group = 31, offset = 1 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 31, offset = 4 } }
+can_merge = true
+evolve_to = "house_spacious_residence"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = false
+
+[[building]]
+id = 21
+key = "house_spacious_residence"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 31, offset = 2 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 31, offset = 2 }, 2 = { pack = "Pharaoh_General", group = 31, offset = 3 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 31, offset = 5 } }
+can_merge = true
+devolve_to = "house_common_residence"
+evolve_to = "house_elegant_residence"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = false
+
+[[building]]
+id = 22
+key = "house_elegant_residence"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 32, offset = 0 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 32, offset = 0 }, 2 = { pack = "Pharaoh_General", group = 32, offset = 1 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 32, offset = 4 } }
+can_merge = true
+devolve_to = "house_spacious_residence"
+evolve_to = "house_fancy_residence"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = false
+
+[[building]]
+id = 23
+key = "house_fancy_residence"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 32, offset = 2 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 32, offset = 2 }, 2 = { pack = "Pharaoh_General", group = 32, offset = 3 } }
+variants_merged = { 1 = { pack = "Pharaoh_General", group = 32, offset = 5 } }
+can_merge = true
+devolve_to = "house_elegant_residence"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = false
+
+[[building]]
+id = 24
+key = "house_common_manor"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 33, offset = 0 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 33, offset = 0 } }
+can_merge = false
+evolve_to = "house_spacious_manor"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = false
+
+[[building]]
+id = 25
+key = "house_spacious_manor"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 33, offset = 1 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 33, offset = 1 } }
+can_merge = false
+devolve_to = "house_common_manor"
+evolve_to = "house_elegant_manor"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = false
+
+[[building]]
+id = 26
+key = "house_elegant_manor"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 34, offset = 0 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 34, offset = 0 } }
+can_merge = false
+devolve_to = "house_spacious_manor"
+evolve_to = "house_stately_manor"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = false
+
+[[building]]
+id = 27
+key = "house_stately_manor"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 34, offset = 1 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 34, offset = 1 } }
+can_merge = false
+devolve_to = "house_elegant_manor"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = false
+
+[[building]]
+id = 28
+key = "house_modest_estate"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 35, offset = 0 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 35, offset = 0 } }
+can_merge = false
+evolve_to = "house_palatial_estate"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = false
+
+[[building]]
+id = 29
+key = "house_palatial_estate"
+size = 1
+labor = "house"
+image = { pack = "Pharaoh_General", group = 35, offset = 1 }
+anims = { minimap = { pack = "Pharaoh_General", group = 148, offset = 0 } }
+flags = ["is_house"]
+variants = { 1 = { pack = "Pharaoh_General", group = 35, offset = 1 } }
+can_merge = false
+devolve_to = "house_modest_estate"
+info_sound = "Wavs/housing_r.wav"
+merge_before_evolve = false
+
+[[building]]
+id = 30
+key = "bandstand"
+size = 3
+labor = "entertainment"
+figure = ["juggler", "musician"]
+image = { pack = "Pharaoh_General", group = 114, offset = 0 }
+anims = { square = { pack = "Pharaoh_General", group = 58, offset = 0 }, stand_sn_s = { pack = "Pharaoh_General", group = 92, offset = 0 }, stand_sn_n = { pack = "Pharaoh_General", group = 92, offset = 1 }, stand_we_w = { pack = "Pharaoh_General", group = 92, offset = 2 }, stand_we_e = { pack = "Pharaoh_General", group = 92, offset = 3 }, juggler = { pack = "SprAmbient", group = 7, offset = 0, frames = 26, x = 35, y = 15, duration = 2 }, musician_sn = { pack = "SprAmbient", group = 10, offset = 0, frames = 11, x = -10, y = -36, duration = 3 }, musician_we = { pack = "SprAmbient", group = 9, offset = 0, frames = 11, x = 30, y = 10, duration = 3 } }
+flags = ["is_entertainment"]
+text_id = 71
+help = "message_building_bandstand"
+fire_proof = true
+info_sound = "Wavs/music_r.wav"
+min_houses_coverage = 100
+overlay = "bandstand"
+
+[[building]]
+id = 31
+key = "booth"
+size = 2
+labor = "entertainment"
+figure = "juggler"
+image = { pack = "Pharaoh_General", group = 114, offset = 0 }
+anims = { square = { pack = "Pharaoh_General", group = 112, offset = 0 }, juggler = { pack = "SprAmbient", group = 7, offset = -1, x = 35, y = 17 } }
+flags = ["is_entertainment", "keeps_visitor_paths"]
+text_id = 72
+help = "message_building_booth"
+info_sound = "Wavs/jugger_r.wav"
+min_houses_coverage = 100
+
+[[building]]
+id = 32
+key = "senet_house"
+size = 4
+labor = "entertainment"
+figure = ["drunkard", "senet_player"]
+image = { pack = "Pharaoh_General", group = 17, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 17, offset = 0 }, work = { pack = "Pharaoh_General", group = 17, offset = 1, frames = 18, x = 30, y = -35, duration = 5 } }
+flags = ["is_entertainment"]
+inputs = ["beer"]
+text_id = 73
+help = "message_building_senet_house"
+
+[[building]]
+id = 33
+key = "pavillion"
+size = 4
+figure = ["dancer", "juggler", "musician"]
+image = { pack = "Pharaoh_General", group = 48, offset = 0, x = 0, y = 0 }
+anims = { square = { pack = "Pharaoh_General", group = 50, offset = 0, x = 0, y = 0 }, stand_sn_s = { pack = "Pharaoh_General", group = 92, offset = 0 }, stand_sn_n = { pack = "Pharaoh_General", group = 92, offset = 1 }, stand_sn_e = { pack = "Pharaoh_General", group = 92, offset = 2 }, juggler = { pack = "SprAmbient", group = 7, offset = -1, x = 35, y = 17 }, dancer = { pack = "SprAmbient", group = 6, offset = 0, frames = 35, x = 65, y = 0 }, musician_sn = { pack = "SprAmbient", group = 9, offset = 0, frames = 11, x = 50, y = 0 }, musician_we = { pack = "SprAmbient", group = 10, offset = 0, frames = 11, x = 48, y = 4 }, booth = { pack = "Pharaoh_General", group = 114, offset = 0, x = 0, y = 0 } }
+flags = ["is_entertainment"]
+text_id = 74
+help = "message_building_pavilion"
+min_houses_coverage = 100
+
+[[building]]
+id = 34
+key = "conservatory"
+size = 3
+labor = "entertainment"
+figure = "musician"
+image = { pack = "Pharaoh_General", group = 51, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 51, offset = 0 }, work = { pack = "SprAmbient", group = 10, offset = 0, frames = 11, x = 52, y = -18, duration = 4 } }
+flags = ["draw_normal_anim"]
+text_id = 75
+help = "message_building_trading_centers"
+info_sound = "Wavs/music_school.wav"
+min_houses_coverage = 50
+overlay = "entertainment"
+spawn_interval = 10
+
+[[building]]
+id = 35
+key = "dance_school"
+size = 4
+figure = "dancer"
+image = { pack = "Pharaoh_General", group = 52, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 52, offset = 0 }, work = { pack = "SprAmbient", group = 6, offset = 0, frames = 35, x = 104, y = 0, duration = 2 } }
+flags = ["is_entertainment", "draw_normal_anim"]
+text_id = 76
+help = "message_building_trading_centers"
+info_sound = "Wavs/dance_school.wav"
+min_houses_coverage = 50
+overlay = "entertainment"
+
+[[building]]
+id = 36
+key = "juggler_school"
+size = 2
+figure = "juggler"
+image = { pack = "Pharaoh_General", group = 46, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 46, offset = 0 }, work = { pack = "Pharaoh_General", group = 46, offset = 1, frames = 14, x = 33, y = -38, duration = 3 } }
+flags = ["is_entertainment", "draw_normal_anim"]
+text_id = 77
+help = "message_building_trading_centers"
+info_sound = "Wavs/juggler_school.wav"
+min_houses_coverage = 50
+spawn_delay_100_percent = 7
+spawn_delay_25_percent = 60
+spawn_delay_50_percent = 30
+spawn_delay_75_percent = 15
+spawn_delay_default = 90
+
+[[building]]
+id = 37
+key = "bullfight_school"
+size = 2
+flags = ["is_entertainment"]
+text_id = 78
+help = "message_building_trading_centers"
+info_sound = "Wavs/bullfight_school.wav"
+
+[[building]]
+id = 38
+key = "plaza"
+size = 1
+image = { pack = "Pharaoh_General", group = 168, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 168, offset = 0 } }
+flags = ["is_beautification"]
+text_id = 137
+help = "message_building_garden_plaze_statue"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/FANFARE1.wav"
+
+[[building]]
+id = 39
+key = "gardens"
+size = 1
+image = { pack = "Pharaoh_General", group = 59, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 59, offset = 0 } }
+flags = ["is_beautification", "no_road_access"]
+text_id = 79
+help = "message_building_garden_plaze_statue"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/park1.wav"
+
+[[building]]
+id = 40
+key = "fort_charioteers"
+size = 3
+labor = "military"
+figure = "fcharioteer"
+image = { pack = "Pharaoh_General", group = 66, offset = 0 }
+anims = { ground = { pack = "Pharaoh_General", group = 66, offset = 1 }, picture = { pack = "Pharaoh_General", group = 66, offset = 3, x = 93, y = -21 } }
+flags = ["is_fort", "is_military"]
+text_id = 89
+help = "message_fort_and_company"
+damage_proof = 1
+fire_proof = 1
+info_sound = "Wavs/f_chariot.wav"
+
+[[building]]
+id = 41
+key = "small_statue"
+size = 1
+flags = ["is_statue", "is_beautification", "allow_rotate", "no_road_access"]
+text_id = 80
+help = "message_building_garden_plaze_statue"
+variants = [{ pack = "Pharaoh_General", group = 61, offset = 0 }, { pack = "Pharaoh_General", group = 61, offset = 4 }, { pack = "Expansion", group = 37, offset = 0 }, { pack = "Expansion", group = 37, offset = 4 }, { pack = "Temple_ra", group = 1, offset = 27 }]
+info_sound = "Wavs/statue1.wav"
+
+[[building]]
+id = 42
+key = "medium_statue"
+size = 2
+flags = ["is_statue", "is_beautification", "allow_rotate", "no_road_access"]
+text_id = 80
+help = "message_building_garden_plaze_statue"
+variants = [{ pack = "Pharaoh_General", group = 8, offset = 1 }, { pack = "Pharaoh_General", group = 8, offset = 5 }, { pack = "Expansion", group = 36, offset = 1 }, { pack = "Expansion", group = 36, offset = 5 }]
+info_sound = "Wavs/statue1.wav"
+
+[[building]]
+id = 43
+key = "large_statue"
+size = 3
+flags = ["is_statue", "is_beautification", "allow_rotate", "no_road_access"]
+text_id = 80
+help = "message_building_garden_plaze_statue"
+variants = [{ pack = "Pharaoh_General", group = 7, offset = 1 }, { pack = "Pharaoh_General", group = 7, offset = 5 }, { pack = "Expansion", group = 35, offset = 1 }, { pack = "Expansion", group = 35, offset = 5 }]
+info_sound = "Wavs/statue1.wav"
+
+[[building]]
+id = 44
+key = "fort_archers"
+size = 3
+labor = "military"
+figure = "archer"
+image = { pack = "Pharaoh_General", group = 66, offset = 0 }
+anims = { ground = { pack = "Pharaoh_General", group = 66, offset = 1 }, picture = { pack = "Pharaoh_General", group = 66, offset = 2, x = 93, y = -21 } }
+flags = ["is_fort", "is_military"]
+text_id = 89
+help = "message_fort_and_company"
+damage_proof = 1
+fire_proof = 1
+info_sound = "Wavs/F_ARCHER.WAV"
+
+[[building]]
+id = 45
+key = "fort_infantry"
+size = 3
+labor = "military"
+figure = "infantry"
+image = { pack = "Pharaoh_General", group = 66, offset = 0 }
+anims = { ground = { pack = "Pharaoh_General", group = 66, offset = 1 }, picture = { pack = "Pharaoh_General", group = 66, offset = 4, x = 93, y = -21 } }
+flags = ["is_fort", "is_military"]
+text_id = 89
+help = "message_fort_and_company"
+damage_proof = 1
+fire_proof = 1
+info_sound = "Wavs/f_infantry.wav"
+
+[[building]]
+id = 46
+key = "apothecary"
+size = 1
+labor = "water_health"
+figure = "herbalist"
+image = { pack = "Pharaoh_General", group = 68, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 68, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 68, offset = 1, frames = 11, x = 25, y = -35 } }
+flags = ["draw_normal_anim"]
+text_id = 81
+help = "message_building_apothecary"
+info_sound = "Wavs/apothecary.wav"
+max_serve_clients = 100
+min_houses_coverage = 50
+overlay = "apothecary"
+sound_channel = "city_apothecary"
+
+[[building]]
+id = 47
+key = "mortuary"
+size = 2
+labor = "water_health"
+figure = "embalmer"
+image = { pack = "Pharaoh_General", group = 175, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 175, offset = 0 }, work = { pack = "Pharaoh_General", group = 175, offset = 1, frames = 12, x = 35, y = -20, duration = 4 }, linen = { pack = "Pharaoh_General", group = 206, offset = 0, x = 45, y = 3 } }
+inputs = ["linen"]
+text_id = 82
+help = "message_building_mortuary"
+info_sound = "Wavs/mortuary.wav"
+linen_required_for_animation = 100
+linen_required_for_spawn = 20
+max_serve_clients = 1000
+min_houses_coverage = 50
+monthly_linen_consumption = 20
+
+[[building]]
+id = 49
+key = "dentist"
+size = 1
+labor = "water_health"
+figure = "dentist"
+image = { pack = "Pharaoh_General", group = 67, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 67, offset = 0 }, work = { pack = "Pharaoh_General", group = 67, offset = 1, frames = 12 } }
+flags = ["draw_normal_anim"]
+text_id = 84
+help = "message_building_dentist"
+info_sound = "Wavs/dentist.wav"
+max_serve_clients = 1000
+min_houses_coverage = 50
+overlay = "dentist"
+
+[[building]]
+id = 51
+key = "scribal_school"
+size = 2
+labor = "education"
+figure = "teacher"
+image = { pack = "Pharaoh_General", group = 42, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 42, offset = 0 }, work = { pack = "Pharaoh_General", group = 42, offset = 1, frames = 11, x = 2, y = -25, duration = 4 }, papyrus = { pack = "Pharaoh_General", group = 207, offset = 0, x = 61, y = 14 } }
+inputs = ["papyrus"]
+text_id = 85
+help = "message_building_scribal_school"
+info_sound = "Wavs/school_scribe.wav"
+max_service = 75
+min_houses_coverage = 50
+
+[[building]]
+id = 53
+key = "library"
+size = 3
+labor = "education"
+figure = "librarian"
+image = { pack = "Pharaoh_General", group = 43, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 43, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 43, offset = 1, frames = 12, x = 48, y = -20, duration = 8 } }
+flags = ["draw_normal_anim"]
+text_id = 87
+help = "message_building_library"
+max_service = 800
+min_houses_coverage = 50
+
+[[building]]
+id = 54
+key = "fort_ground"
+size = 4
+labor = "military"
+flags = ["is_fort", "is_military"]
+damage_proof = 1
+fire_proof = 1
+
+[[building]]
+id = 55
+key = "police_station"
+size = 1
+labor = "infrastructure"
+figure = "constable"
+image = { pack = "Pharaoh_General", group = 64, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 64, offset = 0 }, work = { pack = "Pharaoh_General", group = 64, offset = 1, frames = 12, x = 20, y = -40 }, resources = { pack = "Pharaoh_General", group = 99, offset = 2 } }
+flags = ["is_infrastructure"]
+text_id = 88
+help = "message_building_police_station"
+min_houses_coverage = 50
+weapon_spot_pos = [20, -20]
+
+[[building]]
+id = 58
+key = "mud_gatehouse"
+size = 1
+image = { pack = "Pharaoh_General", group = 218, offset = 0 }
+anims = { base_n = { pack = "Pharaoh_General", group = 218, offset = 0 }, base_second_n = { pack = "Pharaoh_General", group = 219, offset = 0 }, base_cover_n = { pack = "Pharaoh_General", group = 220, offset = 0 }, base_w = { pack = "Pharaoh_General", group = 218, offset = 1 }, base_second_w = { pack = "Pharaoh_General", group = 219, offset = 1 }, base_cover_w = { pack = "Pharaoh_General", group = 220, offset = 1 } }
+flags = ["is_defense", "is_wall"]
+text_id = 90
+help = "message_building_defensive_structures"
+
+[[building]]
+id = 59
+key = "mud_tower"
+size = 2
+labor = "military"
+figure = "ballista"
+image = { pack = "Pharaoh_General", group = 135, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 135, offset = 0 } }
+flags = ["is_wall", "is_defense"]
+text_id = 159
+help = "message_building_defensive_structures"
+fire_proof = true
+min_houses_coverage = 50
+
+[[building]]
+id = 60
+key = "temple_osiris"
+size = 3
+labor = "religion"
+figure = "priest"
+image = { pack = "Pharaoh_General", group = 25, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 25, offset = 0 }, work = { pack = "Pharaoh_General", group = 25, offset = 1, frames = 8, x = 80, y = -125 } }
+flags = ["is_temple", "is_religion", "keeps_visitor_paths"]
+text_id = 92
+help = "message_building_shrine_and_temple"
+info_sound = "Wavs/tem_osiris_l.wav"
+min_houses_coverage = 50
+
+[[building]]
+id = 61
+key = "temple_ra"
+size = 3
+labor = "religion"
+figure = "priest"
+image = { pack = "Pharaoh_General", group = 21, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 21, offset = 0 }, work = { pack = "Pharaoh_General", group = 21, offset = 1, frames = 11, x = 80, y = -123 } }
+flags = ["is_temple", "is_religion", "keeps_visitor_paths"]
+text_id = 93
+help = "message_building_shrine_and_temple"
+info_sound = "Wavs/tem_RA_L.wav"
+min_houses_coverage = 50
+
+[[building]]
+id = 62
+key = "temple_ptah"
+size = 3
+labor = "religion"
+figure = "priest"
+image = { pack = "Pharaoh_General", group = 20, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 20, offset = 0 }, work = { pack = "Pharaoh_General", group = 20, offset = 1, frames = 11, x = 70, y = -103 } }
+flags = ["is_temple", "is_religion", "keeps_visitor_paths"]
+text_id = 94
+help = "message_building_shrine_and_temple"
+info_sound = "Wavs/tem_ptah_l.wav"
+min_houses_coverage = 50
+
+[[building]]
+id = 63
+key = "temple_seth"
+size = 3
+labor = "religion"
+figure = "priest"
+image = { pack = "Pharaoh_General", group = 19, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 19, offset = 0 }, work = { pack = "Pharaoh_General", group = 19, offset = 1, frames = 11, x = 70, y = -133 } }
+flags = ["is_temple", "is_religion", "keeps_visitor_paths"]
+text_id = 95
+help = "message_building_shrine_and_temple"
+info_sound = "Wavs/tem_seth_l.wav"
+min_houses_coverage = 50
+
+[[building]]
+id = 64
+key = "temple_bast"
+size = 3
+labor = "religion"
+figure = "priest"
+image = { pack = "Pharaoh_General", group = 76, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 76, offset = 0 }, work = { pack = "Pharaoh_General", group = 76, offset = 1, frames = 11, x = 85, y = -115 } }
+flags = ["is_temple", "is_religion", "keeps_visitor_paths"]
+text_id = 96
+help = "message_building_shrine_and_temple"
+info_sound = "Wavs/tem_bast_l.wav"
+min_houses_coverage = 50
+
+[[building]]
+id = 65
+key = "temple_complex_osiris"
+size = 3
+labor = "religion"
+figure = "priest"
+image = { pack = "Pharaoh_General", group = 42, offset = 0 }
+anims = { main_n = { pack = "Temple_nile", group = 1, offset = 3 }, main_w = { pack = "Temple_nile", group = 3, offset = 0 }, main_e = { pack = "Temple_nile", group = 1, offset = 0 }, main_s = { pack = "Temple_nile", group = 3, offset = 3 }, oracle_n = { pack = "Temple_nile", group = 2, offset = 0 }, oracle_w = { pack = "Temple_nile", group = 2, offset = 3 }, altar_n = { pack = "Temple_nile", group = 3, offset = 0 }, altar_w = { pack = "Temple_nile", group = 3, offset = 3 }, tiles_0 = { pack = "Temple_nile", group = 4, offset = 0 }, tiles_1 = { pack = "Temple_nile", group = 4, offset = 1 }, tiles_2 = { pack = "Temple_nile", group = 4, offset = 2 }, tiles_3 = { pack = "Temple_nile", group = 4, offset = 3 }, statue_1 = { pack = "Temple_nile", group = 5, offset = 0 }, statue_2n = { pack = "Temple_nile", group = 6, offset = 0 }, statue_2e = { pack = "Temple_nile", group = 6, offset = 2 }, statue_2s = { pack = "Temple_nile", group = 6, offset = 4 }, statue_2w = { pack = "Temple_nile", group = 6, offset = 6 } }
+flags = ["is_temple_complex", "is_religion", "keeps_visitor_paths"]
+allowed_altar = ["temple_complex_altar_amon"]
+allowed_oracle = ["temple_complex_oracle_thoth"]
+damage_proof = true
+fire_proof = true
+min_houses_coverage = 100
+
+[[building]]
+id = 66
+key = "temple_complex_ra"
+size = 3
+labor = "religion"
+figure = "priest"
+image = { pack = "Pharaoh_General", group = 42, offset = 0 }
+anims = { main_n = { pack = "Temple_ra", group = 1, offset = 3 }, main_w = { pack = "Temple_ra", group = 3, offset = 0 }, main_e = { pack = "Temple_ra", group = 1, offset = 0 }, main_s = { pack = "Temple_ra", group = 3, offset = 3 }, oracle_n = { pack = "Temple_ra", group = 2, offset = 0 }, oracle_w = { pack = "Temple_ra", group = 2, offset = 3 }, altar_n = { pack = "Temple_ra", group = 3, offset = 0 }, altar_w = { pack = "Temple_ra", group = 3, offset = 3 }, tiles_0 = { pack = "Temple_ra", group = 4, offset = 0 }, tiles_1 = { pack = "Temple_ra", group = 4, offset = 1 }, tiles_2 = { pack = "Temple_ra", group = 4, offset = 2 }, tiles_3 = { pack = "Temple_ra", group = 4, offset = 3 }, statue_1 = { pack = "Temple_ra", group = 5, offset = 0 }, statue_2n = { pack = "Temple_ra", group = 6, offset = 0 }, statue_2e = { pack = "Temple_ra", group = 6, offset = 2 }, statue_2s = { pack = "Temple_ra", group = 6, offset = 4 }, statue_2w = { pack = "Temple_ra", group = 6, offset = 6 } }
+flags = ["is_temple_complex", "is_religion", "keeps_visitor_paths"]
+allowed_altar = ["temple_complex_altar_sebek"]
+allowed_oracle = ["temple_complex_oracle_min"]
+damage_proof = true
+fire_proof = true
+min_houses_coverage = 100
+
+[[building]]
+id = 67
+key = "temple_complex_ptah"
+size = 3
+labor = "religion"
+figure = "priest"
+image = { pack = "Pharaoh_General", group = 42, offset = 0 }
+anims = { main_n = { pack = "Temple_ptah", group = 1, offset = 3 }, main_w = { pack = "Temple_ptah", group = 3, offset = 0 }, main_e = { pack = "Temple_ptah", group = 1, offset = 0 }, main_s = { pack = "Temple_ptah", group = 3, offset = 3 }, oracle_n = { pack = "Temple_ptah", group = 2, offset = 0 }, oracle_w = { pack = "Temple_ptah", group = 2, offset = 3 }, altar_n = { pack = "Temple_ptah", group = 3, offset = 0 }, altar_w = { pack = "Temple_ptah", group = 3, offset = 3 }, tiles_0 = { pack = "Temple_ptah", group = 4, offset = 0 }, tiles_1 = { pack = "Temple_ptah", group = 4, offset = 1 }, tiles_2 = { pack = "Temple_ptah", group = 4, offset = 2 }, tiles_3 = { pack = "Temple_ptah", group = 4, offset = 3 }, statue_1 = { pack = "Temple_ptah", group = 5, offset = 0 }, statue_2n = { pack = "Temple_ptah", group = 6, offset = 0 }, statue_2e = { pack = "Temple_ptah", group = 6, offset = 2 }, statue_2s = { pack = "Temple_ptah", group = 6, offset = 4 }, statue_2w = { pack = "Temple_ptah", group = 6, offset = 6 } }
+flags = ["is_temple_complex", "is_religion", "keeps_visitor_paths"]
+allowed_altar = ["temple_complex_altar_maat"]
+allowed_oracle = ["temple_complex_oracle_horus"]
+damage_proof = true
+fire_proof = true
+min_houses_coverage = 100
+
+[[building]]
+id = 68
+key = "temple_complex_seth"
+size = 3
+labor = "religion"
+figure = "priest"
+image = { pack = "Pharaoh_General", group = 42, offset = 0 }
+anims = { main_n = { pack = "Temple_seth", group = 1, offset = 3 }, main_w = { pack = "Temple_seth", group = 3, offset = 0 }, main_e = { pack = "Temple_seth", group = 1, offset = 0 }, main_s = { pack = "Temple_seth", group = 3, offset = 3 }, oracle_n = { pack = "Temple_seth", group = 2, offset = 0 }, oracle_w = { pack = "Temple_seth", group = 2, offset = 3 }, altar_n = { pack = "Temple_seth", group = 3, offset = 0 }, altar_w = { pack = "Temple_seth", group = 3, offset = 3 }, tiles_0 = { pack = "Temple_seth", group = 4, offset = 0 }, tiles_1 = { pack = "Temple_seth", group = 4, offset = 1 }, tiles_2 = { pack = "Temple_seth", group = 4, offset = 2 }, tiles_3 = { pack = "Temple_seth", group = 4, offset = 3 }, statue_1 = { pack = "Temple_seth", group = 5, offset = 0 }, statue_2n = { pack = "Temple_seth", group = 6, offset = 0 }, statue_2e = { pack = "Temple_seth", group = 6, offset = 2 }, statue_2s = { pack = "Temple_seth", group = 6, offset = 4 }, statue_2w = { pack = "Temple_seth", group = 6, offset = 6 } }
+flags = ["is_temple_complex", "is_religion", "keeps_visitor_paths"]
+allowed_altar = ["temple_complex_altar_anubis"]
+allowed_oracle = ["temple_complex_oracle_sekhmet"]
+damage_proof = true
+fire_proof = true
+min_houses_coverage = 100
+
+[[building]]
+id = 69
+key = "temple_complex_bast"
+size = 3
+labor = "religion"
+figure = "priest"
+image = { pack = "Pharaoh_General", group = 42, offset = 0 }
+anims = { main_n = { pack = "Temple_bast", group = 1, offset = 3 }, main_w = { pack = "Temple_bast", group = 1, offset = 0 }, main_e = { pack = "Temple_bast", group = 3, offset = 0 }, main_s = { pack = "Temple_bast", group = 3, offset = 0 }, oracle_n = { pack = "Temple_bast", group = 2, offset = 0 }, oracle_w = { pack = "Temple_bast", group = 2, offset = 3 }, altar_n = { pack = "Temple_bast", group = 3, offset = 0 }, altar_w = { pack = "Temple_bast", group = 3, offset = 3 }, tiles_0 = { pack = "Temple_bast", group = 4, offset = 0 }, tiles_1 = { pack = "Temple_bast", group = 4, offset = 1 }, tiles_2 = { pack = "Temple_bast", group = 4, offset = 2 }, tiles_3 = { pack = "Temple_bast", group = 4, offset = 3 }, statue_1 = { pack = "Temple_bast", group = 5, offset = 0 }, statue_2n = { pack = "Temple_bast", group = 6, offset = 0 }, statue_2e = { pack = "Temple_bast", group = 6, offset = 2 }, statue_2s = { pack = "Temple_bast", group = 6, offset = 4 }, statue_2w = { pack = "Temple_bast", group = 6, offset = 6 } }
+flags = ["is_temple_complex", "is_religion", "keeps_visitor_paths"]
+allowed_altar = ["temple_complex_altar_isis"]
+allowed_oracle = ["temple_complex_oracle_hathor"]
+damage_proof = true
+fire_proof = true
+min_houses_coverage = 100
+
+[[building]]
+id = 70
+key = "bazaar"
+size = 2
+figure = ["market_buyer", "market_trader"]
+image = { pack = "Pharaoh_General", group = 22, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 22, offset = 0 }, base_work = { pack = "Pharaoh_General", group = 22, offset = 0 }, fancy = { pack = "Pharaoh_General", group = 45, offset = 0 }, fancy_work = { pack = "Pharaoh_General", group = 45, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 } }
+flags = ["is_food", "keeps_visitor_paths"]
+text_id = 97
+help = "message_bazaar_history"
+fancy_treshold_desirability = 30
+food_variety_target = 2
+info_sound = "Wavs/MARKET.WAV"
+max_buyers = 2
+max_search_distance = 40
+min_houses_coverage = 50
+minimal_pick_food_amount = 100
+overlay = "bazaar_access"
+pick_food_below = [600, 400, 200, 100]
+pick_good_below = [150, 100, 50, 25]
+
+[[building]]
+id = 71
+key = "granary"
+size = 4
+labor = "infrastructure"
+figure = "storageyard_cart"
+image = { pack = "Pharaoh_General", group = 99, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 99, offset = 0 }, work = { pack = "SprAmbient", group = 47, offset = 0, frames = 23 }, resources = { pack = "Pharaoh_General", group = 99, offset = 2 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 } }
+flags = ["is_food", "keeps_visitor_paths", "perimeter_access"]
+text_id = 98
+help = "message_building_granary"
+allow_food_types = 4
+begin_spot_pos = [110, -74]
+info_sound = "Wavs/GRANARY1.wav"
+max_capacty_stored = 3200
+min_houses_coverage = 100
+min_workers_percent_for_accepting = 75
+min_workers_percent_for_getting = 100
+min_workers_percent_for_tasks = 50
+overlay = "food_stocks"
+sound_channel = "city_granary"
+
+[[building]]
+id = 72
+key = "storage_yard"
+size = 3
+labor = "industry_commerce"
+figure = "storageyard_cart"
+image = { pack = "Pharaoh_General", group = 82, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 82, offset = 0, x = 0, y = 0 }, cover = { pack = "Pharaoh_General", group = 82, offset = 17, x = -5, y = -42 }, work = { pack = "SprAmbient", group = 51, offset = 1, frames = 14, x = 10, y = -10, duration = 3 } }
+flags = ["is_industry"]
+text_id = 99
+help = "message_building_storage_yard"
+info_sound = "Wavs/warehouse1.wav"
+marble_monument_min_haul = 400
+min_houses_coverage = 100
+monument_sled_max_load = 400
+preview_cover_offset = [-5, -45]
+
+[[building]]
+id = 73
+key = "storage_room"
+size = 3
+flags = ["is_industry"]
+fire_proof = true
+
+[[building]]
+id = 74
+key = "shipwright"
+size = 3
+labor = "industry_commerce"
+image = { pack = "Pharaoh_Terrain", group = 26, offset = 0, frames = 1 }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 26, offset = 0, frames = 1 }, wood = { pack = "Pharaoh_General", group = 202, offset = 0, x = 55, y = 20 }, work_warship = { pack = "SprAmbient", group = 52, offset = 0, frames = 12, x = 70, y = 20, duration = 4 }, work_fishing_boat = { pack = "SprAmbient", group = 54, offset = 0, frames = 11, x = 70, y = 20, duration = 4 }, work_transport = { pack = "SprAmbient", group = 54, offset = 0, frames = 11, x = 70, y = 20, duration = 4 } }
+needs = ["water_access", "shoreline"]
+flags = ["is_industry"]
+inputs = ["timber"]
+text_id = 100
+help = "message_building_whipwright"
+fishingboat_progress_cost = 100
+info_sound = "Wavs/shipyrd.wav"
+min_houses_coverage = 50
+transport_progress_cost = 400
+warship_progress_cost = 400
+
+[[building]]
+id = 75
+key = "dock"
+size = 3
+labor = "industry_commerce"
+figure = "docker"
+image = { pack = "Pharaoh_Terrain", group = 49, offset = 0 }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 49, offset = 0 }, work_n = { pack = "SprAmbient", group = 55, offset = 3, frames = 25, x = 135, y = -7, duration = 8 }, work_w = { pack = "SprAmbient", group = 55, offset = 1, frames = 25, x = 100, y = -7, duration = 8 }, work_s = { pack = "SprAmbient", group = 55, offset = 0, frames = 25, x = 55, y = 7, duration = 4 }, work_e = { pack = "SprAmbient", group = 55, offset = 2, frames = 25, x = 55, y = -27, duration = 4 } }
+needs = ["water_access", "shoreline"]
+flags = ["is_industry"]
+text_id = 101
+help = "message_building_dock"
+info_sound = "Wavs/DOCK1.WAV"
+min_houses_coverage = 50
+sound_channel = "city_dock"
+
+[[building]]
+id = 76
+key = "fishing_wharf"
+size = 2
+labor = "food_production"
+figure = "fishing_boat"
+image = { pack = "Pharaoh_Terrain", group = 18, offset = 0 }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 18, offset = 0 }, work_n = { pack = "SprAmbient", group = 46, offset = 0, frames = 24, x = 65, y = 0, duration = 1 }, work_w = { pack = "SprAmbient", group = 46, offset = 0, frames = 24, x = 80, y = 7, duration = 3 }, work_s = { pack = "SprAmbient", group = 46, offset = 2, frames = 24, x = 55, y = -27, duration = 4 }, work_e = { pack = "SprAmbient", group = 46, offset = 3, frames = 24, x = 55, y = -27, duration = 4 }, wait_n = { pack = "SprAmbient", group = 55, offset = 3, frames = 25, x = 85, y = 20, duration = 8 }, wait_w = { pack = "SprAmbient", group = 55, offset = 0, frames = 25, x = 85, y = 7, duration = 3 }, wait_s = { pack = "SprAmbient", group = 55, offset = 2, frames = 25, x = 50, y = 17, duration = 4 }, wait_e = { pack = "SprAmbient", group = 55, offset = 3, frames = 25, x = 55, y = -27, duration = 4 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 } }
+needs = ["water_access", "shoreline"]
+flags = ["is_food"]
+outputs = ["fish"]
+text_id = 102
+help = "message_building_fishing_wharf"
+info_sound = "Wavs/shipyrd_r.wav"
+max_storage = 400
+min_houses_coverage = 100
+wait_time_base = 102
+wait_time_multiplier = 5
+
+[[building]]
+id = 77
+key = "personal_mansion"
+size = 3
+labor = "government"
+figure = "governor"
+image = { pack = "Pharaoh_General", group = 85, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 85, offset = 0 }, work = { pack = "Pharaoh_General", group = 85, offset = 1, frames = 12, x = 30, y = -70, duration = 3 } }
+flags = ["is_administration"]
+text_id = 103
+help = "message_building_mansion"
+info_sound = "Wavs/GOV_MAN1.WAV"
+min_houses_coverage = 50
+
+[[building]]
+id = 78
+key = "family_mansion"
+size = 4
+labor = "government"
+figure = "governor"
+image = { pack = "Pharaoh_General", group = 86, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 86, offset = 0 }, work = { pack = "Pharaoh_General", group = 86, offset = 1, frames = 12, x = -1, y = -1 } }
+flags = ["is_administration"]
+text_id = 103
+help = "message_building_mansion"
+info_sound = "Wavs/GOV_MAN2.WAV"
+min_houses_coverage = 50
+
+[[building]]
+id = 79
+key = "dynasty_mansion"
+size = 4
+labor = "government"
+figure = "governor"
+image = { pack = "Pharaoh_General", group = 87, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 87, offset = 0 }, work = { pack = "Pharaoh_General", group = 87, offset = 1, frames = 12, x = -1, y = -1 } }
+flags = ["is_administration"]
+info_sound = "Wavs/GOV_MAN3.WAV"
+min_houses_coverage = 50
+
+[[building]]
+id = 81
+key = "architect_post"
+size = 1
+labor = "infrastructure"
+figure = "architect"
+image = { pack = "Pharaoh_General", group = 81, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 81, offset = 0 }, work = { pack = "Pharaoh_General", group = 81, offset = 1, frames = 11, x = 20, y = -35 } }
+flags = ["is_infrastructure", "keeps_visitor_paths", "draw_normal_anim"]
+text_id = 104
+help = "message_building_architect_post"
+info_sound = "Wavs/eng.wav"
+min_houses_coverage = 50
+overlay = "damage"
+sound_channel = "city_engineers_post"
+
+[[building]]
+id = 82
+key = "low_bridge"
+size = 1
+image = { pack = "Pharaoh_Terrain", group = 63, offset = 0 }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 63, offset = 0 } }
+flags = ["is_water_crossing", "is_infrastructure"]
+text_id = 70
+help = "message_game_concept_water_crossings"
+damage_proof = true
+fire_proof = true
+max_length = 8
+min_length = 2
+
+[[building]]
+id = 84
+key = "village_palace"
+size = 4
+labor = "government"
+image = { pack = "Pharaoh_General", group = 47, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 47, offset = 0 }, work = { pack = "Pharaoh_General", group = 47, offset = 1, frames = 5, x = 24, y = -20, duration = 5 } }
+needs = ["groundwater"]
+flags = ["is_palace", "is_administration", "keeps_visitor_paths"]
+text_id = 105
+help = "message_building_palace"
+info_sound = "Wavs/palace.wav"
+
+[[building]]
+id = 85
+key = "town_palace"
+size = 5
+labor = "government"
+image = { pack = "Pharaoh_General", group = 39, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 39, offset = 0 }, work = { pack = "Pharaoh_General", group = 39, offset = 1, frames = 12, x = -1, y = -1 } }
+needs = ["groundwater"]
+flags = ["is_palace", "is_administration", "keeps_visitor_paths"]
+text_id = 105
+help = "message_building_palace"
+info_sound = "Wavs/palace.wav"
+
+[[building]]
+id = 86
+key = "tax_collector"
+size = 2
+labor = "government"
+figure = "tax_collector"
+image = { pack = "Pharaoh_General", group = 63, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 63, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 63, offset = 1, frames = 11, x = 60, y = -45 } }
+flags = ["is_tax_collector", "is_administration"]
+text_id = 106
+help = "message_building_tax_collector"
+info_sound = "Wavs/taxfarm.wav"
+min_houses_coverage = 50
+
+[[building]]
+id = 87
+key = "tax_collector_upgraded"
+size = 2
+labor = "government"
+figure = "tax_collector"
+image = { pack = "Pharaoh_General", group = 64, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 64, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 64, offset = 1, frames = 11, x = 10, y = 10 } }
+flags = ["is_tax_collector", "is_administration"]
+text_id = 120
+help = "message_building_tax_collector"
+info_sound = "Wavs/taxfarm.wav"
+
+[[building]]
+id = 92
+key = "well"
+size = 1
+labor = "water_health"
+image = { pack = "Pharaoh_General", group = 23, offset = 0, frames = 1 }
+anims = { preview = { pack = "Pharaoh_General", group = 23, offset = 0, frames = 1 }, base_work = { pack = "Pharaoh_General", group = 23, offset = 0, frames = 1 }, fancy = { pack = "Pharaoh_General", group = 23, offset = 2, frames = 1 }, fancy_work = { pack = "Pharaoh_General", group = 23, offset = 3, frames = 1 }, minimap = { pack = "Pharaoh_General", group = 151, offset = 0 } }
+needs = ["groundwater"]
+flags = ["no_road_access", "draw_normal_anim"]
+text_id = 109
+help = "message_building_well"
+desirability_fancy = 30
+desirability_range_check = 4
+fire_proof = true
+info_sound = "Wavs/WELL.WAV"
+unnecessary_range_check = 3
+
+[[building]]
+id = 94
+key = "military_academy"
+size = 4
+figure = "magistrate"
+image = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 173, offset = 1, frames = 12, x = 33, y = -38 } }
+flags = ["is_military"]
+text_id = 135
+help = "message_building_recruiter_academy"
+min_houses_coverage = 50
+
+[[building]]
+id = 95
+key = "recruiter"
+size = 3
+labor = "military"
+figure = "tower_sentry"
+image = { pack = "Pharaoh_General", group = 166, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 166, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 166, offset = 1, frames = 11, x = 10, y = 10 } }
+flags = ["is_military"]
+text_id = 136
+help = "message_building_recruiter_academy"
+info_sound = "Wavs/barracks.WAV"
+min_houses_coverage = 100
+
+[[building]]
+id = 99
+key = "burning_ruin"
+size = 1
+image = { pack = "Pharaoh_Terrain", group = 36, offset = 0 }
+anims = { fire0 = { pack = "Pharaoh_Terrain", group = 36, offset = 1, frames = 8, duration = 2 }, base1 = { pack = "Pharaoh_Terrain", group = 36, offset = 9 }, fire1 = { pack = "Pharaoh_Terrain", group = 36, offset = 10, frames = 8, duration = 2 }, base2 = { pack = "Pharaoh_Terrain", group = 36, offset = 18 }, fire2 = { pack = "Pharaoh_Terrain", group = 36, offset = 19, frames = 8, duration = 2 }, base3 = { pack = "Pharaoh_Terrain", group = 36, offset = 27 }, fire3 = { pack = "Pharaoh_Terrain", group = 36, offset = 28, frames = 8, duration = 2 } }
+flags = ["draw_normal_anim"]
+damage_proof = true
+fire_animations = 4
+fire_proof = true
+
+[[building]]
+id = 100
+key = "barley_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 37, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 37, offset = 1, frames = 12 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 37, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 0 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry", "is_food"]
+outputs = ["barley"]
+text_id = 181
+help = "message_building_barley_flax_henna_farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/barleyfarm.wav"
+month_harvest = ["february", "august"]
+progress_max = 2000
+sound_channel = "city_grain_farm"
+
+[[building]]
+id = 101
+key = "flax_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 37, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 37, offset = 1, frames = 12 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 37, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 36 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry"]
+outputs = ["flax"]
+text_id = 115
+help = "message_building_barley_flax_henna_farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/flaxfarm.wav"
+month_harvest = ["december"]
+progress_max = 2000
+sound_channel = "city_grain_farm"
+
+[[building]]
+id = 102
+key = "grain_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 37, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 37, offset = 0, frames = 1 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 37, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 12 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry", "is_food"]
+outputs = ["grain", "straw"]
+text_id = 112
+help = "message_building_grain_farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/farm1.wav"
+month_harvest = ["january", "may"]
+output_resource_second_rate = 10
+progress_max = 2000
+sound_channel = "city_grain_farm"
+
+[[building]]
+id = 103
+key = "lettuce_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 37, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 37, offset = 1, frames = 12 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 37, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 18 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry", "is_food"]
+outputs = ["lettuce"]
+text_id = 113
+help = "message_building_fruit_vegetables_farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/lettucefarm.wav"
+month_harvest = ["april"]
+progress_max = 2000
+sound_channel = "city_fig_farm"
+
+[[building]]
+id = 104
+key = "pomegranates_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 37, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 37, offset = 1, frames = 12 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 37, offset = 20 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 24 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry", "is_food"]
+outputs = ["pomegranates"]
+text_id = 114
+help = "message_building_fruit_vegetables_farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/pomfarm.wav"
+month_harvest = ["june", "november"]
+progress_max = 2000
+sound_channel = "city_fig_farm"
+
+[[building]]
+id = 105
+key = "chickpeas_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 37, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 37, offset = 1, frames = 12 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 37, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 30 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry", "is_food"]
+outputs = ["chickpeas"]
+text_id = 182
+help = "message_building_fruit_vegetables_farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/chickfarm.wav"
+month_harvest = ["april"]
+progress_max = 2000
+sound_channel = "city_chickfarm"
+
+[[building]]
+id = 106
+key = "stone_quarry"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 187, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 187, offset = 0 }, work = { pack = "SprAmbient", group = 49, offset = 0, frames = 6, x = 84, y = 15, duration = 3 }, work_2 = { pack = "SprAmbient", group = 49, offset = 7, frames = 6, x = 44, y = 20, duration = 3 } }
+needs = ["rock"]
+flags = ["is_extractor", "is_industry"]
+outputs = ["stone"]
+text_id = 118
+help = "message_building_stone_quarries"
+production_rate = 100
+progress_max = 200
+
+[[building]]
+id = 107
+key = "limestone_quarry"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 170, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 170, offset = 0 }, work = { pack = "SprAmbient", group = 49, offset = 0, frames = 16, x = 54, y = 15, duration = 2 } }
+needs = ["rock"]
+flags = ["is_extractor", "is_industry", "draw_normal_anim"]
+outputs = ["limestone"]
+text_id = 162
+help = "message_building_stone_quarries"
+production_rate = 100
+progress_max = 200
+
+[[building]]
+id = 108
+key = "wood_cutters"
+size = 2
+labor = "industry_commerce"
+figure = "lumberjack"
+image = { pack = "Pharaoh_General", group = 65, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 65, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 65, offset = 1, frames = 12, x = 30, y = -17, duration = 4 } }
+flags = ["is_harvester", "is_industry"]
+outputs = ["timber"]
+text_id = 120
+help = "message_building_woodcutter_and_reed_gatherer"
+info_sound = "Wavs/lumber.wav"
+max_gatherers = 1
+min_houses_coverage = 100
+
+[[building]]
+id = 109
+key = "clay_pit"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 40, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 40, offset = 0 }, work = { pack = "Pharaoh_General", group = 40, offset = 1, frames = 23, x = 18, y = -20, duration = 2 }, flooded = { pack = "Pharaoh_General", group = 40, offset = 0 } }
+needs = ["nearby_water"]
+flags = ["is_extractor", "is_industry"]
+outputs = ["clay"]
+text_id = 121
+help = "message_building_clay_pit"
+info_sound = "Wavs/clay.wav"
+production_rate = 100
+progress_max = 200
+sound_channel = "city_clay_pit"
+
+[[building]]
+id = 110
+key = "brewery_workshop"
+size = 2
+image = { pack = "Pharaoh_General", group = 116, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 116, offset = 0 }, work = { pack = "Pharaoh_General", group = 116, offset = 0, frames = 12 }, barley = { pack = "Pharaoh_General", group = 208, offset = 0, frames = 12, x = 28, y = -35 } }
+flags = ["is_workshop", "is_industry"]
+inputs = ["barley"]
+outputs = ["beer"]
+text_id = 122
+help = "message_building_brewery"
+info_advisors = ["labor"]
+info_sound = "Wavs/brewery.wav"
+overlay = "brewery"
+production_rate = 50
+production_rate_dcy = [100, 80, 70, 60, 50]
+progress_max = 400
+water_amount_for_production = 50
+
+[[building]]
+id = 111
+key = "weaver_workshop"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 122, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 122, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 122, offset = 1, frames = 12, x = 19, y = -39, duration = 4 }, flax = { pack = "Pharaoh_General", group = 206, offset = 0, x = 45, y = 3 } }
+flags = ["is_workshop", "is_industry"]
+inputs = ["flax"]
+outputs = ["linen"]
+text_id = 123
+help = "message_building_weaver"
+info_advisors = ["labor"]
+info_sound = "Wavs/flaxfarm.wav"
+
+[[building]]
+id = 112
+key = "weaponsmith"
+size = 2
+labor = "military"
+image = { pack = "Pharaoh_General", group = 123, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 123, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 123, offset = 1, frames = 20, x = 57, y = -16, duration = 5 }, copper = { pack = "Pharaoh_General", group = 203, offset = 0, x = 93, y = 0 } }
+flags = ["is_workshop", "is_industry"]
+inputs = ["copper"]
+outputs = ["weapons"]
+text_id = 124
+help = "message_building_weapongsmith_and_chariot_maker"
+info_advisors = ["labor", "military"]
+info_sound = "Wavs/weapon.wav"
+
+[[building]]
+id = 113
+key = "jewels_workshop"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 119, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 119, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 119, offset = 1, frames = 9, x = 7, y = -10 } }
+flags = ["is_workshop", "is_industry"]
+inputs = ["gems"]
+outputs = ["luxury_goods"]
+text_id = 125
+help = "message_building_jeweler_and_luxury_goods"
+info_advisors = ["labor"]
+info_sound = "Wavs/gem_r.wav"
+material_reduction_per_nearby_workshop = 5
+
+[[building]]
+id = 114
+key = "pottery_workshop"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 125, offset = 0, x = -1, y = -1 }
+anims = { preview = { pack = "Pharaoh_General", group = 125, offset = 0, x = -1, y = -1 }, work = { pack = "Pharaoh_General", group = 125, offset = 1, frames = 18, x = 36, y = -4, duration = 12 }, clay = { pack = "Pharaoh_General", group = 205, offset = 9, x = 60, y = 30 } }
+flags = ["is_workshop", "is_industry"]
+inputs = ["clay"]
+outputs = ["pottery"]
+text_id = 126
+help = "message_potter_history"
+info_advisors = ["labor"]
+info_sound = "Wavs/pottery.wav"
+production_rate = 20
+production_rate_dcy = [100, 80, 70, 60, 50]
+
+[[building]]
+id = 115
+key = "hunting_lodge"
+size = 2
+labor = "food_production"
+figure = ["antelope_hunter", "birds_hunter", "ostrich_hunter"]
+image = { pack = "Pharaoh_General", group = 176, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 176, offset = 0 }, work = { pack = "Pharaoh_General", group = 176, offset = 1, frames = 18, x = 20, y = -15, duration = 3 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 } }
+flags = ["is_food", "keeps_visitor_paths"]
+outputs = ["gamemeat"]
+text_id = 154
+help = "message_building_hunting_lodge"
+hunter_type = "none"
+info_sound = "Wavs/lo_hunt.wav"
+max_hunters = [3]
+min_houses_coverage = 100
+spawn_delay_100_percent = [1]
+spawn_delay_25_percent = [15]
+spawn_delay_50_percent = [10]
+spawn_delay_75_percent = [5]
+spawn_delay_default = [30]
+
+[[building]]
+id = 135
+key = "academy"
+size = 2
+labor = "education"
+figure = "academy_scriber"
+image = { pack = "Pharaoh_General", group = 44, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 44, offset = 0 }, work = { pack = "Pharaoh_General", group = 44, offset = 1, frames = 18, x = 36, y = -4 } }
+flags = ["draw_normal_anim"]
+max_service = 100
+overlay = "education"
+show_in_debug = false
+
+[[building]]
+id = 136
+key = "ferry"
+size = 2
+labor = "government"
+figure = "ferry_boat"
+image = { pack = "Pharaoh_Terrain", group = 23, offset = 0 }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 23, offset = 0 }, work = { pack = "Pharaoh_Terrain", group = 23, offset = 0 }, top = { pack = "Pharaoh_Terrain", group = 23, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 210 } }
+needs = ["water_access", "shoreline"]
+flags = ["is_water_crossing", "is_infrastructure"]
+text_id = 91
+help = "message_game_concept_water_crossings"
+fire_proof = true
+
+[[building]]
+id = 138
+key = "roadblock"
+size = 1
+labor = "government"
+image = { pack = "Pharaoh_General", group = 98, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 98, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 5 } }
+flags = ["no_road_access"]
+text_id = 155
+help = "message_building_roadblock"
+damage_proof = true
+fire_proof = true
+
+[[building]]
+id = 140
+key = "shrine_osiris"
+size = 1
+labor = "religion"
+image = { pack = "Pharaoh_General", group = 75, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 75, offset = 0 } }
+flags = ["is_shrine", "is_religion", "no_road_access"]
+text_id = 161
+help = "message_building_shrine_and_temple"
+info_sound = "Wavs/shr_osiris.wav"
+overlay = "religion_osiris"
+
+[[building]]
+id = 141
+key = "shrine_ra"
+size = 1
+labor = "religion"
+image = { pack = "Pharaoh_General", group = 74, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 74, offset = 0 } }
+flags = ["is_shrine", "is_religion", "no_road_access"]
+text_id = 161
+help = "message_building_shrine_and_temple"
+info_sound = "Wavs/SHR_RA.wav"
+overlay = "religion_ra"
+
+[[building]]
+id = 142
+key = "shrine_ptah"
+size = 1
+labor = "religion"
+image = { pack = "Pharaoh_General", group = 73, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 73, offset = 0 } }
+flags = ["is_shrine", "is_religion", "no_road_access"]
+text_id = 161
+help = "message_building_shrine_and_temple"
+info_sound = "Wavs/SHR_PTAH.wav"
+overlay = "religion_ptah"
+
+[[building]]
+id = 143
+key = "shrine_seth"
+size = 1
+labor = "religion"
+image = { pack = "Pharaoh_General", group = 72, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 72, offset = 0 } }
+flags = ["is_shrine", "is_religion", "no_road_access"]
+text_id = 161
+help = "message_building_shrine_and_temple"
+info_sound = "Wavs/SHR_SETH.wav"
+overlay = "religion_seth"
+
+[[building]]
+id = 144
+key = "shrine_bast"
+size = 1
+labor = "religion"
+image = { pack = "Pharaoh_General", group = 71, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 71, offset = 0 } }
+flags = ["is_shrine", "is_religion", "no_road_access"]
+text_id = 161
+help = "message_building_shrine_and_temple"
+info_sound = "Wavs/SHR_BAST.wav"
+overlay = "religion_bast"
+
+[[building]]
+id = 161
+key = "gold_mine"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 185, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 185, offset = 0 }, work = { pack = "SprAmbient", group = 48, offset = 0, frames = 16, x = 54, y = 15, duration = 2 } }
+needs = ["rock", "ore"]
+flags = ["is_extractor", "is_industry", "keeps_visitor_paths", "draw_normal_anim"]
+outputs = ["gold"]
+text_id = 162
+help = "message_building_gold_copper_mine"
+info_sound = "Wavs/gold.wav"
+production_divider = 10
+production_rate = 100
+progress_max = 200
+
+[[building]]
+id = 162
+key = "gemstone_mine"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 188, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 188, offset = 0 }, work = { pack = "SprAmbient", group = 48, offset = 0, frames = 16, x = 54, y = 15, duration = 2 }, gems = { pack = "Pharaoh_General", group = 203, offset = 0, x = 93, y = 0 } }
+needs = ["rock"]
+flags = ["is_extractor", "is_industry", "keeps_visitor_paths"]
+outputs = ["gems"]
+text_id = 163
+help = "message_building_gemstone_mine"
+production_divider = 3
+production_rate = 100
+progress_max = 200
+
+[[building]]
+id = 167
+key = "firehouse"
+size = 1
+labor = "infrastructure"
+figure = "fireman"
+image = { pack = "Pharaoh_General", group = 78, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 78, offset = 0 }, work = { pack = "Pharaoh_General", group = 78, offset = 1, frames = 11, x = 25, y = -30 } }
+flags = ["is_infrastructure", "keeps_visitor_paths", "draw_normal_anim"]
+text_id = 164
+help = "message_building_firehouse"
+info_sound = "Wavs/prefecture.wav"
+min_houses_coverage = 50
+
+[[building]]
+id = 169
+key = "brick_wall"
+size = 1
+image = { pack = "Pharaoh_General", group = 138, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 138, offset = 27 } }
+flags = ["is_wall", "is_defense"]
+
+[[building]]
+id = 170
+key = "clay_gatehouse"
+size = 1
+image = { pack = "Pharaoh_General", group = 218, offset = 0 }
+anims = { base_n = { pack = "Pharaoh_General", group = 218, offset = 0 }, base_second_n = { pack = "Pharaoh_General", group = 219, offset = 0 }, base_cover_n = { pack = "Pharaoh_General", group = 220, offset = 0 }, base_w = { pack = "Pharaoh_General", group = 218, offset = 1 }, base_second_w = { pack = "Pharaoh_General", group = 219, offset = 1 }, base_cover_w = { pack = "Pharaoh_General", group = 220, offset = 1 } }
+flags = ["is_wall", "is_gatehouse"]
+text_id = 90
+help = "message_building_defensive_structures"
+
+[[building]]
+id = 171
+key = "brick_gatehouse"
+size = 1
+image = { pack = "Pharaoh_General", group = 218, offset = 0 }
+anims = { base_n = { pack = "Pharaoh_General", group = 218, offset = 0 }, base_second_n = { pack = "Pharaoh_General", group = 219, offset = 0 }, base_cover_n = { pack = "Pharaoh_General", group = 220, offset = 0 }, base_w = { pack = "Pharaoh_General", group = 218, offset = 1 }, base_second_w = { pack = "Pharaoh_General", group = 219, offset = 1 }, base_cover_w = { pack = "Pharaoh_General", group = 220, offset = 1 } }
+flags = ["is_defense", "is_wall"]
+text_id = 90
+help = "message_building_defensive_structures"
+
+[[building]]
+id = 172
+key = "brick_tower"
+size = 2
+labor = "military"
+figure = "ballista"
+flags = ["is_wall", "is_tower"]
+help = "message_building_defensive_structures"
+fire_proof = true
+min_houses_coverage = 50
+
+[[building]]
+id = 173
+key = "clay_tower"
+size = 2
+labor = "military"
+flags = ["is_wall", "is_defense"]
+help = "message_building_defensive_structures"
+fire_proof = true
+min_houses_coverage = 50
+
+[[building]]
+id = 177
+key = "carpenters_guild"
+size = 2
+labor = "infrastructure"
+figure = "carpenter"
+image = { pack = "Pharaoh_General", group = 91, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 91, offset = 0 }, work = { pack = "Pharaoh_General", group = 91, offset = 1, frames = 13, x = 73, y = -12, duration = 4 } }
+flags = ["is_guild", "is_industry"]
+help = "message_construction_guilds"
+info_advisors = ["labor"]
+
+[[building]]
+id = 178
+key = "bricklayers_guild"
+size = 2
+labor = "infrastructure"
+figure = "bricklayer"
+image = { pack = "Pharaoh_General", group = 57, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 57, offset = 0 }, work = { pack = "Pharaoh_General", group = 57, offset = 1, frames = 12, x = 75, y = -14, duration = 4 } }
+flags = ["is_guild", "is_industry"]
+inputs = ["bricks"]
+text_id = 172
+help = "message_construction_guilds"
+info_advisors = ["labor"]
+max_workers = 1
+min_houses_coverage = 100
+
+[[building]]
+id = 179
+key = "stonemasons_guild"
+size = 2
+labor = "infrastructure"
+figure = "stonemason"
+image = { pack = "Pharaoh_General", group = 88, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 88, offset = 0 }, work = { pack = "Pharaoh_General", group = 88, offset = 1, frames = 12, x = 73, y = -12, duration = 4 } }
+flags = ["is_guild", "is_industry"]
+text_id = 173
+help = "message_construction_guilds"
+info_advisors = ["labor"]
+
+[[building]]
+id = 180
+key = "water_supply"
+size = 2
+labor = "water_health"
+figure = "water_carrier"
+image = { pack = "Pharaoh_General", group = 69, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 69, offset = 0 }, base_work = { pack = "Pharaoh_General", group = 69, offset = 1, frames = 1, x = 42, y = 10 }, fancy = { pack = "Pharaoh_General", group = 69, offset = 2 }, fancy_work = { pack = "Pharaoh_General", group = 69, offset = 3, frames = 1, x = 10, y = 0 } }
+needs = ["groundwater"]
+flags = ["keeps_visitor_paths", "draw_normal_anim"]
+text_id = 108
+help = "message_building_water_supply"
+fire_proof = true
+info_sound = "Wavs/WELL.WAV"
+min_houses_coverage = 50
+
+[[building]]
+id = 181
+key = "transport_wharf"
+size = 2
+labor = "military"
+image = { pack = "Pharaoh_Terrain", group = 17, offset = 0 }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 17, offset = 0 }, work_n = { pack = "SprAmbient", group = 47, offset = 0, frames = 24, x = 65, y = 0, duration = 1 }, work_w = { pack = "SprAmbient", group = 47, offset = 0, frames = 24, x = 80, y = 7, duration = 3 }, work_s = { pack = "SprAmbient", group = 56, offset = 1, frames = 20, x = 65, y = 7, duration = 4 }, work_e = { pack = "SprAmbient", group = 46, offset = 3, frames = 24, x = 55, y = -27, duration = 4 }, wait_n = { pack = "SprAmbient", group = 55, offset = 3, frames = 25, x = 85, y = 20, duration = 8 }, wait_w = { pack = "SprAmbient", group = 55, offset = 0, frames = 25, x = 85, y = 7, duration = 3 }, wait_s = { pack = "SprAmbient", group = 55, offset = 1, frames = 25, x = 65, y = 22, duration = 4 }, wait_e = { pack = "SprAmbient", group = 55, offset = 3, frames = 25, x = 55, y = -27, duration = 4 } }
+needs = ["water_access", "shoreline"]
+text_id = 174
+help = "message_building_transport_wharf"
+fire_proof = false
+min_houses_coverage = 100
+
+[[building]]
+id = 182
+key = "warship_wharf"
+size = 3
+labor = "military"
+image = { pack = "Pharaoh_Terrain", group = 28, offset = 0 }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 28, offset = 0 }, work_w = { pack = "SprAmbient", group = 47, offset = 0, frames = 24, x = 80, y = 7, duration = 3 }, work_s = { pack = "SprAmbient", group = 56, offset = 1, frames = 20, x = 65, y = 7, duration = 4 }, work_e = { pack = "SprAmbient", group = 46, offset = 3, frames = 24, x = 55, y = -27, duration = 4 }, wait_n = { pack = "SprAmbient", group = 55, offset = 3, frames = 25, x = 85, y = 20, duration = 8 }, wait_w = { pack = "SprAmbient", group = 55, offset = 0, frames = 25, x = 85, y = 7, duration = 3 }, wait_s = { pack = "SprAmbient", group = 55, offset = 1, frames = 25, x = 65, y = 22, duration = 4 }, wait_e = { pack = "SprAmbient", group = 55, offset = 3, frames = 25, x = 55, y = -27, duration = 4 } }
+needs = ["water_access", "shoreline"]
+text_id = 175
+help = "message_building_warship_wharf"
+min_houses_coverage = 100
+
+[[building]]
+id = 184
+key = "courthouse"
+size = 3
+labor = "infrastructure"
+figure = "magistrate"
+image = { pack = "Pharaoh_General", group = 62, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 62, offset = 0 }, work = { pack = "Pharaoh_General", group = 62, offset = 1, frames = 11, x = 80, y = -80 } }
+flags = ["is_administration", "draw_normal_anim"]
+text_id = 176
+help = "message_building_courthouse"
+info_sound = "Wavs/forum.WAV"
+min_houses_coverage = 50
+overlay = "couthouse"
+
+[[building]]
+id = 185
+key = "military_academy_2"
+size = 4
+image = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 173, offset = 1, frames = 12, x = 33, y = -38 } }
+flags = ["is_military"]
+text_id = 135
+help = "message_building_recruiter_academy"
+
+[[building]]
+id = 186
+key = "military_academy_3"
+size = 4
+image = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 173, offset = 1, frames = 12, x = 33, y = -38 } }
+flags = ["is_military"]
+text_id = 135
+help = "message_building_recruiter_academy"
+
+[[building]]
+id = 189
+key = "city_palace"
+size = 6
+labor = "government"
+image = { pack = "Pharaoh_General", group = 18, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 18, offset = 0 }, work = { pack = "Pharaoh_General", group = 18, offset = 1, frames = 12, x = -1, y = -1 } }
+needs = ["groundwater"]
+flags = ["is_palace", "is_administration", "keeps_visitor_paths"]
+text_id = 105
+help = "message_building_palace"
+info_sound = "Wavs/palace.wav"
+
+[[building]]
+id = 194
+key = "cattle_ranch"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 105, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 105, offset = 0 }, work = { pack = "Pharaoh_General", group = 105, offset = 1, frames = 12 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 } }
+flags = ["is_food"]
+inputs = ["straw"]
+outputs = ["meat"]
+text_id = 117
+help = "message_building_cattle_ranch"
+info_advisors = ["labor"]
+info_sound = "Wavs/cowfarm_r.wav"
+min_houses_coverage = 100
+
+[[building]]
+id = 195
+key = "reed_gatherer"
+size = 2
+labor = "industry_commerce"
+figure = "reed_gatherer"
+image = { pack = "Pharaoh_General", group = 24, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 24, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 24, offset = 1, frames = 19, x = 30, y = -17, duration = 4 }, reeds = { pack = "Pharaoh_General", group = 206, offset = 0, x = 35, y = 4 } }
+flags = ["is_harvester", "is_industry"]
+outputs = ["reeds"]
+text_id = 116
+help = "message_building_woodcutter_and_reed_gatherer"
+info_sound = "Wavs/reedfarm.wav"
+max_gatherers = 1
+max_storage_amount = 200
+min_houses_coverage = 100
+
+[[building]]
+id = 196
+key = "figs_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 37, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 37, offset = 1, frames = 12 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 37, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 6 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry", "is_food"]
+outputs = ["figs"]
+text_id = 183
+help = "message_building_fruit_vegetables_farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/figs_farm.wav"
+month_harvest = ["september"]
+progress_max = 2000
+sound_channel = "city_fig_farm"
+
+[[building]]
+id = 199
+key = "work_camp"
+size = 2
+labor = "industry_commerce"
+figure = "laborer"
+image = { pack = "Pharaoh_General", group = 77, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 77, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 77, offset = 1, frames = 19, x = 25, y = -12, duration = 3 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 } }
+flags = ["keeps_visitor_paths"]
+text_id = 179
+help = "message_work_camp_history"
+info_sound = "Wavs/eng_r.wav"
+search_radius = 100
+
+[[building]]
+id = 202
+key = "decorative_gatehouse"
+size = 5
+flags = ["is_defense", "is_wall", "is_gatehouse"]
+text_id = 90
+help = "message_building_defensive_structures"
+
+[[building]]
+id = 203
+key = "papyrus_workshop"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 44, offset = 0, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 44, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 44, offset = 1, frames = 10, x = 7, y = -10, duration = 4 }, reeds = { pack = "Pharaoh_General", group = 206, offset = 0, x = 35, y = 4 } }
+flags = ["is_workshop", "is_industry"]
+inputs = ["reeds"]
+outputs = ["papyrus"]
+text_id = 190
+help = "message_building_papyrus_maker"
+info_advisors = ["labor"]
+info_sound = "Wavs/paper.wav"
+production_rate = 50
+production_rate_dcy = [100, 80, 70, 60, 50]
+
+[[building]]
+id = 204
+key = "bricks_workshop"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 124, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 124, offset = 0 }, work = { pack = "Pharaoh_General", group = 124, offset = 1, frames = 10, x = 46, y = -20, duration = 5 }, straw = { pack = "Pharaoh_General", group = 206, offset = 0, x = 51, y = 18 }, clay = { pack = "Pharaoh_General", group = 207, offset = 0, x = 46, y = 25 } }
+flags = ["is_workshop", "is_industry"]
+inputs = ["clay", "straw"]
+outputs = ["bricks"]
+text_id = 180
+help = "message_building_brickworks"
+info_advisors = ["labor"]
+info_sound = "Wavs/brick.wav"
+production_rate = 20
+production_rate_dcy = [100, 80, 70, 60, 50]
+progress_max = 400
+
+[[building]]
+id = 205
+key = "chariots_workshop"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 124, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 124, offset = 0 }, work = { pack = "Pharaoh_General", group = 124, offset = 0 }, timber = { pack = "Pharaoh_General", group = 206, offset = 0, x = 51, y = 18 }, weapon = { pack = "Pharaoh_General", group = 207, offset = 0, x = 46, y = 25 } }
+flags = ["is_workshop", "is_industry"]
+inputs = ["timber", "weapons"]
+outputs = ["chariots"]
+help = "message_building_weapongsmith_and_chariot_maker"
+info_advisors = ["labor", "military"]
+production_rate = 20
+production_rate_dcy = [100, 80, 70, 60, 50]
+
+[[building]]
+id = 206
+key = "physician"
+size = 2
+labor = "water_health"
+figure = "physician"
+image = { pack = "Pharaoh_General", group = 70, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 70, offset = 0 }, work = { pack = "Pharaoh_General", group = 70, offset = 1, frames = 11, x = 60, y = -60 } }
+flags = ["draw_normal_anim"]
+text_id = 83
+help = "message_building_physician"
+info_sound = "Wavs/physician.wav"
+max_serve_clients = 1000
+min_houses_coverage = 50
+overlay = "physician"
+sound_channel = "city_physician"
+
+[[building]]
+id = 209
+key = "festival_square"
+size = 5
+image = { pack = "Pharaoh_General", group = 49, offset = 0, x = 0, y = 0 }
+anims = { square = { pack = "Pharaoh_General", group = 49, offset = 0, x = 0, y = 0 } }
+flags = ["is_religion"]
+text_id = 188
+help = "message_building_festival_square"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/prefecture.wav"
+
+[[building]]
+id = 210
+key = "sphinx"
+size = 6
+image = { pack = "sphinx1a", group = 1, offset = 0 }
+anims = { s1a1 = { pack = "sphinx1a", group = 1, offset = 0 }, s1b1 = { pack = "sphinx1b", group = 1, offset = 0 }, s1c1 = { pack = "sphinx1c", group = 1, offset = 0 }, s2a1 = { pack = "sphinx2a", group = 1, offset = 0 }, s2b1 = { pack = "sphinx2b", group = 1, offset = 0 }, s2c1 = { pack = "sphinx2c", group = 1, offset = 0 }, s3a1 = { pack = "sphinx3a", group = 1, offset = 0 }, s3b1 = { pack = "sphinx3b", group = 1, offset = 0 }, s3c1 = { pack = "sphinx3c", group = 1, offset = 0 }, s4a1 = { pack = "sphinx4a", group = 1, offset = 0 }, s4b1 = { pack = "sphinx4b", group = 1, offset = 0 }, s4c1 = { pack = "sphinx4c", group = 1, offset = 0 }, s5a1 = { pack = "sphinx5a", group = 1, offset = 0 }, s5b1 = { pack = "sphinx5b", group = 1, offset = 0 }, s5c1 = { pack = "sphinx5c", group = 1, offset = 0 }, s6a1 = { pack = "sphinx6a", group = 1, offset = 0 }, s6b1 = { pack = "sphinx6b", group = 1, offset = 0 }, s6c1 = { pack = "sphinx6c", group = 1, offset = 0 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_building_sphinx"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 21]
+init_tiles = [6, 18]
+
+[[building]]
+id = 216
+key = "granite_quarry"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 38, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 38, offset = 0 }, work = { pack = "SprAmbient", group = 49, offset = 0, frames = 16, x = 54, y = 15, duration = 2 } }
+needs = ["rock"]
+flags = ["is_extractor", "is_industry", "draw_normal_anim"]
+outputs = ["granite"]
+text_id = 162
+help = "message_building_stone_quarries"
+info_sound = "Wavs/marble.wav"
+production_rate = 100
+progress_max = 200
+
+[[building]]
+id = 217
+key = "copper_mine"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 196, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 196, offset = 0 }, work = { pack = "SprAmbient", group = 48, offset = 0, frames = 16, x = 54, y = 15, duration = 2 } }
+needs = ["rock", "ore"]
+flags = ["is_extractor", "is_industry", "keeps_visitor_paths"]
+outputs = ["copper"]
+text_id = 193
+help = "message_building_gold_copper_mine"
+info_sound = "Wavs/gold.wav"
+production_rate = 100
+progress_max = 200
+
+[[building]]
+id = 221
+key = "sandstone_quarry"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Pharaoh_General", group = 197, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 197, offset = 0 }, work = { pack = "SprAmbient", group = 49, offset = 0, frames = 16, x = 54, y = 15, duration = 2 } }
+needs = ["rock"]
+flags = ["is_extractor", "is_industry", "draw_normal_anim"]
+outputs = ["sandstone"]
+text_id = 162
+help = "message_building_stone_quarries"
+production_rate = 100
+progress_max = 200
+
+[[building]]
+id = 222
+key = "mausoleum"
+size = 22
+image = { pack = "MausCarryover", group = 1, offset = 0 }
+anims = { sa1_v0 = { pack = "mausoleum0_extra", group = 1, offset = 0 }, sb1_v0 = { pack = "mausoleum0_extra", group = 1, offset = 0 }, sc1_v0 = { pack = "MausCarryover", group = 1, offset = 0 }, sc2_v0 = { pack = "MausCarryover", group = 2, offset = 0 }, sa1_v1 = { pack = "mausoleum1_extra", group = 1, offset = 0 }, sb1_v1 = { pack = "mausoleum1_extra", group = 1, offset = 0 }, sc1_v1 = { pack = "MausCarryover", group = 1, offset = 0 }, sc2_v1 = { pack = "MausCarryover", group = 2, offset = 0 }, sa1_v2 = { pack = "mausoleum2_extra", group = 1, offset = 0 }, sb1_v2 = { pack = "mausoleum2_extra", group = 1, offset = 0 }, sc1_v2 = { pack = "MausCarryover", group = 1, offset = 0 }, sc2_v2 = { pack = "MausCarryover", group = 2, offset = 0 }, sa1 = { pack = "mausoleum0_extra", group = 1, offset = 0 } }
+flags = ["is_monument", "allow_rotate"]
+text_id = 178
+help = "message_building_mausoleum"
+art_stages = 3
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 25]
+init_tiles = [8, 22]
+sandstone_loads = [110, 110]
+timber_loads = [100]
+
+[[building]]
+id = 224
+key = "henna_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 37, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 37, offset = 1, frames = 12 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 37, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 30 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry"]
+outputs = ["henna"]
+text_id = 306
+help = "message_building_barley_flax_henna_farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/farm2.wav"
+month_harvest = ["december"]
+progress_max = 2000
+sound_channel = "city_grain_farm"
+
+[[building]]
+id = 225
+key = "alexandria_library"
+size = 13
+image = { pack = "LibMaina5", group = 1, offset = 0 }
+anims = { sa = { pack = "LibMaina1", group = 1, offset = 0 }, sb = { pack = "LibMaina2", group = 1, offset = 0 }, sc = { pack = "LibMaina3", group = 1, offset = 0 }, sd = { pack = "LibMaina4", group = 1, offset = 0 }, se = { pack = "LibMaina5", group = 1, offset = 0 } }
+flags = ["is_monument", "allow_rotate"]
+text_id = 178
+help = "message_building_alexandria_library"
+art_stages = 5
+copper_loads = [24]
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 29]
+init_tiles = [13, 14]
+marble_loads = [28, 28, 28, 28]
+timber_loads = [400, 1400, 1400]
+
+[[building]]
+id = 226
+key = "zoo"
+size = 6
+labor = "entertainment"
+figure = "zookeeper"
+image = { pack = "Expansion", group = 6, offset = 0 }
+anims = { preview = { pack = "Expansion", group = 6, offset = 0 }, work = { pack = "Expansion", group = 6, offset = 1, frames = 19, duration = 3 } }
+flags = ["is_entertainment"]
+inputs = ["gamemeat", "straw"]
+text_id = 308
+help = "message_building_zoo"
+
+[[building]]
+id = 227
+key = "caesareum"
+size = 15
+image = { pack = "caesareum1", group = 1, offset = 0 }
+anims = { sa = { pack = "caesareum1", group = 1, offset = 0 }, sb = { pack = "caesareum2", group = 1, offset = 0 }, sc = { pack = "caesareum3", group = 1, offset = 0 }, sd = { pack = "caesareum4", group = 1, offset = 0 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_building_caesareum"
+art_stages = 4
+damage_proof = true
+fire_proof = true
+granite_loads = [8]
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 30]
+init_tiles = [15, 15]
+marble_loads = [48, 52, 52]
+timber_loads = [100, 100]
+
+[[building]]
+id = 228
+key = "pharos_lighthouse"
+size = 6
+image = { pack = "LtHouse9", group = 1, offset = 0 }
+anims = { sa = { pack = "LtHouse1", group = 1, offset = 0 }, sb = { pack = "LtHouse2", group = 1, offset = 0 }, sc = { pack = "LtHouse3", group = 1, offset = 0 }, sd = { pack = "LtHouse4", group = 1, offset = 0 }, se = { pack = "LtHouse5", group = 1, offset = 0 }, sf = { pack = "LtHouse6", group = 1, offset = 0 }, sg = { pack = "LtHouse7", group = 1, offset = 0 }, sh = { pack = "LtHouse8", group = 1, offset = 0 }, si = { pack = "LtHouse9", group = 1, offset = 0 } }
+flags = ["is_monument", "non_deletable"]
+text_id = 178
+help = "message_building_pharos_lighthouse"
+art_stages = 9
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 28]
+init_tiles = [6, 6]
+marble_loads = [22, 22, 22, 21, 21]
+timber_loads = [100, 200, 200]
+
+[[building]]
+id = 229
+key = "small_royal_tomb"
+size = 11
+image = { pack = "TombThutFin", group = 11, offset = 12 }
+anims = { sa = { pack = "TombThut", group = 11, offset = 0 }, sb = { pack = "TombThut", group = 11, offset = 2 }, sc = { pack = "TombThut", group = 11, offset = 4 }, sd = { pack = "TombThut", group = 11, offset = 6 }, se = { pack = "TombThut", group = 11, offset = 8 }, sf = { pack = "TombThut", group = 11, offset = 10 }, sg = { pack = "TombThut", group = 11, offset = 12 }, sh = { pack = "TombThut", group = 11, offset = 14 }, si = { pack = "TombThut", group = 11, offset = 14 }, finish = { pack = "TombThutFin", group = 11, offset = 12 }, entrance = { pack = "TombThut", group = 17, offset = 0 }, ground = { pack = "TombThut", group = 15, offset = 0 }, cliff = { pack = "TombThut", group = 18, offset = 0 } }
+flags = ["is_monument", "allow_rotate"]
+text_id = 178
+help = "message_building_royal_burial_tomb"
+art_stages = 9
+clay_loads = [0, 100, 100, 100, 100, 100, 100, 100, 100]
+damage_proof = true
+entrance_size = [1, 1]
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 33]
+init_tiles = [11, 20]
+lamp_loads = [400, 0, 0, 0, 0, 0, 0, 0, 0]
+max_artisans = 2
+max_masons = 1
+paint_loads = [0, 100, 100, 100, 100, 100, 100, 100, 100]
+
+[[building]]
+id = 230
+key = "abu_simbel"
+size = 3
+image = { pack = "AbuSimbel", group = 2, offset = 18 }
+anims = { backing = { pack = "AbuSimbel", group = 1, offset = 0 }, sa1 = { pack = "AbuSimbel", group = 2, offset = 0 }, sa2 = { pack = "AbuSimbel", group = 2, offset = 1 }, sb1 = { pack = "AbuSimbel", group = 2, offset = 2 }, sb2 = { pack = "AbuSimbel", group = 2, offset = 3 }, sc1 = { pack = "AbuSimbel", group = 2, offset = 4 }, sc2 = { pack = "AbuSimbel", group = 2, offset = 5 }, sd1 = { pack = "AbuSimbel", group = 2, offset = 6 }, sd2 = { pack = "AbuSimbel", group = 2, offset = 7 }, se1 = { pack = "AbuSimbel", group = 2, offset = 8 }, se2 = { pack = "AbuSimbel", group = 2, offset = 9 }, sf1 = { pack = "AbuSimbel", group = 2, offset = 10 }, sf2 = { pack = "AbuSimbel", group = 2, offset = 11 }, sg1 = { pack = "AbuSimbel", group = 2, offset = 12 }, sg2 = { pack = "AbuSimbel", group = 2, offset = 13 }, sh1 = { pack = "AbuSimbel", group = 2, offset = 14 }, sh2 = { pack = "AbuSimbel", group = 2, offset = 15 }, si1 = { pack = "AbuSimbel", group = 2, offset = 16 }, si2 = { pack = "AbuSimbel", group = 2, offset = 17 }, sj1 = { pack = "AbuSimbel", group = 2, offset = 18 }, sj2 = { pack = "AbuSimbel", group = 2, offset = 19 }, finish1 = { pack = "AbuSimbel", group = 2, offset = 18 }, finish2 = { pack = "AbuSimbel", group = 2, offset = 19 }, midcut_back = { pack = "AbuSimbel", group = 4, offset = 0 }, midcut_front = { pack = "AbuSimbel", group = 5, offset = 0 }, stairs = { pack = "AbuSimbel", group = 6, offset = 0 }, cliff_l_far = { pack = "AbuSimbel", group = 7, offset = 0 }, cliff_l_near = { pack = "AbuSimbel", group = 13, offset = 0 }, cliff_r_far = { pack = "AbuSimbel", group = 12, offset = 0 }, cliff_r_near = { pack = "AbuSimbel", group = 10, offset = 0 }, scaffold_a = { pack = "AbuSimbel", group = 15, offset = 0 }, scaffold_b = { pack = "AbuSimbel", group = 15, offset = 1 }, scaffold_c = { pack = "AbuSimbel", group = 16, offset = 0 }, scaffold_d = { pack = "AbuSimbel", group = 16, offset = 1 } }
+flags = ["is_monument", "non_deletable", "allow_rotate"]
+text_id = 178
+help = "message_building_abu_simbel"
+art_stages = 10
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 37]
+init_tiles = [9, 21]
+timber_loads = [400, 400, 400, 200, 200, 0, 0, 0, 0, 0]
+
+[[building]]
+id = 231
+key = "artisans_guild"
+size = 2
+labor = "infrastructure"
+figure = "tomb_artisan"
+image = { pack = "Expansion", group = 31, offset = 0 }
+anims = { preview = { pack = "Expansion", group = 31, offset = 0 }, work = { pack = "Expansion", group = 31, offset = 1, frames = 12, x = 75, y = -14, duration = 4 } }
+flags = ["is_guild", "is_industry"]
+inputs = ["paint", "clay"]
+text_id = 312
+help = "message_construction_guilds"
+info_advisors = ["labor"]
+info_sound = "Wavs/eng_r.wav"
+max_workers = 1
+min_houses_coverage = 100
+
+[[building]]
+id = 232
+key = "lamp_workshop"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Expansion", group = 26, offset = 0 }
+anims = { preview = { pack = "Expansion", group = 26, offset = 0 }, work = { pack = "Expansion", group = 26, offset = 1, frames = 10, x = 10, y = -14, duration = 4 } }
+flags = ["is_workshop", "is_industry"]
+inputs = ["oil", "pottery"]
+outputs = ["lamps"]
+text_id = 314
+help = "message_building_lamp_maker"
+info_advisors = ["labor"]
+production_rate = 20
+production_rate_dcy = [100, 80, 70, 60, 50]
+
+[[building]]
+id = 233
+key = "paint_workshop"
+size = 2
+labor = "industry_commerce"
+image = { pack = "Expansion", group = 27, offset = 0 }
+anims = { preview = { pack = "Expansion", group = 27, offset = 0 }, work = { pack = "Expansion", group = 27, offset = 1, frames = 10, x = 17, y = -14, duration = 4 }, henna = { pack = "Pharaoh_General", group = 207, offset = 0, x = 65, y = 3 } }
+flags = ["is_workshop", "is_industry"]
+inputs = ["henna"]
+outputs = ["paint"]
+text_id = 313
+help = "message_mission_paint_maker"
+info_advisors = ["labor"]
+production_rate = 20
+production_rate_dcy = [100, 80, 70, 60, 50]
+
+[[building]]
+id = 234
+key = "medium_royal_tomb"
+size = 14
+image = { pack = "TombTutFin", group = 11, offset = 12 }
+anims = { sa = { pack = "TombTut", group = 11, offset = 0 }, sb = { pack = "TombTut", group = 11, offset = 2 }, sc = { pack = "TombTut", group = 11, offset = 4 }, sd = { pack = "TombTut", group = 11, offset = 6 }, se = { pack = "TombTut", group = 11, offset = 8 }, sf = { pack = "TombTut", group = 11, offset = 10 }, sg = { pack = "TombTut", group = 11, offset = 12 }, sh = { pack = "TombTut", group = 11, offset = 14 }, finish = { pack = "TombTutFin", group = 11, offset = 12 }, entrance = { pack = "TombTut", group = 19, offset = 0 }, ground = { pack = "TombTut", group = 17, offset = 0 }, cliff = { pack = "TombTut", group = 20, offset = 0 } }
+flags = ["is_monument", "allow_rotate"]
+text_id = 178
+help = "message_building_royal_burial_tomb"
+art_stages = 8
+clay_loads = [0, 100, 100, 100, 100, 100, 100, 100]
+damage_proof = true
+entrance_size = [1, 1]
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 34]
+init_tiles = [14, 16]
+lamp_loads = [400, 0, 0, 0, 0, 0, 0, 0]
+max_artisans = 2
+max_masons = 1
+paint_loads = [0, 100, 100, 100, 100, 100, 100, 100]
+
+[[building]]
+id = 235
+key = "large_royal_tomb"
+size = 17
+image = { pack = "TombSetiFin", group = 21, offset = 12 }
+anims = { sa = { pack = "TombSeti", group = 21, offset = 0 }, sb = { pack = "TombSeti", group = 21, offset = 2 }, sc = { pack = "TombSeti", group = 21, offset = 4 }, sd = { pack = "TombSeti", group = 21, offset = 6 }, se = { pack = "TombSeti", group = 21, offset = 8 }, sf = { pack = "TombSeti", group = 21, offset = 10 }, sg = { pack = "TombSeti", group = 21, offset = 12 }, sh = { pack = "TombSeti", group = 21, offset = 14 }, finish = { pack = "TombSetiFin", group = 21, offset = 12 }, entrance = { pack = "TombSeti", group = 25, offset = 0 }, ground = { pack = "TombSeti", group = 23, offset = 0 }, cliff = { pack = "TombSeti", group = 26, offset = 0 } }
+flags = ["is_monument", "allow_rotate"]
+text_id = 178
+help = "message_building_royal_burial_tomb"
+art_stages = 8
+clay_loads = [0, 100, 100, 100, 100, 100, 100, 100]
+damage_proof = true
+entrance_size = [1, 1]
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 35]
+init_tiles = [17, 33]
+lamp_loads = [400, 0, 0, 0, 0, 0, 0, 0]
+max_artisans = 2
+max_masons = 1
+paint_loads = [0, 100, 100, 100, 100, 100, 100, 100]
+
+[[building]]
+id = 236
+key = "grand_royal_tomb"
+size = 23
+image = { pack = "TombRamFin", group = 25, offset = 12 }
+anims = { sa = { pack = "TombRam", group = 25, offset = 0 }, sb = { pack = "TombRam", group = 25, offset = 2 }, sc = { pack = "TombRam", group = 25, offset = 4 }, sd = { pack = "TombRam", group = 25, offset = 6 }, se = { pack = "TombRam", group = 25, offset = 8 }, sf = { pack = "TombRam", group = 25, offset = 10 }, sg = { pack = "TombRam", group = 25, offset = 12 }, sh = { pack = "TombRam", group = 25, offset = 14 }, finish = { pack = "TombRamFin", group = 25, offset = 12 }, entrance = { pack = "TombRam", group = 31, offset = 0 }, ground = { pack = "TombRam", group = 29, offset = 0 }, cliff = { pack = "TombRam", group = 32, offset = 0 } }
+flags = ["is_monument", "allow_rotate"]
+text_id = 178
+help = "message_building_royal_burial_tomb"
+art_stages = 8
+clay_loads = [0, 100, 100, 100, 100, 100, 100, 100]
+damage_proof = true
+entrance_size = [1, 1]
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 36]
+init_tiles = [23, 29]
+lamp_loads = [400, 0, 0, 0, 0, 0, 0, 0]
+max_artisans = 2
+max_masons = 1
+paint_loads = [0, 100, 100, 100, 100, 100, 100, 100]
+
+[[building]]
+id = 241
+key = "small_bent_pyramid"
+size = 2
+image = { pack = "bent_pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "bent_pyramid", group = 2, offset = 7 }, clear_land = { pack = "bent_pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_bent_pyramid"
+build_menu_text = "Small Bent Pyramid"
+cone_type = "small_bent_pyramid_cone"
+corner_type = "small_bent_pyramid_corner"
+damage_proof = true
+enter_offset = [1, 8]
+filler_type = "small_bent_pyramid"
+fire_proof = true
+info_title_id = [198, 1]
+init_tiles = [8, 8]
+stair_0_0_offset = [2, 8]
+stair_0_1_offset = [4, 8]
+stair_0_4_corner_offset = [6, 6]
+stair_0_4_offset = [6, 8]
+stair_0_5_offset = [6, 5]
+stair_0_6_offset = [6, 4]
+wall_type = "small_bent_pyramid_wall"
+
+[[building]]
+id = 242
+key = "medium_bent_pyramid"
+size = 2
+image = { pack = "bent_pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "bent_pyramid", group = 2, offset = 7 }, clear_land = { pack = "bent_pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_bent_pyramid"
+build_menu_text = "Medium Bent Pyramid"
+cone_type = "medium_bent_pyramid_cone"
+corner_type = "medium_bent_pyramid_corner"
+damage_proof = true
+enter_offset = [2, 12]
+filler_type = "medium_bent_pyramid"
+fire_proof = true
+info_title_id = [198, 2]
+init_tiles = [12, 12]
+wall_type = "medium_bent_pyramid_wall"
+
+[[building]]
+id = 243
+key = "small_mudbrick_pyramid"
+size = 2
+image = { pack = "mudbrick_pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_brick_core_pyramid"
+build_menu_text = "Small Brick Pyramid"
+cone_type = "small_mudbrick_pyramid_cone"
+corner_type = "small_mudbrick_pyramid_corner"
+damage_proof = true
+enter_offset = [1, 8]
+filler_type = "small_mudbrick_pyramid"
+fire_proof = true
+info_title_id = [198, 3]
+init_tiles = [8, 8]
+stair_0_0_offset = [2, 8]
+stair_0_1_offset = [4, 8]
+stair_0_4_corner_offset = [6, 6]
+stair_0_4_offset = [6, 8]
+stair_0_5_offset = [6, 5]
+stair_0_6_offset = [6, 4]
+wall_type = "small_mudbrick_pyramid_wall"
+
+[[building]]
+id = 244
+key = "medium_mudbrick_pyramid"
+size = 2
+image = { pack = "mudbrick_pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_brick_core_pyramid"
+build_menu_text = "Medium Brick Pyramid"
+cone_type = "medium_mudbrick_pyramid_cone"
+corner_type = "medium_mudbrick_pyramid_corner"
+damage_proof = true
+enter_offset = [2, 12]
+filler_type = "medium_mudbrick_pyramid"
+fire_proof = true
+info_title_id = [198, 4]
+init_tiles = [12, 12]
+wall_type = "medium_mudbrick_pyramid_wall"
+
+[[building]]
+id = 245
+key = "large_mudbrick_pyramid"
+size = 2
+image = { pack = "mudbrick_pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_brick_core_pyramid"
+build_menu_text = "Large Brick Pyramid"
+cone_type = "large_mudbrick_pyramid_cone"
+corner_type = "large_mudbrick_pyramid_corner"
+damage_proof = true
+enter_offset = [2, 16]
+filler_type = "large_mudbrick_pyramid"
+fire_proof = true
+info_title_id = [198, 5]
+init_tiles = [16, 16]
+wall_type = "large_mudbrick_pyramid_wall"
+
+[[building]]
+id = 246
+key = "mudbrick_pyramid_complex"
+size = 2
+image = { pack = "mudbrick_pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_brick_core_pyramid"
+build_menu_text = "Mudbrick Pyramid Complex"
+cone_type = "large_mudbrick_pyramid_cone"
+corner_type = "large_mudbrick_pyramid_corner"
+damage_proof = true
+enter_offset = [2, 20]
+filler_type = "mudbrick_pyramid_complex"
+fire_proof = true
+info_title_id = [198, 6]
+init_tiles = [20, 20]
+wall_type = "large_mudbrick_pyramid_wall"
+
+[[building]]
+id = 247
+key = "grand_mudbrick_pyramid_complex"
+size = 2
+image = { pack = "mudbrick_pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_brick_core_pyramid"
+build_menu_text = "Grand Mudbrick Pyramid Complex"
+cone_type = "large_mudbrick_pyramid_cone"
+corner_type = "large_mudbrick_pyramid_corner"
+damage_proof = true
+enter_offset = [2, 20]
+filler_type = "grand_mudbrick_pyramid_complex"
+fire_proof = true
+info_title_id = [198, 7]
+init_tiles = [20, 20]
+wall_type = "large_mudbrick_pyramid_wall"
+
+[[building]]
+id = 250
+key = "large_stepped_pyramid"
+size = 2
+image = { pack = "stepped_pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_building_stepped_pyramid"
+build_menu_text = "Large Stepped Pyramid"
+cone_type = "large_stepped_pyramid_cone"
+corner_type = "large_stepped_pyramid_corner"
+damage_proof = true
+enter_offset = [2, 20]
+filler_type = "large_stepped_pyramid"
+fire_proof = true
+info_title_id = [198, 10]
+init_tiles = [20, 20]
+wall_type = "large_stepped_pyramid_wall"
+
+[[building]]
+id = 251
+key = "stepped_pyramid_complex"
+size = 2
+image = { pack = "stepped_pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_building_stepped_pyramid"
+build_menu_text = "Stepped Pyramid Complex"
+cone_type = "large_stepped_pyramid_cone"
+corner_type = "large_stepped_pyramid_corner"
+damage_proof = true
+enter_offset = [2, 20]
+filler_type = "large_stepped_pyramid"
+fire_proof = true
+info_title_id = [198, 11]
+init_tiles = [20, 20]
+wall_type = "large_stepped_pyramid_wall"
+
+[[building]]
+id = 252
+key = "grand_stepped_pyramid_complex"
+size = 2
+image = { pack = "stepped_pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_building_stepped_pyramid"
+build_menu_text = "Grand Stepped Pyramid Complex"
+cone_type = "large_stepped_pyramid_cone"
+corner_type = "large_stepped_pyramid_corner"
+damage_proof = true
+enter_offset = [2, 20]
+filler_type = "grand_stepped_pyramid_complex"
+fire_proof = true
+info_title_id = [198, 12]
+init_tiles = [20, 20]
+wall_type = "large_stepped_pyramid_wall"
+
+[[building]]
+id = 253
+key = "small_pyramid"
+size = 2
+image = { pack = "Pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_true_pyramid"
+build_menu_text = "Small Pyramid"
+cone_type = "small_pyramid_cone"
+corner_type = "small_pyramid_corner"
+damage_proof = true
+enter_offset = [1, 8]
+filler_type = "small_pyramid"
+fire_proof = true
+info_title_id = [198, 13]
+init_tiles = [8, 8]
+stair_0_0_offset = [2, 8]
+stair_0_1_offset = [4, 8]
+stair_0_4_corner_offset = [6, 6]
+stair_0_4_offset = [6, 8]
+stair_0_5_offset = [6, 5]
+stair_0_6_offset = [6, 4]
+wall_type = "small_pyramid_wall"
+
+[[building]]
+id = 254
+key = "medium_pyramid"
+size = 2
+image = { pack = "Pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_true_pyramid"
+build_menu_text = "Medium Pyramid"
+cone_type = "medium_pyramid_cone"
+corner_type = "medium_pyramid_corner"
+damage_proof = true
+enter_offset = [2, 12]
+filler_type = "medium_pyramid"
+fire_proof = true
+info_title_id = [198, 13]
+init_tiles = [12, 12]
+wall_type = "medium_pyramid_wall"
+
+[[building]]
+id = 255
+key = "large_pyramid"
+size = 2
+image = { pack = "Pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_true_pyramid"
+build_menu_text = "Large Pyramid"
+cone_type = "large_pyramid_cone"
+corner_type = "large_pyramid_corner"
+damage_proof = true
+enter_offset = [2, 20]
+filler_type = "large_pyramid"
+fire_proof = true
+info_title_id = [198, 14]
+init_tiles = [20, 20]
+wall_type = "large_pyramid_wall"
+
+[[building]]
+id = 256
+key = "pyramid_complex"
+size = 2
+image = { pack = "Pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_true_pyramid"
+build_menu_text = "Pyramid Complex"
+cone_type = "large_pyramid_cone"
+corner_type = "large_pyramid_corner"
+damage_proof = true
+enter_offset = [2, 20]
+filler_type = "pyramid_complex"
+fire_proof = true
+info_title_id = [198, 15]
+init_tiles = [20, 20]
+wall_type = "large_pyramid_wall"
+
+[[building]]
+id = 257
+key = "grand_pyramid_complex"
+size = 2
+image = { pack = "Pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_true_pyramid"
+build_menu_text = "Grand Pyramid Complex"
+cone_type = "large_pyramid_cone"
+corner_type = "large_pyramid_corner"
+damage_proof = true
+enter_offset = [2, 20]
+filler_type = "grand_pyramid_complex"
+fire_proof = true
+info_title_id = [198, 16]
+init_tiles = [20, 20]
+wall_type = "large_pyramid_wall"
+
+[[building]]
+id = 258
+key = "small_mastaba"
+size = 2
+image = { pack = "mastaba", group = 2, offset = 7 }
+anims = { preview = { pack = "mastaba", group = 2, offset = 7 }, base_bricks = { pack = "mastaba", group = 1, offset = 0 }, clear_land = { pack = "mastaba", group = 2, offset = 12 } }
+flags = ["is_monument", "allow_rotate"]
+text_id = 178
+help = "message_building_mastaba"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 18]
+init_tiles = [10, 4]
+
+[[building]]
+id = 259
+key = "medium_mastaba"
+size = 2
+image = { pack = "mastaba", group = 2, offset = 7 }
+anims = { preview = { pack = "mastaba", group = 2, offset = 7 }, base_bricks = { pack = "mastaba", group = 1, offset = 0 }, clear_land = { pack = "mastaba", group = 2, offset = 12 } }
+flags = ["is_monument", "allow_rotate"]
+text_id = 178
+help = "message_building_mastaba"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 19]
+init_tiles = [14, 6]
+
+[[building]]
+id = 260
+key = "large_mastaba"
+size = 2
+image = { pack = "mastaba", group = 2, offset = 7 }
+anims = { preview = { pack = "mastaba", group = 2, offset = 7 }, base_bricks = { pack = "mastaba", group = 1, offset = 0 }, clear_land = { pack = "mastaba", group = 2, offset = 12 } }
+flags = ["is_monument", "allow_rotate"]
+text_id = 178
+help = "message_building_mastaba"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 20]
+init_tiles = [18, 8]
+
+[[building]]
+id = 262
+key = "small_obelisk"
+size = 3
+image = { pack = "obelisk3x3a", group = 1, offset = 0 }
+anims = { sa = { pack = "obelisk3x3a", group = 1, offset = 0 }, sb = { pack = "obelisk3x3b", group = 1, offset = 0 }, sc = { pack = "obelisk3x3c", group = 1, offset = 0 }, sd = { pack = "obelisk3x3d", group = 1, offset = 0 }, ladder = { pack = "obelisk_extra", group = 1, offset = 0 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_building_obelisk"
+art_stages = 4
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 22]
+timber_loads = [200, 200, 200]
+
+[[building]]
+id = 263
+key = "large_obelisk"
+size = 5
+image = { pack = "obelisk5x5a", group = 1, offset = 0 }
+anims = { sa = { pack = "obelisk5x5a", group = 1, offset = 0 }, sb = { pack = "obelisk5x5b", group = 1, offset = 0 }, sc = { pack = "obelisk5x5c", group = 1, offset = 0 }, sd = { pack = "obelisk5x5d", group = 1, offset = 0 }, se = { pack = "obelisk5x5e", group = 1, offset = 0 }, sf = { pack = "obelisk5x5f", group = 1, offset = 0 }, ladder = { pack = "obelisk_extra", group = 1, offset = 0 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_building_obelisk"
+art_stages = 6
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 23]
+timber_loads = [400, 400, 400, 200]
+
+[[building]]
+id = 264
+key = "sun_temple"
+size = 10
+image = { pack = "suntemple1", group = 1, offset = 0 }
+anims = { sa1 = { pack = "suntemple1", group = 1, offset = 0 }, sb1 = { pack = "suntemple2", group = 1, offset = 0 }, sc1 = { pack = "suntemple3", group = 1, offset = 0 }, sd1 = { pack = "suntemple3", group = 1, offset = 0 }, hall1 = { pack = "sun_temple_extra", group = 1, offset = 0 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_building_sun_temple"
+art_stages = 4
+build_sandstone = 160
+damage_proof = true
+fire_proof = true
+hall_size = [3, 3]
+info_sound = "Wavs/rock3.wav"
+info_title_id = [198, 24]
+init_tiles = [10, 15]
+path_size = [8, 2]
+sandstone_loads = [160]
+timber_loads = [100]
+
+[[building]]
+id = 277
+key = "small_mastaba_side"
+size = 2
+show_in_debug = false
+
+[[building]]
+id = 278
+key = "small_mastaba_wall"
+size = 2
+show_in_debug = false
+
+[[building]]
+id = 279
+key = "small_mastaba_entrance"
+size = 2
+show_in_debug = false
+
+[[building]]
+id = 296
+key = "medium_mastaba_side"
+size = 2
+show_in_debug = false
+
+[[building]]
+id = 297
+key = "medium_mastaba_wall"
+size = 2
+show_in_debug = false
+
+[[building]]
+id = 298
+key = "medium_mastaba_entrance"
+size = 2
+show_in_debug = false
+
+[[building]]
+id = 299
+key = "temple_complex_altar_amon"
+size = 3
+labor = "religion"
+image = { pack = "Temple_nile", group = 7, offset = 0 }
+anims = { base_n = { pack = "Temple_nile", group = 2, offset = 3 }, base_w = { pack = "Temple_nile", group = 2, offset = 0 }, base_e = { pack = "Temple_nile", group = 2, offset = 0 }, base_s = { pack = "Temple_nile", group = 2, offset = 3 }, fancy_n = { pack = "Temple_nile", group = 7, offset = 0 }, fancy_w = { pack = "Temple_nile", group = 7, offset = 1 } }
+needs = ["altar"]
+build_menu_text = [189, 4]
+damage_proof = true
+fire_proof = true
+
+[[building]]
+id = 300
+key = "temple_complex_oracle_thoth"
+size = 3
+labor = "religion"
+image = { pack = "Temple_nile", group = 7, offset = 2 }
+anims = { base_n = { pack = "Temple_nile", group = 3, offset = 3 }, base_w = { pack = "Temple_nile", group = 1, offset = 0 }, base_e = { pack = "Temple_nile", group = 3, offset = 0 }, base_s = { pack = "Temple_nile", group = 1, offset = 3 }, fancy_n = { pack = "Temple_nile", group = 7, offset = 2 }, fancy_w = { pack = "Temple_nile", group = 7, offset = 3 } }
+needs = ["oracle"]
+build_menu_text = [189, 5]
+damage_proof = true
+fire_proof = true
+
+[[building]]
+id = 302
+key = "tower_gatehouse"
+size = 2
+image = { pack = "Pharaoh_General", group = 213, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 213, offset = 0 }, base_osiris = { pack = "Pharaoh_General", group = 213, offset = 0 }, base_ra = { pack = "Pharaoh_General", group = 214, offset = 0 }, base_ptah = { pack = "Pharaoh_General", group = 215, offset = 0 }, base_seth = { pack = "Pharaoh_General", group = 216, offset = 0 }, base_bast = { pack = "Pharaoh_General", group = 217, offset = 0 } }
+flags = ["is_defense", "is_wall"]
+text_id = 90
+help = "message_building_defensive_structures"
+info_title_id = "#tower_gatehouse"
+
+[[building]]
+id = 303
+key = "temple_complex_altar_anubis"
+size = 3
+labor = "religion"
+image = { pack = "Temple_seth", group = 7, offset = 0 }
+anims = { base_n = { pack = "Temple_seth", group = 2, offset = 3 }, base_w = { pack = "Temple_seth", group = 2, offset = 0 }, base_e = { pack = "Temple_seth", group = 2, offset = 0 }, base_s = { pack = "Temple_seth", group = 2, offset = 3 }, fancy_n = { pack = "Temple_seth", group = 7, offset = 1 }, fancy_w = { pack = "Temple_seth", group = 7, offset = 0 }, fancy_e = { pack = "Temple_seth", group = 7, offset = 0 }, fancy_s = { pack = "Temple_seth", group = 7, offset = 1 } }
+needs = ["altar"]
+build_menu_text = [189, 6]
+damage_proof = true
+fire_proof = true
+
+[[building]]
+id = 304
+key = "temple_complex_oracle_sekhmet"
+size = 3
+labor = "religion"
+image = { pack = "Temple_seth", group = 7, offset = 2 }
+anims = { base_n = { pack = "Temple_seth", group = 3, offset = 3 }, base_w = { pack = "Temple_seth", group = 1, offset = 0 }, base_e = { pack = "Temple_seth", group = 3, offset = 0 }, base_s = { pack = "Temple_seth", group = 1, offset = 3 }, fancy_n = { pack = "Temple_seth", group = 7, offset = 3 }, fancy_w = { pack = "Temple_seth", group = 7, offset = 2 }, fancy_e = { pack = "Temple_seth", group = 7, offset = 2 }, fancy_s = { pack = "Temple_seth", group = 7, offset = 3 } }
+needs = ["oracle"]
+build_menu_text = [189, 7]
+damage_proof = true
+fire_proof = true
+
+[[building]]
+id = 305
+key = "temple_complex_altar_sebek"
+size = 3
+labor = "religion"
+image = { pack = "Temple_ra", group = 7, offset = 0 }
+anims = { base_n = { pack = "Temple_ra", group = 2, offset = 3 }, base_w = { pack = "Temple_ra", group = 2, offset = 0 }, base_e = { pack = "Temple_ra", group = 2, offset = 0 }, base_s = { pack = "Temple_ra", group = 2, offset = 3 }, fancy_n = { pack = "Temple_ra", group = 7, offset = 1 }, fancy_w = { pack = "Temple_ra", group = 7, offset = 0 }, fancy_e = { pack = "Temple_ra", group = 7, offset = 0 }, fancy_s = { pack = "Temple_ra", group = 7, offset = 1 } }
+needs = ["altar"]
+build_menu_text = [189, 0]
+damage_proof = true
+fire_proof = true
+
+[[building]]
+id = 306
+key = "temple_complex_oracle_min"
+size = 3
+labor = "religion"
+image = { pack = "Temple_ra", group = 7, offset = 2 }
+anims = { base_n = { pack = "Temple_ra", group = 3, offset = 3 }, base_w = { pack = "Temple_ra", group = 1, offset = 0 }, base_e = { pack = "Temple_ra", group = 3, offset = 0 }, base_s = { pack = "Temple_ra", group = 1, offset = 3 }, fancy_n = { pack = "Temple_ra", group = 7, offset = 3 }, fancy_w = { pack = "Temple_ra", group = 7, offset = 2 }, fancy_e = { pack = "Temple_ra", group = 7, offset = 2 }, fancy_s = { pack = "Temple_ra", group = 7, offset = 3 } }
+needs = ["oracle"]
+build_menu_text = [189, 1]
+damage_proof = true
+fire_proof = true
+
+[[building]]
+id = 307
+key = "temple_complex_altar_maat"
+size = 3
+labor = "religion"
+image = { pack = "Temple_ra", group = 7, offset = 0 }
+anims = { base_n = { pack = "Temple_ra", group = 2, offset = 3 }, base_w = { pack = "Temple_ra", group = 2, offset = 0 }, base_e = { pack = "Temple_ra", group = 2, offset = 0 }, base_s = { pack = "Temple_ra", group = 2, offset = 3 }, fancy_n = { pack = "Temple_ra", group = 7, offset = 1 }, fancy_w = { pack = "Temple_ra", group = 7, offset = 0 }, fancy_e = { pack = "Temple_ra", group = 7, offset = 0 }, fancy_s = { pack = "Temple_ra", group = 7, offset = 1 } }
+needs = ["altar"]
+build_menu_text = [189, 2]
+damage_proof = true
+fire_proof = true
+
+[[building]]
+id = 308
+key = "temple_complex_oracle_horus"
+size = 3
+labor = "religion"
+image = { pack = "Temple_ptah", group = 7, offset = 2 }
+anims = { base_n = { pack = "Temple_ptah", group = 3, offset = 3 }, base_w = { pack = "Temple_ptah", group = 1, offset = 0 }, base_e = { pack = "Temple_ptah", group = 3, offset = 0 }, base_s = { pack = "Temple_ptah", group = 1, offset = 3 }, fancy_n = { pack = "Temple_ptah", group = 7, offset = 3 }, fancy_w = { pack = "Temple_ptah", group = 7, offset = 2 }, fancy_e = { pack = "Temple_ptah", group = 7, offset = 2 }, fancy_s = { pack = "Temple_ptah", group = 7, offset = 3 } }
+needs = ["oracle"]
+build_menu_text = [189, 3]
+damage_proof = true
+fire_proof = true
+
+[[building]]
+id = 309
+key = "temple_complex_altar_isis"
+size = 3
+labor = "religion"
+image = { pack = "Temple_bast", group = 7, offset = 0 }
+anims = { base_n = { pack = "Temple_bast", group = 2, offset = 3 }, base_w = { pack = "Temple_bast", group = 2, offset = 0 }, base_e = { pack = "Temple_bast", group = 2, offset = 0 }, base_s = { pack = "Temple_bast", group = 2, offset = 3 }, fancy_n = { pack = "Temple_bast", group = 7, offset = 1 }, fancy_w = { pack = "Temple_bast", group = 7, offset = 0 }, fancy_e = { pack = "Temple_bast", group = 7, offset = 0 }, fancy_s = { pack = "Temple_bast", group = 7, offset = 1 } }
+needs = ["altar"]
+build_menu_text = [189, 8]
+damage_proof = true
+fire_proof = true
+
+[[building]]
+id = 310
+key = "temple_complex_oracle_hathor"
+size = 3
+labor = "religion"
+image = { pack = "Temple_bast", group = 7, offset = 2 }
+anims = { base_n = { pack = "Temple_bast", group = 3, offset = 3 }, base_w = { pack = "Temple_bast", group = 1, offset = 0 }, base_e = { pack = "Temple_bast", group = 3, offset = 0 }, base_s = { pack = "Temple_bast", group = 1, offset = 3 }, fancy_n = { pack = "Temple_bast", group = 7, offset = 3 }, fancy_w = { pack = "Temple_bast", group = 7, offset = 2 }, fancy_e = { pack = "Temple_bast", group = 7, offset = 2 }, fancy_s = { pack = "Temple_bast", group = 7, offset = 3 } }
+needs = ["oracle"]
+build_menu_text = [189, 9]
+damage_proof = true
+fire_proof = true
+
+[[building]]
+id = 311
+key = "barley_meadow_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 225, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 225, offset = 0, frames = 1 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 225, offset = 1 }, farmland_watered = { pack = "Pharaoh_General", group = 225, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 0 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry", "is_food"]
+outputs = ["barley"]
+text_id = 112
+help = "message_building_barley_flax_henna_farm"
+build_menu_text = "Barley Meadow Farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/barleyfarm.wav"
+month_harvest = ["february", "august"]
+progress_max = 2000
+sound_channel = "city_grain_farm"
+
+[[building]]
+id = 312
+key = "flax_meadow_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 225, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 225, offset = 0, frames = 1 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 225, offset = 1 }, farmland_watered = { pack = "Pharaoh_General", group = 225, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 36 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry", "is_food"]
+outputs = ["flax"]
+text_id = 112
+help = "message_building_barley_flax_henna_farm"
+build_menu_text = "Flax Meadow Farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/flaxfarm.wav"
+month_harvest = ["december"]
+progress_max = 2000
+sound_channel = "city_grain_farm"
+
+[[building]]
+id = 313
+key = "grain_meadow_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 225, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 225, offset = 0, frames = 1 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 225, offset = 1 }, farmland_watered = { pack = "Pharaoh_General", group = 225, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 12 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry", "is_food"]
+outputs = ["grain", "straw"]
+text_id = 112
+help = "message_building_grain_farm"
+build_menu_text = "Grain Meadow Farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/farm1.wav"
+month_harvest = ["january", "may"]
+output_resource_second_rate = 10
+progress_max = 2000
+sound_channel = "city_grain_farm"
+
+[[building]]
+id = 314
+key = "lettuce_meadow_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 225, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 225, offset = 0, frames = 1 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 225, offset = 1 }, farmland_watered = { pack = "Pharaoh_General", group = 225, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 18 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry", "is_food"]
+outputs = ["lettuce"]
+text_id = 112
+help = "message_building_fruit_vegetables_farm"
+build_menu_text = "Lettuce Meadow Farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/lettucefarm.wav"
+month_harvest = ["april"]
+progress_max = 2000
+sound_channel = "city_fig_farm"
+
+[[building]]
+id = 315
+key = "pomegranates_meadow_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 225, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 225, offset = 0, frames = 1 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 225, offset = 1 }, farmland_watered = { pack = "Pharaoh_General", group = 225, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 24 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry", "is_food"]
+outputs = ["pomegranates"]
+text_id = 112
+help = "message_building_fruit_vegetables_farm"
+build_menu_text = "Pomegranates Meadow Farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/pomfarm.wav"
+month_harvest = ["june", "november"]
+progress_max = 2000
+sound_channel = "city_fig_farm"
+
+[[building]]
+id = 316
+key = "chickpeas_meadow_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 225, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 225, offset = 0, frames = 1 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 225, offset = 1 }, farmland_watered = { pack = "Pharaoh_General", group = 225, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 30 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry", "is_food"]
+outputs = ["chickpeas"]
+text_id = 112
+help = "message_building_fruit_vegetables_farm"
+build_menu_text = "Chickpeas Meadow Farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/chickfarm.wav"
+month_harvest = ["april"]
+progress_max = 2000
+sound_channel = "city_chickfarm"
+
+[[building]]
+id = 317
+key = "henna_meadow_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 225, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 225, offset = 0, frames = 1 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 225, offset = 1 }, farmland_watered = { pack = "Pharaoh_General", group = 225, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 30 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry"]
+outputs = ["henna"]
+text_id = 112
+help = "message_building_barley_flax_henna_farm"
+build_menu_text = "Henna Meadow Farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/farm2.wav"
+month_harvest = ["december"]
+progress_max = 2000
+sound_channel = "city_grain_farm"
+
+[[building]]
+id = 318
+key = "figs_meadow_farm"
+size = 3
+labor = "food_production"
+image = { pack = "Pharaoh_General", group = 225, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 225, offset = 0, frames = 1 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 225, offset = 1 }, farmland_watered = { pack = "Pharaoh_General", group = 225, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 6 } }
+needs = ["meadow"]
+flags = ["is_farm", "is_industry", "is_food"]
+outputs = ["figs"]
+text_id = 112
+help = "message_building_fruit_vegetables_farm"
+build_menu_text = "Figs Meadow Farm"
+damage_proof = true
+fire_proof = true
+info_sound = "Wavs/figs_farm.wav"
+month_harvest = ["september"]
+progress_max = 2000
+sound_channel = "city_fig_farm"
+
+[[building]]
+id = 319
+key = "small_stepped_pyramid"
+size = 2
+image = { pack = "stepped_pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_building_stepped_pyramid"
+build_menu_text = "Small Stepped Pyramid"
+cone_type = "small_stepped_pyramid_cone"
+corner_type = "small_stepped_pyramid_corner"
+damage_proof = true
+enter_offset = [1, 8]
+filler_type = "small_stepped_pyramid"
+fire_proof = true
+info_title_id = [198, 8]
+init_tiles = [8, 8]
+wall_type = "small_stepped_pyramid_wall"
+
+[[building]]
+id = 324
+key = "medium_stepped_pyramid"
+size = 2
+image = { pack = "stepped_pyramid", group = 2, offset = 7 }
+anims = { preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
+flags = ["is_monument"]
+text_id = 178
+help = "message_building_stepped_pyramid"
+build_menu_text = "Medium Stepped Pyramid"
+cone_type = "medium_stepped_pyramid_cone"
+corner_type = "medium_stepped_pyramid_corner"
+damage_proof = true
+enter_offset = [2, 12]
+filler_type = "medium_stepped_pyramid"
+fire_proof = true
+info_title_id = [198, 9]
+init_tiles = [12, 12]
+wall_type = "medium_stepped_pyramid_wall"
+
+[[building]]
+id = 337
+key = "dike"
+size = 1
+image = { pack = "Pharaoh_General", group = 138, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 138, offset = 27 } }
+flags = ["is_infrastructure", "no_road_access"]
+build_menu_text = "#building_dike"
+damage_proof = true
+fire_proof = true
+info_title_id = "#building_dike"
+
+[[building]]
+id = 357
+key = "large_mastaba_side"
+size = 2
+show_in_debug = false
+
+[[building]]
+id = 358
+key = "large_mastaba_wall"
+size = 2
+show_in_debug = false
+
+[[building]]
+id = 359
+key = "large_mastaba_entrance"
+size = 2
+show_in_debug = false
+
+[[building]]
+id = 360
+key = "food_mill"
+size = 3
+labor = "food_production"
+figure = "storageyard_cart"
+image = { pack = "Pharaoh_Terrain", group = 21, offset = 0 }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 21, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 } }
+flags = ["is_food", "keeps_visitor_paths"]
+text_id = 98
+help = "message_building_granary"
+build_menu_text = "#building_food_mill"
+info_sound = "Wavs/MARKET.WAV"
+info_title_id = "#building_food_mill"
+max_capacity_stored = 1600
+max_per_type = 800
+max_search_distance = 40
+min_houses_coverage = 100
+min_workers_percent_for_tasks = 50
+
+[[building]]
+id = 361
+key = "industry_office"
+size = 2
+labor = "government"
+image = { pack = "Pharaoh_Terrain", group = 21, offset = 0 }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 21, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 } }
+flags = ["is_administration"]
+inputs = ["papyrus"]
+text_id = 97
+help = "message_game_concept_industry"
+build_menu_text = "#building_industry_office"
+info_sound = "Wavs/forum.WAV"
+info_title_id = "#building_industry_office"
+management_radius = 7
+max_storage_amount = 100

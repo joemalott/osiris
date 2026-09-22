@@ -1,12 +1,19 @@
 use anyhow::{Context, Result, bail};
-use osiris_formats::{ChunkFile, Layout, MissionPak, Scenario, Sg3, Sprite};
+use osiris_formats::campaign::CampaignEntry;
+use osiris_formats::{
+    Campaign, ChunkFile, Layout, MessageTable, MissionPak, Model, Scenario, Sg3, Sprite, TextTable,
+};
 use std::path::{Path, PathBuf};
 
 const USAGE: &str = "usage:
   osiris-tools check-sg3 <Data dir>                  decode every image in every .sg3
   osiris-tools dump-sprites <Data dir> <pak> <out>   write each image of <pak> as PNG
   osiris-tools info <Data dir> <pak>                 list groups and records
-  osiris-tools check-maps <game dir>                 parse every .map and campaign mission";
+  osiris-tools check-maps <game dir>                 parse every .map and campaign mission
+  osiris-tools text <game dir> <group>               print all strings of a text group
+  osiris-tools message <game dir> <id>               print one Pharaoh_MM.eng entry
+  osiris-tools model <game dir> <difficulty>         print buildings/houses/figures for a difficulty
+  osiris-tools campaign <game dir>                   print the campaign.txt structure";
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -20,8 +27,13 @@ fn main() -> Result<()> {
         ["dump-sprites", dir, pak, out] => dump_sprites(Path::new(dir), pak, Path::new(out)),
         ["info", dir, pak] => info(Path::new(dir), pak),
         ["check-maps", dir] => check_maps(Path::new(dir)),
+        ["goals", dir, what] => goals(Path::new(dir), what),
         ["image-histogram", dir, what] => image_histogram(Path::new(dir), what),
         ["dump-grids", dir, what, out] => dump_grids(Path::new(dir), what, Path::new(out)),
+        ["text", dir, group] => text_cmd(Path::new(dir), group),
+        ["message", dir, id] => message_cmd(Path::new(dir), id),
+        ["model", dir, difficulty] => model_cmd(Path::new(dir), difficulty),
+        ["campaign", dir] => campaign_cmd(Path::new(dir)),
         _ => bail!("{USAGE}"),
     }
 }
@@ -221,5 +233,137 @@ fn dump_grids(game: &Path, what: &str, out: &Path) -> Result<()> {
     buf.extend_from_slice(&s.edges);
     buf.extend(s.terrain.iter().flat_map(|v| v.to_le_bytes()));
     std::fs::write(out, buf)?;
+    Ok(())
+}
+
+fn goals(game: &Path, what: &str) -> Result<()> {
+    let s = load_any(game, what)?;
+    let i = &s.info;
+    println!(
+        "{} | funds {} | year {} | rank {} | open_play {}",
+        i.subtitle, i.initial_funds, i.start_year, i.player_rank, i.is_open_play
+    );
+    println!("{:#?}", i.win);
+    println!(
+        "gods_known {:?} empire {} climate {} animals {}",
+        i.gods_known, i.empire_id, i.climate, i.has_animals
+    );
+    println!("reserved (allowed-building flags?) {:?}", i.reserved);
+    Ok(())
+}
+
+fn text_cmd(game: &Path, group: &str) -> Result<()> {
+    let data = std::fs::read(game.join("Pharaoh_Text.eng"))?;
+    let table = TextTable::parse(&data)?;
+    let group: usize = group.parse().context("group must be a number")?;
+    let len = table.group_len(group);
+    if len == 0 {
+        bail!(
+            "group {group} is empty or unused ({} groups total)",
+            table.group_count()
+        );
+    }
+    for i in 0..len {
+        println!("{i:4} {:?}", table.get(group, i).unwrap());
+    }
+    Ok(())
+}
+
+fn message_cmd(game: &Path, id: &str) -> Result<()> {
+    let data = std::fs::read(game.join("Pharaoh_MM.eng"))?;
+    let table = MessageTable::parse(&data)?;
+    let id: usize = id.parse().context("id must be a number")?;
+    let m = table
+        .get(id)
+        .with_context(|| format!("no message {id} ({} entries total)", table.len()))?;
+    println!(
+        "id={} kind={} category={} data={} pos={:?} size={:?} delay={}",
+        m.id, m.kind, m.category, m.data, m.pos, m.size, m.delay
+    );
+    println!("image1={:?} image2={:?}", m.image1, m.image2);
+    println!("video={:?} sound={:?}", m.video, m.sound);
+    println!("title: {:?}", m.title);
+    println!("subtitle: {:?}", m.subtitle);
+    println!("content:\n{}", m.content);
+    Ok(())
+}
+
+fn model_cmd(game: &Path, difficulty: &str) -> Result<()> {
+    let path = game.join(format!("Pharaoh_Model_{difficulty}.txt"));
+    let text = std::fs::read_to_string(&path).with_context(|| path.display().to_string())?;
+    let model = Model::parse(&text)?;
+    println!(
+        "{}: {} buildings, {} houses",
+        path.display(),
+        model.buildings.len(),
+        model.houses.len()
+    );
+    for b in &model.buildings {
+        println!(
+            "  building {:3} {:24} cost={:<6} employees={}",
+            b.id, b.name, b.cost, b.employees
+        );
+    }
+    for h in &model.houses {
+        println!(
+            "  house {:2} {:34} capacity={:<6} tax_mult={}",
+            h.level, h.name, h.capacity, h.tax_multiplier
+        );
+    }
+
+    let figure_path = game.join(format!("Figure_model_{}.txt", difficulty.to_lowercase()));
+    let figure_text =
+        std::fs::read_to_string(&figure_path).with_context(|| figure_path.display().to_string())?;
+    let figures = osiris_formats::model::parse_figures(&figure_text)?;
+    println!("{}: {} figures", figure_path.display(), figures.len());
+    for f in &figures {
+        println!(
+            "  figure {:3} {:28} {:9} hp={} attack={}",
+            f.id,
+            f.name,
+            f.category.as_deref().unwrap_or(""),
+            f.hit_points,
+            f.attack
+        );
+    }
+    Ok(())
+}
+
+fn campaign_cmd(game: &Path) -> Result<()> {
+    let text = std::fs::read_to_string(game.join("campaign.txt"))?;
+    let c = Campaign::parse(&text)?;
+    println!(
+        "{} mission names, {} sections",
+        c.mission_names.len(),
+        c.sections.len()
+    );
+    for (i, name) in c.mission_names.iter().enumerate() {
+        println!("  mission name {i:3} {name}");
+    }
+    for section in &c.sections {
+        println!("[{}]", section.name);
+        for entry in &section.entries {
+            match entry {
+                CampaignEntry::Mission(m) => println!(
+                    "  mission {:3} intro_mm={} victory_text={} path={} merge={:?}",
+                    m.id, m.intro_mm, m.victory_text, m.path_id, m.merge_paths
+                ),
+                CampaignEntry::ChoiceScreen { screen, choices } => {
+                    println!(
+                        "  choicescreen graphic={} title_text={} choices={}",
+                        screen.graphic_id,
+                        screen.title_text_id,
+                        choices.len()
+                    );
+                    for choice in choices {
+                        println!(
+                            "    choice path={} pos=({},{}) text={}",
+                            choice.path_id, choice.x, choice.y, choice.text_id
+                        );
+                    }
+                }
+            }
+        }
+    }
     Ok(())
 }
