@@ -1,0 +1,370 @@
+# City ambience map for Osiris: which looping WAV/MP3 under PharaohData/AUDIO plays for
+# each building type that is currently on screen.
+#
+# Facts sourced from the Akhenaten reimplementation (read-only, facts only):
+#   - crates/pharaoh/Akhenaten/src/scripts/city/sounds.js: the explicit channel -> file table
+#     (`city_sounds` array), the ground truth for which asset backs each ambience channel.
+#   - crates/pharaoh/Akhenaten/src/sound/sound_city.cpp (`building_type_to_channel`): which
+#     building types share a channel, most notably the five house-tier channels
+#     (SOUND_CHANNEL_CITY_HOUSE_SLUM/POOR/MEDIUM/GOOD/POSH).
+#   - `id` below is osiris-sim's `crates/osiris-sim/data/buildings.toml` building id; `key` is
+#     that same file's snake_case building key, kept here only for readability.
+#   - `file` is relative to PharaohData/AUDIO/ (i.e. resolved as AUDIO/<file>).
+#
+# House tiers: the original switch statement lists 19 house building types across 5 tiers
+# (4/4/4/4/3). osiris-sim's buildings.toml has 20 house ids (10..29); the 20th id
+# (26, house_elegant_manor) has no unambiguous match in the switch statement excerpt available,
+# so it is assigned to the HOUSE_POSH tier by even split (4/4/4/4/4) rather than guessed
+# individually. This is a documented simplification, not a verified fact.
+#
+# `dentist` (id 49) and `physician` (id 206) are Akhenaten-only buildings added beyond the
+# original 1999 Pharaoh roster; PharaohData ships no dedicated ambience WAV for them.
+# `physician` reuses the apothecary channel's file (both are "doctor" health buildings in
+# Akhenaten's own channel list) since Akhenaten defines a PHYSICIAN channel pointing at a
+# `physician.wav` that does not exist in the original data; `dentist` has no reasonable
+# original-asset substitute and is left out entirely (no ambience for it).
+
+[[channel]]
+id = 10
+key = "house_crude_hut"
+file = "Ambient/HOUSING1.MP3"
+
+[[channel]]
+id = 11
+key = "house_sturdy_hut"
+file = "Ambient/HOUSING1.MP3"
+
+[[channel]]
+id = 12
+key = "house_meager_shanty"
+file = "Ambient/HOUSING1.MP3"
+
+[[channel]]
+id = 13
+key = "house_common_shanty"
+file = "Ambient/HOUSING1.MP3"
+
+[[channel]]
+id = 14
+key = "house_rough_cottage"
+file = "Ambient/HOUSING2.MP3"
+
+[[channel]]
+id = 15
+key = "house_ordinary_cottage"
+file = "Ambient/HOUSING2.MP3"
+
+[[channel]]
+id = 16
+key = "house_modest_homestead"
+file = "Ambient/HOUSING2.MP3"
+
+[[channel]]
+id = 17
+key = "house_spacious_homestead"
+file = "Ambient/HOUSING2.MP3"
+
+[[channel]]
+id = 18
+key = "house_modest_apartment"
+file = "Ambient/HOUSING3.MP3"
+
+[[channel]]
+id = 19
+key = "house_spacious_apartment"
+file = "Ambient/HOUSING3.MP3"
+
+[[channel]]
+id = 20
+key = "house_common_residence"
+file = "Ambient/HOUSING3.MP3"
+
+[[channel]]
+id = 21
+key = "house_spacious_residence"
+file = "Ambient/HOUSING3.MP3"
+
+[[channel]]
+id = 22
+key = "house_elegant_residence"
+file = "Ambient/HOUSING4.MP3"
+
+[[channel]]
+id = 23
+key = "house_fancy_residence"
+file = "Ambient/HOUSING4.MP3"
+
+[[channel]]
+id = 24
+key = "house_common_manor"
+file = "Ambient/HOUSING4.MP3"
+
+[[channel]]
+id = 25
+key = "house_spacious_manor"
+file = "Ambient/HOUSING4.MP3"
+
+[[channel]]
+id = 26
+key = "house_elegant_manor"
+file = "Ambient/HOUSING5.MP3"
+
+[[channel]]
+id = 27
+key = "house_stately_manor"
+file = "Ambient/HOUSING5.MP3"
+
+[[channel]]
+id = 28
+key = "house_modest_estate"
+file = "Ambient/HOUSING5.MP3"
+
+[[channel]]
+id = 29
+key = "house_palatial_estate"
+file = "Ambient/HOUSING5.MP3"
+
+[[channel]]
+id = 30
+key = "bandstand"
+file = "Wavs/DANCE.WAV"
+
+[[channel]]
+id = 31
+key = "booth"
+file = "Wavs/JUGGLER.WAV"
+
+[[channel]]
+id = 34
+key = "conservatory"
+file = "Wavs/MUSIC.WAV"
+
+[[channel]]
+id = 35
+key = "dance_school"
+file = "Wavs/dance_school.wav"
+
+[[channel]]
+id = 36
+key = "juggler_school"
+file = "Wavs/juggler_school.wav"
+
+[[channel]]
+id = 41
+key = "small_statue"
+file = "Wavs/STATUE1.WAV"
+
+[[channel]]
+id = 42
+key = "medium_statue"
+file = "Wavs/STATUE1.WAV"
+
+[[channel]]
+id = 43
+key = "large_statue"
+file = "Wavs/STATUE1.WAV"
+
+[[channel]]
+id = 46
+key = "apothecary"
+file = "Wavs/DOCTOR.WAV"
+
+[[channel]]
+id = 47
+key = "mortuary"
+file = "Wavs/EMBALM.WAV"
+
+[[channel]]
+id = 55
+key = "police_station"
+file = "Wavs/POLICE.WAV"
+
+[[channel]]
+id = 60
+key = "temple_osiris"
+file = "Wavs/tem_osiris_l.wav"
+
+[[channel]]
+id = 61
+key = "temple_ra"
+file = "Wavs/TEM_RA_L.WAV"
+
+[[channel]]
+id = 62
+key = "temple_ptah"
+file = "Wavs/tem_ptah_l.wav"
+
+[[channel]]
+id = 63
+key = "temple_seth"
+file = "Wavs/tem_seth_l.wav"
+
+[[channel]]
+id = 64
+key = "temple_bast"
+file = "Wavs/tem_bast_l.wav"
+
+[[channel]]
+id = 70
+key = "bazaar"
+file = "Wavs/MARKET.WAV"
+
+[[channel]]
+id = 71
+key = "granary"
+file = "Wavs/GRANARY1.WAV"
+
+[[channel]]
+id = 72
+key = "storage_yard"
+file = "Wavs/warehouse1.wav"
+
+[[channel]]
+id = 74
+key = "shipwright"
+file = "Wavs/SHIPYRD.WAV"
+
+[[channel]]
+id = 75
+key = "dock"
+file = "Wavs/DOCK1.WAV"
+
+[[channel]]
+id = 81
+key = "architect_post"
+file = "Wavs/ENG.WAV"
+
+[[channel]]
+id = 84
+key = "village_palace"
+file = "Wavs/palace.wav"
+
+[[channel]]
+id = 85
+key = "town_palace"
+file = "Wavs/palace.wav"
+
+[[channel]]
+id = 86
+key = "tax_collector"
+file = "Wavs/TAXFARM.WAV"
+
+[[channel]]
+id = 87
+key = "tax_collector_upgraded"
+file = "Wavs/TAXFARM.WAV"
+
+[[channel]]
+id = 92
+key = "well"
+file = "Wavs/WELL.WAV"
+
+[[channel]]
+id = 99
+key = "burning_ruin"
+file = "Wavs/FIRE.WAV"
+
+[[channel]]
+id = 102
+key = "grain_farm"
+file = "Wavs/wheatfarm.wav"
+
+[[channel]]
+id = 105
+key = "chickpeas_farm"
+file = "Wavs/chickfarm.wav"
+
+[[channel]]
+id = 109
+key = "clay_pit"
+file = "Wavs/CLAY.WAV"
+
+[[channel]]
+id = 110
+key = "brewery_workshop"
+file = "Wavs/BREWERY.WAV"
+
+[[channel]]
+id = 114
+key = "pottery_workshop"
+file = "Wavs/POTTERY.WAV"
+
+[[channel]]
+id = 115
+key = "hunting_lodge"
+file = "Wavs/LO_HUNT.WAV"
+
+[[channel]]
+id = 140
+key = "shrine_osiris"
+file = "Wavs/shr_osiris.wav"
+
+[[channel]]
+id = 141
+key = "shrine_ra"
+file = "Wavs/SHR_RA.WAV"
+
+[[channel]]
+id = 142
+key = "shrine_ptah"
+file = "Wavs/SHR_PTAH.WAV"
+
+[[channel]]
+id = 143
+key = "shrine_seth"
+file = "Wavs/SHR_SETH.WAV"
+
+[[channel]]
+id = 144
+key = "shrine_bast"
+file = "Wavs/SHR_BAST.WAV"
+
+[[channel]]
+id = 161
+key = "gold_mine"
+file = "Wavs/GOLD.WAV"
+
+[[channel]]
+id = 180
+key = "water_supply"
+file = "Wavs/WELL.WAV"
+
+[[channel]]
+id = 189
+key = "city_palace"
+file = "Wavs/palace.wav"
+
+[[channel]]
+id = 194
+key = "cattle_ranch"
+file = "Wavs/cowfarm_r.wav"
+
+[[channel]]
+id = 196
+key = "figs_farm"
+file = "Wavs/FIGFARM.WAV"
+
+[[channel]]
+id = 206
+key = "physician"
+file = "Wavs/DOCTOR.WAV"
+
+[[channel]]
+id = 217
+key = "copper_mine"
+file = "Wavs/GOLD.WAV"
+
+[[channel]]
+id = 313
+key = "grain_meadow_farm"
+file = "Wavs/wheatfarm.wav"
+
+[[channel]]
+id = 316
+key = "chickpeas_meadow_farm"
+file = "Wavs/chickfarm.wav"
+
+[[channel]]
+id = 318
+key = "figs_meadow_farm"
+file = "Wavs/FIGFARM.WAV"

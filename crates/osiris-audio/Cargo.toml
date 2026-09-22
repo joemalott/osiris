@@ -1,0 +1,15 @@
+[package]
+name = "osiris-audio"
+description = "Music, effects, speech and city ambience playback for Osiris"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+rodio = "0.22"
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+thiserror = "2"
+rand = "0.10"
+
+[dev-dependencies]

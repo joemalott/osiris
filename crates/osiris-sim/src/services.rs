@@ -54,7 +54,7 @@ pub fn is_roamer(kind: u16) -> bool {
         kind,
         LABOR_SEEKER | TAX_COLLECTOR | ARCHITECT | FIREMAN | PRIEST | TEACHER | LIBRARIAN | DENTIST | PHYSICIAN
             | HERBALIST | EMBALMER | WATER_CARRIER
-    )
+    ) || kind == crate::food::MARKET_TRADER
 }
 
 impl World {
@@ -65,7 +65,7 @@ impl World {
             .unwrap_or(384) as i32
     }
 
-    fn spawn_roamer(&mut self, home: BuildingId, kind: u16, slot: usize) {
+    pub(crate) fn spawn_roamer(&mut self, home: BuildingId, kind: u16, slot: usize) {
         let Some(b) = self.buildings.get(home) else { return };
         let Some((rx, ry)) = b.road else { return };
         let dir = b.roam_dir;
@@ -130,6 +130,14 @@ impl World {
             }
         }
         let home_kind = self.buildings.get(home).map_or(0, |b| b.kind);
+        if kind == crate::food::MARKET_TRADER {
+            for &id in &seen {
+                if self.buildings.get(id).is_some_and(|b| b.house.as_ref().is_some_and(|h| h.population > 0)) {
+                    self.deliver_food(home, id);
+                    served += 1;
+                }
+            }
+        }
         for id in seen {
             let Some(b) = self.buildings.get_mut(id) else { continue };
             match kind {

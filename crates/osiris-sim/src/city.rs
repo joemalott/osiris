@@ -21,11 +21,18 @@ impl World {
             }
             10 => self.update_desirability(),
             12 => self.decay_houses_covered(),
+            20 => self.update_production(),
             22 => self.update_room(),
             23 => self.update_migration(),
             25 => self.update_labor(),
             27 => self.update_wells(),
-            31 => self.generate_walkers(),
+            28 => self.update_shrines(),
+            31 => {
+                self.generate_walkers();
+                self.send_carts();
+                self.bazaar_walkers();
+                self.lodge_walkers();
+            }
             9 => self.decay_house_services(),
             36 => self.update_culture(),
             38 => self.update_building_desirability(),
@@ -36,9 +43,13 @@ impl World {
             _ => {}
         }
         self.update_figures();
+        if roll.week {
+            self.consume_food();
+        }
         if roll.month {
             self.migration.newcomers_this_month = 0;
             self.advance_month_finance();
+            self.regrow_herds();
         }
         if roll.year {
             self.advance_year_finance();
@@ -53,6 +64,10 @@ impl World {
                 | crate::people::figure_kind::EMIGRANT
                 | crate::people::figure_kind::HOMELESS => self.update_migrant(fid),
                 k if crate::services::is_roamer(k) => self.update_roamer(fid),
+                crate::economy::CART_PUSHER => self.update_cart(fid),
+                crate::food::MARKET_BUYER => self.update_buyer(fid),
+                k if crate::animals::is_animal(k) => self.update_animal(fid),
+                k if crate::animals::is_hunter(k) => self.update_hunter(fid),
                 _ => {}
             }
             if self.figures.get(fid).is_some_and(|f| f.dead) {
@@ -129,6 +144,23 @@ impl World {
             let (x0, y0) = (b.x - WELL_RADIUS, b.y - WELL_RADIUS);
             let (x1, y1) = (b.x + b.size - 1 + WELL_RADIUS, b.y + b.size - 1 + WELL_RADIUS);
             h.well_access = wells.iter().any(|&(wx, wy)| wx >= x0 && wx <= x1 && wy >= y0 && wy <= y1);
+        }
+    }
+
+    /// Tick 28: houses within three tiles of a shrine have access to religion.
+    fn update_shrines(&mut self) {
+        let shrines: Vec<(i32, i32, i32)> = self
+            .buildings
+            .iter()
+            .filter(|b| (kind::SHRINE_OSIRIS..=kind::SHRINE_BAST).contains(&b.kind))
+            .map(|b| (b.x, b.y, b.size))
+            .collect();
+        for b in self.buildings.iter_mut() {
+            let Some(h) = b.house.as_mut() else { continue };
+            let near = shrines.iter().any(|&(sx, sy, ss)| {
+                b.x + b.size - 1 >= sx - 3 && b.x <= sx + ss - 1 + 3 && b.y + b.size - 1 >= sy - 3 && b.y <= sy + ss - 1 + 3
+            });
+            h.coverage.shrine = if near { crate::services::VISIT } else { 0 };
         }
     }
 

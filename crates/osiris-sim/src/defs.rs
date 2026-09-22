@@ -220,6 +220,19 @@ pub struct Defs {
     /// Indexed by figure type id.
     pub figures: Vec<Option<FigureDef>>,
     pub menus: Vec<Menu>,
+    /// Resource keys indexed by resource id.
+    pub resources: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct EnumEntry {
+    id: i32,
+    key: String,
+}
+
+#[derive(Deserialize)]
+struct EnumsFile {
+    resource: Vec<EnumEntry>,
 }
 
 fn resolve(lib: &ImageLibrary, r: &ImageRef) -> Option<Anim> {
@@ -328,14 +341,36 @@ impl Defs {
                 extra: b.extra,
             });
         }
+        // Buildings whose config doesn't name a labor category use the original's table.
+        let labor: toml::Table = toml::from_str(include_str!("../data/labor_categories.toml"))
+            .map_err(|e| format!("labor_categories.toml: {e}"))?;
+        for (id, cat) in &labor {
+            let (Ok(id), Some(cat)) = (id.parse::<usize>(), cat.as_str()) else { continue };
+            if let Some(Some(b)) = buildings.get_mut(id)
+                && b.labor.is_none()
+            {
+                b.labor = Some(cat.to_owned());
+            }
+        }
         let menus: MenusFile = toml::from_str(include_str!("../data/menus.toml"))
             .map_err(|e| format!("menus.toml: {e}"))?;
+        let enums: EnumsFile = toml::from_str(include_str!("../data/enums.toml"))
+            .map_err(|e| format!("enums.toml: {e}"))?;
+        let mut resources = Vec::new();
+        for r in enums.resource {
+            let i = r.id.max(0) as usize;
+            if resources.len() <= i {
+                resources.resize(i + 1, String::new());
+            }
+            resources[i] = r.key;
+        }
         Ok(Self {
             contexts,
             terrain,
             buildings,
             figures,
             menus: menus.menu,
+            resources,
         })
     }
 

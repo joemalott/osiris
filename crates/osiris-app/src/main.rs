@@ -255,7 +255,7 @@ fn run_script(world: &mut World, script: &str) -> Result<Option<(i32, i32)>> {
                 let houses: Vec<String> = world
                     .buildings
                     .iter()
-                    .filter_map(|b| b.house.as_ref().map(|h| format!("({},{})L{}p{}i{}d{}{}", b.x, b.y, h.level, h.population, h.incoming, b.desirability, if h.well_access { "w" } else { "" })))
+                    .filter_map(|b| b.house.as_ref().map(|h| format!("({},{})L{}p{}d{}{}f{:?}{:?}", b.x, b.y, h.level, h.population, b.desirability, if h.well_access { "w" } else { "" }, h.foods, h.blocked_by)))
                     .collect();
                 eprintln!(
                     "{:?} pop {} treasury {} figures {} houses {:?}",
@@ -263,7 +263,8 @@ fn run_script(world: &mut World, script: &str) -> Result<Option<(i32, i32)>> {
                 );
                 eprintln!("  labor {:?} unemployment {}%", world.labor, world.unemployment);
                 for b in world.buildings.iter().filter(|b| !b.is_house()) {
-                    eprintln!("  bld {} kind {} at ({},{}) workers {} covered {} road {:?} walkers {:?}", b.id, b.kind, b.x, b.y, b.workers, b.houses_covered, b.road, b.walkers);
+                    let stock: Vec<(usize, i32)> = b.stock.iter().copied().enumerate().filter(|&(_, v)| v > 0).collect();
+                    eprintln!("  bld {} kind {} at ({},{}) workers {} covered {} road {:?} walkers {:?} stock {:?}", b.id, b.kind, b.x, b.y, b.workers, b.houses_covered, b.road, b.walkers, stock);
                 }
                 for f in world.figures.iter().take(5) {
                     eprintln!(
@@ -291,6 +292,7 @@ fn main() -> Result<()> {
     let balance = Arc::new(Balance::from_model(&model));
     let text = Arc::new(TextTable::parse(&std::fs::read(args.data.join("Pharaoh_Text.eng"))?)?);
     let mut world = World::new(&scenario, defs, balance);
+    world.start(&scenario);
     let script_view = match &args.script {
         Some(s) => run_script(&mut world, s)?,
         None => None,

@@ -13,7 +13,8 @@ impl World {
     pub fn can_place(&self, k: u16, x: i32, y: i32) -> Result<(), &'static str> {
         let def = self.defs.building(k).ok_or("Unknown building")?;
         let size = def.size.max(1);
-        let floodplain_ok = def.needs("floodplain") || (kind::FARM_FIRST..=kind::FARM_LAST).contains(&k);
+        let floodplain_ok =
+            def.needs("floodplain") || (kind::FARM_FIRST..=kind::FARM_LAST).contains(&k) || def.has_flag("is_farm");
         let mut blocked = mask::NOT_CLEAR;
         if floodplain_ok {
             blocked &= !terrain::FLOODPLAIN;
@@ -40,7 +41,20 @@ impl World {
                 return Err("Must be built on the floodplain");
             }
         }
-        if def.needs("meadow") {
+        let near = |mask: u32, radius: i32| self.map.terrain_in_radius(x, y, size, radius, mask);
+        if def.needs("ore") && !near(terrain::ORE, 1) {
+            return Err("Must be built next to ore-bearing rock");
+        }
+        if def.needs("rock") && !def.needs("ore") && !near(terrain::ROCK, 1) {
+            return Err("Must be built next to rock");
+        }
+        if def.needs("nearby_water") && !near(terrain::WATER, 3) {
+            return Err("Must be built near water");
+        }
+        let is_farm = (kind::FARM_FIRST..=kind::FARM_LAST).contains(&k) || def.has_flag("is_farm");
+        let on_floodplain =
+            (y..y + size).all(|yy| (x..x + size).all(|xx| self.map.terrain_is(xx, yy, terrain::FLOODPLAIN)));
+        if def.needs("meadow") && !(is_farm && on_floodplain) {
             let any = (y..y + size).any(|yy| (x..x + size).any(|xx| self.map.terrain_is(xx, yy, terrain::MEADOW)));
             if !any {
                 return Err("Must be built on meadow");

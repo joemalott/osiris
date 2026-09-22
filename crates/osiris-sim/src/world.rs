@@ -70,6 +70,9 @@ pub struct World {
     pub census: crate::census::Census,
     pub labor: crate::labor::Labor,
     pub finance: crate::finance::Finance,
+    /// Gold delivered to the palace since the scenario began.
+    pub gold_delivered: i32,
+    pub herds: Vec<crate::animals::Herd>,
     pub migration_params: crate::people::MigrationParams,
     pub scenario_name: String,
     /// 0 central, 1 northern, 2 desert.
@@ -103,6 +106,8 @@ impl World {
             census: Default::default(),
             labor: Default::default(),
             finance: Default::default(),
+            gold_delivered: 0,
+            herds: Vec::new(),
             migration_params: Default::default(),
             scenario_name: info.subtitle.clone(),
             climate: info.climate,
@@ -110,6 +115,18 @@ impl World {
             exit_point: (info.exit_point.x, info.exit_point.y),
             counters: ContextCounters::default(),
         }
+    }
+
+    /// Starts the scenario: places the herds from the map's prey points.
+    pub fn start(&mut self, scenario: &Scenario) {
+        let points: Vec<(i32, i32, i32)> = scenario
+            .info
+            .prey_herd_points
+            .iter()
+            .filter(|p| p.is_valid())
+            .map(|p| (p.x, p.y, 0))
+            .collect();
+        self.create_herds(&points);
     }
 
     pub fn cost_of(&self, building_type: usize) -> i32 {

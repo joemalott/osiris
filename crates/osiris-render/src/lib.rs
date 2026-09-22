@@ -29,11 +29,33 @@ struct Instance {
     flags: u32,
 }
 
+/// Which texture a [`Batch`] samples from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PageSource {
+    Atlas(u16),
+    Dynamic(u16),
+}
+
 struct Batch {
-    page: u16,
+    source: PageSource,
     start: u32,
     end: u32,
 }
+
+/// A caller-uploaded RGBA image drawn as a single quad, outside the atlas (e.g. a
+/// minimap that's rebuilt in a CPU buffer whenever the map changes). See
+/// [`Renderer::upload_dynamic`].
+struct DynamicTex {
+    key: u32,
+    w: u32,
+    h: u32,
+    texture: wgpu::Texture,
+    bind_group: wgpu::BindGroup,
+}
+
+/// Handle to a texture uploaded with [`Renderer::upload_dynamic`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DynamicHandle(u16);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Camera {
@@ -81,6 +103,7 @@ pub struct Renderer {
     sampler: wgpu::Sampler,
     atlas: Atlas,
     white: AtlasEntry,
+    dynamic: Vec<DynamicTex>,
     instances: Vec<Instance>,
     batches: Vec<Batch>,
     instance_buffer: wgpu::Buffer,
@@ -207,6 +230,7 @@ impl Renderer {
             sampler,
             atlas,
             white,
+            dynamic: Vec::new(),
             instances: Vec::new(),
             batches: Vec::new(),
             instance_buffer,
@@ -278,19 +302,36 @@ impl Renderer {
         if e.flip != flip {
             std::mem::swap(&mut u0, &mut u1);
         }
+        let uv0 = [u0, e.y as f32 * s];
+        let uv1 = [u1, (e.y + e.h) as f32 * s];
+        self.push_raw(PageSource::Atlas(e.page), uv0, uv1, pos, size, color, space, paint);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_raw(
+        &mut self,
+        source: PageSource,
+        uv0: [f32; 2],
+        uv1: [f32; 2],
+        pos: [f32; 2],
+        size: [f32; 2],
+        color: [f32; 4],
+        space: Space,
+        paint: Paint,
+    ) {
         let inst = Instance {
             pos,
             size,
-            uv0: [u0, e.y as f32 * s],
-            uv1: [u1, (e.y + e.h) as f32 * s],
+            uv0,
+            uv1,
             color,
             flags: (space == Space::Screen) as u32 | ((paint == Paint::Silhouette) as u32) << 1,
         };
         let idx = self.instances.len() as u32;
         match self.batches.last_mut() {
-            Some(b) if b.page == e.page => b.end = idx + 1,
+            Some(b) if b.source == source => b.end = idx + 1,
             _ => self.batches.push(Batch {
-                page: e.page,
+                source,
                 start: idx,
                 end: idx + 1,
             }),
@@ -348,6 +389,126 @@ impl Renderer {
     pub fn rect(&mut self, pos: [f32; 2], size: [f32; 2], color: [f32; 4], space: Space) {
         let e = self.white;
         self.push(e, pos, size, color, space, false);
+    }
+
+    fn make_dynamic_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+        w: u32,
+        h: u32,
+        rgba: &[u8],
+    ) -> (wgpu::Texture, wgpu::BindGroup) {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("dynamic image"),
+            size: wgpu::Extent3d {
+                width: w.max(1),
+                height: h.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        Self::write_dynamic_texture(queue, &texture, w, h, rgba);
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("dynamic image"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        });
+        (texture, bind_group)
+    }
+
+    fn write_dynamic_texture(queue: &wgpu::Queue, texture: &wgpu::Texture, w: u32, h: u32, rgba: &[u8]) {
+        if w == 0 || h == 0 {
+            return;
+        }
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * w),
+                rows_per_image: Some(h),
+            },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    /// Uploads (or updates) a caller-managed RGBA8 image addressed by `key`, for content
+    /// that isn't part of the sprite library (e.g. a minimap rebuilt in a CPU buffer). A
+    /// second call with the same `key` reuses the existing texture, recreating it only if
+    /// `w`/`h` changed. `rgba` must be `w * h * 4` bytes, row-major, straight alpha.
+    pub fn upload_dynamic(&mut self, key: u32, w: u32, h: u32, rgba: &[u8]) -> DynamicHandle {
+        if let Some(i) = self.dynamic.iter().position(|d| d.key == key) {
+            if self.dynamic[i].w == w && self.dynamic[i].h == h {
+                Self::write_dynamic_texture(&self.queue, &self.dynamic[i].texture, w, h, rgba);
+            } else {
+                let (texture, bind_group) = Self::make_dynamic_texture(
+                    &self.device,
+                    &self.queue,
+                    &self.page_layout,
+                    &self.sampler,
+                    w,
+                    h,
+                    rgba,
+                );
+                self.dynamic[i] = DynamicTex { key, w, h, texture, bind_group };
+            }
+            return DynamicHandle(i as u16);
+        }
+        let (texture, bind_group) = Self::make_dynamic_texture(
+            &self.device,
+            &self.queue,
+            &self.page_layout,
+            &self.sampler,
+            w,
+            h,
+            rgba,
+        );
+        self.dynamic.push(DynamicTex { key, w, h, texture, bind_group });
+        DynamicHandle((self.dynamic.len() - 1) as u16)
+    }
+
+    /// Queues a dynamic image (from [`Renderer::upload_dynamic`]) stretched to `size`
+    /// with its top-left corner at `pos`.
+    pub fn dynamic_image(&mut self, handle: DynamicHandle, pos: [f32; 2], size: [f32; 2], space: Space) {
+        if self.dynamic.get(handle.0 as usize).is_none() {
+            return;
+        }
+        self.push_raw(
+            PageSource::Dynamic(handle.0),
+            [0.0, 0.0],
+            [1.0, 1.0],
+            pos,
+            size,
+            WHITE,
+            space,
+            Paint::Normal,
+        );
     }
 
     /// Visible world rectangle as `(x0, y0, x1, y1)`.
@@ -420,7 +581,11 @@ impl Renderer {
             pass.set_bind_group(0, &self.globals_bind, &[]);
             pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
             for b in &self.batches {
-                pass.set_bind_group(1, &self.atlas.pages[b.page as usize].bind_group, &[]);
+                let bind_group = match b.source {
+                    PageSource::Atlas(p) => &self.atlas.pages[p as usize].bind_group,
+                    PageSource::Dynamic(p) => &self.dynamic[p as usize].bind_group,
+                };
+                pass.set_bind_group(1, bind_group, &[]);
                 pass.draw(0..4, b.start..b.end);
             }
         }
