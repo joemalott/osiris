@@ -1,6 +1,10 @@
 //! The whole simulation state and the commands that change it.
 
+use crate::balance::Balance;
+use crate::buildings::{BuildingId, Buildings};
 use crate::defs::Defs;
+use crate::figures::Figures;
+use crate::grid::Grid;
 use crate::map::{Map, NEIGHBOURS, mask, terrain};
 use crate::rng::Rng;
 use crate::rules::Rules;
@@ -32,6 +36,9 @@ pub enum Command {
     Clear { x0: i32, y0: i32, x1: i32, y1: i32 },
     /// Lays road along the routed path from `start` to `end`.
     Road { start: (i32, i32), end: (i32, i32) },
+    /// Places building type `kind` with its footprint's corner at `(x, y)`; houses
+    /// fill the rectangle up to `(x1, y1)` with vacant lots.
+    Build { kind: u16, x: i32, y: i32, x1: i32, y1: i32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +46,8 @@ pub enum Outcome {
     Done { items: i32, cost: i32 },
     NotEnoughMoney,
     Blocked,
+    /// Placement rule failed, with a short reason for the player.
+    Invalid(&'static str),
 }
 
 pub struct World {
@@ -48,7 +57,17 @@ pub struct World {
     pub rules: Rules,
     pub treasury: i32,
     pub defs: Arc<Defs>,
-    pub stats: Arc<Vec<BuildingStats>>,
+    pub balance: Arc<Balance>,
+    pub buildings: Buildings,
+    pub figures: Figures,
+    pub desirability: Grid<i8>,
+    pub population: i32,
+    /// 0..=100; how content the citizens are.
+    pub sentiment: i32,
+    /// Percentage of workers without a job.
+    pub unemployment: i32,
+    pub migration: crate::people::Migration,
+    pub migration_params: crate::people::MigrationParams,
     pub scenario_name: String,
     /// Where immigrants arrive and emigrants leave, in map coordinates.
     pub entry_point: (i32, i32),
@@ -57,16 +76,26 @@ pub struct World {
 }
 
 impl World {
-    pub fn new(scenario: &Scenario, defs: Arc<Defs>, stats: Arc<Vec<BuildingStats>>) -> Self {
+    pub fn new(scenario: &Scenario, defs: Arc<Defs>, balance: Arc<Balance>) -> Self {
         let info = &scenario.info;
+        let map = Map::from_scenario(scenario);
+        let (w, h) = (map.width, map.height);
         Self {
-            map: Map::from_scenario(scenario),
+            map,
             time: GameTime::new(info.start_year as i32),
             rng: Rng::from_seed(scenario.random_iv[0], scenario.random_iv[1]),
             rules: Rules::default(),
             treasury: info.initial_funds,
             defs,
-            stats,
+            balance,
+            buildings: Buildings::default(),
+            figures: Figures::default(),
+            desirability: Grid::new(w, h),
+            population: 0,
+            sentiment: 60,
+            unemployment: 0,
+            migration: Default::default(),
+            migration_params: Default::default(),
             scenario_name: info.subtitle.clone(),
             entry_point: (info.entry_point.x, info.entry_point.y),
             exit_point: (info.exit_point.x, info.exit_point.y),
@@ -75,7 +104,7 @@ impl World {
     }
 
     pub fn cost_of(&self, building_type: usize) -> i32 {
-        self.stats.get(building_type).map_or(0, |s| s.cost)
+        self.balance.stats(building_type as u16).cost
     }
 
     fn tile_rules(&mut self) -> (TileRules<'_>, &mut Map) {
@@ -92,14 +121,14 @@ impl World {
 
     /// Runs one simulation tick.
     pub fn tick(&mut self) {
-        self.rng.next();
-        let _roll = self.time.advance();
+        self.run_tick();
     }
 
     pub fn apply(&mut self, cmd: &Command) -> Outcome {
         match *cmd {
             Command::Clear { x0, y0, x1, y1 } => self.clear(x0, y0, x1, y1, false),
             Command::Road { start, end } => self.road(start, end, false),
+            Command::Build { kind, x, y, x1, y1 } => self.build(kind, x, y, x1, y1, false),
         }
     }
 
@@ -108,20 +137,27 @@ impl World {
         match *cmd {
             Command::Clear { x0, y0, x1, y1 } => self.clear(x0, y0, x1, y1, true),
             Command::Road { start, end } => self.road(start, end, true),
+            Command::Build { kind, x, y, x1, y1 } => self.build(kind, x, y, x1, y1, true),
         }
     }
 
-    fn clear(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, measure: bool) -> Outcome {
+    pub(crate) fn clear(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, measure: bool) -> Outcome {
         let (x0, x1) = (x0.min(x1).max(0), x0.max(x1).min(self.map.width - 1));
         let (y0, y1) = (y0.min(y1).max(0), y0.max(y1).min(self.map.height - 1));
         let mut items = 0;
+        let mut doomed: Vec<BuildingId> = Vec::new();
         for y in y0..=y1 {
             for x in x0..=x1 {
                 let t = self.map.terrain.at_or(x, y, 0);
-                if t & (terrain::ROCK | terrain::ELEVATION | terrain::DUNE) != 0
-                    || t & terrain::BUILDING != 0
-                    || t & terrain::WATER != 0
-                {
+                if t & terrain::BUILDING != 0 {
+                    let id = self.map.building.at_or(x, y, 0);
+                    if id != 0 && !doomed.contains(&id) {
+                        doomed.push(id);
+                        items += 1;
+                    }
+                    continue;
+                }
+                if t & (terrain::ROCK | terrain::ELEVATION | terrain::DUNE) != 0 || t & terrain::WATER != 0 {
                     continue;
                 }
                 if t & terrain::CANAL != 0 {
@@ -148,6 +184,17 @@ impl World {
             return Outcome::NotEnoughMoney;
         }
         self.treasury -= cost;
+        let (mut bx0, mut by0, mut bx1, mut by1) = (x0, y0, x1, y1);
+        for id in doomed {
+            if let Some(b) = self.buildings.get(id) {
+                bx0 = bx0.min(b.x);
+                by0 = by0.min(b.y);
+                bx1 = bx1.max(b.x + b.size - 1);
+                by1 = by1.max(b.y + b.size - 1);
+            }
+            self.demolish(id);
+        }
+        let (x0, y0, x1, y1) = (bx0, by0, bx1, by1);
         let radius = (x1 - x0).max(y1 - y0) + 3;
         let (mut rules, map) = self.tile_rules();
         rules.empty_land_in(map, x0 - 2, y0 - 2, x1 + 2, y1 + 2, true);

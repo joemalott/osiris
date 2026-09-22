@@ -1,0 +1,495 @@
+# Osiris campaign mission data.
+#
+# Facts extracted from the Akhenaten reference reimplementation (AGPL; used here only as a
+# source of facts, no code copied): /Users/jmalott/Desktop/Projects/pharaoh/Akhenaten
+# /src/scripts/mission/m_NNN_*.js (and helpers missions.js, mission_favour_events.js).
+# Scenario ids 0..52 are the campaign missions from PharaohData/mission1.pak, in the order
+# listed by PharaohData/campaign.txt [MISSION_NAMES] (mission id == scenario id == file number).
+# Non-campaign scripted maps (m_128_alexandria.js .. m_135_enkomi.js: custom/sandbox/multiplayer
+# maps, not part of the id 0..52 campaign) are out of scope for this file.
+#
+# See MISSIONS_NOTES.md in this directory for: the full `unlocks[].when` condition vocabulary,
+# how mission scripting works in the source engine (tutorial fire/collapse handling, goal
+# tooltips, the Pharaoh-favour request/invasion chains that are NOT modeled here), and notes on
+# fields intentionally omitted (map geometry, empire/trade-route/city data, scripted
+# environmental `events[]` timelines) because they are out of scope for sim rules data.
+#
+# Schema (per [[mission]]):
+#   id          = scenario id (0..52)
+#   key         = "m_NNN_slug" (matches the Akhenaten source filename, minus .js)
+#   name        = selection_title from the source script
+#   buildings   = [building_key, ...]  buildings.toml keys available at mission start (the
+#                 source script's top-level `buildings [...]` list; BUILDING_HOUSE_VACANT_LOT is
+#                 an alias for BUILDING_HOUSE_CRUDE_HUT in the source engine and is mapped to
+#                 "house_crude_hut" here; BUILDING_CLEAR_LAND (id 9) is a terrain tool with no
+#                 buildings.toml entry and is omitted — see MISSIONS_NOTES.md).
+#   funds       = { initial_funds = [5 ints, very_easy..impossible], rescue_loans = [5 ints],
+#                   house_tax_multipliers = [5 ints]?, debt_interest = [5 ints]?,
+#                   player_rank = int, religion_enabled = bool?, hide_won_screen = bool?,
+#                   enable_scenario_events = bool?, start_message = "key"? }
+#   env         = { has_animals, gods_least_mood, hide_nilometer, flotsam_enabled, ... }
+#                 scalars as present in the source `env {}` block (default_marshland_grow /
+#                 default_tree_grow references are shared engine defaults, not per-mission
+#                 scalars, and are omitted).
+#   win         = { population, culture, prosperity, housing_count, monuments, kingdom =
+#                   { enabled, goal }; housing_level = { enabled, goal } (goal is an int house
+#                   level, or a buildings.toml house key when the source used a BUILDING_HOUSE_*
+#                   constant); survival_time, time_limit = { enabled, years };
+#                   milestones = { p25, p50, p75 }? (source milestoneNN_year fields) }
+#                 only present when the source script sets win_criteria (all missions do).
+#   vars        = { name = value, ... } scalar values from the source `vars {}` block
+#                 (booleans/ints only; the `goal_tooltip` function is UI text logic, omitted).
+#   unlocks     = [ { when = "<condition>", enable = ["building_key", ...], advisors = [...]?,
+#                     message = "message_key"? }, ... ] — progressive/tutorial building & advisor
+#                 gating the source script implements via city.use_building(...)/
+#                 set_advisor_available(...) in its event handlers. Most missions place their
+#                 whole roster in `buildings` at start and gate nothing further, so `unlocks` is
+#                 omitted for them (see MISSIONS_NOTES.md for which missions do gate).
+#   messages    = [ { key = "message_key", trigger = "short description" }, ... ] popups the
+#                 script shows (ui.popup_message / start_message), independent of unlocks.
+#   notes       = "..."? free text for logic that doesn't fit the condition vocabulary (e.g. the
+#                 recurring Pharaoh-favour resource-request / invasion chains many missions run,
+#                 which affect reputation/trade but do not gate buildings and are not modeled
+#                 here).
+#
+# `unlocks[].when` condition vocabulary — see MISSIONS_NOTES.md for full documentation:
+#   "start"                              - unconditional, applied in the event_mission_start handler
+#   "population >= N"                    - event_population_changed / event_migration_update, ev.value >= N
+#   "resource_stored:<resource> >= N"    - granary/storage-yard amount reaches N (event_granary_resource_added
+#                                           / event_warehouse_filled); <resource> is the lowercase RESOURCE_ name
+#   "building_built:<building_key>"      - event_building_create, or event_advance_day polling
+#                                           count_active_buildings()/count_total_buildings() > 0
+#   "gold_delivered >= N"                - city.finance.this_year.income.gold_delivered reaches N this year
+#   "fire"                               - event_fire_damage (first fire)
+#   "collapse"                           - event_collase_damage (first building collapse; sic, source event name)
+#   "disease"                            - event_city_disease (first disease outbreak)
+
+[[mission]]
+id = 0
+key = "m_000_nubt"
+name = "Nubt"
+buildings = ["house_crude_hut", "road"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [7500, 5000, 3750, 2500, 2000]
+rescue_loans = [7500, 5000, 3750, 2500, 2000]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 0
+religion_enabled = false
+hide_won_screen = true
+start_message = "message_housing_and_roads"
+
+[mission.env]
+has_animals = true
+gods_least_mood = 50
+hide_nilometer = true
+
+[mission.win.housing_count]
+enabled = true
+goal = 6
+
+[mission.win.housing_level]
+enabled = true
+goal = 2
+
+[mission.vars]
+granary_open_population = 150
+granary_meat_stored = 400
+victory_last_action_delay = 4
+population_cap = 250
+tutorial_fire_handled = false
+tutorial_collapsed_handled = false
+tutorial_firehouse_built = false
+tutorial_granary_opened = false
+tutorial_gamemeat_stored = false
+granary_built = false
+last_action_time = 0
+start_message_shown = false
+
+# Tutorial mission: the roster above is deliberately minimal. Every other building is gated off
+# at start via city.use_building(X, false) and switched on as the player clears each tutorial
+# beat. See MISSIONS_NOTES.md "Tutorial missions 0 and 1" for the full fire/collapse mechanic.
+[[mission.unlocks]]
+when = "start"
+enable = []
+notes = "At event_mission_start: hunting_lodge, granary, bazaar, water_supply, firehouse, architect_post start disabled (use_building(X, false)) and only turn on via the beats below. All non-diplomacy advisors are hidden at start (set_advisor_available loop 0..ADVISOR_DIPLOMACY)."
+
+[[mission.unlocks]]
+when = "fire"
+enable = ["firehouse"]
+message = "message_fire_in_the_village"
+
+[[mission.unlocks]]
+when = "collapse"
+enable = ["architect_post"]
+message = "message_tutorial_collapsed_building"
+
+[[mission.unlocks]]
+when = "population >= 150"
+enable = ["hunting_lodge", "granary", "bazaar"]
+advisors = ["ADVISOR_POPULATION"]
+message = "message_tutorial_food_or_famine"
+notes = "Gated on ev.value (population) >= mission.granary_open_population (150), from event_population_changed."
+
+[[mission.unlocks]]
+when = "resource_stored:gamemeat >= 400"
+enable = ["water_supply"]
+message = "message_tutorial_clean_water"
+notes = "Granary gamemeat amount >= mission.granary_meat_stored (400), from event_granary_resource_added."
+
+[[mission.messages]]
+key = "message_housing_and_roads"
+trigger = "start"
+
+[[mission.messages]]
+key = "message_fire_in_the_village"
+trigger = "fire"
+
+[[mission.messages]]
+key = "message_tutorial_collapsed_building"
+trigger = "collapse"
+
+[[mission.messages]]
+key = "message_tutorial_food_or_famine"
+trigger = "population >= 150"
+
+[[mission.messages]]
+key = "message_tutorial_clean_water"
+trigger = "resource_stored:gamemeat >= 400"
+
+[[mission]]
+id = 1
+key = "m_001_thinis"
+name = "Thinis"
+buildings = [
+  "house_crude_hut", "road", "architect_post", "firehouse", "police_station", "bazaar",
+  "granary", "water_supply", "gold_mine", "village_palace", "hunting_lodge",
+]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [7500, 5000, 3750, 2500, 2000]
+rescue_loans = [7500, 5000, 3750, 2500, 2000]
+player_rank = 0
+hide_won_screen = true
+start_message = "message_gold_and_crime"
+
+[mission.env]
+has_animals = true
+gods_least_mood = 50
+hide_nilometer = true
+
+[mission.win.housing_count]
+enabled = true
+goal = 10
+
+[mission.win.housing_level]
+enabled = true
+goal = 5
+
+[mission.vars]
+gold_mined = 500
+victory_last_action_delay = 4
+nogranary_population_cap = 150
+gold_mined_handled = false
+temples_built = false
+booth_built = false
+juggler_school_built = false
+last_action_time = 0
+start_message_shown = false
+
+[[mission.unlocks]]
+when = "start"
+enable = []
+notes = "At event_mission_start: temple_bast/shrine_bast/festival_square and booth/juggler_school start disabled; ADVISOR_POPULATION is enabled unconditionally (unlike mission 0). Population is capped at 150 (migration.set_population_cap) until a granary exists (event_migration_update)."
+
+[[mission.unlocks]]
+when = "gold_delivered >= 500"
+enable = ["temple_bast", "shrine_bast", "festival_square"]
+advisors = ["ADVISOR_RELIGION"]
+message = "message_tutorial_the_gods_of_egypt"
+notes = "city.finance.this_year.income.gold_delivered >= mission.gold_mined (500), polled on event_advance_day."
+
+[[mission.unlocks]]
+when = "building_built:temple_bast"
+enable = ["booth", "juggler_school"]
+advisors = ["ADVISOR_ENTERTAINMENT"]
+message = "message_tutorial_entertainment"
+notes = "count_active_buildings(BUILDING_TEMPLE_BAST) > 0, polled on event_advance_day."
+
+[[mission.messages]]
+key = "message_gold_and_crime"
+trigger = "start"
+
+[[mission.messages]]
+key = "message_tutorial_the_gods_of_egypt"
+trigger = "gold_delivered >= 500"
+
+[[mission.messages]]
+key = "message_tutorial_entertainment"
+trigger = "building_built:temple_bast"
+
+[[mission]]
+id = 2
+key = "m_002_perwadjyt"
+name = "Perwadjyt"
+buildings = [
+  "firehouse", "architect_post", "police_station", "village_palace", "water_supply",
+  "figs_farm", "work_camp", "booth", "juggler_school", "bazaar", "granary",
+  "temple_osiris", "shrine_osiris", "festival_square",
+]
+
+[mission.funds]
+initial_funds = [7500, 5000, 3750, 2500, 2000]
+rescue_loans = [7500, 5000, 3750, 2500, 2000]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 0
+start_message = "message_farming_along_the_nile"
+
+[mission.env]
+has_animals = true
+gods_least_mood = 50
+
+[mission.win.population]
+enabled = true
+goal = 600
+
+[mission.win.prosperity]
+enabled = false
+goal = 0
+
+[mission.win.housing_count]
+enabled = true
+goal = 10
+
+[mission.win.housing_level]
+enabled = true
+goal = 6
+
+[mission.vars]
+figs_stored = 800
+pottery_step1_stored = 100
+pottery_step1_population_cap = 500
+pottery_step2_stored = 200
+victory_last_action_delay = 3
+figs_stored_handled = false
+disease_handled = false
+pottery_step1_stored_handled = false
+pottery_step2_stored_handled = false
+start_message_shown = false
+
+[[mission.unlocks]]
+when = "start"
+enable = []
+notes = "At event_mission_start: clay_pit/pottery_workshop/storage_yard, roadblock/statues/gardens/plaza/low_bridge/ferry, and apothecary/physician all start disabled; ADVISOR_POPULATION, ADVISOR_ENTERTAINMENT and ADVISOR_RELIGION are enabled unconditionally. Population is capped at 500 (migration.set_population_cap) until pottery step 1 is handled."
+
+[[mission.unlocks]]
+when = "resource_stored:figs >= 800"
+enable = ["clay_pit", "pottery_workshop", "storage_yard"]
+advisors = ["ADVISOR_LABOR"]
+message = "message_tutorial_industry"
+notes = "Granary figs amount >= mission.figs_stored (800), from event_granary_resource_added."
+
+[[mission.unlocks]]
+when = "resource_stored:pottery >= 200"
+enable = ["roadblock", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "low_bridge", "ferry"]
+message = "message_tutorial_municipal_structures"
+notes = "Storage-yard pottery amount (city.yards_stored) >= mission.pottery_step2_stored (200), from event_warehouse_filled; gated behind an unmodeled step-1 threshold of 100 pottery stored first (no unlock, just a milestone flag)."
+
+[[mission.unlocks]]
+when = "disease"
+enable = ["apothecary", "physician"]
+advisors = ["ADVISOR_HEALTH"]
+message = "message_basic_healthcare"
+notes = "event_city_disease also (re-)confirms water_supply enabled, though it is already in the start roster here."
+
+[[mission.messages]]
+key = "message_farming_along_the_nile"
+trigger = "start"
+
+[[mission.messages]]
+key = "message_tutorial_industry"
+trigger = "resource_stored:figs >= 800"
+
+[[mission.messages]]
+key = "message_tutorial_municipal_structures"
+trigger = "resource_stored:pottery >= 200"
+
+[[mission.messages]]
+key = "message_basic_healthcare"
+trigger = "disease"
+
+[[mission]]
+id = 3
+key = "m_003_nekhen"
+name = "Nekhen"
+buildings = [
+  "roadblock", "firehouse", "architect_post", "police_station", "village_palace",
+  "water_supply", "apothecary", "physician", "grain_farm", "barley_farm", "work_camp",
+  "booth", "juggler_school", "bandstand", "conservatory", "bazaar", "granary", "low_bridge", "ferry",
+  "clay_pit", "pottery_workshop", "storage_yard",
+  "temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "temple_bast", "shrine_bast", "festival_square",
+  "small_statue", "medium_statue", "large_statue", "gardens", "plaza",
+  "brewery_workshop",
+]
+
+[mission.funds]
+initial_funds = [7500, 5000, 3750, 2500, 2000]
+rescue_loans = [7500, 5000, 3750, 2500, 2000]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 0
+start_message = "message_developing_culture"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 1000
+
+[mission.win.housing_count]
+enabled = true
+goal = 10
+
+[mission.win.housing_level]
+enabled = true
+goal = "house_modest_apartment"
+
+[mission.vars]
+beer_stored = 300
+modest_houses_needed = 10
+victory_last_action_delay = 3
+beer_stored_handled = false
+tax_collector_built = false
+modest_houses_reached = false
+last_action_time = 0
+start_message_shown = false
+
+[[mission.unlocks]]
+when = "start"
+enable = []
+notes = "At event_mission_start: tax_collector/personal_mansion start disabled. ADVISOR_LABOR, ADVISOR_ENTERTAINMENT, ADVISOR_RELIGION and ADVISOR_FINANCIAL are enabled unconditionally."
+
+[[mission.unlocks]]
+when = "resource_stored:beer >= 300"
+enable = ["tax_collector", "personal_mansion"]
+message = "message_tutorial_finances"
+notes = "Storage-yard beer amount (city.yards_stored) >= mission.beer_stored (300), from event_warehouse_filled."
+
+[[mission.messages]]
+key = "message_developing_culture"
+trigger = "start"
+
+[[mission.messages]]
+key = "message_tutorial_finances"
+trigger = "resource_stored:beer >= 300"
+
+[[mission]]
+id = 4
+key = "m_004_mennefer"
+name = "Mennefer"
+buildings = [
+  "small_statue", "medium_statue", "large_statue", "gardens", "plaza",
+  "roadblock", "low_bridge", "firehouse", "architect_post", "police_station", "village_palace",
+  "tax_collector", "courthouse", "personal_mansion",
+  "water_supply", "apothecary", "physician",
+  "booth", "juggler_school", "bandstand", "conservatory",
+  "temple_osiris", "shrine_osiris", "temple_ptah", "shrine_ptah", "temple_bast", "shrine_bast", "festival_square",
+  "clay_pit", "pottery_workshop", "brewery_workshop", "bazaar", "granary", "storage_yard",
+  "chickpeas_farm", "barley_farm", "work_camp",
+  "mud_wall", "mud_gatehouse", "tower_gatehouse", "mud_tower",
+]
+
+[mission.funds]
+initial_funds = [7500, 5000, 3750, 2500, 2000]
+rescue_loans = [7500, 5000, 3750, 2500, 2000]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 1
+start_message = "message_trade_on_the_water"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 1500
+
+[mission.win.culture]
+enabled = true
+goal = 15
+
+[mission.win.prosperity]
+enabled = true
+goal = 20
+
+[mission.win.monuments]
+enabled = true
+goal = 9
+
+[mission.win.kingdom]
+enabled = true
+goal = 40
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+spacious_apartment_needed = 1
+papyrus_stored = 100
+bricks_stored_needed = 100
+victory_last_action_delay = 3
+spacious_apartment_built = false
+papyrus_made_handled = false
+bricks_bought_handled = false
+pharaoh_requested_beer = false
+pharaoh_requested_papyrus = false
+pharaoh_requested_barley = false
+pharaoh_requested_pottery = false
+last_action_time = 0
+start_message_shown = false
+
+[[mission.unlocks]]
+when = "start"
+enable = []
+notes = "At event_mission_start: dock, reed_gatherer/papyrus_workshop/scribal_school, and bricklayers_guild/small_mastaba start disabled; empire trading (empire id 1) stays unavailable until papyrus is made. ADVISOR_LABOR, ADVISOR_IMPERIAL, ADVISOR_RATINGS, ADVISOR_POPULATION, ADVISOR_HEALTH, ADVISOR_ENTERTAINMENT, ADVISOR_RELIGION, ADVISOR_FINANCIAL and ADVISOR_CHIEF are enabled unconditionally."
+
+[[mission.unlocks]]
+when = "building_built:house_spacious_apartment"
+enable = ["reed_gatherer", "papyrus_workshop", "scribal_school"]
+advisors = ["ADVISOR_EDUCATION"]
+message = "message_tutorial_education"
+notes = "count_total_buildings(BUILDING_HOUSE_SPACIOUS_APARTMENT) >= mission.spacious_apartment_needed (1), polled on event_advance_day."
+
+[[mission.unlocks]]
+when = "resource_stored:papyrus >= 100"
+enable = ["dock"]
+advisors = ["ADVISOR_TRADE"]
+message = "message_tutorial_trade_with_other_cities"
+notes = "Storage-yard papyrus amount >= mission.papyrus_stored (100), from event_warehouse_filled. Also flips city.set_empire_available(1), opening the empire/trade map (not modeled as a building unlock here)."
+
+[[mission.unlocks]]
+when = "resource_stored:bricks >= 100"
+enable = ["bricklayers_guild", "small_mastaba"]
+advisors = ["ADVISOR_MONUMENTS"]
+message = "message_tutorial_monuments"
+notes = "Storage-yard bricks amount >= mission.bricks_stored_needed (100), from event_warehouse_filled."
+
+[[mission.messages]]
+key = "message_trade_on_the_water"
+trigger = "start"
+
+[[mission.messages]]
+key = "message_tutorial_education"
+trigger = "building_built:house_spacious_apartment"
+
+[[mission.messages]]
+key = "message_tutorial_trade_with_other_cities"
+trigger = "resource_stored:papyrus >= 100"
+
+[[mission.messages]]
+key = "message_tutorial_monuments"
+trigger = "resource_stored:bricks >= 100"
+
+mission.notes = "Runs four scripted Pharaoh-favour resource requests on a fixed calendar (beer @ y6m8, papyrus @ y8m10, barley @ y10m5, pottery @ y15m4; mission4_pharaoh_request_* handlers) that affect reputation/demand via create_good_request/create_chain_event. These do not gate any building or advisor and are not modeled in this data file."

@@ -1,10 +1,11 @@
 mod city_view;
 mod game;
 mod gfx;
+mod sidebar;
 
 use anyhow::{Context, Result, bail};
-use osiris_formats::{ImageLibrary, MissionPak, Scenario};
-use osiris_sim::{BuildingStats, Command, Defs, World};
+use osiris_formats::{ImageLibrary, MissionPak, Model, Scenario, TextTable};
+use osiris_sim::{Balance, Command, Defs, World};
 use std::sync::Arc;
 use std::path::PathBuf;
 use winit::application::ApplicationHandler;
@@ -68,7 +69,9 @@ fn load_scenario(args: &Args) -> Result<Scenario> {
 struct App {
     args: Args,
     library: Option<ImageLibrary>,
-    game: game::Game,
+    game: Option<game::Game>,
+    world: Option<World>,
+    text: Arc<TextTable>,
     gfx: Option<gfx::Gfx>,
     drag: Option<(f64, f64)>,
     cursor: (f64, f64),
@@ -91,14 +94,17 @@ impl ApplicationHandler for App {
             ));
         let window = event_loop.create_window(attrs).expect("create window");
         let library = self.library.take().expect("library");
+        let images = sidebar::SidebarImages::load(&library).expect("sidebar images");
         let mut gfx = pollster::block_on(gfx::Gfx::new(window, library)).expect("init graphics");
-        let (cx, cy) = start_view(&self.game.world);
-        self.game.view.center_on(&mut gfx.renderer, &self.game.world.map, cx, cy);
+        let mut game = game::Game::new(self.world.take().expect("world"), images, self.text.clone());
+        let (cx, cy) = start_view(&game.world);
+        game.view.center_on(&mut gfx.renderer, &game.world.map, cx, cy);
+        self.game = Some(game);
         self.gfx = Some(gfx);
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        let Some(gfx) = self.gfx.as_mut() else { return };
+        let (Some(gfx), Some(game)) = (self.gfx.as_mut(), self.game.as_mut()) else { return };
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => gfx.resize(size.width, size.height),
@@ -107,7 +113,7 @@ impl ApplicationHandler for App {
                     match event.state {
                         ElementState::Pressed => {
                             if !event.repeat {
-                                self.key_pressed(code);
+                                key_pressed(game, code);
                             }
                             self.keys.insert(code);
                         }
@@ -128,13 +134,13 @@ impl ApplicationHandler for App {
                 }
                 self.cursor = p;
                 let at = [(p.0 / scale) as f32, (p.1 / scale) as f32];
-                self.game.set_hover(&gfx.renderer, at);
+                game.set_cursor(&gfx.renderer, at);
             }
             WindowEvent::MouseInput { state, button, .. } => match (button, state) {
-                (MouseButton::Left, ElementState::Pressed) => self.game.press(),
-                (MouseButton::Left, ElementState::Released) => self.game.release(),
+                (MouseButton::Left, ElementState::Pressed) => game.press(gfx.renderer.screen[0]),
+                (MouseButton::Left, ElementState::Released) => game.release(),
                 (MouseButton::Right, ElementState::Pressed) => {
-                    self.game.cancel();
+                    game.cancel();
                     self.drag = Some(self.cursor);
                 }
                 (MouseButton::Middle, ElementState::Pressed) => self.drag = Some(self.cursor),
@@ -174,16 +180,16 @@ impl ApplicationHandler for App {
                         cam.y += dy * pan;
                     }
                 }
-                self.game.update(dt);
-                gfx.frame(|r| self.game.draw(r));
+                game.update(dt);
+                gfx.frame(|r| game.draw(r));
                 self.frames += 1;
                 if self.fps_timer.elapsed().as_secs_f32() >= 1.0 {
                     let t = self.fps_timer.elapsed().as_secs_f32();
                     gfx.window.set_title(&format!(
                         "Osiris - {} ({:.0} fps, {} sprites)",
-                        self.game.world.scenario_name,
+                        game.world.scenario_name,
                         self.frames as f32 / t,
-                        self.game.view.last_sprites
+                        game.view.last_sprites
                     ));
                     self.frames = 0;
                     self.fps_timer = std::time::Instant::now();
@@ -195,9 +201,7 @@ impl ApplicationHandler for App {
     }
 }
 
-impl App {
-    fn key_pressed(&mut self, code: KeyCode) {
-        let g = &mut self.game;
+fn key_pressed(g: &mut game::Game, code: KeyCode) {
         match code {
             KeyCode::Escape => g.cancel(),
             KeyCode::KeyR => g.tool = game::Tool::Road,
@@ -207,7 +211,6 @@ impl App {
             KeyCode::BracketLeft | KeyCode::Minus => g.speed = g.speed.saturating_sub(10).max(10),
             _ => {}
         }
-    }
 }
 
 /// Where the camera starts: the scenario's entry point, or the map centre.
@@ -236,12 +239,35 @@ fn run_script(world: &mut World, script: &str) -> Result<Option<(i32, i32)>> {
                 let out = world.apply(&Command::Clear { x0: a.0, y0: a.1, x1: b.0, y1: b.1 });
                 eprintln!("{step}: {out:?}");
             }
+            ["build", k, a] | ["build", k, a, _] => {
+                let a = parse_point(a)?;
+                let b = match parts.get(3) { Some(p) => parse_point(p)?, None => a };
+                let out = world.apply(&Command::Build { kind: k.parse()?, x: a.0, y: a.1, x1: b.0, y1: b.1 });
+                eprintln!("{step}: {out:?}");
+            }
             ["ticks", n] => {
                 for _ in 0..n.parse::<u32>()? {
                     world.tick();
                 }
             }
             ["view", p] => view = Some(parse_point(p)?),
+            ["report"] => {
+                let houses: Vec<String> = world
+                    .buildings
+                    .iter()
+                    .filter_map(|b| b.house.as_ref().map(|h| format!("({},{})L{}p{}i{}d{}{}", b.x, b.y, h.level, h.population, h.incoming, b.desirability, if h.well_access { "w" } else { "" })))
+                    .collect();
+                eprintln!(
+                    "{:?} pop {} treasury {} figures {} houses {:?}",
+                    world.time, world.population, world.treasury, world.figures.len(), houses
+                );
+                for f in world.figures.iter().take(5) {
+                    eprintln!(
+                        "  fig {} kind {} at ({},{}) dest {:?} route {} moving {} counter {} progress {} dir {}",
+                        f.id, f.kind, f.x, f.y, f.destination, f.route.len(), f.moving, f.counter, f.progress, f.direction
+                    );
+                }
+            }
             _ => bail!("bad script step: {step}"),
         }
     }
@@ -255,15 +281,20 @@ fn main() -> Result<()> {
         .with_context(|| format!("loading sprites from {}", args.data.display()))?;
     let scenario = load_scenario(&args)?;
     let defs = Arc::new(Defs::load(&library).map_err(anyhow::Error::msg)?);
-    let stats: Arc<Vec<BuildingStats>> = Arc::new(Vec::new());
-    let mut world = World::new(&scenario, defs, stats);
+    let model_path = args.data.join("Pharaoh_Model_Normal.txt");
+    let model_text = std::fs::read(&model_path).with_context(|| model_path.display().to_string())?;
+    let model = Model::parse(&String::from_utf8_lossy(&model_text))?;
+    let balance = Arc::new(Balance::from_model(&model));
+    let text = Arc::new(TextTable::parse(&std::fs::read(args.data.join("Pharaoh_Text.eng"))?)?);
+    let mut world = World::new(&scenario, defs, balance);
     let script_view = match &args.script {
         Some(s) => run_script(&mut world, s)?,
         None => None,
     };
 
     if let Some(out) = &args.screenshot {
-        let mut game = game::Game::new(world);
+        let images = sidebar::SidebarImages::load(&library)?;
+        let mut game = game::Game::new(world, images, text);
         let (cx, cy) = script_view.unwrap_or_else(|| start_view(&game.world));
         return gfx::screenshot(library, args.size, out, |r| {
             game.view.center_on(r, &game.world.map, cx, cy);
@@ -276,7 +307,9 @@ fn main() -> Result<()> {
     let mut app = App {
         args,
         library: Some(library),
-        game: game::Game::new(world),
+        game: None,
+        world: Some(world),
+        text,
         gfx: None,
         drag: None,
         cursor: (0.0, 0.0),

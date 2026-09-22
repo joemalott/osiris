@@ -66,6 +66,8 @@ pub struct House {
     /// 0 = crude hut (or vacant lot when empty) .. 19 = palatial estate.
     pub level: u8,
     pub population: i32,
+    /// People on their way here as immigrants.
+    pub incoming: i32,
     pub coverage: Coverage,
     /// Tiles within reach of a well.
     pub well_access: bool,
