@@ -13,7 +13,10 @@ pub mod kind {
     pub const HOUSE_FIRST: u16 = 10;
     pub const HOUSE_LAST: u16 = 29;
     pub const VACANT_LOT: u16 = HOUSE_FIRST;
+    pub const BANDSTAND: u16 = 30;
     pub const BOOTH: u16 = 31;
+    pub const PAVILION: u16 = 33;
+    pub const GARDENS: u16 = 39;
     pub const JUGGLER_SCHOOL: u16 = 36;
     pub const APOTHECARY: u16 = 46;
     pub const TEMPLE_OSIRIS: u16 = 60;
@@ -73,6 +76,9 @@ pub struct Building {
     /// Direction the next roaming walker sets off in; rotates by a quarter turn per walker.
     #[serde(default)]
     pub roam_dir: u8,
+    /// Which way a venue faces over its roads (0..4).
+    #[serde(default)]
+    pub orientation: u8,
     /// The image drawn for this building (global id).
     pub image: u32,
 }

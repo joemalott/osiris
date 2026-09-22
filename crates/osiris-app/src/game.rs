@@ -2,6 +2,8 @@
 
 use crate::city_view::{self, CityView, Highlight, Overlay, Sprite};
 use crate::message_list::MessageList;
+use crate::overlay::{Overlay as View, OverlayImages};
+use crate::top_menu::{MenuAction, TopMenu};
 use crate::rules_panel::{RulesClick, RulesPanel};
 use crate::sidebar::{self, Button, Category, Click, MenuItem, Sidebar, SidebarImages, SidebarState};
 use crate::info::InfoPanel;
@@ -39,6 +41,10 @@ fn ms_per_tick(speed: u32) -> f32 {
 pub fn speed_label(speed: u32) -> String {
     if speed <= 100 { format!("{speed}%") } else { format!("{}x", speed / 100) }
 }
+
+const CONTROLS: &str = "@PLeft-click a build button, then click or drag on the map to build. Right-click cancels the tool, closes windows, and drags to scroll.@PArrow keys or WASD scroll the map, and the mouse wheel zooms.@PSpace or P pauses. Plus and minus change the speed, from 10% up to 200 times normal.@PF2 opens the game rules, F5 saves and F9 loads the saved game for this city. Escape backs out of whatever is open, and goes to the main menu when nothing is.@PClick a building to see how it is doing. Overlays in the menu bar show water, risks and services across the city.";
+
+const ABOUT: &str = "@POsiris is an open-source engine for Pharaoh, written in Rust and released under the GNU GPL version 3.@PIt plays the original campaign using your own copy of the game data. Pharaoh and its art, music and text are the work of Impressions Games and Sierra.";
 
 /// Text group with building and menu names, indexed by building type id.
 const TEXT_BUILDING_NAMES: usize = 28;
@@ -102,11 +108,16 @@ pub struct Game {
     /// The world as it was before the last build action, and when that was.
     undo: Option<(Vec<u8>, u64)>,
     pub message_list: Option<MessageList>,
+    custom_dialog: Option<Message>,
     pub rules_panel: Option<RulesPanel>,
     /// Set when the player changes the rules, so the caller can store them.
     pub rules_changed: bool,
-    /// Screen rectangle of the "Rules" link in the top bar.
-    rules_link: [f32; 4],
+    top_menu: TopMenu,
+    /// The overlay being shown, if any.
+    pub view_overlay: Option<View>,
+    overlay_images: Option<OverlayImages>,
+    /// A menu choice for the app to carry out (leave the game, load, save, quit).
+    pub request: Option<MenuAction>,
     /// Next entry of the problem list to jump to.
     problem_cursor: usize,
     /// Build categories with nothing to build, refreshed daily.
@@ -122,6 +133,7 @@ impl Game {
         messages: Arc<MessageTable>,
         audio: Option<Arc<Audio>>,
     ) -> Self {
+        let top_menu = TopMenu::new(&text);
         Self {
             world,
             view: CityView::default(),
@@ -146,9 +158,13 @@ impl Game {
             map_changed: true,
             undo: None,
             message_list: None,
+            custom_dialog: None,
             rules_panel: None,
             rules_changed: false,
-            rules_link: [0.0; 4],
+            top_menu,
+            view_overlay: None,
+            overlay_images: None,
+            request: None,
             problem_cursor: 0,
             empty: Vec::new(),
             empty_day: None,
@@ -164,6 +180,10 @@ impl Game {
     /// Opens the next queued message, if nothing is showing.
     fn next_dialog(&mut self, r: &Renderer) {
         if self.dialog.is_some() {
+            return;
+        }
+        if let Some(msg) = self.custom_dialog.take() {
+            self.dialog = Some(MessageDialog::new(r, &msg, &self.text));
             return;
         }
         let Some(key) = self.world.messages.pop_front() else { return };
@@ -327,6 +347,11 @@ impl Game {
             self.hover = None;
             return;
         }
+        self.top_menu.hover(screen);
+        if self.top_menu.contains(screen) {
+            self.hover = None;
+            return;
+        }
         if let Some(p) = &mut self.rules_panel {
             p.hover(r.screen, sidebar::panel_left(r.screen[0]), screen);
             self.hover = None;
@@ -456,10 +481,13 @@ impl Game {
             }
             return None;
         }
-        let [lx, ly, lw, lh] = self.rules_link;
-        if self.cursor[0] >= lx && self.cursor[0] < lx + lw && self.cursor[1] >= ly && self.cursor[1] < ly + lh {
-            self.open_rules();
-            return None;
+        match self.top_menu.click(self.cursor) {
+            (true, Some(action)) => {
+                self.menu_action(action);
+                return None;
+            }
+            (true, None) => return None,
+            _ => {}
         }
         if let Some(l) = &self.message_list {
             if let Some(i) = l.click(&self.world, screen, self.cursor) {
@@ -552,6 +580,33 @@ impl Game {
             Button::Advisors | Button::Empire | Button::Collapse => {}
         }
         None
+    }
+
+    fn menu_action(&mut self, action: MenuAction) {
+        self.sound("BUTTON.WAV");
+        match action {
+            MenuAction::Rules => self.open_rules(),
+            MenuAction::Faster => self.faster(),
+            MenuAction::Slower => self.slower(),
+            MenuAction::Pause => self.paused = !self.paused,
+            MenuAction::Controls => self.show_text("Controls", CONTROLS),
+            MenuAction::About => self.show_text("About Osiris", ABOUT),
+            MenuAction::Overlay(o) => {
+                self.view_overlay = o;
+                self.tool = Tool::None;
+                self.sidebar.open = None;
+            }
+            other => self.request = Some(other),
+        }
+    }
+
+    /// Queues a dialog with plain text of our own.
+    fn show_text(&mut self, title: &str, body: &str) {
+        self.custom_dialog = Some(Message { title: title.to_owned(), content: body.to_owned(), size: (30, 20), ..Default::default() });
+    }
+
+    pub fn open_top_menu(&mut self, n: usize) {
+        self.top_menu.open = Some(n);
     }
 
     pub fn open_rules(&mut self) {
@@ -657,6 +712,7 @@ impl Game {
         self.world
             .figures
             .iter()
+            .filter(|f| self.view_overlay.is_none_or(|v| v.shows_figure(&self.world, f.kind)))
             .filter_map(|f| {
                 let walk = defs.figure(f.kind)?.anims.get("walk")?;
                 let frame = if f.moving { f.frame(walk.frames.max(1)) } else { 0 };
@@ -706,9 +762,25 @@ impl Game {
         let (marks, cost) = self.highlights();
         let marker = self.world.defs.terrain.empty_land;
         let sprites = self.sprites();
-        let overlays = self.overlays(r);
+        let overlays = if self.view_overlay.is_some() { Vec::new() } else { self.overlays(r) };
         self.view.clamp_camera(r, &self.world.map, sidebar::panel_left(r.screen[0]), sidebar::TOP);
-        self.view.draw(r, &self.world.map, &marks, marker, &sprites, &overlays);
+        let images = *self.overlay_images.get_or_insert_with(|| OverlayImages::load(&r.library).expect("overlay images"));
+        let world = &self.world;
+        let view = self.view_overlay;
+        let look = move |x: i32, y: i32| view.map_or(crate::overlay::TileLook::Normal, |v| v.look(world, &images, x, y));
+        let draw = view.map(|v| city_view::OverlayDraw {
+            look: &look,
+            flat: images.flat,
+            columns: world
+                .buildings
+                .iter()
+                .filter_map(|b| {
+                    let c = v.column(b)?;
+                    Some(city_view::ColumnMark { x: b.x, y: b.y + b.size - 1, image: images.column + c.color, height: c.height })
+                })
+                .collect(),
+        });
+        self.view.draw(r, &self.world.map, &marks, marker, &sprites, &overlays, draw.as_ref());
         self.draw_overlay(r, cost);
     }
 
@@ -716,15 +788,11 @@ impl Game {
         let t = &self.world.time;
         let month = self.text.get(TEXT_MONTHS, t.month as usize).unwrap_or("?");
         let year = if t.year < 0 { format!("{} BC", -t.year) } else { format!("{} AD", t.year) };
-        let status = format!(
-            "Deben {}      Pop {}      {} {}      Speed {}{}",
-            self.world.treasury,
-            self.world.population,
-            month,
-            year,
-            speed_label(self.speed),
-            if self.paused { " (paused)" } else { "" }
-        );
+        let status = [
+            format!("Deben {}", self.world.treasury),
+            format!("Pop {}", self.world.population),
+            format!("{month} {year}"),
+        ];
         self.refresh_empty_categories();
         let category = match self.tool {
             Tool::Road => Some(Category::Roads),
@@ -751,8 +819,6 @@ impl Game {
         let tips = move |i: usize| text.get(68, i).map(str::to_owned);
         let speed = speed_label(self.speed);
         let state = SidebarState {
-            status: &status,
-            title: &self.world.scenario_name,
             empty: &self.empty,
             category,
             unread: self.world.unread_notices(),
@@ -765,16 +831,6 @@ impl Game {
             tips: &tips,
         };
         self.sidebar.draw(r, &self.images, &state);
-        let sw = osiris_ui::text_width(r, Font::NormalWhiteOnDark, &status) as f32;
-        let link = "Rules";
-        let lw = osiris_ui::text_width(r, Font::NormalWhiteOnDark, link) as f32;
-        self.rules_link = [10.0 + sw + 40.0, 4.0, lw + 8.0, 22.0];
-        let hot = {
-            let [lx, ly, lw, lh] = self.rules_link;
-            self.cursor[0] >= lx && self.cursor[0] < lx + lw && self.cursor[1] >= ly && self.cursor[1] < ly + lh
-        };
-        let f = if hot { Font::NormalYellow } else { Font::NormalWhiteOnDark };
-        draw_text(r, f, link, self.rules_link[0] + 4.0, 8.0, font::WHITE);
         let minimap = self.minimap.get_or_insert_with(|| Minimap::new(r));
         // The simulation changes terrain too (fires, rubble); refresh about once a second.
         if self.map_changed || self.world.time.tick == 0 {
@@ -802,6 +858,10 @@ impl Game {
             let mw = osiris_ui::text_width(r, Font::LargeBlackOnDark, m) as f32;
             draw_text(r, Font::LargeBlackOnDark, m, (w - mw) / 2.0, 70.0, font::WHITE);
         }
+        let overlay_name = self.view_overlay.and_then(|o| crate::overlay::MENU.iter().find(|(v, _)| *v == o)).and_then(|(_, id)| self.text.get(14, *id));
+        let paused = self.paused.then_some("Paused");
+        let label = overlay_name.or(paused);
+        self.top_menu.draw(r, &self.images.panels, &status, label);
         if let Some(i) = &self.info {
             i.draw(r, &self.images.panels, &self.world, &self.text);
         }

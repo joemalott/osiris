@@ -184,7 +184,7 @@ impl World {
         self.balance.stats(building_type as u16).cost
     }
 
-    fn tile_rules(&mut self) -> (TileRules<'_>, &mut Map) {
+    pub(crate) fn tile_rules(&mut self) -> (TileRules<'_>, &mut Map) {
         let desirability = &|_x: i32, _y: i32| 0;
         (
             TileRules {

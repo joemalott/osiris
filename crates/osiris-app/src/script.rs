@@ -19,6 +19,8 @@ pub struct ScriptView {
     pub messages: bool,
     pub menu_page: Option<String>,
     pub rules: bool,
+    pub overlay: Option<String>,
+    pub top_menu: Option<usize>,
 }
 
 /// Runs `--script` steps against the world.
@@ -56,6 +58,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 view.menu_page = Some(page.to_string());
             }
             ["rules"] => view.rules = true,
+            ["overlay", name] => view.overlay = Some(name.to_string()),
+            ["topmenu", n] => view.top_menu = Some(n.parse()?),
             ["messages"] => view.messages = true,
             ["burn", p] => {
                 let (x, y) = parse_point(p)?;
@@ -72,6 +76,21 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let same = loaded.save().map_err(anyhow::Error::msg)? == bytes;
                 eprintln!("saveload: {} bytes, identical after reload: {same}", bytes.len());
                 *world = loaded;
+            }
+            ["grid", p] => {
+                // Prints the terrain around a tile: # road, B building, ~ water, . open, x blocked.
+                let (cx, cy) = parse_point(p)?;
+                for y in cy - 6..=cy + 6 {
+                    let row: String = (cx - 8..=cx + 8)
+                        .map(|x| {
+                            let t = world.map.terrain.at_or(x, y, 0);
+                            use osiris_sim::map::{mask, terrain};
+                            if t & terrain::BUILDING != 0 { 'B' } else if t & terrain::ROAD != 0 { '#' } else if t & terrain::WATER != 0 { '~' } else if t & mask::NOT_CLEAR & !terrain::FLOODPLAIN != 0 { 'x' } else { '.' }
+                        })
+                        .collect();
+                    eprintln!("{y:4} {row}");
+                }
+                eprintln!("     x from {}", cx - 8);
             }
             ["report"] => {
                 let houses: Vec<String> = world

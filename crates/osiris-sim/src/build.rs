@@ -16,6 +16,18 @@ impl World {
             return Err("Not available yet");
         }
         let size = def.size.max(1);
+        if self.is_road_venue(k) {
+            if self.venue_orientation(k, x, y).is_none() {
+                return Err("Must be built where roads meet");
+            }
+            let walker = |xx: i32, yy: i32| {
+                !self.map.terrain_is(xx, yy, terrain::ROAD) && self.figures.iter().any(|f| (f.x, f.y) == (xx, yy))
+            };
+            if (y..y + size).any(|yy| (x..x + size).any(|xx| walker(xx, yy))) {
+                return Err("People are in the way");
+            }
+            return Ok(());
+        }
         let floodplain_ok =
             def.needs("floodplain") || (kind::FARM_FIRST..=kind::FARM_LAST).contains(&k) || def.has_flag("is_farm");
         let mut blocked = mask::NOT_CLEAR;
@@ -132,7 +144,11 @@ impl World {
                 self.map.building.set(xx, yy, id);
             }
         }
-        self.map.set_footprint(x, y, size, image);
+        if self.is_road_venue(k) {
+            self.place_venue(id);
+        } else {
+            self.map.set_footprint(x, y, size, image);
+        }
         if let Some(farm) = self.farm_image(id) {
             self.set_building_image(id, farm);
         }

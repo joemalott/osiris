@@ -76,6 +76,12 @@ impl World {
         }
         self.demolish(id);
         for &(x, y) in &tiles {
+            // A venue's plaza is road underneath; the road survives.
+            if self.map.terrain_is(x, y, terrain::ROAD) {
+                let (mut rules, map) = self.tile_rules();
+                rules.roads_in(map, x - 1, y - 1, x + 1, y + 1);
+                continue;
+            }
             if by_fire {
                 let ruin = self.create_building(kind::BURNING_RUIN, x, y);
                 self.rng.next();

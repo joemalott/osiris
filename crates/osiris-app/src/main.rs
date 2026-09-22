@@ -6,8 +6,10 @@ mod menu;
 mod message_list;
 mod rules_panel;
 mod minimap;
+mod overlay;
 mod script;
 mod sidebar;
+mod top_menu;
 
 use anyhow::{Context, Result, bail};
 use osiris_formats::{Campaign, ImageLibrary, MessageTable, MissionPak, Model, Scenario, TextTable};
@@ -216,6 +218,29 @@ impl App {
         }
     }
 
+    /// Carries out a File-menu choice made in a running game.
+    fn menu_request(&mut self, request: top_menu::MenuAction, event_loop: &ActiveEventLoop) {
+        use top_menu::MenuAction;
+        let mission = match &self.screen {
+            Some(Screen::Playing(_, m)) => *m,
+            _ => None,
+        };
+        match request {
+            MenuAction::Save => self.quicksave(),
+            MenuAction::Quit => event_loop.exit(),
+            MenuAction::Load => {
+                let mut menu = self.menu();
+                menu.open_page("load");
+                self.screen = Some(Screen::Menu(menu));
+            }
+            MenuAction::Replay => match mission {
+                Some(n) => self.choose(menu::Choice::Mission(n), event_loop),
+                None => self.status = Some(("Only campaign missions can be replayed".into(), 3.0)),
+            },
+            _ => self.screen = Some(Screen::Menu(self.menu())),
+        }
+    }
+
     fn save_path(game: &game::Game) -> PathBuf {
         user_dir().join("saves").join(format!("{}.osiris", sanitize(&game.world.scenario_name)))
     }
@@ -341,6 +366,7 @@ impl ApplicationHandler for App {
                 let Some(gfx) = &mut self.gfx else { return };
                 let screen = gfx.renderer.screen;
                 let mut chosen = None;
+                let mut request = None;
                 match &mut self.screen {
                     Some(Screen::Menu(m)) => match (button, state) {
                         (MouseButton::Left, ElementState::Pressed) => {
@@ -360,6 +386,7 @@ impl ApplicationHandler for App {
                             if std::mem::take(&mut game.rules_changed) {
                                 save_rules(&game.world.rules);
                             }
+                            request = game.request.take();
                         }
                         (MouseButton::Left, ElementState::Released) => game.release(),
                         (MouseButton::Right, ElementState::Pressed) => {
@@ -374,6 +401,9 @@ impl ApplicationHandler for App {
                 }
                 if let Some(c) = chosen {
                     self.choose(c, event_loop);
+                }
+                if let Some(r) = request {
+                    self.menu_request(r, event_loop);
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -545,6 +575,12 @@ fn main() -> Result<()> {
         let (cx, cy) = view.centre.or(view.info).unwrap_or_else(|| start_view(&game.world));
         if !view.keep_dialogs {
             game.close_dialog();
+        }
+        if let Some(name) = &view.overlay {
+            game.view_overlay = overlay::MENU.iter().map(|(o, _)| *o).find(|o| format!("{o:?}").eq_ignore_ascii_case(name));
+        }
+        if let Some(n) = view.top_menu {
+            game.open_top_menu(n);
         }
         if view.rules {
             game.rules_panel = Some(rules_panel::RulesPanel::default());

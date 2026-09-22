@@ -165,8 +165,6 @@ pub struct MenuItem {
 
 /// Everything the sidebar shows that comes from the game.
 pub struct SidebarState<'a> {
-    pub status: &'a str,
-    pub title: &'a str,
     /// Build categories with nothing to build yet.
     pub empty: &'a [Category],
     /// Picture for the tool in hand, or `None` for the default.
@@ -274,9 +272,6 @@ impl Sidebar {
             r.image(img.top_bar, [x, 0.0], WHITE, Space::Screen);
             x += 1000.0;
         }
-        draw_text(r, Font::NormalWhiteOnDark, s.status, 10.0, 8.0, font::WHITE);
-        let tw = text_width(r, Font::NormalWhiteOnDark, s.title) as f32;
-        draw_text(r, Font::NormalWhiteOnDark, s.title, w - WIDTH - tw - 10.0, 8.0, font::WHITE);
 
         let ox = panel_left(w);
         // Behind the panel's windows.

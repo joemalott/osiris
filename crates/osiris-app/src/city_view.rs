@@ -97,6 +97,35 @@ pub struct Overlay {
     pub image: u32,
 }
 
+/// An overlay column over a house, at the house's draw tile.
+#[derive(Debug, Clone, Copy)]
+pub struct ColumnMark {
+    pub x: i32,
+    pub y: i32,
+    /// First image of the column's colour (capital; shaft +1, base +2).
+    pub image: u32,
+    pub height: i32,
+}
+
+/// How the active overlay wants tiles drawn.
+pub struct OverlayDraw<'a> {
+    pub look: &'a dyn Fn(i32, i32) -> crate::overlay::TileLook,
+    /// First flattened-footprint image.
+    pub flat: u32,
+    pub columns: Vec<ColumnMark>,
+}
+
+fn draw_column(r: &mut Renderer, c: &ColumnMark, p: [f32; 2]) {
+    let cap_h = r.record(c.image).map_or(0.0, |rec| rec.height as f32);
+    r.image(c.image + 2, [p[0] + 9.0, p[1] - 8.0], WHITE, Space::World);
+    for i in 1..c.height {
+        r.image(c.image + 1, [p[0] + 17.0, p[1] - 8.0 - 10.0 * i as f32 + 13.0], WHITE, Space::World);
+    }
+    if c.height > 0 {
+        r.image(c.image, [p[0] + 5.0, p[1] - 8.0 - cap_h - 10.0 * (c.height - 1) as f32 + 13.0], WHITE, Space::World);
+    }
+}
+
 /// A per-tile highlight drawn over the terrain.
 #[derive(Debug, Clone, Copy)]
 pub struct Highlight {
@@ -128,6 +157,7 @@ impl CityView {
         r.camera.y = c[1] - r.screen[1] / 2.0 / r.camera.zoom;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
         r: &mut Renderer,
@@ -136,6 +166,7 @@ impl CityView {
         highlight_image: u32,
         sprites: &[Sprite],
         overlays: &[Overlay],
+        overlay: Option<&OverlayDraw>,
     ) {
         let before = r.instance_count();
         let [vx0, vy0, vx1, vy1] = r.world_view();
@@ -149,6 +180,9 @@ impl CityView {
         let mut extras = overlays.to_vec();
         extras.sort_by_key(|o| (o.x + o.y, o.x));
         let mut next_extra = 0;
+        let mut columns = overlay.map(|o| o.columns.clone()).unwrap_or_default();
+        columns.sort_by_key(|c| (c.x + c.y, c.x));
+        let mut next_column = 0;
         // Back to front: by diagonal, then left to right within it.
         for d in 0..(w + h - 1) {
             let x_min = (d - (h - 1)).max(0);
@@ -158,9 +192,33 @@ impl CityView {
                 if map.edges.at_or(x, y, 0) & edge::DRAW_TILE == 0 {
                     continue;
                 }
-                let id = map.images.at_or(x, y, 0);
+                let mut id = map.images.at_or(x, y, 0);
                 if id == 0 {
                     continue;
+                }
+                if let Some(o) = overlay {
+                    match (o.look)(x, y) {
+                        crate::overlay::TileLook::Normal => {}
+                        crate::overlay::TileLook::Ground(image) => id = image,
+                        crate::overlay::TileLook::Flat => {
+                            let n = r.record(id).filter(|rec| rec.kind == ImageKind::Isometric).map_or(1, |rec| rec.isometric_tiles().max(1));
+                            let (ox, oy) = (x, y - (n - 1));
+                            for dy in 0..n {
+                                for dx in 0..n {
+                                    let shape = if dx == 0 {
+                                        if dy == 0 { 0 } else { 1 }
+                                    } else if dy == 0 {
+                                        2
+                                    } else {
+                                        3
+                                    };
+                                    let p = tile_to_world(map, ox + dx, oy + dy);
+                                    r.image(o.flat + shape, p, WHITE, Space::World);
+                                }
+                            }
+                            continue;
+                        }
+                    }
                 }
                 let Some(rec) = r.record(id) else { continue };
                 let n = if rec.kind == ImageKind::Isometric {
@@ -175,6 +233,12 @@ impl CityView {
                     continue;
                 }
                 r.image(id, pos, WHITE, Space::World);
+            }
+            while next_column < columns.len() && columns[next_column].x + columns[next_column].y <= d {
+                let c = columns[next_column];
+                let p = tile_to_world(map, c.x, c.y);
+                draw_column(r, &c, p);
+                next_column += 1;
             }
             while next_extra < extras.len() && extras[next_extra].x + extras[next_extra].y <= d {
                 let o = extras[next_extra];
