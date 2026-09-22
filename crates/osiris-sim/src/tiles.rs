@@ -15,13 +15,16 @@ pub struct ContextCounters {
     paved_road: Vec<u32>,
 }
 
+/// A resolved image offset from a context-table match. `pub(crate)` so other tile-image
+/// producers (e.g. `floods.rs`, matching the water table against flooded floodplain tiles)
+/// can reuse the same neighbour-context matching as roads and rubble.
 #[derive(Debug, Clone, Copy)]
-struct ContextImage {
-    group_offset: u32,
-    item_offset: u32,
+pub(crate) struct ContextImage {
+    pub(crate) group_offset: u32,
+    pub(crate) item_offset: u32,
 }
 
-fn match_context(rows: &[ContextRow], counters: &mut Vec<u32>, tiles: [u8; 8]) -> Option<ContextImage> {
+pub(crate) fn match_context(rows: &[ContextRow], counters: &mut Vec<u32>, tiles: [u8; 8]) -> Option<ContextImage> {
     if counters.len() != rows.len() {
         counters.resize(rows.len(), 0);
     }
@@ -40,7 +43,7 @@ fn match_context(rows: &[ContextRow], counters: &mut Vec<u32>, tiles: [u8; 8]) -
     None
 }
 
-fn fill_matches(map: &Map, x: i32, y: i32, mask: u32, hit: u8, miss: u8) -> [u8; 8] {
+pub(crate) fn fill_matches(map: &Map, x: i32, y: i32, mask: u32, hit: u8, miss: u8) -> [u8; 8] {
     NEIGHBOURS.map(|(dx, dy)| if map.terrain_is(x + dx, y + dy, mask) { hit } else { miss })
 }
 

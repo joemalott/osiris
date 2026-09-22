@@ -143,6 +143,11 @@ impl Game {
     }
 
 
+    /// Nothing modal is open and no tool is in hand.
+    pub fn idle(&self) -> bool {
+        self.dialog.is_none() && self.info.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
+    }
+
     pub fn close_dialog(&mut self) {
         self.dialog = None;
         self.world.messages.clear();

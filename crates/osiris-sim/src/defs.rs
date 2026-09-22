@@ -11,7 +11,7 @@ pub struct ContextRow {
     pub variants: u32,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ContextTables {
     pub water: Vec<ContextRow>,
     pub dirt_road: Vec<ContextRow>,
@@ -212,6 +212,7 @@ struct MenusFile {
     menu: Vec<Menu>,
 }
 
+#[derive(Default)]
 pub struct Defs {
     pub contexts: ContextTables,
     pub terrain: TerrainImages,

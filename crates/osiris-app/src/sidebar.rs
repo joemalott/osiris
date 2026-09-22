@@ -43,6 +43,7 @@ const BUTTONS: [(Category, f32, f32, u32); 12] = [
     (Category::Security, 125.0, 381.0, 44),
 ];
 
+#[derive(Clone)]
 pub struct SidebarImages {
     top_bar: u32,
     panel: u32,

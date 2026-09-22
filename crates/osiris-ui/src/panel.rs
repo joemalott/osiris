@@ -3,6 +3,7 @@
 use osiris_render::{Renderer, Space, WHITE};
 
 /// Global image ids of the first tile of each frame group (Pharaoh_General).
+#[derive(Clone)]
 pub struct PanelImages {
     /// Group 132: outer (window) panel.
     pub dialog: u32,

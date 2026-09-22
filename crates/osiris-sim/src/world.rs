@@ -50,13 +50,17 @@ pub enum Outcome {
     Invalid(&'static str),
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct World {
     pub map: Map,
     pub time: GameTime,
     pub rng: Rng,
     pub rules: Rules,
     pub treasury: i32,
+    /// Definitions and balance tables aren't saved; `load` reattaches them.
+    #[serde(skip)]
     pub defs: Arc<Defs>,
+    #[serde(skip)]
     pub balance: Arc<Balance>,
     pub buildings: Buildings,
     pub figures: Figures,
@@ -86,7 +90,38 @@ pub struct World {
     /// Where immigrants arrive and emigrants leave, in map coordinates.
     pub entry_point: (i32, i32),
     pub exit_point: (i32, i32),
+    #[serde(skip)]
     counters: ContextCounters,
+}
+
+/// Leading bytes of a saved game, followed by a format version.
+const SAVE_MAGIC: &[u8; 8] = b"OSIRIS\0\0";
+const SAVE_VERSION: u32 = 1;
+
+impl World {
+    /// Serialises the whole simulation.
+    pub fn save(&self) -> Result<Vec<u8>, String> {
+        let mut out = SAVE_MAGIC.to_vec();
+        out.extend_from_slice(&SAVE_VERSION.to_le_bytes());
+        let body = rmp_serde::to_vec_named(self).map_err(|e| e.to_string())?;
+        out.extend_from_slice(&body);
+        Ok(out)
+    }
+
+    /// Restores a saved game, reattaching the static definitions.
+    pub fn load(data: &[u8], defs: Arc<Defs>, balance: Arc<Balance>) -> Result<Self, String> {
+        if data.len() < 12 || &data[..8] != SAVE_MAGIC {
+            return Err("not an Osiris saved game".into());
+        }
+        let version = u32::from_le_bytes(data[8..12].try_into().unwrap());
+        if version != SAVE_VERSION {
+            return Err(format!("saved game version {version} is not supported"));
+        }
+        let mut world: World = rmp_serde::from_slice(&data[12..]).map_err(|e| e.to_string())?;
+        world.defs = defs;
+        world.balance = balance;
+        Ok(world)
+    }
 }
 
 impl World {

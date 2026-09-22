@@ -9,3 +9,4 @@ version.workspace = true
 osiris-formats = { path = "../osiris-formats" }
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"
+rmp-serde = "1"
