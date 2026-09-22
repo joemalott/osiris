@@ -97,7 +97,7 @@ impl MessageDialog {
         let x = ((screen[0] - w) / 2.0).max(0.0);
         let y = ((screen[1] - h) / 2.0).max(0.0);
 
-        let title_area = 2.0 * BLOCK;
+        let title_area = 3.0 * BLOCK;
         let subtitle_area = if self.subtitle.is_empty() { 0.0 } else { BLOCK };
         let body_y = y + title_area + subtitle_area;
         let body_wb = self.width_blocks - 2;
@@ -163,7 +163,7 @@ impl MessageDialog {
         panel::outer_panel(r, &self.panels, g.x, g.y, self.width_blocks, self.height_blocks);
 
         let tw = text_width(r, Font::LargeBlackOnLight, &self.title) as f32;
-        draw_text(r, Font::LargeBlackOnLight, &self.title, g.x + (g.w - tw) / 2.0, g.y + BLOCK - 4.0, font::BLACK);
+        draw_text(r, Font::LargeBlackOnLight, &self.title, g.x + (g.w - tw) / 2.0, g.y + BLOCK, font::BLACK);
 
         if !self.subtitle.is_empty() {
             draw_text(r, Font::NormalBlackOnLight, &self.subtitle, g.x + BLOCK, g.y + 2.0 * BLOCK - 2.0, font::BLACK);
@@ -171,6 +171,7 @@ impl MessageDialog {
 
         panel::inner_panel(r, &self.panels, g.body_x, g.body_y, g.body_wb, g.body_hb);
         let body_h = g.body_hb as f32 * BLOCK - 2.0 * BODY_PAD_Y;
+        r.set_clip(Some([g.body_x + 2.0, g.body_y + 2.0, g.body_wb as f32 * BLOCK - 4.0, g.body_hb as f32 * BLOCK - 4.0]));
         rich_text::draw(
             r,
             &self.layout,
@@ -179,6 +180,7 @@ impl MessageDialog {
             self.scroll,
             font::BLACK,
         );
+        r.set_clip(None);
 
         let (ox, oy, ow, oh) = g.ok;
         panel::button_border(r, &self.panels, ox, oy, ow as i32, oh as i32, self.ok_hover);

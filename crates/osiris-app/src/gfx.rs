@@ -66,6 +66,7 @@ impl Gfx {
         let mut renderer = Renderer::new(device, queue, config.format, library);
         let scale = window.scale_factor() as f32;
         renderer.screen = [size.width as f32 / scale, size.height as f32 / scale];
+        renderer.scale = scale;
         Ok(Self {
             window,
             surface,
@@ -80,6 +81,7 @@ impl Gfx {
         self.surface.configure(self.renderer.device(), &self.config);
         let scale = self.window.scale_factor() as f32;
         self.renderer.screen = [w as f32 / scale, h as f32 / scale];
+        self.renderer.scale = scale;
     }
 
     pub fn frame(&mut self, draw: impl FnOnce(&mut Renderer)) {

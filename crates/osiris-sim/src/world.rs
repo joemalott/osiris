@@ -73,6 +73,11 @@ pub struct World {
     /// Gold delivered to the palace since the scenario began.
     pub gold_delivered: i32,
     pub herds: Vec<crate::animals::Herd>,
+    pub mission: Option<crate::missions::Mission>,
+    /// Message keys waiting to be shown to the player, oldest first.
+    pub messages: VecDeque<String>,
+    pub events: crate::missions::CityEvents,
+    pub won: bool,
     pub migration_params: crate::people::MigrationParams,
     pub scenario_name: String,
     /// 0 central, 1 northern, 2 desert.
@@ -108,6 +113,10 @@ impl World {
             finance: Default::default(),
             gold_delivered: 0,
             herds: Vec::new(),
+            mission: None,
+            messages: VecDeque::new(),
+            events: Default::default(),
+            won: false,
             migration_params: Default::default(),
             scenario_name: info.subtitle.clone(),
             climate: info.climate,

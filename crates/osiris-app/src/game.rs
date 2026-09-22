@@ -2,10 +2,13 @@
 
 use crate::city_view::{self, CityView, Highlight, Sprite};
 use crate::sidebar::{Category, Click, MenuItem, Sidebar, SidebarImages};
-use osiris_formats::TextTable;
+use crate::minimap::Minimap;
+use osiris_audio::Audio;
+use osiris_formats::{Message, MessageTable, TextTable};
 use osiris_render::Renderer;
 use osiris_sim::buildings::kind;
 use osiris_sim::{Command, Outcome, World};
+use osiris_ui::dialog::MessageDialog;
 use osiris_ui::{Font, draw_text, font};
 use std::sync::Arc;
 
@@ -63,10 +66,23 @@ pub struct Game {
     drag_start: Option<(i32, i32)>,
     accumulator: f32,
     message: Option<(String, f32)>,
+    messages: Arc<MessageTable>,
+    dialog: Option<MessageDialog>,
+    minimap: Option<Minimap>,
+    pub audio: Option<Arc<Audio>>,
+    music_timer: f32,
+    /// Map-changing actions since the minimap was last rebuilt.
+    map_changed: bool,
 }
 
 impl Game {
-    pub fn new(world: World, images: SidebarImages, text: Arc<TextTable>) -> Self {
+    pub fn new(
+        world: World,
+        images: SidebarImages,
+        text: Arc<TextTable>,
+        messages: Arc<MessageTable>,
+        audio: Option<Arc<Audio>>,
+    ) -> Self {
         Self {
             world,
             view: CityView::default(),
@@ -82,6 +98,55 @@ impl Game {
             drag_start: None,
             accumulator: 0.0,
             message: None,
+            messages,
+            dialog: None,
+            minimap: None,
+            audio,
+            music_timer: 0.0,
+            map_changed: true,
+        }
+    }
+
+    fn sound(&self, name: &str) {
+        if let Some(a) = &self.audio {
+            a.play_effect(name);
+        }
+    }
+
+    /// Opens the next queued message, if nothing is showing.
+    fn next_dialog(&mut self, r: &Renderer) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let Some(key) = self.world.messages.pop_front() else { return };
+        let msg = if key == "victory" {
+            Message {
+                title: "Victory!".to_owned(),
+                content: format!(
+                    "@PYou have met every goal set for {}. The people of Egypt rejoice at your success.",
+                    self.world.scenario_name
+                ),
+                size: (30, 16),
+                ..Default::default()
+            }
+        } else {
+            let Some(m) = osiris_sim::missions::message_id(&key).and_then(|id| self.messages.get(id as usize)) else {
+                return;
+            };
+            m.clone()
+        };
+        self.dialog = Some(MessageDialog::new(r, &msg, &self.text));
+        self.sound("BUTTON.WAV");
+    }
+
+
+    pub fn scroll_dialog(&mut self, delta: f32, screen: [f32; 2]) -> bool {
+        match &mut self.dialog {
+            Some(d) => {
+                d.scroll(delta, screen);
+                true
+            }
+            None => false,
         }
     }
 
@@ -100,7 +165,14 @@ impl Game {
                 self.message = None;
             }
         }
-        if self.paused {
+        if let Some(a) = &self.audio {
+            self.music_timer -= dt;
+            if self.music_timer <= 0.0 {
+                a.update_music(self.world.population);
+                self.music_timer = 5.0;
+            }
+        }
+        if self.paused || self.dialog.is_some() {
             return;
         }
         let ms = MS_PER_TICK[((100 - self.speed.clamp(10, 100)) / 10) as usize];
@@ -118,6 +190,11 @@ impl Game {
 
     pub fn set_cursor(&mut self, r: &Renderer, screen: [f32; 2]) {
         self.cursor = screen;
+        if let Some(d) = &mut self.dialog {
+            d.hover(screen, r.screen);
+            self.hover = None;
+            return;
+        }
         self.sidebar.hover(r.screen[0], screen);
         if self.sidebar.contains(r.screen[0], screen) {
             self.hover = None;
@@ -161,7 +238,7 @@ impl Game {
                 let label = label_id.map_or_else(|| sub.replace('_', " "), |id| self.building_name(id));
                 self.entries.push(Entry::Submenu(sub.to_owned()));
                 self.sidebar.items.push(MenuItem { label: format!("{label} ..."), cost: 0, enabled: true });
-            } else if let Some(d) = defs.building_by_key(item) {
+            } else if let Some(d) = defs.building_by_key(item).filter(|d| self.world.is_allowed(d.id)) {
                 self.entries.push(Entry::Building(d.id));
                 self.sidebar.items.push(MenuItem {
                     label: self.building_name(d.id),
@@ -206,9 +283,27 @@ impl Game {
         self.open_menu(key, c);
     }
 
-    pub fn press(&mut self, screen_w: f32) {
+    /// Handles a left click. Returns a tile to centre the view on (minimap clicks).
+    pub fn press(&mut self, screen: [f32; 2]) -> Option<(i32, i32)> {
+        let screen_w = screen[0];
+        if let Some(d) = &mut self.dialog {
+            if d.click(self.cursor, screen) {
+                self.dialog = None;
+                self.sound("BUTTON.WAV");
+            }
+            return None;
+        }
+        let panel_left = screen_w - 162.0;
+        if let Some(m) = &self.minimap
+            && m.contains(panel_left, self.cursor)
+        {
+            return m.pixel_to_tile(&self.world.map, panel_left, self.cursor);
+        }
         match self.sidebar.click(screen_w, self.cursor) {
-            Click::Button(c) => self.choose_category(c),
+            Click::Button(c) => {
+                self.sound("BUTTON.WAV");
+                self.choose_category(c);
+            }
             Click::Item(i) => match self.entries.get(i).cloned() {
                 Some(Entry::Building(k)) => {
                     self.tool = match k {
@@ -217,6 +312,7 @@ impl Game {
                         k => Tool::Build(k),
                     };
                     self.sidebar.open = None;
+                    self.sound("BUTTON.WAV");
                 }
                 Some(Entry::Submenu(key)) => {
                     let c = self.sidebar.open.unwrap_or(Category::Food);
@@ -232,6 +328,7 @@ impl Game {
                 }
             }
         }
+        None
     }
 
     pub fn release(&mut self) {
@@ -243,13 +340,21 @@ impl Game {
                 Outcome::NotEnoughMoney => self.say("Not enough money"),
                 Outcome::Blocked => self.say("Can't build there"),
                 Outcome::Invalid(why) => self.say(why),
-                Outcome::Done { .. } => {}
+                Outcome::Done { items, .. } => {
+                    if items > 0 {
+                        self.map_changed = true;
+                        self.sound(if matches!(cmd, Command::Clear { .. }) { "BUILD.WAV" } else { "BUILD.WAV" });
+                    }
+                }
             }
         }
         self.drag_start = None;
     }
 
     pub fn cancel(&mut self) {
+        if self.dialog.take().is_some() {
+            return;
+        }
         if self.sidebar.open.take().is_some() {
             return;
         }
@@ -318,6 +423,7 @@ impl Game {
     }
 
     pub fn draw(&mut self, r: &mut Renderer) {
+        self.next_dialog(r);
         let (marks, cost) = self.highlights();
         let marker = self.world.defs.terrain.empty_land;
         let sprites = self.sprites();
@@ -339,6 +445,15 @@ impl Game {
             if self.paused { " (paused)" } else { "" }
         );
         self.sidebar.draw(r, &self.images, &status, &self.world.scenario_name);
+        let minimap = self.minimap.get_or_insert_with(|| Minimap::new(r));
+        // The simulation changes terrain too (fires, rubble); refresh about once a second.
+        if self.map_changed || self.world.time.tick == 0 {
+            minimap.mark_dirty();
+            self.map_changed = false;
+        }
+        let buildings = &self.world.buildings;
+        let is_house = |id: u32| buildings.get(id).is_some_and(|b| b.house.is_some());
+        minimap.draw(r, &self.world.map, is_house, r.screen[0] - 162.0);
         let tool = match self.tool {
             Tool::None => String::new(),
             Tool::Road => self.building_name(5),
@@ -356,6 +471,9 @@ impl Game {
             let w = r.screen[0] - crate::sidebar::WIDTH;
             let mw = osiris_ui::text_width(r, Font::LargeBlackOnDark, m) as f32;
             draw_text(r, Font::LargeBlackOnDark, m, (w - mw) / 2.0, 70.0, font::WHITE);
+        }
+        if let Some(d) = &self.dialog {
+            d.draw(r);
         }
     }
 }

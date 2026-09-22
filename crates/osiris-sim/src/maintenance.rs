@@ -56,6 +56,11 @@ impl World {
     /// Replaces a building with rubble (collapse) or burning ruins (fire).
     pub fn destroy(&mut self, id: BuildingId, by_fire: bool) {
         let Some(b) = self.buildings.get(id).cloned() else { return };
+        if by_fire {
+            self.events.fire = true;
+        } else {
+            self.events.collapse = true;
+        }
         let tiles: Vec<(i32, i32)> = b.tiles().collect();
         if let Some(h) = &b.house
             && h.population > 0

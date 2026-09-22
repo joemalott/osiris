@@ -95,6 +95,11 @@ impl World {
         if pct <= 0 || self.migration.room_in_houses <= 0 {
             return;
         }
+        if let Some(cap) = self.population_cap()
+            && self.population >= cap
+        {
+            return;
+        }
         let batch = p.max_newcomers * pct / 100;
         let total = batch + self.migration.queue;
         if total < p.min_batch {
@@ -143,6 +148,19 @@ impl World {
             }
         }
         sent
+    }
+
+    /// The mission's population cap, while it applies. Some tutorials lift it once the
+    /// player reaches a step (a granary in mission 1, pottery in mission 2).
+    pub fn population_cap(&self) -> Option<i32> {
+        let m = self.mission.as_ref()?;
+        let cap = m.population_cap?;
+        let lifted = match m.id {
+            1 => self.buildings.count_of(kind::GRANARY) > 0,
+            2 => self.buildings.iter().map(|b| b.stock.get(13).copied().unwrap_or(0)).sum::<i32>() >= 100,
+            _ => false,
+        };
+        (!lifted).then_some(cap)
     }
 
     /// Adds people to a house (as many as fit), turning a vacant lot into a hut.

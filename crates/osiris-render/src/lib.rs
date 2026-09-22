@@ -38,6 +38,7 @@ enum PageSource {
 
 struct Batch {
     source: PageSource,
+    clip: Option<[f32; 4]>,
     start: u32,
     end: u32,
 }
@@ -109,6 +110,10 @@ pub struct Renderer {
     instance_buffer: wgpu::Buffer,
     pub camera: Camera,
     pub screen: [f32; 2],
+    /// Physical pixels per logical pixel of `screen`.
+    pub scale: f32,
+    /// Screen-space rectangle (x, y, w, h) that subsequent draws are clipped to.
+    clip: Option<[f32; 4]>,
     pub library: ImageLibrary,
 }
 
@@ -236,6 +241,8 @@ impl Renderer {
             instance_buffer,
             camera: Camera::default(),
             screen: [1.0, 1.0],
+            scale: 1.0,
+            clip: None,
             library,
         }
     }
@@ -328,10 +335,12 @@ impl Renderer {
             flags: (space == Space::Screen) as u32 | ((paint == Paint::Silhouette) as u32) << 1,
         };
         let idx = self.instances.len() as u32;
+        let clip = self.clip;
         match self.batches.last_mut() {
-            Some(b) if b.source == source => b.end = idx + 1,
+            Some(b) if b.source == source && b.clip == clip => b.end = idx + 1,
             _ => self.batches.push(Batch {
                 source,
+                clip,
                 start: idx,
                 end: idx + 1,
             }),
@@ -511,6 +520,11 @@ impl Renderer {
         );
     }
 
+    /// Clips following draws to a screen rectangle, or stops clipping with `None`.
+    pub fn set_clip(&mut self, clip: Option<[f32; 4]>) {
+        self.clip = clip;
+    }
+
     /// Visible world rectangle as `(x0, y0, x1, y1)`.
     pub fn world_view(&self) -> [f32; 4] {
         let c = self.camera;
@@ -586,6 +600,16 @@ impl Renderer {
                     PageSource::Dynamic(p) => &self.dynamic[p as usize].bind_group,
                 };
                 pass.set_bind_group(1, bind_group, &[]);
+                let (tw, th) = (self.screen[0] * self.scale, self.screen[1] * self.scale);
+                let [x, y, w, h] = b.clip.unwrap_or([0.0, 0.0, self.screen[0], self.screen[1]]);
+                let x0 = (x * self.scale).clamp(0.0, tw) as u32;
+                let y0 = (y * self.scale).clamp(0.0, th) as u32;
+                let x1 = ((x + w) * self.scale).clamp(0.0, tw) as u32;
+                let y1 = ((y + h) * self.scale).clamp(0.0, th) as u32;
+                if x1 <= x0 || y1 <= y0 {
+                    continue;
+                }
+                pass.set_scissor_rect(x0, y0, x1 - x0, y1 - y0);
                 pass.draw(0..4, b.start..b.end);
             }
         }

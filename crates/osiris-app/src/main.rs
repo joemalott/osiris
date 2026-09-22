@@ -1,10 +1,11 @@
 mod city_view;
 mod game;
 mod gfx;
+mod minimap;
 mod sidebar;
 
 use anyhow::{Context, Result, bail};
-use osiris_formats::{ImageLibrary, MissionPak, Model, Scenario, TextTable};
+use osiris_formats::{ImageLibrary, MessageTable, MissionPak, Model, Scenario, TextTable};
 use osiris_sim::{Balance, Command, Defs, World};
 use std::sync::Arc;
 use std::path::PathBuf;
@@ -72,6 +73,8 @@ struct App {
     game: Option<game::Game>,
     world: Option<World>,
     text: Arc<TextTable>,
+    messages: Arc<MessageTable>,
+    audio: Option<Arc<osiris_audio::Audio>>,
     gfx: Option<gfx::Gfx>,
     drag: Option<(f64, f64)>,
     cursor: (f64, f64),
@@ -96,7 +99,13 @@ impl ApplicationHandler for App {
         let library = self.library.take().expect("library");
         let images = sidebar::SidebarImages::load(&library).expect("sidebar images");
         let mut gfx = pollster::block_on(gfx::Gfx::new(window, library)).expect("init graphics");
-        let mut game = game::Game::new(self.world.take().expect("world"), images, self.text.clone());
+        let mut game = game::Game::new(
+            self.world.take().expect("world"),
+            images,
+            self.text.clone(),
+            self.messages.clone(),
+            self.audio.clone(),
+        );
         let (cx, cy) = start_view(&game.world);
         game.view.center_on(&mut gfx.renderer, &game.world.map, cx, cy);
         self.game = Some(game);
@@ -137,7 +146,11 @@ impl ApplicationHandler for App {
                 game.set_cursor(&gfx.renderer, at);
             }
             WindowEvent::MouseInput { state, button, .. } => match (button, state) {
-                (MouseButton::Left, ElementState::Pressed) => game.press(gfx.renderer.screen[0]),
+                (MouseButton::Left, ElementState::Pressed) => {
+                    if let Some((x, y)) = game.press(gfx.renderer.screen) {
+                        game.view.center_on(&mut gfx.renderer, &game.world.map, x, y);
+                    }
+                }
                 (MouseButton::Left, ElementState::Released) => game.release(),
                 (MouseButton::Right, ElementState::Pressed) => {
                     game.cancel();
@@ -157,7 +170,9 @@ impl ApplicationHandler for App {
                     (self.cursor.0 / scale) as f32,
                     (self.cursor.1 / scale) as f32,
                 ];
-                city_view::zoom_at(&mut gfx.renderer, at, 1.1f32.powf(steps));
+                if !game.scroll_dialog(-steps * 20.0, gfx.renderer.screen) {
+                    city_view::zoom_at(&mut gfx.renderer, at, 1.1f32.powf(steps));
+                }
             }
             WindowEvent::RedrawRequested => {
                 let now = std::time::Instant::now();
@@ -293,6 +308,10 @@ fn main() -> Result<()> {
     let text = Arc::new(TextTable::parse(&std::fs::read(args.data.join("Pharaoh_Text.eng"))?)?);
     let mut world = World::new(&scenario, defs, balance);
     world.start(&scenario);
+    if args.map.is_none() {
+        world.load_mission(args.mission.unwrap_or(0) as i32);
+    }
+    let messages = Arc::new(MessageTable::parse(&std::fs::read(args.data.join("Pharaoh_MM.eng"))?)?);
     let script_view = match &args.script {
         Some(s) => run_script(&mut world, s)?,
         None => None,
@@ -300,7 +319,7 @@ fn main() -> Result<()> {
 
     if let Some(out) = &args.screenshot {
         let images = sidebar::SidebarImages::load(&library)?;
-        let mut game = game::Game::new(world, images, text);
+        let mut game = game::Game::new(world, images, text, messages, None);
         let (cx, cy) = script_view.unwrap_or_else(|| start_view(&game.world));
         return gfx::screenshot(library, args.size, out, |r| {
             game.view.center_on(r, &game.world.map, cx, cy);
@@ -308,6 +327,7 @@ fn main() -> Result<()> {
         });
     }
 
+    let audio = osiris_audio::Audio::new(&args.data).ok().map(Arc::new);
     let event_loop = EventLoop::new()?;
     let now = std::time::Instant::now();
     let mut app = App {
@@ -316,6 +336,8 @@ fn main() -> Result<()> {
         game: None,
         world: Some(world),
         text,
+        messages,
+        audio,
         gfx: None,
         drag: None,
         cursor: (0.0, 0.0),

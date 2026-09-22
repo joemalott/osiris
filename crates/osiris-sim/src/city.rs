@@ -14,6 +14,7 @@ impl World {
         self.rng.next();
         let roll = self.time.advance();
         match self.time.tick {
+            1 => self.check_unlocks(),
             7 => {
                 for id in self.buildings.ids() {
                     self.refresh_road_access(id);
@@ -50,6 +51,10 @@ impl World {
             self.migration.newcomers_this_month = 0;
             self.advance_month_finance();
             self.regrow_herds();
+            if !self.won && self.goals_met() {
+                self.won = true;
+                self.messages.push_back("victory".to_owned());
+            }
         }
         if roll.year {
             self.advance_year_finance();

@@ -12,6 +12,9 @@ impl World {
     /// Checks the placement rules for one building of type `k` at `(x, y)`.
     pub fn can_place(&self, k: u16, x: i32, y: i32) -> Result<(), &'static str> {
         let def = self.defs.building(k).ok_or("Unknown building")?;
+        if !self.is_allowed(k) {
+            return Err("Not available yet");
+        }
         let size = def.size.max(1);
         let floodplain_ok =
             def.needs("floodplain") || (kind::FARM_FIRST..=kind::FARM_LAST).contains(&k) || def.has_flag("is_farm");
