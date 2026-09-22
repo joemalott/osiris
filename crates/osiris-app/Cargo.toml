@@ -12,6 +12,8 @@ path = "src/main.rs"
 [dependencies]
 osiris-formats = { path = "../osiris-formats" }
 osiris-render = { path = "../osiris-render" }
+osiris-sim = { path = "../osiris-sim" }
+osiris-ui = { path = "../osiris-ui" }
 wgpu = "30"
 winit = "0.30"
 pollster = "1"

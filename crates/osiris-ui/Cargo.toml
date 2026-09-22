@@ -1,11 +1,10 @@
 [package]
-name = "osiris-sim"
-description = "Deterministic city simulation for Osiris"
+name = "osiris-ui"
+description = "Original-style interface for Osiris"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
 
 [dependencies]
 osiris-formats = { path = "../osiris-formats" }
-serde = { version = "1", features = ["derive"] }
-toml = "0.9"
+osiris-render = { path = "../osiris-render" }

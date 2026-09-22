@@ -1,14 +1,16 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! The Osiris simulation: a deterministic library with no global state. A `World` is
+//! built from a scenario and advanced one tick at a time; the player changes it only
+//! through `Command`s.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod defs;
+pub mod grid;
+pub mod map;
+pub mod rng;
+pub mod rules;
+pub mod tiles;
+pub mod time;
+pub mod world;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use defs::Defs;
+pub use rules::Rules;
+pub use world::{BuildingStats, Command, Outcome, World};

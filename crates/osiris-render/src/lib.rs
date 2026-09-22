@@ -26,7 +26,7 @@ struct Instance {
     uv0: [f32; 2],
     uv1: [f32; 2],
     color: [f32; 4],
-    space: f32,
+    flags: u32,
 }
 
 struct Batch {
@@ -57,6 +57,16 @@ impl Default for Camera {
 pub enum Space {
     World,
     Screen,
+}
+
+/// How an image is coloured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Paint {
+    /// Texture colours multiplied by the tint.
+    #[default]
+    Normal,
+    /// Only the texture's shape is kept, filled with the tint colour.
+    Silhouette,
 }
 
 pub const WHITE: [f32; 4] = [1.0; 4];
@@ -144,7 +154,7 @@ impl Renderer {
             immediate_size: 0,
         });
         let attrs = wgpu::vertex_attr_array![
-            0 => Float32x2, 1 => Float32x2, 2 => Float32x2, 3 => Float32x2, 4 => Float32x4, 5 => Float32
+            0 => Float32x2, 1 => Float32x2, 2 => Float32x2, 3 => Float32x2, 4 => Float32x4, 5 => Uint32
         ];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("sprite"),
@@ -249,6 +259,20 @@ impl Renderer {
         space: Space,
         flip: bool,
     ) {
+        self.push_painted(e, pos, size, color, space, flip, Paint::Normal);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_painted(
+        &mut self,
+        e: AtlasEntry,
+        pos: [f32; 2],
+        size: [f32; 2],
+        color: [f32; 4],
+        space: Space,
+        flip: bool,
+        paint: Paint,
+    ) {
         let s = 1.0 / PAGE_SIZE as f32;
         let (mut u0, mut u1) = (e.x as f32 * s, (e.x + e.w) as f32 * s);
         if e.flip != flip {
@@ -260,7 +284,7 @@ impl Renderer {
             uv0: [u0, e.y as f32 * s],
             uv1: [u1, (e.y + e.h) as f32 * s],
             color,
-            space: if space == Space::Screen { 1.0 } else { 0.0 },
+            flags: (space == Space::Screen) as u32 | ((paint == Paint::Silhouette) as u32) << 1,
         };
         let idx = self.instances.len() as u32;
         match self.batches.last_mut() {
@@ -285,6 +309,13 @@ impl Renderer {
         let e = self.entry(id)?;
         let size = [e.w as f32, e.h as f32];
         self.push(e, pos, size, color, space, false);
+        Some(size)
+    }
+
+    pub fn image_painted(&mut self, id: u32, pos: [f32; 2], color: [f32; 4], space: Space, paint: Paint) -> Option<[f32; 2]> {
+        let e = self.entry(id)?;
+        let size = [e.w as f32, e.h as f32];
+        self.push_painted(e, pos, size, color, space, false, paint);
         Some(size)
     }
 

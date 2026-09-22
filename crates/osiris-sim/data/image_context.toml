@@ -1,0 +1,1775 @@
+# Neighbour-pattern tables that pick edge/corner variants for terrain tiles.
+# tiles: neighbours in direction order N, NE, E, SE, S, SW, W, NW
+#   (0 = must not match, 1 = must match, 2 = either)
+# offsets: image offset within the group for each of the 4 view orientations
+# variants: how many consecutive images to cycle through
+
+[[water]]
+tiles = [1, 2, 1, 2, 1, 2, 1, 2]
+offsets = [79, 79, 79, 79]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [1, 2, 1, 2, 1, 2, 0, 2]
+offsets = [47, 46, 45, 44]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 2, 1, 2, 1, 2, 1, 2]
+offsets = [44, 47, 46, 45]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [1, 2, 0, 2, 1, 2, 1, 2]
+offsets = [45, 44, 47, 46]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [1, 2, 1, 2, 0, 2, 1, 2]
+offsets = [46, 45, 44, 47]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [1, 2, 0, 2, 1, 2, 0, 2]
+offsets = [40, 42, 40, 42]
+canal = 0
+variants = 2
+
+[[water]]
+tiles = [0, 2, 1, 2, 0, 2, 1, 2]
+offsets = [42, 40, 42, 40]
+canal = 0
+variants = 2
+
+[[water]]
+tiles = [1, 2, 1, 2, 0, 0, 0, 2]
+offsets = [32, 28, 24, 36]
+canal = 0
+variants = 4
+
+[[water]]
+tiles = [0, 2, 1, 2, 1, 2, 0, 0]
+offsets = [36, 32, 28, 24]
+canal = 0
+variants = 4
+
+[[water]]
+tiles = [0, 0, 0, 2, 1, 2, 1, 2]
+offsets = [24, 36, 32, 28]
+canal = 0
+variants = 4
+
+[[water]]
+tiles = [1, 2, 0, 0, 0, 2, 1, 2]
+offsets = [28, 24, 36, 32]
+canal = 0
+variants = 4
+
+[[water]]
+tiles = [1, 2, 1, 2, 0, 1, 0, 2]
+offsets = [77, 76, 75, 78]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 2, 1, 2, 1, 2, 0, 1]
+offsets = [78, 77, 76, 75]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 1, 0, 2, 1, 2, 1, 2]
+offsets = [75, 78, 77, 76]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [1, 2, 0, 1, 0, 2, 1, 2]
+offsets = [76, 75, 78, 77]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [1, 2, 0, 0, 0, 0, 0, 2]
+offsets = [16, 12, 8, 20]
+canal = 0
+variants = 4
+
+[[water]]
+tiles = [0, 2, 1, 2, 0, 0, 0, 0]
+offsets = [20, 16, 12, 8]
+canal = 0
+variants = 4
+
+[[water]]
+tiles = [0, 0, 0, 2, 1, 2, 0, 0]
+offsets = [8, 20, 16, 12]
+canal = 0
+variants = 4
+
+[[water]]
+tiles = [0, 0, 0, 0, 0, 2, 1, 2]
+offsets = [12, 8, 20, 16]
+canal = 0
+variants = 4
+
+[[water]]
+tiles = [1, 2, 0, 1, 0, 0, 0, 2]
+offsets = [69, 66, 63, 72]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 2, 1, 2, 0, 1, 0, 0]
+offsets = [72, 69, 66, 63]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 0, 0, 2, 1, 2, 0, 1]
+offsets = [63, 72, 69, 66]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 1, 0, 0, 0, 2, 1, 2]
+offsets = [66, 63, 72, 69]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [1, 2, 0, 0, 0, 1, 0, 2]
+offsets = [70, 67, 64, 73]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 2, 1, 2, 0, 0, 0, 1]
+offsets = [73, 70, 67, 64]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 1, 0, 2, 1, 2, 0, 0]
+offsets = [64, 73, 70, 67]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 0, 0, 1, 0, 2, 1, 2]
+offsets = [67, 64, 73, 70]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [1, 2, 0, 1, 0, 1, 0, 2]
+offsets = [71, 68, 65, 74]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 2, 1, 2, 0, 1, 0, 1]
+offsets = [74, 71, 68, 65]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 1, 0, 2, 1, 2, 0, 1]
+offsets = [65, 74, 71, 68]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 1, 0, 1, 0, 2, 1, 2]
+offsets = [68, 65, 74, 71]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 1, 0, 1, 0, 1, 0, 1]
+offsets = [62, 62, 62, 62]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 1, 0, 1, 0, 1, 0, 0]
+offsets = [60, 59, 58, 61]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 0, 0, 1, 0, 1, 0, 1]
+offsets = [61, 60, 59, 58]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 1, 0, 0, 0, 1, 0, 1]
+offsets = [58, 61, 60, 59]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 1, 0, 1, 0, 0, 0, 1]
+offsets = [59, 58, 61, 60]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 1, 0, 0, 0, 1, 0, 0]
+offsets = [48, 49, 48, 49]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 0, 0, 1, 0, 0, 0, 1]
+offsets = [49, 48, 49, 48]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 1, 0, 1, 0, 0, 0, 0]
+offsets = [56, 55, 54, 57]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 0, 0, 1, 0, 1, 0, 0]
+offsets = [57, 56, 55, 54]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 0, 0, 0, 0, 1, 0, 1]
+offsets = [54, 57, 56, 55]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 1, 0, 0, 0, 0, 0, 1]
+offsets = [55, 54, 57, 56]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 1, 0, 0, 0, 0, 0, 0]
+offsets = [52, 51, 50, 53]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 0, 0, 1, 0, 0, 0, 0]
+offsets = [53, 52, 51, 50]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 0, 0, 0, 0, 1, 0, 0]
+offsets = [50, 53, 52, 51]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 0, 0, 0, 0, 0, 0, 1]
+offsets = [51, 50, 53, 52]
+canal = 0
+variants = 1
+
+[[water]]
+tiles = [0, 0, 0, 0, 0, 0, 0, 0]
+offsets = [0, 0, 0, 0]
+canal = 0
+variants = 6
+
+[[water]]
+tiles = [0, 0, 0, 0, 0, 0, 0, 0]
+offsets = [0, 0, 0, 0]
+canal = 0
+variants = 0
+
+[[dirt_road]]
+tiles = [1, 2, 1, 2, 1, 2, 1, 2]
+offsets = [17, 17, 17, 17]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [1, 2, 1, 2, 1, 2, 0, 2]
+offsets = [13, 16, 15, 14]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [0, 2, 1, 2, 1, 2, 1, 2]
+offsets = [14, 13, 16, 15]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [1, 2, 0, 2, 1, 2, 1, 2]
+offsets = [15, 14, 13, 16]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [1, 2, 1, 2, 0, 2, 1, 2]
+offsets = [16, 15, 14, 13]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [1, 2, 1, 2, 0, 2, 0, 2]
+offsets = [4, 7, 6, 5]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [0, 2, 1, 2, 1, 2, 0, 2]
+offsets = [5, 4, 7, 6]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [0, 2, 0, 2, 1, 2, 1, 2]
+offsets = [6, 5, 4, 7]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [1, 2, 0, 2, 0, 2, 1, 2]
+offsets = [7, 6, 5, 4]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [1, 2, 0, 2, 1, 2, 0, 2]
+offsets = [0, 1, 0, 1]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [0, 2, 1, 2, 0, 2, 1, 2]
+offsets = [1, 0, 1, 0]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [1, 2, 0, 2, 0, 2, 0, 2]
+offsets = [8, 11, 10, 9]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [0, 2, 1, 2, 0, 2, 0, 2]
+offsets = [9, 8, 11, 10]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [0, 2, 0, 2, 1, 2, 0, 2]
+offsets = [10, 9, 8, 11]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [0, 2, 0, 2, 0, 2, 1, 2]
+offsets = [11, 10, 9, 8]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [0, 2, 0, 2, 0, 2, 0, 2]
+offsets = [12, 12, 12, 12]
+canal = 0
+variants = 1
+
+[[dirt_road]]
+tiles = [2, 2, 2, 2, 2, 2, 2, 2]
+offsets = [12, 12, 12, 12]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 0, 1, 0, 1, 0, 1, 0]
+offsets = [17, 17, 17, 17]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 0, 1, 0, 1, 2, 0, 2]
+offsets = [13, 16, 15, 14]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 1, 1, 1, 1, 2, 0, 2]
+offsets = [18, 21, 20, 19]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 0, 1, 1, 1, 2, 0, 2]
+offsets = [26, 33, 32, 31]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 1, 1, 0, 1, 2, 0, 2]
+offsets = [30, 29, 28, 27]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [0, 2, 1, 0, 1, 0, 1, 2]
+offsets = [14, 13, 16, 15]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [0, 2, 1, 1, 1, 1, 1, 2]
+offsets = [19, 18, 21, 20]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [0, 2, 1, 0, 1, 1, 1, 2]
+offsets = [31, 26, 33, 32]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [0, 2, 1, 1, 1, 0, 1, 2]
+offsets = [27, 30, 29, 28]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 2, 0, 2, 1, 0, 1, 0]
+offsets = [15, 14, 13, 16]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 2, 0, 2, 1, 1, 1, 1]
+offsets = [20, 19, 18, 21]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 2, 0, 2, 1, 0, 1, 1]
+offsets = [32, 31, 26, 33]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 2, 0, 2, 1, 1, 1, 0]
+offsets = [28, 27, 30, 29]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 0, 1, 2, 0, 2, 1, 0]
+offsets = [16, 15, 14, 13]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 1, 1, 2, 0, 2, 1, 1]
+offsets = [21, 20, 19, 18]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 1, 1, 2, 0, 2, 1, 0]
+offsets = [33, 32, 31, 26]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 0, 1, 2, 0, 2, 1, 1]
+offsets = [29, 28, 27, 30]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 1, 1, 2, 0, 0, 0, 2]
+offsets = [22, 25, 24, 23]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [0, 2, 1, 1, 1, 2, 0, 0]
+offsets = [23, 22, 25, 24]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [0, 0, 0, 2, 1, 1, 1, 2]
+offsets = [24, 23, 22, 25]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 2, 0, 0, 0, 2, 1, 1]
+offsets = [25, 24, 23, 22]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 0, 1, 0, 1, 1, 1, 1]
+offsets = [34, 37, 36, 35]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 1, 1, 0, 1, 0, 1, 1]
+offsets = [35, 34, 37, 36]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 1, 1, 1, 1, 0, 1, 0]
+offsets = [36, 35, 34, 37]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 0, 1, 1, 1, 1, 1, 0]
+offsets = [37, 36, 35, 34]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 0, 1, 0, 1, 0, 1, 1]
+offsets = [38, 41, 40, 39]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 1, 1, 0, 1, 0, 1, 0]
+offsets = [39, 38, 41, 40]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 0, 1, 1, 1, 0, 1, 0]
+offsets = [40, 39, 38, 41]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 0, 1, 0, 1, 1, 1, 0]
+offsets = [41, 40, 39, 38]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 1, 1, 1, 1, 0, 1, 1]
+offsets = [42, 45, 44, 43]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 1, 1, 1, 1, 1, 1, 0]
+offsets = [43, 42, 45, 44]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 0, 1, 1, 1, 1, 1, 1]
+offsets = [44, 43, 42, 45]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 1, 1, 0, 1, 1, 1, 1]
+offsets = [45, 44, 43, 42]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 1, 1, 0, 1, 1, 1, 0]
+offsets = [46, 47, 46, 47]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 0, 1, 1, 1, 0, 1, 1]
+offsets = [47, 46, 47, 46]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 2, 1, 2, 0, 2, 0, 2]
+offsets = [4, 7, 6, 5]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [0, 2, 1, 2, 1, 2, 0, 2]
+offsets = [5, 4, 7, 6]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [0, 2, 0, 2, 1, 2, 1, 2]
+offsets = [6, 5, 4, 7]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 2, 0, 2, 0, 2, 1, 2]
+offsets = [7, 6, 5, 4]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 2, 0, 2, 1, 2, 0, 2]
+offsets = [0, 1, 0, 1]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [0, 2, 1, 2, 0, 2, 1, 2]
+offsets = [1, 0, 1, 0]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 2, 0, 2, 0, 2, 0, 2]
+offsets = [8, 11, 10, 9]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [0, 2, 1, 2, 0, 2, 0, 2]
+offsets = [9, 8, 11, 10]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [0, 2, 0, 2, 1, 2, 0, 2]
+offsets = [10, 9, 8, 11]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [0, 2, 0, 2, 0, 2, 1, 2]
+offsets = [11, 10, 9, 8]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [0, 0, 0, 0, 0, 0, 0, 0]
+offsets = [12, 12, 12, 12]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [1, 1, 1, 1, 1, 1, 1, 1]
+offsets = [48, 48, 48, 48]
+canal = 0
+variants = 1
+
+[[paved_road]]
+tiles = [2, 2, 2, 2, 2, 2, 2, 2]
+offsets = [12, 12, 12, 12]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [1, 2, 1, 2, 1, 2, 1, 2]
+offsets = [26, 26, 26, 26]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [1, 2, 1, 2, 1, 2, 0, 2]
+offsets = [15, 10, 5, 16]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 2, 1, 2, 1, 2, 1, 2]
+offsets = [16, 15, 10, 5]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [1, 2, 0, 2, 1, 2, 1, 2]
+offsets = [5, 16, 15, 10]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [1, 2, 1, 2, 0, 2, 1, 2]
+offsets = [10, 5, 16, 15]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [1, 2, 0, 2, 1, 2, 0, 2]
+offsets = [1, 4, 1, 4]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 2, 1, 2, 0, 2, 1, 2]
+offsets = [4, 1, 4, 1]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [1, 2, 1, 2, 0, 0, 0, 2]
+offsets = [10, 7, 5, 12]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 2, 1, 2, 1, 2, 0, 0]
+offsets = [12, 10, 7, 5]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 2, 1, 2, 1, 2]
+offsets = [5, 12, 10, 7]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [1, 2, 0, 0, 0, 2, 1, 2]
+offsets = [7, 5, 12, 10]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [1, 2, 1, 2, 0, 1, 0, 2]
+offsets = [10, 22, 5, 12]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 2, 1, 2, 1, 2, 0, 1]
+offsets = [12, 10, 22, 5]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 1, 0, 2, 1, 2, 1, 2]
+offsets = [5, 12, 10, 22]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [1, 2, 0, 1, 0, 2, 1, 2]
+offsets = [22, 5, 12, 10]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [1, 2, 0, 0, 0, 0, 0, 2]
+offsets = [3, 2, 1, 4]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 2, 1, 2, 0, 0, 0, 0]
+offsets = [4, 3, 2, 1]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 2, 1, 2, 0, 0]
+offsets = [1, 4, 3, 2]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 0, 0, 2, 1, 2]
+offsets = [2, 1, 4, 3]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [1, 2, 0, 1, 0, 0, 0, 2]
+offsets = [22, 24, 1, 4]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 2, 1, 2, 0, 1, 0, 0]
+offsets = [4, 22, 24, 1]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 2, 1, 2, 0, 1]
+offsets = [1, 4, 22, 24]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 1, 0, 0, 0, 2, 1, 2]
+offsets = [24, 1, 4, 22]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [1, 2, 0, 0, 0, 1, 0, 2]
+offsets = [25, 22, 1, 4]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 2, 1, 2, 0, 0, 0, 1]
+offsets = [4, 25, 22, 1]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 1, 0, 2, 1, 2, 0, 0]
+offsets = [1, 4, 25, 22]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 1, 0, 2, 1, 2]
+offsets = [22, 1, 4, 25]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [1, 2, 0, 1, 0, 1, 0, 2]
+offsets = [22, 22, 1, 4]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 2, 1, 2, 0, 1, 0, 1]
+offsets = [4, 22, 22, 1]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 1, 0, 2, 1, 2, 0, 1]
+offsets = [1, 4, 22, 22]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 1, 0, 1, 0, 2, 1, 2]
+offsets = [22, 1, 4, 22]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 1, 0, 1, 0, 1, 0, 1]
+offsets = [22, 22, 22, 22]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 1, 0, 1, 0, 1, 0, 0]
+offsets = [22, 22, 23, 22]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 1, 0, 1, 0, 1]
+offsets = [22, 22, 22, 23]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 1, 0, 0, 0, 1, 0, 1]
+offsets = [23, 22, 22, 22]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 1, 0, 1, 0, 0, 0, 1]
+offsets = [22, 23, 22, 22]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 1, 0, 0, 0, 1, 0, 0]
+offsets = [17, 18, 17, 18]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 1, 0, 0, 0, 1]
+offsets = [18, 17, 18, 17]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 1, 0, 1, 0, 0, 0, 0]
+offsets = [22, 21, 19, 22]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 1, 0, 1, 0, 0]
+offsets = [22, 22, 21, 19]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 0, 0, 1, 0, 1]
+offsets = [19, 22, 22, 21]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 1, 0, 0, 0, 0, 0, 1]
+offsets = [21, 19, 22, 22]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 1, 0, 0, 0, 0, 0, 0]
+offsets = [21, 20, 19, 22]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 1, 0, 0, 0, 0]
+offsets = [22, 21, 20, 19]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 0, 0, 1, 0, 0]
+offsets = [19, 22, 21, 20]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 0, 0, 0, 0, 1]
+offsets = [20, 19, 22, 21]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 0, 0, 0, 0, 0]
+offsets = [0, 0, 0, 0]
+canal = 0
+variants = 1
+
+[[wall]]
+tiles = [0, 0, 0, 0, 0, 0, 0, 0]
+offsets = [0, 0, 0, 0]
+canal = 0
+variants = 0
+
+[[wall_gatehouse]]
+tiles = [1, 2, 0, 2, 0, 2, 0, 2]
+offsets = [16, 15, 10, 5]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [0, 2, 1, 2, 0, 2, 0, 2]
+offsets = [5, 16, 15, 10]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [0, 2, 0, 2, 1, 2, 0, 2]
+offsets = [10, 5, 16, 15]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [0, 2, 0, 2, 0, 2, 1, 2]
+offsets = [15, 10, 5, 16]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [1, 2, 1, 2, 0, 2, 0, 2]
+offsets = [27, 12, 28, 22]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [0, 2, 1, 2, 1, 2, 0, 2]
+offsets = [22, 27, 12, 28]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [0, 2, 0, 2, 1, 2, 1, 2]
+offsets = [28, 22, 27, 12]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [1, 2, 0, 2, 0, 2, 1, 2]
+offsets = [12, 28, 22, 27]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [1, 2, 0, 2, 1, 2, 0, 2]
+offsets = [31, 32, 31, 32]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [0, 2, 1, 2, 0, 2, 1, 2]
+offsets = [32, 31, 32, 31]
+canal = 0
+variants = 1
+
+[[elevation]]
+tiles = [1, 1, 1, 1, 1, 1, 1, 1]
+offsets = [44, 44, 44, 44]
+canal = 2
+variants = 1
+
+[[elevation]]
+tiles = [1, 1, 1, 1, 1, 0, 1, 1]
+offsets = [30, 18, 28, 22]
+canal = 4
+variants = 2
+
+[[elevation]]
+tiles = [1, 1, 1, 1, 1, 1, 1, 0]
+offsets = [22, 30, 18, 28]
+canal = 4
+variants = 2
+
+[[elevation]]
+tiles = [1, 0, 1, 1, 1, 1, 1, 1]
+offsets = [28, 22, 30, 18]
+canal = 4
+variants = 2
+
+[[elevation]]
+tiles = [1, 1, 1, 0, 1, 1, 1, 1]
+offsets = [18, 28, 22, 30]
+canal = 4
+variants = 2
+
+[[elevation]]
+tiles = [1, 1, 1, 2, 2, 2, 1, 1]
+offsets = [0, 8, 12, 4]
+canal = 4
+variants = 4
+
+[[elevation]]
+tiles = [1, 1, 1, 1, 1, 2, 2, 2]
+offsets = [4, 0, 8, 12]
+canal = 4
+variants = 4
+
+[[elevation]]
+tiles = [2, 2, 1, 1, 1, 1, 1, 2]
+offsets = [12, 4, 0, 8]
+canal = 4
+variants = 4
+
+[[elevation]]
+tiles = [1, 2, 2, 2, 1, 1, 1, 1]
+offsets = [8, 12, 4, 0]
+canal = 4
+variants = 4
+
+[[elevation]]
+tiles = [1, 1, 1, 2, 2, 2, 2, 2]
+offsets = [24, 16, 26, 20]
+canal = 4
+variants = 2
+
+[[elevation]]
+tiles = [2, 2, 1, 1, 1, 2, 2, 2]
+offsets = [20, 24, 16, 26]
+canal = 4
+variants = 2
+
+[[elevation]]
+tiles = [2, 2, 2, 2, 1, 1, 1, 2]
+offsets = [26, 20, 24, 16]
+canal = 4
+variants = 2
+
+[[elevation]]
+tiles = [1, 2, 2, 2, 2, 2, 1, 1]
+offsets = [16, 26, 20, 24]
+canal = 4
+variants = 2
+
+[[elevation]]
+tiles = [2, 2, 2, 2, 2, 2, 2, 2]
+offsets = [32, 32, 32, 32]
+canal = 4
+variants = 4
+
+[[earthquake]]
+tiles = [1, 2, 1, 2, 1, 2, 1, 2]
+offsets = [29, 29, 29, 29]
+canal = 0
+variants = 1
+
+[[earthquake]]
+tiles = [1, 2, 1, 2, 1, 2, 0, 2]
+offsets = [25, 28, 27, 26]
+canal = 0
+variants = 1
+
+[[earthquake]]
+tiles = [0, 2, 1, 2, 1, 2, 1, 2]
+offsets = [26, 25, 28, 27]
+canal = 0
+variants = 1
+
+[[earthquake]]
+tiles = [1, 2, 0, 2, 1, 2, 1, 2]
+offsets = [27, 26, 25, 28]
+canal = 0
+variants = 1
+
+[[earthquake]]
+tiles = [1, 2, 1, 2, 0, 2, 1, 2]
+offsets = [28, 27, 26, 25]
+canal = 0
+variants = 1
+
+[[earthquake]]
+tiles = [1, 2, 1, 2, 0, 2, 0, 2]
+offsets = [8, 14, 12, 10]
+canal = 0
+variants = 2
+
+[[earthquake]]
+tiles = [0, 2, 1, 2, 1, 2, 0, 2]
+offsets = [10, 8, 14, 12]
+canal = 0
+variants = 2
+
+[[earthquake]]
+tiles = [0, 2, 0, 2, 1, 2, 1, 2]
+offsets = [12, 10, 8, 14]
+canal = 0
+variants = 2
+
+[[earthquake]]
+tiles = [1, 2, 0, 2, 0, 2, 1, 2]
+offsets = [14, 12, 10, 8]
+canal = 0
+variants = 2
+
+[[earthquake]]
+tiles = [1, 2, 0, 2, 1, 2, 0, 2]
+offsets = [0, 4, 0, 4]
+canal = 0
+variants = 4
+
+[[earthquake]]
+tiles = [0, 2, 1, 2, 0, 2, 1, 2]
+offsets = [4, 0, 4, 0]
+canal = 0
+variants = 4
+
+[[earthquake]]
+tiles = [1, 2, 0, 2, 0, 2, 0, 2]
+offsets = [16, 22, 18, 20]
+canal = 0
+variants = 2
+
+[[earthquake]]
+tiles = [0, 2, 1, 2, 0, 2, 0, 2]
+offsets = [20, 16, 22, 18]
+canal = 0
+variants = 2
+
+[[earthquake]]
+tiles = [0, 2, 0, 2, 1, 2, 0, 2]
+offsets = [18, 20, 16, 22]
+canal = 0
+variants = 2
+
+[[earthquake]]
+tiles = [0, 2, 0, 2, 0, 2, 1, 2]
+offsets = [22, 18, 20, 16]
+canal = 0
+variants = 2
+
+[[earthquake]]
+tiles = [0, 2, 0, 2, 0, 2, 0, 2]
+offsets = [24, 24, 24, 24]
+canal = 0
+variants = 1
+
+[[earthquake]]
+tiles = [2, 2, 2, 2, 2, 2, 2, 2]
+offsets = [24, 24, 24, 24]
+canal = 0
+variants = 1
+
+[[canal]]
+tiles = [1, 2, 1, 2, 0, 2, 0, 2]
+offsets = [4, 7, 6, 5]
+canal = 7
+variants = 1
+
+[[canal]]
+tiles = [0, 2, 1, 2, 1, 2, 0, 2]
+offsets = [5, 4, 7, 6]
+canal = 8
+variants = 1
+
+[[canal]]
+tiles = [0, 2, 0, 2, 1, 2, 1, 2]
+offsets = [6, 5, 4, 7]
+canal = 9
+variants = 1
+
+[[canal]]
+tiles = [1, 2, 0, 2, 0, 2, 1, 2]
+offsets = [7, 6, 5, 4]
+canal = 10
+variants = 1
+
+[[canal]]
+tiles = [1, 2, 0, 2, 1, 2, 0, 2]
+offsets = [2, 3, 2, 3]
+canal = 5
+variants = 1
+
+[[canal]]
+tiles = [0, 2, 1, 2, 0, 2, 1, 2]
+offsets = [3, 2, 3, 2]
+canal = 6
+variants = 1
+
+[[canal]]
+tiles = [1, 2, 0, 2, 0, 2, 0, 2]
+offsets = [2, 3, 2, 3]
+canal = 1
+variants = 1
+
+[[canal]]
+tiles = [0, 2, 1, 2, 0, 2, 0, 2]
+offsets = [3, 2, 3, 2]
+canal = 2
+variants = 1
+
+[[canal]]
+tiles = [0, 2, 0, 2, 1, 2, 0, 2]
+offsets = [2, 3, 2, 3]
+canal = 3
+variants = 1
+
+[[canal]]
+tiles = [0, 2, 0, 2, 0, 2, 1, 2]
+offsets = [3, 2, 3, 2]
+canal = 4
+variants = 1
+
+[[canal]]
+tiles = [1, 2, 1, 2, 1, 2, 0, 2]
+offsets = [10, 13, 12, 11]
+canal = 11
+variants = 1
+
+[[canal]]
+tiles = [0, 2, 1, 2, 1, 2, 1, 2]
+offsets = [11, 10, 13, 12]
+canal = 12
+variants = 1
+
+[[canal]]
+tiles = [1, 2, 0, 2, 1, 2, 1, 2]
+offsets = [12, 11, 10, 13]
+canal = 13
+variants = 1
+
+[[canal]]
+tiles = [1, 2, 1, 2, 0, 2, 1, 2]
+offsets = [13, 12, 11, 10]
+canal = 14
+variants = 1
+
+[[canal]]
+tiles = [1, 2, 1, 2, 1, 2, 1, 2]
+offsets = [14, 14, 14, 14]
+canal = 15
+variants = 1
+
+[[canal]]
+tiles = [2, 2, 2, 2, 2, 2, 2, 2]
+offsets = [2, 2, 2, 2]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [0, 2, 1, 1, 2, 1, 1, 2]
+offsets = [0, 6, 4, 2]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [1, 2, 0, 2, 1, 1, 2, 1]
+offsets = [2, 0, 6, 4]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [2, 1, 1, 2, 0, 2, 1, 1]
+offsets = [4, 2, 0, 6]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [1, 1, 2, 1, 1, 2, 0, 2]
+offsets = [6, 4, 2, 0]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [0, 2, 0, 1, 2, 1, 2, 1]
+offsets = [1, 7, 5, 3]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [2, 1, 0, 2, 0, 1, 2, 1]
+offsets = [3, 1, 7, 5]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [2, 1, 2, 1, 0, 2, 0, 1]
+offsets = [5, 3, 1, 7]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [0, 1, 2, 1, 2, 1, 0, 2]
+offsets = [7, 5, 3, 1]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [2, 0, 2, 1, 2, 1, 2, 1]
+offsets = [8, 11, 10, 9]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [2, 1, 2, 0, 2, 1, 2, 1]
+offsets = [9, 8, 11, 10]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [2, 1, 2, 1, 2, 0, 2, 1]
+offsets = [10, 9, 8, 11]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [2, 1, 2, 1, 2, 1, 2, 0]
+offsets = [11, 10, 9, 8]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [2, 0, 2, 2, 1, 1, 1, 2]
+offsets = [1, 7, 5, 3]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [1, 2, 2, 0, 2, 2, 1, 1]
+offsets = [3, 1, 7, 5]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [1, 1, 1, 2, 2, 0, 2, 2]
+offsets = [5, 3, 1, 7]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [2, 2, 1, 1, 1, 2, 2, 0]
+offsets = [7, 5, 3, 1]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [2, 0, 2, 1, 2, 0, 2, 1]
+offsets = [12, 13, 12, 13]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [2, 1, 2, 0, 2, 1, 2, 0]
+offsets = [13, 12, 13, 12]
+canal = 0
+variants = 1
+
+[[deepwater]]
+tiles = [1, 1, 1, 1, 1, 1, 1, 1]
+offsets = [14, 14, 14, 14]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 1, 1, 2, 0, 2, 1, 1]
+offsets = [0, 12, 8, 4]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 1, 1, 1, 1, 2, 0, 2]
+offsets = [4, 0, 12, 8]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [0, 2, 1, 1, 1, 1, 1, 2]
+offsets = [8, 4, 0, 12]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 2, 0, 2, 1, 1, 1, 1]
+offsets = [12, 8, 4, 0]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 0, 1, 2, 0, 2, 0, 2]
+offsets = [67, 70, 69, 68]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [0, 2, 1, 0, 1, 2, 0, 2]
+offsets = [68, 67, 70, 69]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [0, 2, 0, 2, 1, 0, 1, 2]
+offsets = [69, 68, 67, 70]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 2, 0, 2, 0, 2, 1, 0]
+offsets = [70, 69, 68, 67]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 2, 1, 2, 0, 2, 0, 2]
+offsets = [16, 28, 24, 20]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [0, 2, 1, 2, 1, 2, 0, 2]
+offsets = [20, 16, 28, 24]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [0, 2, 0, 2, 1, 2, 1, 2]
+offsets = [24, 20, 16, 28]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 2, 0, 2, 0, 2, 1, 2]
+offsets = [28, 24, 20, 16]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 2, 0, 2, 0, 2, 0, 2]
+offsets = [36, 39, 38, 37]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [0, 2, 1, 2, 0, 2, 0, 2]
+offsets = [37, 36, 39, 38]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [0, 2, 0, 2, 1, 2, 0, 2]
+offsets = [38, 37, 36, 39]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [0, 2, 0, 2, 0, 2, 1, 2]
+offsets = [39, 38, 37, 36]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 0, 1, 1, 1, 0, 1, 1]
+offsets = [40, 41, 40, 41]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 1, 1, 0, 1, 1, 1, 0]
+offsets = [41, 40, 41, 40]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 1, 1, 1, 1, 0, 1, 0]
+offsets = [46, 49, 48, 47]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 0, 1, 1, 1, 1, 1, 0]
+offsets = [47, 46, 49, 48]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 0, 1, 0, 1, 1, 1, 1]
+offsets = [48, 47, 46, 49]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 1, 1, 0, 1, 0, 1, 1]
+offsets = [49, 48, 47, 46]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 0, 1, 1, 1, 0, 1, 0]
+offsets = [50, 53, 52, 51]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 0, 1, 0, 1, 1, 1, 0]
+offsets = [51, 50, 53, 52]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 0, 1, 0, 1, 0, 1, 1]
+offsets = [52, 51, 50, 53]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 1, 1, 0, 1, 0, 1, 0]
+offsets = [53, 52, 51, 50]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 0, 1, 0, 1, 0, 1, 0]
+offsets = [54, 54, 54, 54]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 0, 1, 2, 0, 2, 1, 0]
+offsets = [57, 66, 63, 60]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 0, 1, 0, 1, 2, 0, 2]
+offsets = [60, 57, 66, 63]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [0, 2, 1, 0, 1, 0, 1, 2]
+offsets = [63, 60, 57, 66]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 2, 0, 2, 1, 0, 1, 0]
+offsets = [66, 63, 60, 57]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 2, 1, 2, 0, 2, 1, 0]
+offsets = [55, 64, 61, 58]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 0, 1, 2, 1, 2, 0, 2]
+offsets = [58, 55, 64, 61]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [0, 2, 1, 0, 1, 2, 1, 2]
+offsets = [61, 58, 55, 64]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 2, 0, 2, 1, 0, 1, 2]
+offsets = [64, 61, 58, 55]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 0, 1, 2, 0, 2, 1, 2]
+offsets = [56, 65, 62, 59]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 2, 1, 0, 1, 2, 0, 2]
+offsets = [59, 56, 65, 62]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [0, 2, 1, 2, 1, 0, 1, 2]
+offsets = [62, 59, 56, 65]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 2, 0, 2, 1, 2, 1, 0]
+offsets = [65, 62, 59, 56]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [0, 2, 0, 2, 0, 2, 0, 2]
+offsets = [71, 71, 71, 71]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [0, 2, 1, 2, 0, 2, 1, 2]
+offsets = [32, 34, 32, 34]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 2, 0, 2, 1, 2, 0, 2]
+offsets = [34, 32, 34, 32]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [2, 2, 2, 2, 1, 0, 1, 2]
+offsets = [42, 45, 44, 43]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 2, 2, 2, 2, 2, 1, 0]
+offsets = [43, 42, 45, 44]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [1, 0, 1, 2, 2, 2, 2, 2]
+offsets = [44, 43, 42, 45]
+canal = 0
+variants = 1
+
+[[floodsystem]]
+tiles = [2, 2, 1, 0, 1, 2, 2, 2]
+offsets = [45, 44, 43, 42]
+canal = 0
+variants = 1
+
+[[grass_corners]]
+tiles = [0, 0, 0, 2, 1, 2, 0, 0]
+offsets = [0, 6, 4, 2]
+canal = 0
+variants = 1
+
+[[grass_corners]]
+tiles = [0, 0, 0, 0, 0, 2, 1, 2]
+offsets = [2, 0, 6, 4]
+canal = 0
+variants = 1
+
+[[grass_corners]]
+tiles = [1, 2, 0, 0, 0, 0, 0, 2]
+offsets = [4, 2, 0, 6]
+canal = 0
+variants = 1
+
+[[grass_corners]]
+tiles = [0, 2, 1, 2, 0, 0, 0, 0]
+offsets = [6, 4, 2, 0]
+canal = 0
+variants = 1
+
+[[grass_corners]]
+tiles = [2, 0, 2, 0, 0, 1, 0, 0]
+offsets = [1, 7, 5, 3]
+canal = 0
+variants = 1
+
+[[grass_corners]]
+tiles = [0, 0, 2, 0, 2, 0, 0, 1]
+offsets = [3, 1, 7, 5]
+canal = 0
+variants = 1
+
+[[grass_corners]]
+tiles = [0, 1, 0, 0, 2, 0, 2, 0]
+offsets = [5, 3, 1, 7]
+canal = 0
+variants = 1
+
+[[grass_corners]]
+tiles = [2, 0, 0, 1, 0, 0, 2, 0]
+offsets = [7, 5, 3, 1]
+canal = 0
+variants = 1
+
+[[grass_corners]]
+tiles = [2, 2, 2, 2, 1, 2, 1, 2]
+offsets = [8, 11, 10, 9]
+canal = 0
+variants = 1
+
+[[grass_corners]]
+tiles = [1, 2, 2, 2, 2, 2, 1, 2]
+offsets = [9, 8, 11, 10]
+canal = 0
+variants = 1
+
+[[grass_corners]]
+tiles = [1, 2, 1, 2, 2, 2, 2, 2]
+offsets = [10, 9, 8, 11]
+canal = 0
+variants = 1
+
+[[grass_corners]]
+tiles = [2, 2, 1, 2, 1, 2, 2, 2]
+offsets = [11, 10, 9, 8]
+canal = 0
+variants = 1

@@ -123,6 +123,8 @@ impl Sprite {
 }
 
 pub fn rgb555_to_rgba(c: u16) -> Rgba {
+    // Bit 15 is unused and sometimes set, including on the transparent key.
+    let c = c & 0x7fff;
     if c == KEY_555 {
         return TRANSPARENT;
     }
@@ -426,6 +428,7 @@ mod tests {
         assert_eq!(rgb555_to_rgba(0x7fff), [255, 255, 255, 255]);
         assert_eq!(rgb555_to_rgba(0), [0, 0, 0, 255]);
         assert_eq!(rgb555_to_rgba(KEY_555), TRANSPARENT);
+        assert_eq!(rgb555_to_rgba(0xF81F), TRANSPARENT);
     }
 
     #[test]

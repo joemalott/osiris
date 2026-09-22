@@ -1,8 +1,11 @@
 mod city_view;
+mod game;
 mod gfx;
 
 use anyhow::{Context, Result, bail};
 use osiris_formats::{ImageLibrary, MissionPak, Scenario};
+use osiris_sim::{BuildingStats, Command, Defs, World};
+use std::sync::Arc;
 use std::path::PathBuf;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -18,6 +21,7 @@ struct Args {
     map: Option<PathBuf>,
     mission: Option<usize>,
     screenshot: Option<PathBuf>,
+    script: Option<String>,
     size: (u32, u32),
 }
 
@@ -27,6 +31,7 @@ fn parse_args() -> Result<Args> {
         map: None,
         mission: None,
         screenshot: None,
+        script: None,
         size: (1280, 800),
     };
     let mut it = std::env::args().skip(1);
@@ -40,6 +45,7 @@ fn parse_args() -> Result<Args> {
             "--map" => args.map = Some(val()?.into()),
             "--mission" => args.mission = Some(val()?.parse()?),
             "--screenshot" => args.screenshot = Some(val()?.into()),
+            "--script" => args.script = Some(val()?),
             "--size" => {
                 let v = val()?;
                 let (w, h) = v.split_once('x').context("--size WxH")?;
@@ -62,9 +68,8 @@ fn load_scenario(args: &Args) -> Result<Scenario> {
 struct App {
     args: Args,
     library: Option<ImageLibrary>,
-    scenario: Scenario,
+    game: game::Game,
     gfx: Option<gfx::Gfx>,
-    view: city_view::CityView,
     drag: Option<(f64, f64)>,
     cursor: (f64, f64),
     keys: std::collections::HashSet<KeyCode>,
@@ -87,7 +92,8 @@ impl ApplicationHandler for App {
         let window = event_loop.create_window(attrs).expect("create window");
         let library = self.library.take().expect("library");
         let mut gfx = pollster::block_on(gfx::Gfx::new(window, library)).expect("init graphics");
-        self.view.center_camera(&mut gfx.renderer, &self.scenario);
+        let (cx, cy) = start_view(&self.game.world);
+        self.game.view.center_on(&mut gfx.renderer, &self.game.world.map, cx, cy);
         self.gfx = Some(gfx);
     }
 
@@ -100,8 +106,8 @@ impl ApplicationHandler for App {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     match event.state {
                         ElementState::Pressed => {
-                            if code == KeyCode::Escape {
-                                event_loop.exit();
+                            if !event.repeat {
+                                self.key_pressed(code);
                             }
                             self.keys.insert(code);
                         }
@@ -121,12 +127,20 @@ impl ApplicationHandler for App {
                     self.drag = Some(p);
                 }
                 self.cursor = p;
+                let at = [(p.0 / scale) as f32, (p.1 / scale) as f32];
+                self.game.set_hover(&gfx.renderer, at);
             }
-            WindowEvent::MouseInput { state, button, .. } => {
-                if button == MouseButton::Right || button == MouseButton::Middle {
-                    self.drag = (state == ElementState::Pressed).then_some(self.cursor);
+            WindowEvent::MouseInput { state, button, .. } => match (button, state) {
+                (MouseButton::Left, ElementState::Pressed) => self.game.press(),
+                (MouseButton::Left, ElementState::Released) => self.game.release(),
+                (MouseButton::Right, ElementState::Pressed) => {
+                    self.game.cancel();
+                    self.drag = Some(self.cursor);
                 }
-            }
+                (MouseButton::Middle, ElementState::Pressed) => self.drag = Some(self.cursor),
+                (_, ElementState::Released) => self.drag = None,
+                _ => {}
+            },
             WindowEvent::MouseWheel { delta, .. } => {
                 let steps = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y,
@@ -160,15 +174,16 @@ impl ApplicationHandler for App {
                         cam.y += dy * pan;
                     }
                 }
-                gfx.frame(|r| self.view.draw(r, &self.scenario));
+                self.game.update(dt);
+                gfx.frame(|r| self.game.draw(r));
                 self.frames += 1;
                 if self.fps_timer.elapsed().as_secs_f32() >= 1.0 {
                     let t = self.fps_timer.elapsed().as_secs_f32();
                     gfx.window.set_title(&format!(
                         "Osiris - {} ({:.0} fps, {} sprites)",
-                        self.scenario.info.subtitle,
+                        self.game.world.scenario_name,
                         self.frames as f32 / t,
-                        self.view.last_sprites
+                        self.game.view.last_sprites
                     ));
                     self.frames = 0;
                     self.fps_timer = std::time::Instant::now();
@@ -180,18 +195,79 @@ impl ApplicationHandler for App {
     }
 }
 
+impl App {
+    fn key_pressed(&mut self, code: KeyCode) {
+        let g = &mut self.game;
+        match code {
+            KeyCode::Escape => g.cancel(),
+            KeyCode::KeyR => g.tool = game::Tool::Road,
+            KeyCode::KeyC | KeyCode::Delete | KeyCode::Backspace => g.tool = game::Tool::Clear,
+            KeyCode::KeyP | KeyCode::Space => g.paused = !g.paused,
+            KeyCode::BracketRight | KeyCode::Equal => g.speed = (g.speed + 10).min(100),
+            KeyCode::BracketLeft | KeyCode::Minus => g.speed = g.speed.saturating_sub(10).max(10),
+            _ => {}
+        }
+    }
+}
+
+/// Where the camera starts: the scenario's entry point, or the map centre.
+fn start_view(w: &World) -> (i32, i32) {
+    let e = w.entry_point;
+    if w.map.contains(e.0, e.1) { e } else { (w.map.width / 2, w.map.height / 2) }
+}
+
+fn parse_point(s: &str) -> Result<(i32, i32)> {
+    let (x, y) = s.split_once(',').context("expected x,y")?;
+    Ok((x.trim().parse()?, y.trim().parse()?))
+}
+
+/// Runs `--script` steps against the world; returns the tile to centre the view on.
+fn run_script(world: &mut World, script: &str) -> Result<Option<(i32, i32)>> {
+    let mut view = None;
+    for step in script.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+        let parts: Vec<&str> = step.split_whitespace().collect();
+        match parts.as_slice() {
+            ["road", a, b] => {
+                let out = world.apply(&Command::Road { start: parse_point(a)?, end: parse_point(b)? });
+                eprintln!("{step}: {out:?}");
+            }
+            ["clear", a, b] => {
+                let (a, b) = (parse_point(a)?, parse_point(b)?);
+                let out = world.apply(&Command::Clear { x0: a.0, y0: a.1, x1: b.0, y1: b.1 });
+                eprintln!("{step}: {out:?}");
+            }
+            ["ticks", n] => {
+                for _ in 0..n.parse::<u32>()? {
+                    world.tick();
+                }
+            }
+            ["view", p] => view = Some(parse_point(p)?),
+            _ => bail!("bad script step: {step}"),
+        }
+    }
+    Ok(view)
+}
+
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let args = parse_args()?;
     let library = ImageLibrary::open(&args.data.join("Data"))
         .with_context(|| format!("loading sprites from {}", args.data.display()))?;
     let scenario = load_scenario(&args)?;
+    let defs = Arc::new(Defs::load(&library).map_err(anyhow::Error::msg)?);
+    let stats: Arc<Vec<BuildingStats>> = Arc::new(Vec::new());
+    let mut world = World::new(&scenario, defs, stats);
+    let script_view = match &args.script {
+        Some(s) => run_script(&mut world, s)?,
+        None => None,
+    };
 
     if let Some(out) = &args.screenshot {
-        let mut view = city_view::CityView::default();
+        let mut game = game::Game::new(world);
+        let (cx, cy) = script_view.unwrap_or_else(|| start_view(&game.world));
         return gfx::screenshot(library, args.size, out, |r| {
-            view.center_camera(r, &scenario);
-            view.draw(r, &scenario);
+            game.view.center_on(r, &game.world.map, cx, cy);
+            game.draw(r);
         });
     }
 
@@ -200,9 +276,8 @@ fn main() -> Result<()> {
     let mut app = App {
         args,
         library: Some(library),
-        scenario,
+        game: game::Game::new(world),
         gfx: None,
-        view: city_view::CityView::default(),
         drag: None,
         cursor: (0.0, 0.0),
         keys: Default::default(),
