@@ -72,8 +72,8 @@ impl TopMenu {
                 t(2, 0, "Options"),
                 vec![
                     e("Game rules...".into(), MenuAction::Rules),
-                    e("Faster  (+)".into(), MenuAction::Faster),
-                    e("Slower  (-)".into(), MenuAction::Slower),
+                    e("Faster  (])".into(), MenuAction::Faster),
+                    e("Slower  ([)".into(), MenuAction::Slower),
                     e("Pause  (P)".into(), MenuAction::Pause),
                 ],
             ),

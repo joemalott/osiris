@@ -42,7 +42,7 @@ pub fn speed_label(speed: u32) -> String {
     if speed <= 100 { format!("{speed}%") } else { format!("{}x", speed / 100) }
 }
 
-const CONTROLS: &str = "@PLeft-click a build button, then click or drag on the map to build. Right-click cancels the tool, closes windows, and drags to scroll.@PArrow keys or WASD scroll the map, and the mouse wheel zooms.@PSpace or P pauses. Plus and minus change the speed, from 10% up to 200 times normal.@PF2 opens the game rules, F5 saves and F9 loads the saved game for this city. Escape backs out of whatever is open, and goes to the main menu when nothing is.@PClick a building to see how it is doing. Overlays in the menu bar show water, risks and services across the city.";
+const CONTROLS: &str = "@PLeft-click a build button, then click or drag on the map to build. Right-click cancels the tool, closes windows, and drags to scroll. The arrow keys scroll the map and the mouse wheel zooms.@PP pauses. [ and ] (or Page Up and Page Down) change the speed, from 10% up to 200 times normal.@PW, F and D show the water, fire and damage overlays; the Overlays menu has the rest. Space switches between the normal view and the last overlay.@PB builds roads and X clears land. M, N, U, O, T and G pick up a bazaar, granary, storage yard, apothecary, water supply and gardens; Ctrl+H housing, Ctrl+F firehouse and Ctrl+A architect.@PF2 opens the game rules, F5 saves and F9 loads the saved game for this city. Escape backs out of whatever is open, and goes to the main menu when nothing is.";
 
 const ABOUT: &str = "@POsiris is an open-source engine for Pharaoh, written in Rust and released under the GNU GPL version 3.@PIt plays the original campaign using your own copy of the game data. Pharaoh and its art, music and text are the work of Impressions Games and Sierra.";
 
@@ -115,6 +115,10 @@ pub struct Game {
     top_menu: TopMenu,
     /// The overlay being shown, if any.
     pub view_overlay: Option<View>,
+    /// Seconds of unpaused play, for building animations.
+    anim_clock: f32,
+    /// The overlay Space switches back to.
+    last_overlay: View,
     overlay_images: Option<OverlayImages>,
     /// A menu choice for the app to carry out (leave the game, load, save, quit).
     pub request: Option<MenuAction>,
@@ -163,6 +167,8 @@ impl Game {
             rules_changed: false,
             top_menu,
             view_overlay: None,
+            anim_clock: 0.0,
+            last_overlay: View::Water,
             overlay_images: None,
             request: None,
             problem_cursor: 0,
@@ -305,6 +311,9 @@ impl Game {
     }
 
     pub fn update(&mut self, dt: f32) {
+        if !self.paused {
+            self.anim_clock += dt;
+        }
         if let Some((_, t)) = &mut self.message {
             *t -= dt;
             if *t <= 0.0 {
@@ -592,6 +601,9 @@ impl Game {
             MenuAction::Controls => self.show_text("Controls", CONTROLS),
             MenuAction::About => self.show_text("About Osiris", ABOUT),
             MenuAction::Overlay(o) => {
+                if let Some(o) = o {
+                    self.last_overlay = o;
+                }
                 self.view_overlay = o;
                 self.tool = Tool::None;
                 self.sidebar.open = None;
@@ -603,6 +615,32 @@ impl Game {
     /// Queues a dialog with plain text of our own.
     fn show_text(&mut self, title: &str, body: &str) {
         self.custom_dialog = Some(Message { title: title.to_owned(), content: body.to_owned(), size: (30, 20), ..Default::default() });
+    }
+
+    /// Shows overlay `o`, or goes back to the normal view if it is already showing.
+    pub fn show_overlay(&mut self, o: View) {
+        if self.view_overlay == Some(o) {
+            self.view_overlay = None;
+        } else {
+            self.last_overlay = o;
+            self.view_overlay = Some(o);
+        }
+    }
+
+    /// Switches between the normal view and the last overlay used.
+    pub fn toggle_overlay(&mut self) {
+        let last = self.last_overlay;
+        self.show_overlay(last);
+    }
+
+    /// Picks up building `k` as the tool, if this mission allows it.
+    pub fn try_tool(&mut self, k: u16) {
+        if self.world.is_allowed(k) {
+            self.tool = Tool::Build(k);
+            self.sidebar.open = None;
+        } else {
+            self.say("Not available yet");
+        }
     }
 
     pub fn open_top_menu(&mut self, n: usize) {
@@ -754,7 +792,50 @@ impl Game {
                 });
             }
         }
+        self.building_animations(r, &mut out);
         out
+    }
+
+    /// Working animations on staffed buildings. A building either has a configured
+    /// "work" animation, drawn at a fixed offset and stepped by game ticks, or cycles
+    /// the frames stored after its own image at that image's speed.
+    fn building_animations(&self, r: &Renderer, out: &mut Vec<city_view::Overlay>) {
+        let ticks = self.world.time.total_ticks;
+        let millis = (self.anim_clock * 1000.0) as u64;
+        for b in self.world.buildings.iter() {
+            if b.is_house() || self.world.is_road_venue(b.kind) || self.world.is_farm(b.kind) {
+                continue;
+            }
+            let active = if b.kind == kind::BURNING_RUIN { b.progress > 0 } else { b.kind == kind::WELL || b.workers > 0 };
+            if !active {
+                continue;
+            }
+            let (dx, dy) = (b.x, b.y + b.size - 1);
+            let p = city_view::tile_to_world(&self.world.map, dx, dy);
+            let phase = b.id as u64 * 7;
+            let work = self.world.defs.building(b.kind).and_then(|d| d.anims.get("work")).filter(|a| a.frames > 1 && (a.x, a.y) != (0, 0));
+            if let Some(a) = work {
+                let frame = ((ticks + phase) / a.duration.max(1) as u64 % a.frames as u64) as u32;
+                out.push(city_view::Overlay { x: dx, y: dy, pos: [p[0] + a.x as f32, p[1] + a.y as f32], image: a.image + frame });
+                continue;
+            }
+            let base = self.world.map.images.at_or(dx, dy, 0);
+            let Some(rec) = r.record(base) else { continue };
+            let n = rec.num_animation_sprites as u64;
+            if n == 0 {
+                continue;
+            }
+            let step = millis / (20 * (rec.animation_speed_id as u64).max(1)) + phase;
+            let frame = if rec.animation_can_reverse {
+                let k = step % (2 * n);
+                if k < n { k + 1 } else { 2 * n - k }
+            } else {
+                step % n + 1
+            };
+            let tiles = if rec.kind == osiris_formats::ImageKind::Isometric { rec.isometric_tiles().max(1) } else { 1 };
+            let y = p[1] + rec.sprite_offset_y as f32 - rec.height as f32 + city_view::TILE_H / 2.0 * (tiles + 1) as f32;
+            out.push(city_view::Overlay { x: dx, y: dy, pos: [p[0] + rec.sprite_offset_x as f32, y], image: base + frame as u32 });
+        }
     }
 
     pub fn draw(&mut self, r: &mut Renderer) {

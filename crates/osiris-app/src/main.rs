@@ -340,7 +340,12 @@ impl ApplicationHandler for App {
                         Some(Screen::Playing(g, _)) if code == KeyCode::Escape && g.idle() => {
                             self.screen = Some(Screen::Menu(self.menu()));
                         }
-                        Some(Screen::Playing(g, _)) => key_pressed(g, code),
+                        Some(Screen::Playing(g, _)) => {
+                            let ctrl = [KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::SuperLeft, KeyCode::SuperRight]
+                                .iter()
+                                .any(|k| self.keys.contains(k));
+                            key_pressed(g, code, ctrl);
+                        }
                         _ => {}
                     },
                 }
@@ -459,13 +464,9 @@ impl App {
                 let cam = &mut gfx.renderer.camera;
                 for (k, dx, dy) in [
                     (KeyCode::ArrowLeft, -1.0, 0.0),
-                    (KeyCode::KeyA, -1.0, 0.0),
                     (KeyCode::ArrowRight, 1.0, 0.0),
-                    (KeyCode::KeyD, 1.0, 0.0),
                     (KeyCode::ArrowUp, 0.0, -1.0),
-                    (KeyCode::KeyW, 0.0, -1.0),
                     (KeyCode::ArrowDown, 0.0, 1.0),
-                    (KeyCode::KeyS, 0.0, 1.0),
                 ] {
                     if self.keys.contains(&k) {
                         cam.x += dx * pan;
@@ -503,15 +504,31 @@ impl App {
     }
 }
 
-fn key_pressed(g: &mut game::Game, code: KeyCode) {
-    match code {
-        KeyCode::Escape => g.cancel(),
-        KeyCode::F2 => g.open_rules(),
-        KeyCode::KeyR => g.tool = game::Tool::Road,
-        KeyCode::KeyC | KeyCode::Delete | KeyCode::Backspace => g.tool = game::Tool::Clear,
-        KeyCode::KeyP | KeyCode::Space => g.paused = !g.paused,
-        KeyCode::BracketRight | KeyCode::Equal => g.faster(),
-        KeyCode::BracketLeft | KeyCode::Minus => g.slower(),
+/// The original's single-key commands. `ctrl` is Control or Command.
+fn key_pressed(g: &mut game::Game, code: KeyCode, ctrl: bool) {
+    use game::Tool;
+    use osiris_sim::buildings::kind;
+    match (code, ctrl) {
+        (KeyCode::Escape, _) => g.cancel(),
+        (KeyCode::F2, _) => g.open_rules(),
+        (KeyCode::KeyP, _) => g.paused = !g.paused,
+        (KeyCode::BracketRight | KeyCode::PageDown | KeyCode::Equal, false) => g.faster(),
+        (KeyCode::BracketLeft | KeyCode::PageUp | KeyCode::Minus, false) => g.slower(),
+        (KeyCode::Space, _) => g.toggle_overlay(),
+        (KeyCode::KeyW, false) => g.show_overlay(overlay::Overlay::Water),
+        (KeyCode::KeyF, false) => g.show_overlay(overlay::Overlay::Fire),
+        (KeyCode::KeyD, false) => g.show_overlay(overlay::Overlay::Damage),
+        (KeyCode::KeyB, false) => g.tool = Tool::Road,
+        (KeyCode::KeyX, false) | (KeyCode::Delete | KeyCode::Backspace, _) => g.tool = Tool::Clear,
+        (KeyCode::KeyH, true) => g.try_tool(kind::VACANT_LOT),
+        (KeyCode::KeyG, false) => g.try_tool(kind::GARDENS),
+        (KeyCode::KeyF, true) => g.try_tool(kind::FIREHOUSE),
+        (KeyCode::KeyA, true) => g.try_tool(kind::ARCHITECT_POST),
+        (KeyCode::KeyO, false) => g.try_tool(kind::APOTHECARY),
+        (KeyCode::KeyN, false) => g.try_tool(kind::GRANARY),
+        (KeyCode::KeyU, false) => g.try_tool(kind::STORAGE_YARD),
+        (KeyCode::KeyM, false) => g.try_tool(kind::BAZAAR),
+        (KeyCode::KeyT, false) => g.try_tool(kind::WATER_SUPPLY),
         _ => {}
     }
 }
