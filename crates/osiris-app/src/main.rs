@@ -72,7 +72,7 @@ fn user_dir() -> PathBuf {
 fn default_data_dir() -> PathBuf {
     let mut candidates = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
-        for dir in exe.ancestors().skip(1).take(4) {
+        for dir in exe.ancestors().skip(1).take(5) {
             candidates.push(dir.join("PharaohData"));
         }
     }
