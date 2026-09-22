@@ -55,9 +55,12 @@ impl MigrationParams {
         }
     }
 
-    pub fn percentage(&self, sentiment: i32, unemployment: i32) -> i32 {
+    /// Migration pressure from sentiment. Unemployment works through sentiment, as in
+    /// Caesar III; the direct unemployment table is kept but not applied, because it
+    /// would stop all immigration in a city that has no jobs yet (Pharaoh's tutorial).
+    pub fn percentage(&self, sentiment: i32, _unemployment: i32) -> i32 {
         let pick = |t: &[(i32, i32)], v: i32| t.iter().find(|&&(above, _)| v > above).map_or(0, |&(_, p)| p);
-        pick(&self.sentiment_table, sentiment) + pick(&self.unemployment_table, unemployment)
+        pick(&self.sentiment_table, sentiment)
     }
 }
 
@@ -155,6 +158,7 @@ impl World {
         let was_empty = h.population <= 0;
         h.population += n;
         self.population += n;
+        self.census.add(&self.rng, n);
         self.migration.newcomers_this_month += n;
         if was_empty {
             self.set_house_level(id, 0);

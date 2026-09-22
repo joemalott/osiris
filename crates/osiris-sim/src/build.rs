@@ -83,6 +83,7 @@ impl World {
             return Outcome::NotEnoughMoney;
         }
         self.treasury -= cost;
+        self.finance.this_year.construction += cost;
         for (sx, sy) in ok {
             self.create_building(k, sx, sy);
         }
@@ -146,6 +147,7 @@ impl World {
         }
         if let Some(h) = &b.house {
             self.population -= h.population;
+            self.census.remove(&self.rng, h.population);
         }
     }
 

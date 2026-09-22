@@ -261,6 +261,10 @@ fn run_script(world: &mut World, script: &str) -> Result<Option<(i32, i32)>> {
                     "{:?} pop {} treasury {} figures {} houses {:?}",
                     world.time, world.population, world.treasury, world.figures.len(), houses
                 );
+                eprintln!("  labor {:?} unemployment {}%", world.labor, world.unemployment);
+                for b in world.buildings.iter().filter(|b| !b.is_house()) {
+                    eprintln!("  bld {} kind {} at ({},{}) workers {} covered {} road {:?} walkers {:?}", b.id, b.kind, b.x, b.y, b.workers, b.houses_covered, b.road, b.walkers);
+                }
                 for f in world.figures.iter().take(5) {
                     eprintln!(
                         "  fig {} kind {} at ({},{}) dest {:?} route {} moving {} counter {} progress {} dir {}",

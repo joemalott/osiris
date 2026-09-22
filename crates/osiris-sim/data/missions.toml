@@ -389,6 +389,7 @@ trigger = "resource_stored:beer >= 300"
 id = 4
 key = "m_004_mennefer"
 name = "Mennefer"
+notes = "Runs four scripted Pharaoh-favour resource requests on a fixed calendar (beer @ y6m8, papyrus @ y8m10, barley @ y10m5, pottery @ y15m4; mission4_pharaoh_request_* handlers) that affect reputation/demand via create_good_request/create_chain_event. These do not gate any building or advisor and are not modeled in this data file."
 buildings = [
   "small_statue", "medium_statue", "large_statue", "gardens", "plaza",
   "roadblock", "low_bridge", "firehouse", "architect_post", "police_station", "village_palace",
@@ -492,4 +493,3624 @@ trigger = "resource_stored:papyrus >= 100"
 key = "message_tutorial_monuments"
 trigger = "resource_stored:bricks >= 100"
 
-mission.notes = "Runs four scripted Pharaoh-favour resource requests on a fixed calendar (beer @ y6m8, papyrus @ y8m10, barley @ y10m5, pottery @ y15m4; mission4_pharaoh_request_* handlers) that affect reputation/demand via create_good_request/create_chain_event. These do not gate any building or advisor and are not modeled in this data file."
+[[mission]]
+id = 5
+key = "m_005_timna"
+name = "Timna"
+buildings = ["small_statue", "medium_statue", "large_statue", "gardens", "plaza", "roadblock", "low_bridge", "firehouse", "architect_post", "police_station", "village_palace", "tax_collector", "courthouse", "personal_mansion", "water_supply", "apothecary", "physician", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "bazaar", "granary", "storage_yard", "recruiter", "fort_infantry", "fort_archers", "weaponsmith", "scribal_school", "clay_pit", "gemstone_mine", "gold_mine", "copper_mine", "pottery_workshop", "weaver_workshop", "hunting_lodge", "temple_seth", "shrine_seth", "festival_square", "mortuary", "stonemasons_guild", "carpenters_guild"]
+notes = "Runs 4 Pharaoh-favour resource requests (copper y0, gems y2, deben y2, weapons y7) plus 3 scripted Libyan raids (y2/y3/y5, escalating size) and a recurring by-favour invasion tick (army size 45); these affect reputation/trade and are not individually enumerated as messages."
+
+[mission.funds]
+initial_funds = [7500, 5000, 3750, 2500, 2000]
+rescue_loans = [7500, 5000, 3750, 2500, 2000]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 2
+start_message = "message_history_military"
+
+[mission.env]
+has_animals = true
+hide_nilometer = true
+
+[mission.win.population]
+enabled = true
+goal = 2000
+
+[mission.win.prosperity]
+enabled = true
+goal = 15
+
+[mission.win.kingdom]
+enabled = true
+goal = 70
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+pharaoh_requested_copper = false
+pharaoh_requested_gems = false
+pharaoh_requested_deben = false
+pharaoh_requested_weapons = false
+libyan_invasion_1 = false
+libyan_invasion_2 = false
+libyan_invasion_3 = false
+pharaoh_favour_invasion_done = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_history_military"
+trigger = "start"
+
+[[mission]]
+id = 6
+key = "m_006_behdet"
+name = "Behdet"
+buildings = ["small_statue", "medium_statue", "large_statue", "gardens", "plaza", "roadblock", "firehouse", "architect_post", "police_station", "village_palace", "tax_collector", "courthouse", "personal_mansion", "water_supply", "apothecary", "physician", "work_camp", "chickpeas_farm", "barley_farm", "booth", "juggler_school", "bandstand", "conservatory", "bazaar", "granary", "storage_yard", "recruiter", "fort_infantry", "fort_archers", "weaponsmith", "scribal_school", "clay_pit", "reed_gatherer", "gold_mine", "pottery_workshop", "weaver_workshop", "brewery_workshop", "papyrus_workshop", "bricks_workshop", "shipwright", "fishing_wharf", "low_bridge", "ferry", "dock", "warship_wharf", "transport_wharf", "bricklayers_guild", "small_mastaba", "medium_mastaba", "temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "festival_square", "pavillion", "dance_school"]
+notes = "Runs 4 Pharaoh-favour resource requests (pottery y1, beer y2 and y17, fish y3), a one-time papyrus demand increase, a clay-pit flood (y8) and recurring failed floods from y10, plus 3 scripted Kushite raids (y5/y15/y19) and a recurring by-favour invasion tick (army size 45); not individually enumerated as messages."
+
+[mission.funds]
+initial_funds = [7500, 5000, 3750, 2500, 2000]
+rescue_loans = [7500, 5000, 3750, 2500, 2000]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 2
+start_message = "message_soldiers_and_forts"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 2500
+
+[mission.win.culture]
+enabled = true
+goal = 15
+
+[mission.win.prosperity]
+enabled = true
+goal = 20
+
+[mission.win.monuments]
+enabled = true
+goal = 11
+
+[mission.win.kingdom]
+enabled = true
+goal = 45
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+pharaoh_pottery_requested = false
+pharaoh_fish_requested = false
+pharaoh_beer_requested = false
+pharaoh_beer_late_requested = false
+papyrus_demand_increased = false
+clay_pit_flood_done = false
+failed_flood_last_year = -1
+kushite_invasion_1 = false
+kushite_invasion_2 = false
+kushite_invasion_3 = false
+pharaoh_favour_invasion_done = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_soldiers_and_forts"
+trigger = "start"
+
+[[mission]]
+id = 7
+key = "m_007_abydos"
+name = "Abydos"
+buildings = ["small_statue", "medium_statue", "large_statue", "gardens", "plaza", "roadblock", "firehouse", "architect_post", "police_station", "village_palace", "tax_collector", "courthouse", "personal_mansion", "water_supply", "apothecary", "physician", "dentist", "work_camp", "flax_farm", "barley_farm", "booth", "juggler_school", "bandstand", "conservatory", "bazaar", "granary", "storage_yard", "recruiter", "fort_infantry", "fort_archers", "weaponsmith", "scribal_school", "clay_pit", "reed_gatherer", "pottery_workshop", "weaver_workshop", "brewery_workshop", "papyrus_workshop", "bricks_workshop", "shipwright", "fishing_wharf", "low_bridge", "ferry", "warship_wharf", "transport_wharf", "dock", "temple_osiris", "shrine_osiris", "bricklayers_guild", "small_mastaba", "medium_mastaba", "festival_square", "pavillion", "dance_school", "senet_house"]
+notes = "Runs 2 Pharaoh-favour resource requests (beer y2, fish y12), a recurring perfect-flood event from y2, and one-off contaminated-water/sea-trade/wage/demand events (y5-y19), plus 1 scripted Kushite raid (y14) and a recurring by-favour invasion tick (army size 40); not individually enumerated as messages."
+
+[mission.funds]
+initial_funds = [7500, 5000, 3750, 2500, 2000]
+rescue_loans = [7500, 5000, 3750, 2500, 2000]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 3
+start_message = "message_soldiers_and_forts"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 2500
+
+[mission.win.culture]
+enabled = true
+goal = 25
+
+[mission.win.prosperity]
+enabled = true
+goal = 25
+
+[mission.win.monuments]
+enabled = true
+goal = 17
+
+[mission.win.kingdom]
+enabled = true
+goal = 60
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+pharaoh_beer_requested = false
+pharaoh_fish_requested = false
+contaminated_water_1 = false
+sea_trade_problem_done = false
+wage_increase_1 = false
+linen_demand_increased = false
+beer_demand_increased = false
+wage_increase_2 = false
+fish_demand_decreased = false
+contaminated_water_2 = false
+kushite_invasion_1 = false
+pharaoh_favour_invasion_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_chain_done = false
+pharaoh_favour_wave_next = -1
+pharaoh_favour_wave_seq = 0
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_soldiers_and_forts"
+trigger = "start"
+
+[[mission]]
+id = 8
+key = "m_008_selima"
+name = "Selima"
+buildings = ["house_crude_hut", "road", "roadblock", "low_bridge", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "village_palace", "hunting_lodge", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "wood_cutters", "pottery_workshop", "brewery_workshop", "papyrus_workshop", "tax_collector", "courthouse", "personal_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "fort_charioteers", "fort_archers", "fort_infantry", "temple_seth", "shrine_seth", "temple_ra", "shrine_ra", "temple_complex_seth", "temple_complex_altar_anubis", "temple_complex_oracle_sekhmet", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school"]
+notes = "Runs a recurring Pharaoh luxury-goods request (every 2 years from y1) that can late-chain into a Kerma siege and a troops×4 request, a separate Kerma-siege troops×7 request (y7), recurring small Hyksos raids from y2, one large Hyksos invasion (y7), and a recurring by-favour invasion tick (army size 63); price/wage/demand events also fire at various years; not individually enumerated as messages."
+
+[mission.funds]
+initial_funds = [7500, 5000, 3750, 2500, 2000]
+rescue_loans = [7500, 5000, 3750, 2500, 2000]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 3
+enable_scenario_events = true
+start_message = "message_the_finer_things_tutorial"
+
+[mission.env]
+has_animals = true
+hide_nilometer = true
+
+[mission.win.population]
+enabled = true
+goal = 3000
+
+[mission.win.culture]
+enabled = true
+goal = 20
+
+[mission.win.prosperity]
+enabled = true
+goal = 20
+
+[mission.win.kingdom]
+enabled = true
+goal = 55
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.win.monuments]
+enabled = false
+
+[mission.vars]
+pharaoh_luxury_request_count = 0
+pharaoh_troops_requested_1 = false
+pharaoh_troops_requested_2 = false
+troops4_wired = false
+kerma_siege_done = false
+luxury_price_decreased = false
+reeds_price_increased = false
+wage_increase_done = false
+hyksos_raid_small_last_year = -1
+hyksos_raid_small_seq = 0
+hyksos_invasion_2 = false
+pharaoh_favour_invasion_done = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_the_finer_things_tutorial"
+trigger = "start"
+
+[[mission]]
+id = 9
+key = "m_009_abu"
+name = "Abu"
+buildings = ["small_statue", "medium_statue", "large_statue", "gardens", "plaza", "jewels_workshop", "pottery_workshop", "brewery_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "granite_quarry", "sandstone_quarry", "gemstone_mine", "grain_farm", "barley_farm", "chickpeas_farm", "flax_farm", "lettuce_farm", "work_camp", "temple_osiris", "shrine_osiris", "temple_ptah", "shrine_ptah", "firehouse", "architect_post", "police_station", "water_supply", "bazaar", "granary", "storage_yard", "roadblock", "low_bridge", "ferry", "dock", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "tax_collector", "courthouse", "family_mansion", "town_palace", "festival_square", "temple_complex_osiris", "temple_complex_ptah", "irrigation_ditch", "water_lift"]
+notes = "Runs 2 Pharaoh-favour resource requests (granite y4, sandstone y10), a land-trade problem (y2), a flax demand increase (y6) that also re-fires the granite request chain, a Selima-conquered trade unlock (y6), a Nubt-conquered linen demand increase (y7), one-off contaminated-water/sea-trade events (y13/y15), a recurring gems demand increase from y17, and a recurring by-favour invasion tick (wave sizes 40/20/20, food then random targets); not individually enumerated as messages."
+
+[mission.funds]
+initial_funds = [7500, 5000, 3750, 2500, 2000]
+rescue_loans = [7500, 5000, 3750, 2500, 2000]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 6
+enable_scenario_events = true
+start_message = "message_history_abu"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 4000
+
+[mission.win.culture]
+enabled = true
+goal = 30
+
+[mission.win.prosperity]
+enabled = true
+goal = 30
+
+[mission.win.kingdom]
+enabled = true
+goal = 50
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.win.monuments]
+enabled = false
+
+[mission.vars]
+pharaoh_requested_granite = false
+pharaoh_requested_sandstone = false
+land_trade_problem_done = false
+flax_demand_done = false
+nubt_conquered_msg_done = false
+selima_trade_unlock_done = false
+contaminated_water_done = false
+sea_trade_problem_done = false
+pharaoh_favour_invasion_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_chain_done = false
+pharaoh_favour_wave_next = -1
+pharaoh_favour_wave_seq = 0
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_history_abu"
+trigger = "start"
+
+[[mission]]
+id = 10
+key = "m_010_saqqara"
+name = "Saqqara"
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "mortuary", "water_lift", "irrigation_ditch", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "village_palace", "hunting_lodge", "work_camp", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "bricks_workshop", "jewels_workshop", "pottery_workshop", "brewery_workshop", "papyrus_workshop", "weaver_workshop", "tax_collector", "courthouse", "personal_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "fort_charioteers", "fort_archers", "fort_infantry", "temple_ptah", "shrine_ptah", "temple_ra", "shrine_ra", "temple_bast", "shrine_bast", "temple_complex_seth", "temple_complex_altar_anubis", "temple_complex_oracle_sekhmet", "pomegranates_farm", "stone_quarry", "gold_mine", "low_bridge", "ferry", "medium_stepped_pyramid", "small_mastaba", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school"]
+notes = "Runs many Pharaoh-favour resource requests and gifts spanning to year 46+ (gamemeat y1/y18+/y33+, pomegranates gift y3, oil y4, stone y10+/y20/y-recurring, luxury y12+/y44+/y46+), recurring gold-mine collapses (y5+, y16+), recurring wage/land-trade events, and a recurring by-favour invasion tick (army size 69); not individually enumerated as messages."
+
+[mission.funds]
+initial_funds = [24000, 16000, 12000, 8000, 6400]
+rescue_loans = [10400, 7000, 5200, 3500, 2800]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [4, 6, 8, 10, 12]
+player_rank = 1
+enable_scenario_events = true
+start_message = "message_history_saqqara"
+
+[mission.env]
+has_animals = true
+hide_nilometer = true
+
+[mission.win.population]
+enabled = true
+goal = 3500
+
+[mission.win.culture]
+enabled = false
+
+[mission.win.prosperity]
+enabled = true
+goal = 15
+
+[mission.win.monuments]
+enabled = true
+goal = 19
+
+[mission.win.kingdom]
+enabled = true
+goal = 50
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+pharaoh_requested_gamemeat = false
+pharaoh_gift_pomegranates_done = false
+pharaoh_requested_oil = false
+pharaoh_requested_stone_once = false
+pharaoh_stone_recurring_last_year = -1
+pharaoh_luxury_recurring_last_year = -1
+pharaoh_gamemeat_recurring_last_year = -1
+pharaoh_gamemeat_y33_last_year = -1
+pharaoh_luxury_y44_last_year = -1
+pharaoh_luxury_y46_last_year = -1
+gold_collapse_early_last_year = -1
+gold_collapse_late_last_year = -1
+wage_decrease_last_year = -1
+land_trade_problem_last_year = -1
+wage_increase_late_done = false
+pharaoh_favour_invasion_done = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_history_saqqara"
+trigger = "start"
+
+[[mission]]
+id = 11
+key = "m_011_serabit_khadim"
+name = "Serabit Khadim"
+buildings = ["house_crude_hut", "road", "roadblock", "low_bridge", "ferry", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "village_palace", "hunting_lodge", "work_camp", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "clay_pit", "pottery_workshop", "brewery_workshop", "jewels_workshop", "tax_collector", "courthouse", "personal_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "fort_infantry", "fort_archers", "temple_seth", "shrine_seth", "temple_ra", "shrine_ra", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "copper_mine", "gemstone_mine", "mud_wall", "mud_gatehouse", "mud_tower"]
+notes = "Runs recurring Pharaoh copper (y1+) and luxury (y7+) resource requests, one-off copper/weapons requests (y3, y5, y8), a chickpeas gift (y1), a land-trade problem (y3), 5 recurring clay-pit floods (y1-y5), 7 scripted Libyan/Beduin raids of escalating size (y1-y10) with varied attack targets, and a recurring by-favour invasion tick (army size 51); not individually enumerated as messages."
+
+[mission.funds]
+initial_funds = [30000, 20000, 15000, 10000, 8000]
+rescue_loans = [7000, 4700, 3500, 2300, 1900]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 5
+enable_scenario_events = true
+start_message = "message_mission_serabit_khadim"
+
+[mission.env]
+has_animals = true
+hide_nilometer = true
+
+[mission.win.population]
+enabled = true
+goal = 2000
+
+[mission.win.culture]
+enabled = false
+
+[mission.win.prosperity]
+enabled = false
+
+[mission.win.monuments]
+enabled = false
+
+[mission.win.kingdom]
+enabled = true
+goal = 80
+
+[mission.win.housing_level]
+enabled = true
+goal = 4
+
+[mission.vars]
+shared_request_leaves_wired = false
+pharaoh_gift_chickpeas_done = false
+pharaoh_copper_recurring_last_year = -1
+pharaoh_copper_recurring_was_busy = false
+pharaoh_copper_recurring_idle_since_abs = -1
+pharaoh_requested_copper2 = false
+land_trade_problem_done = false
+clay_pit_flood_last_year = -1
+pharaoh_requested_weapons1 = false
+pharaoh_luxury_recurring_last_year = -1
+pharaoh_luxury_recurring_was_busy = false
+pharaoh_luxury_recurring_idle_since_abs = -1
+pharaoh_requested_weapons2 = false
+libyan_invasion_1 = false
+beduin_raid_last_year = -1
+beduin_raid_active = false
+beduin_raid_enemies_seen = false
+beduin_raid_resolved = false
+libyan_invasion_3 = false
+libyan_invasion_4 = false
+libyan_invasion_5 = false
+libyan_invasion_6 = false
+libyan_invasion_7 = false
+pharaoh_favour_invasion_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_chain_done = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_serabit_khadim"
+trigger = "start"
+
+[[mission]]
+id = 12
+key = "m_012_meidum"
+name = "Meidum"
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "mortuary", "water_lift", "irrigation_ditch", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "village_palace", "hunting_lodge", "work_camp", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "bricks_workshop", "jewels_workshop", "pottery_workshop", "brewery_workshop", "papyrus_workshop", "weaver_workshop", "tax_collector", "courthouse", "personal_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "fort_charioteers", "fort_archers", "fort_infantry", "warship_wharf", "transport_wharf", "shipwright", "temple_osiris", "shrine_osiris", "temple_ptah", "shrine_ptah", "temple_ra", "shrine_ra", "grain_farm", "figs_farm", "stone_quarry", "clay_pit", "reed_gatherer", "wood_cutters", "low_bridge", "ferry", "small_stepped_pyramid", "stepped_pyramid_complex", "small_mastaba", "medium_mastaba", "library", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school"]
+notes = "Runs an extensive Pharaoh-favour resource-request economy (dozens of request/event roots for timber, reeds, pottery, stone, papyrus, grain, and clay, plus wage/price/flood state changes spanning years 3-56+, per source comments indexed i0-i72), a recurring Hyksos invasion from y7 (size 17), and a recurring by-favour invasion tick (wave sizes 25 then 60); not individually enumerated as messages. Monuments goal (76) reflects a small stepped pyramid (8) plus a stepped-pyramid complex counted at large-pyramid weight (24) per a source comment noting the causeway mechanic isn't implemented."
+
+[mission.funds]
+initial_funds = [20000, 13300, 10000, 6700, 5300]
+rescue_loans = [6000, 4000, 3000, 2000, 1600]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [4, 6, 8, 10, 12]
+player_rank = 4
+enable_scenario_events = true
+start_message = "message_mission_meidum"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 3000
+
+[mission.win.culture]
+enabled = true
+goal = 25
+
+[mission.win.prosperity]
+enabled = true
+goal = 25
+
+[mission.win.monuments]
+enabled = true
+goal = 76
+
+[mission.win.kingdom]
+enabled = true
+goal = 40
+
+[mission.win.housing_level]
+enabled = true
+goal = 11
+
+[mission.vars]
+shared_kr_leaves_wired = false
+clay_chain_leaves_wired = false
+timber_chain_leaves_wired = false
+grain_chain_leaves_wired = false
+papyrus_chain_leaves_wired = false
+gift_leaves_wired = false
+event0_timber_done = false
+event1_reeds_done = false
+event3_stone_done = false
+event4_papyrus_done = false
+event6_pottery_bare_done = false
+event13_papyrus_done = false
+event14_wage_decrease_done = false
+event16_failed_flood_done = false
+event26_grain_done = false
+event32_pottery_done = false
+event33_stone_done = false
+event35_pottery_done = false
+event36_failed_flood_done = false
+event48_papyrus_done = false
+event49_stone_gift_done = false
+event51_price_increase_clay_done = false
+event52_clay_done = false
+event53_papyrus_done = false
+event62_pottery_done = false
+event2_pottery_last_year = -1
+event7_pottery_last_year = -1
+event12_grain_last_year = -1
+event15_price_stone_last_year = -1
+event17_clay_pit_flood_last_year = -1
+event18_wage_increase_last_year = -1
+event19_timber_last_year = -1
+event31_grain_last_year = -1
+event34_clay_pit_flood2_last_year = -1
+event37_price_decrease_clay_last_year = -1
+event38_grain_last_year = -1
+event39_perfect_flood_last_year = -1
+event40_pottery_last_year = -1
+event41_grain_last_year = -1
+event47_sea_trade_problem_last_year = -1
+event59_timber_last_year = -1
+event60_grain_last_year = -1
+event63_stone_last_year = -1
+event70_hyksos_last_year = -1
+pottery_recurring_was_busy = false
+pottery_recurring_idle_since_abs = -1
+grain_recurring_was_busy = false
+grain_recurring_idle_since_abs = -1
+timber_recurring_was_busy = false
+timber_recurring_idle_since_abs = -1
+hyksos_invasion_count = 0
+pharaoh_favour_invasion_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_chain_done = false
+pharaoh_favour_wave_next = -1
+pharaoh_favour_wave_seq = 0
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_meidum"
+trigger = "start"
+
+[[mission]]
+id = 13
+key = "m_013_buhen"
+name = "Buhen"
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "mortuary", "water_lift", "irrigation_ditch", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "village_palace", "hunting_lodge", "work_camp", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "bricks_workshop", "jewels_workshop", "pottery_workshop", "brewery_workshop", "papyrus_workshop", "weaver_workshop", "tax_collector", "courthouse", "personal_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "warship_wharf", "transport_wharf", "shipwright", "temple_ptah", "shrine_ptah", "temple_seth", "shrine_seth", "grain_farm", "figs_farm", "stone_quarry", "limestone_quarry", "clay_pit", "low_bridge", "ferry", "small_obelisk", "library", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+notes = "Also runs a series of dated limestone/beer/oil/troops resource requests (6 limestone asks, a recurring beer ask, one troops ask, one oil ask), two granite-demand events, 8 Kushite invasion waves, annual clay-pit floods from year 1, and a 3-wave Pharaoh-favour invasion chain (22/21/28); not individually enumerated here."
+
+[mission.funds]
+initial_funds = [20000, 13300, 10000, 6700, 5300]
+rescue_loans = [10000, 6700, 5000, 3300, 2700]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 5
+enable_scenario_events = true
+start_message = "message_mission_buhen"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 3000
+
+[mission.win.culture]
+enabled = true
+goal = 25
+
+[mission.win.prosperity]
+enabled = true
+goal = 25
+
+[mission.win.monuments]
+enabled = true
+goal = 9
+
+[mission.win.kingdom]
+enabled = true
+goal = 75
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+shared_kr_leaves_wired = false
+granite_gift_leaves_wired = false
+troops_chain_leaves_wired = false
+event2_limestone_done = false
+event4_limestone_done = false
+event5_limestone_done = false
+event6_troops_done = false
+event7_granite_demand_done = false
+event8_oil_done = false
+event10_limestone_done = false
+event11_beer_done = false
+event12_limestone_done = false
+event13_granite_demand_done = false
+event15_limestone_done = false
+event3_beer_last_year = -1
+beer_recurring_was_busy = false
+beer_recurring_idle_since_abs = -1
+kushite_i9_done = false
+kushite_i14_done = false
+kushite_i16_done = false
+kushite_i17_done = false
+kushite_i18_done = false
+kushite_i19_done = false
+kushite_i20_done = false
+kushite_i21_done = false
+clay_pit_flood_last_year = -1
+pharaoh_favour_invasion_done = false
+pharaoh_favour_chain_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_wave_next = -1
+pharaoh_favour_wave_seq = 0
+pharaoh_favour_wave2_enemies_seen = false
+pharaoh_favour_wave2_done = false
+pharaoh_favour_wave3_enemies_seen = false
+pharaoh_favour_wave3_done = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_buhen"
+trigger = "start"
+
+[[mission]]
+id = 14
+key = "m_014_south_dahshur"
+name = "South Dahshur"
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "mortuary", "water_lift", "irrigation_ditch", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "village_palace", "hunting_lodge", "work_camp", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "bricks_workshop", "jewels_workshop", "pottery_workshop", "brewery_workshop", "papyrus_workshop", "weaver_workshop", "tax_collector", "courthouse", "personal_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "temple_osiris", "shrine_osiris", "temple_ptah", "shrine_ptah", "temple_ra", "shrine_ra", "grain_farm", "figs_farm", "stone_quarry", "limestone_quarry", "clay_pit", "low_bridge", "ferry", "small_bent_pyramid", "medium_bent_pyramid", "small_mastaba", "medium_mastaba", "library", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+notes = "Also runs an oil-request ladder (a root ask plus several chain-only escalation levels reached on refusal/lateness), a recurring grain request from year 2, a one-time limestone request, an annual wage-decrease event from year 5, and a 2-wave Pharaoh-favour invasion (size 49 then 21); not individually enumerated here."
+
+[mission.funds]
+initial_funds = [20000, 13300, 10000, 6700, 5300]
+rescue_loans = [7000, 4700, 3500, 2300, 1900]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 5
+enable_scenario_events = true
+start_message = "message_mission_south_dahshur"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 3500
+
+[mission.win.culture]
+enabled = false
+
+[mission.win.prosperity]
+enabled = true
+goal = 25
+
+[mission.win.monuments]
+enabled = true
+goal = 21
+
+[mission.win.kingdom]
+enabled = true
+goal = 50
+
+[mission.win.housing_level]
+enabled = true
+goal = 19
+
+[mission.vars]
+oil_ladder_leaves_wired = false
+limestone_gift_leaves_wired = false
+grain_kr_leaves_wired = false
+event2_oil_done = false
+event10_limestone_done = false
+event9_grain_last_year = -1
+event11_wage_decrease_last_year = -1
+grain_recurring_was_busy = false
+grain_recurring_idle_since_abs = -1
+pharaoh_favour_invasion_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_chain_done = false
+pharaoh_favour_wave_next = -1
+pharaoh_favour_wave_seq = 0
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_south_dahshur"
+trigger = "start"
+
+[[mission]]
+id = 15
+key = "m_015_north_dahshur"
+name = "North Dahshur"
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "mortuary", "water_lift", "irrigation_ditch", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "village_palace", "hunting_lodge", "work_camp", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "bricks_workshop", "jewels_workshop", "pottery_workshop", "brewery_workshop", "papyrus_workshop", "weaver_workshop", "tax_collector", "courthouse", "personal_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "temple_osiris", "shrine_osiris", "temple_ptah", "shrine_ptah", "temple_seth", "shrine_seth", "temple_ra", "shrine_ra", "grain_farm", "barley_farm", "figs_farm", "henna_farm", "stone_quarry", "limestone_quarry", "clay_pit", "wood_cutters", "low_bridge", "ferry", "small_stepped_pyramid", "medium_stepped_pyramid", "large_pyramid", "small_mastaba", "medium_mastaba", "library", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+notes = "Also runs two recurring grain requests, a stone-gift chain into a chain-only limestone request, a biennial henna request from year 2, recurring beduin raids from year 6, a Hyksos invasion chain (an initial wipe followed by alternating size-6 waves) plus a later size-11 invasion, annual clay-pit floods, and a single Pharaoh-favour invasion wave (size 75); not individually enumerated here."
+
+[mission.funds]
+initial_funds = [20000, 13300, 10000, 6700, 5300]
+rescue_loans = [8000, 5300, 4000, 2700, 2100]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 6
+enable_scenario_events = true
+start_message = "message_mission_north_dahshur"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 3000
+
+[mission.win.culture]
+enabled = true
+goal = 20
+
+[mission.win.prosperity]
+enabled = true
+goal = 30
+
+[mission.win.monuments]
+enabled = true
+goal = 32
+
+[mission.win.kingdom]
+enabled = true
+goal = 55
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+grain_kr_leaves_wired = false
+limestone_leaves_wired = false
+grain2_leaves_wired = false
+henna_leaves_wired = false
+event7_hyksos_done = false
+event10_hyksos_done = false
+hyksos_chain_active = false
+hyksos_chain_enemies_seen = false
+hyksos_chain_alt = 0
+hyksos_chain_invasion_seq = 10
+event2_grain_last_year = -1
+event3_gift_last_year = -1
+event5_grain_last_year = -1
+event6_beduin_last_year = -1
+event11_henna_last_year = -1
+clay_pit_flood_last_year = -1
+grain_recurring_was_busy = false
+grain_recurring_idle_since_abs = -1
+grain2_recurring_was_busy = false
+grain2_recurring_idle_since_abs = -1
+henna_recurring_was_busy = false
+henna_recurring_idle_since_abs = -1
+pharaoh_favour_invasion_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_chain_done = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_north_dahshur"
+trigger = "start"
+
+[[mission]]
+id = 16
+key = "m_016_iunet"
+name = "Iunet"
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "mortuary", "water_lift", "irrigation_ditch", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "village_palace", "hunting_lodge", "work_camp", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "bricks_workshop", "jewels_workshop", "pottery_workshop", "brewery_workshop", "papyrus_workshop", "weaver_workshop", "tax_collector", "courthouse", "personal_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "warship_wharf", "transport_wharf", "shipwright", "temple_ra", "shrine_ra", "temple_seth", "shrine_seth", "temple_bast", "shrine_bast", "grain_farm", "barley_farm", "figs_farm", "fishing_wharf", "cattle_ranch", "stone_quarry", "limestone_quarry", "granite_quarry", "gold_mine", "clay_pit", "low_bridge", "ferry", "small_mastaba", "medium_mastaba", "library", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "senet_house", "scribal_school"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+notes = "Also runs one-time fish, meat, pottery, and limestone resource requests (year 1/3/5/10) each with its own reputation/trade tail, 4 timed Hittite invasion waves plus an Egyptian punitive raid after a limestone refusal, an annual clay-pit flood, and a 4-wave Pharaoh-favour invasion chain (15/45/30/30); not individually enumerated here."
+
+[mission.funds]
+initial_funds = [20000, 13300, 10000, 6700, 5300]
+rescue_loans = [5000, 3300, 2500, 1700, 1300]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [4, 6, 8, 10, 12]
+player_rank = 6
+enable_scenario_events = true
+start_message = "message_mission_dendera"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 4000
+
+[mission.win.culture]
+enabled = true
+goal = 30
+
+[mission.win.prosperity]
+enabled = true
+goal = 30
+
+[mission.win.monuments]
+enabled = true
+goal = 9
+
+[mission.win.kingdom]
+enabled = true
+goal = 65
+
+[mission.win.housing_level]
+enabled = true
+goal = 16
+
+[mission.vars]
+shared_kr_leaves_wired = false
+fish_leaves_wired = false
+meat_leaves_wired = false
+pottery_leaves_wired = false
+limestone_leaves_wired = false
+event0_fish_done = false
+event4_meat_done = false
+event8_hittite_done = false
+event9_clay_done = false
+event10_pottery_done = false
+event12_hittite_done = false
+event13_hittite_done = false
+event14_limestone_done = false
+event17_hittite_done = false
+limestone_egypt_done = false
+pharaoh_favour_invasion_done = false
+pharaoh_favour_chain_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_wave_next = -1
+pharaoh_favour_wave_seq = 0
+pharaoh_favour_wave2_done = false
+pharaoh_favour_wave3_done = false
+pharaoh_favour_wave4_done = false
+pharaoh_favour_wave2_enemies_seen = false
+pharaoh_favour_wave3_enemies_seen = false
+pharaoh_favour_wave4_enemies_seen = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_dendera"
+trigger = "start"
+
+[[mission]]
+id = 17
+key = "m_017_on"
+name = "On"
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "mortuary", "water_lift", "irrigation_ditch", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "village_palace", "hunting_lodge", "work_camp", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "bricks_workshop", "jewels_workshop", "pottery_workshop", "brewery_workshop", "papyrus_workshop", "weaver_workshop", "tax_collector", "courthouse", "personal_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "temple_bast", "shrine_bast", "grain_farm", "barley_farm", "figs_farm", "flax_farm", "cattle_ranch", "reed_gatherer", "stone_quarry", "limestone_quarry", "sandstone_quarry", "clay_pit", "low_bridge", "ferry", "small_mastaba", "medium_mastaba", "library", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "senet_house", "scribal_school"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+notes = "Also runs two one-time limestone-demand events, an annual wage-increase event, a one-time clay-pit flood, a recurring 36-month limestone request from year 3 whose refusal chains a lost-trade-route event, an annual perfect-flood event from year 4 that on success chains a gamemeat request, and a 5-wave Pharaoh-favour invasion (size 20 each); not individually enumerated here."
+
+[mission.funds]
+initial_funds = [12000, 8000, 6000, 4000, 3200]
+rescue_loans = [6000, 4000, 3000, 2000, 1600]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 6
+enable_scenario_events = true
+start_message = "message_mission_heliopolis"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 4000
+
+[mission.win.culture]
+enabled = true
+goal = 40
+
+[mission.win.prosperity]
+enabled = true
+goal = 35
+
+[mission.win.monuments]
+enabled = true
+goal = 18
+
+[mission.win.kingdom]
+enabled = true
+goal = 60
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+limestone_leaves_wired = false
+gamemeat_leaves_wired = false
+event0_demand_done = false
+event2_clay_done = false
+event3_demand_done = false
+event4_wage_done = false
+event5_limestone_last_year = -1
+limestone_recurring_was_busy = false
+limestone_recurring_idle_since_abs = -1
+event1_perfect_flood_last_year = -1
+pharaoh_favour_invasion_done = false
+pharaoh_favour_chain_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_wave_next = -1
+pharaoh_favour_wave_seq = 0
+pharaoh_favour_wave2_done = false
+pharaoh_favour_wave3_done = false
+pharaoh_favour_wave4_done = false
+pharaoh_favour_wave5_done = false
+pharaoh_favour_wave2_enemies_seen = false
+pharaoh_favour_wave3_enemies_seen = false
+pharaoh_favour_wave4_enemies_seen = false
+pharaoh_favour_wave5_enemies_seen = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_heliopolis"
+trigger = "start"
+
+[[mission]]
+id = 18
+key = "m_018_rostja"
+name = "Rostja"
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "mortuary", "water_lift", "irrigation_ditch", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "village_palace", "hunting_lodge", "work_camp", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "bricks_workshop", "jewels_workshop", "pottery_workshop", "brewery_workshop", "papyrus_workshop", "weaver_workshop", "tax_collector", "courthouse", "personal_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah", "grain_farm", "barley_farm", "figs_farm", "stone_quarry", "limestone_quarry", "granite_quarry", "clay_pit", "low_bridge", "ferry", "small_stepped_pyramid", "medium_stepped_pyramid", "small_mastaba", "medium_mastaba", "pyramid_complex", "medium_pyramid", "sphinx", "festival_square", "booth", "juggler_school", "bandstand", "pavillion", "scribal_school"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+notes = "Runs a large number of scripted requests and events: a recurring gems request from year 3, a gems-ladder chain unlocking a Men-nefer trade route, several one-time gamemeat/gems/limestone gifts and requests, a recurring gamemeat request from year 44, a gems-crisis request whose failure triggers a Hyksos raid, a troops request whose failure/defeat triggers a re-arming Hyksos-raid chain, a recurring timber request from year 35, a recurring Hyksos raid from year 26, two scripted new-trade-route unlocks (year 5 and 15), and a 3-wave Pharaoh-favour invasion (50/20/50); not individually enumerated here."
+
+[mission.funds]
+initial_funds = [20000, 13300, 10000, 6700, 5300]
+rescue_loans = [10000, 6700, 5000, 3300, 2700]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 6
+enable_scenario_events = true
+start_message = "message_mission_giza"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = false
+
+[mission.win.culture]
+enabled = false
+
+[mission.win.prosperity]
+enabled = false
+
+[mission.win.monuments]
+enabled = true
+goal = 53
+
+[mission.win.kingdom]
+enabled = true
+goal = 50
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+shared_kr_leaves_wired = false
+gems_ladder_leaves_wired = false
+troops_chain_leaves_wired = false
+pharaoh_gift_leaves_wired = false
+event4_sea_done = false
+event5_wage_done = false
+event6_price_done = false
+event7_price_done = false
+event8_demand_done = false
+event9_price_done = false
+event10_demand_done = false
+event11_price_done = false
+event12_gamemeat_done = false
+event14_gems_done = false
+event15_gift_done = false
+event19_gems_done = false
+event26_hyksos_done = false
+event27_gems_done = false
+event30_troops_done = false
+event42_trade_done = false
+event43_trade_done = false
+event0_gems_last_year = -1
+gems_recurring_was_busy = false
+gems_recurring_idle_since_abs = -1
+event16_gamemeat_last_year = -1
+gamemeat_pharaoh_recurring_was_busy = false
+gamemeat_pharaoh_recurring_idle_since_abs = -1
+event36_gamemeat_last_year = -1
+gamemeat_city_recurring_was_busy = false
+gamemeat_city_recurring_idle_since_abs = -1
+event38_timber_last_year = -1
+timber_recurring_was_busy = false
+timber_recurring_idle_since_abs = -1
+event37_hyksos_last_year = -1
+gems_crisis_raid_done = false
+troops_rearm_seq = 0
+troops_kr_seq = 0
+pharaoh_favour_invasion_done = false
+pharaoh_favour_chain_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_wave_next = -1
+pharaoh_favour_wave_seq = 0
+pharaoh_favour_wave2_done = false
+pharaoh_favour_wave3_done = false
+pharaoh_favour_wave2_enemies_seen = false
+pharaoh_favour_wave3_enemies_seen = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_giza"
+trigger = "start"
+
+[[mission]]
+id = 19
+key = "m_019_bahariya"
+name = "Bahariya"
+buildings = ["house_crude_hut", "road", "roadblock", "low_bridge", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "tax_collector", "courthouse", "personal_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "temple_ra", "shrine_ra", "temple_seth", "shrine_seth", "temple_complex_ra", "temple_complex_seth", "clay_pit", "sun_temple", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+notes = "Runs no resource requests, only scripted economy events (timber/grain demand and price changes, land-trade problems, a contaminated-water event, a scripted new-trade-route unlock with Dahshur) plus a heavy invasion schedule: 11 timed Hyksos raids, 5 timed and 2 recurring beduin raids, a gift of sandstone after one particular raid wipes the city, and a single Pharaoh-favour invasion wave (size 76); not individually enumerated here."
+
+[mission.funds]
+initial_funds = [15000, 10000, 7500, 5000, 4000]
+rescue_loans = [5000, 3300, 2500, 1700, 1300]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 6
+enable_scenario_events = true
+start_message = "message_mission_bahariya_oasis"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 3000
+
+[mission.win.culture]
+enabled = true
+goal = 15
+
+[mission.win.prosperity]
+enabled = true
+goal = 25
+
+[mission.win.monuments]
+enabled = true
+goal = 13
+
+[mission.win.kingdom]
+enabled = true
+goal = 40
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+event2_demand_done = false
+event6_price_done = false
+event8_demand_done = false
+event10_trade_done = false
+event16_water_last_year = -1
+event20_trade_done = false
+event28_trade_done = false
+event0_enemy_done = false
+event1_enemy_done = false
+event3_beduin_done = false
+event4_enemy_done = false
+event5_enemy_done = false
+event7_beduin_done = false
+event9_beduin_done = false
+event11_enemy_done = false
+event12_beduin_done = false
+event13_enemy_done = false
+event14_enemy_done = false
+event15_beduin_done = false
+event17_enemy_done = false
+event21_enemy_done = false
+event22_enemy_done = false
+event26_enemy_done = false
+event18_enemy_last_year = -1
+event19_beduin_last_year = -1
+event23_beduin_last_year = -1
+event24_enemy_last_year = -1
+gift_sandstone_wired = false
+pharaoh_favour_invasion_done = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_bahariya_oasis"
+trigger = "start"
+
+[[mission]]
+id = 20
+key = "m_020_djedu"
+name = "Djedu"
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "hunting_lodge", "fishing_wharf", "shipwright", "dock", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "temple_bast", "shrine_bast", "temple_complex_osiris", "temple_complex_ra", "temple_complex_bast", "grain_farm", "barley_farm", "flax_farm", "lettuce_farm", "pomegranates_farm", "chickpeas_farm", "figs_farm", "clay_pit", "reed_gatherer", "low_bridge", "ferry", "booth", "sun_temple", "festival_square", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "library"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+notes = "Runs an extensive web of resource-request ladders (oil into a gamemeat chain from year 2; two fish ladders from years 4 and 6 that unlock Byblos/Dahshur trade and cascade into demand/price changes or fall back to gamemeat/timber re-arm requests; a timber ladder from year 5 unlocking Dahshur trade or falling back to a linen request; a contaminated-water event at year 16 that chains into a further fish request; recurring timber and linen requests from years 43 and 31), an annual wage-increase event from year 10, and a 4-wave Pharaoh-favour invasion (25/25/25/45); not individually enumerated here."
+
+[mission.funds]
+initial_funds = [15000, 10000, 7500, 5000, 4000]
+rescue_loans = [5000, 3300, 2500, 1700, 1300]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 7
+enable_scenario_events = true
+start_message = "message_mission_abusir"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 4500
+
+[mission.win.culture]
+enabled = true
+goal = 45
+
+[mission.win.prosperity]
+enabled = true
+goal = 40
+
+[mission.win.monuments]
+enabled = true
+goal = 13
+
+[mission.win.kingdom]
+enabled = true
+goal = 50
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+oil_kr_leaves_wired = false
+event0_oil_done = false
+event5_gamemeat_done = false
+event12_fish_done = false
+fish12_leaves_wired = false
+event21_fish_done = false
+fish21_leaves_wired = false
+event28_timber_done = false
+timber28_leaves_wired = false
+fish34_leaves_wired = false
+event45_water_done = false
+event4_wage_last_year = -1
+event18_timber_last_year = -1
+timber_recurring_ok_wired = false
+event38_linen_last_year = -1
+linen_leaves_wired = false
+linen_recurring_was_busy = false
+linen_recurring_idle_since_abs = -1
+pharaoh_favour_invasion_done = false
+pharaoh_favour_wave2_done = false
+pharaoh_favour_wave3_done = false
+pharaoh_favour_wave4_done = false
+pharaoh_favour_wave2_enemies_seen = false
+pharaoh_favour_wave3_enemies_seen = false
+pharaoh_favour_wave4_enemies_seen = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_abusir"
+trigger = "start"
+
+[[mission]]
+id = 21
+key = "m_021_dunqul"
+name = "Dunqul"
+notes = "Runs a Pharaoh-favour invasion trigger (x66 at kingdom rating 0), recurring gamemeat/granite resource requests, and periodic beduin/Hittite raids and trade events tied to calendar years; the source script never calls ui.popup_message outside the start message, so no additional messages[] entries exist."
+buildings = ["house_crude_hut", "road", "roadblock", "low_bridge", "ferry", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "clay_pit", "sandstone_quarry", "granite_quarry", "small_obelisk", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah", "temple_seth", "shrine_seth", "temple_complex_ra", "temple_complex_ptah", "temple_complex_seth"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [12000, 8000, 6000, 4000, 3000]
+rescue_loans = [3000, 2000, 1500, 1000, 800]
+debt_interest = [5, 10, 15, 20, 25]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 8
+enable_scenario_events = true
+start_message = "message_mission_dunqul"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 3500
+
+[mission.win.culture]
+enabled = true
+goal = 20
+
+[mission.win.prosperity]
+enabled = true
+goal = 20
+
+[mission.win.monuments]
+enabled = true
+goal = 9
+
+[mission.win.kingdom]
+enabled = true
+goal = 80
+
+[mission.win.housing_level]
+enabled = true
+goal = 14
+
+[mission.vars]
+weapons_leaves_wired = false
+event7_siege_done = false
+event10_troops_done = false
+event11_beduin_done = false
+event20_trade_done = false
+event21_demand_done = false
+event0_gamemeat_last_year = -1
+event4_granite_last_year = -1
+event12_beduin_last_year = -1
+event14_enemy_last_year = -1
+event18_trade_last_year = -1
+kr_seq = 0
+gamemeat_recurring_was_busy = false
+gamemeat_recurring_idle_since_abs = -1
+granite_recurring_was_busy = false
+granite_recurring_idle_since_abs = -1
+pharaoh_favour_invasion_done = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_dunqul"
+trigger = "start"
+
+[[mission]]
+id = 22
+key = "m_022_dakhla"
+name = "Dakhla"
+notes = "Runs a long ladder of one-time and recurring resource requests (grain, timber, beer, luxury goods, bricks, pottery) plus a Pharaoh-favour invasion trigger (x90); no ui.popup_message calls exist beyond the start message."
+buildings = ["house_crude_hut", "road", "roadblock", "low_bridge", "ferry", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "clay_pit", "sandstone_quarry", "granite_quarry", "small_obelisk", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah", "temple_bast", "shrine_bast", "temple_complex_ra", "temple_complex_ptah", "temple_complex_bast"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [12000, 8000, 6000, 4000, 3000]
+rescue_loans = [5000, 3300, 2500, 1700, 1300]
+debt_interest = [0, 4, 8, 12, 16]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 8
+enable_scenario_events = true
+start_message = "message_mission_dakhla"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 5000
+
+[mission.win.culture]
+enabled = true
+goal = 50
+
+[mission.win.prosperity]
+enabled = true
+goal = 45
+
+[mission.win.monuments]
+enabled = true
+goal = 9
+
+[mission.win.kingdom]
+enabled = true
+goal = 65
+
+[mission.win.housing_level]
+enabled = true
+goal = 11
+
+[mission.vars]
+timber23_leaves_wired = false
+event2_done = false
+event3_done = false
+event5_done = false
+event6_done = false
+event7_done = false
+event9_done = false
+event11_done = false
+event22_done = false
+event36_done = false
+event37_done = false
+event45_done = false
+event50_done = false
+event52_done = false
+event53_done = false
+event54_done = false
+event4_wage_done = false
+event12_price_done = false
+event23_timber_done = false
+event29_water_done = false
+event30_demand_done = false
+event38_wage_done = false
+event49_grain_last_year = -1
+event16_bricks_last_year = -1
+event13_luxury_last_year = -1
+event31_luxury_last_year = -1
+event39_luxury_last_year = -1
+event48_pottery_last_year = -1
+event51_grain_last_year = -1
+event21_trade_last_year = -1
+event8_trade_last_year = -1
+event32_trade_last_year = -1
+event46_trade_last_year = -1
+event33_flood_last_year = -1
+event34_flood_last_year = -1
+event35_flood_last_year = -1
+event47_flood_last_year = -1
+kr_seq = 0
+lux_follow_seq = 0
+grain_recurring_was_busy = false
+grain_recurring_idle_since_abs = -1
+bricks_recurring_was_busy = false
+bricks_recurring_idle_since_abs = -1
+luxury_recurring_was_busy = false
+luxury_recurring_idle_since_abs = -1
+pottery_recurring_was_busy = false
+pottery_recurring_idle_since_abs = -1
+pharaoh_favour_invasion_done = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_dakhla"
+trigger = "start"
+
+[[mission]]
+id = 23
+key = "m_023_thinis"
+name = "Thinis"
+notes = "Runs an extensive Egyptian civil-war invasion and resource-request chain (oil, pottery, henna, troops, copper) with multiple wipe-gated raid waves plus a Pharaoh-favour invasion trigger (x50); no ui.popup_message calls exist beyond the start message."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "mortuary", "dentist", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "hunting_lodge", "work_camp", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "clay_tower", "warship_wharf", "transport_wharf", "shipwright", "clay_pit", "stone_quarry", "limestone_quarry", "granite_quarry", "gold_mine", "grain_farm", "barley_farm", "figs_farm", "chickpeas_farm", "fishing_wharf", "cattle_ranch", "low_bridge", "ferry", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "senet_house", "scribal_school", "library", "temple_osiris", "shrine_osiris", "temple_complex_altar_amon", "temple_complex_oracle_thoth", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+# Source omits personal/family/dynasty mansions and BUILDING_TEMPLE_COMPLEX_OSIRIS: the family
+# mansion and the Temple Complex of Osiris are pre-placed, non-rebuildable map protect targets.
+
+[mission.funds]
+initial_funds = [26700, 17800, 13350, 8900, 7080]
+rescue_loans = [8400, 5600, 4200, 2800, 2200]
+debt_interest = [10, 15, 20, 25, 30]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 9
+enable_scenario_events = true
+start_message = "message_mission_thinis"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 4500
+
+[mission.win.culture]
+enabled = true
+goal = 25
+
+[mission.win.prosperity]
+enabled = true
+goal = 35
+
+[mission.win.monuments]
+enabled = false
+goal = 0
+
+[mission.win.kingdom]
+enabled = true
+goal = 90
+
+[mission.win.housing_count]
+enabled = true
+goal = 10
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+gift_copper_done = false
+gift_beer_done = false
+gamemeat_done = false
+oil_done = false
+enemy24_done = false
+henna120_done = false
+siege_khmun_done = false
+henna60_done = false
+city_fell_y3_done = false
+demand_pottery_done = false
+shared_leaves_wired = false
+troops_leaves_wired = false
+henna60_leaves_wired = false
+egypt38_done = false
+egypt38_pending = false
+egypt72_done = false
+egypt32_done = false
+enemy29_done = false
+enemy48_a_done = false
+enemy48_b_done = false
+egypt33_done = false
+await_egypt33_after_enemy29 = false
+enemy29_enemies_seen = false
+await_copper_after_egypt72 = false
+egypt72_enemies_seen = false
+copper_seq = 0
+henna60_chain = ""
+henna60_enemies_seen = false
+troops_recurring_unlocked = false
+recurring_enemy_last_year = -1
+pharaoh_favour_invasion_done = false
+pharaoh_favour_chain_done = false
+pharaoh_favour_enemies_seen = false
+
+[[mission.messages]]
+key = "message_mission_thinis"
+trigger = "start"
+
+[[mission]]
+id = 24
+key = "m_024_waset"
+name = "Waset"
+notes = "Runs recurring fish/granite requests, an oil-extortion chain with Egyptian naval/land raids on refusal, weapons/troops requests, and a three-wave Pharaoh-favour invasion (x66/x40/x40); no ui.popup_message calls exist beyond the start message."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "fishing_wharf", "grain_farm", "figs_farm", "stone_quarry", "limestone_quarry", "granite_quarry", "copper_mine", "clay_pit", "sun_temple", "small_pyramid", "temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "temple_bast", "shrine_bast", "temple_complex_osiris", "temple_complex_ra", "temple_complex_bast", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "library"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [18000, 12000, 9000, 6000, 4500]
+rescue_loans = [8000, 5300, 4000, 2700, 2000]
+debt_interest = [10, 15, 20, 25, 30]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 8
+enable_scenario_events = true
+start_message = "message_mission_thebes"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 6000
+
+[mission.win.culture]
+enabled = true
+goal = 55
+
+[mission.win.prosperity]
+enabled = true
+goal = 45
+
+[mission.win.monuments]
+enabled = true
+goal = 20
+
+[mission.win.kingdom]
+enabled = true
+goal = 70
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+fish_leaves_wired = false
+oil_i4_leaves_wired = false
+troops_i10_leaves_wired = false
+copper_i14_leaves_wired = false
+oil_i18_leaves_wired = false
+weapons_i25_leaves_wired = false
+troops_i29_leaves_wired = false
+granite_leaves_wired = false
+event4_oil_done = false
+event10_troops_done = false
+event14_copper_done = false
+event18_oil_done = false
+event24_flood_done = false
+event25_weapons_done = false
+event29_troops_done = false
+event42_trade_done = false
+oil_i4_egypt_done = false
+oil_i18_egypt_done = false
+event0_fish_last_year = -1
+event37_granite_last_year = -1
+fish_recurring_was_busy = false
+fish_recurring_idle_since_abs = -1
+granite_recurring_was_busy = false
+granite_recurring_idle_since_abs = -1
+pharaoh_favour_invasion_done = false
+pharaoh_favour_wave2_done = false
+pharaoh_favour_wave3_done = false
+pharaoh_favour_wave2_enemies_seen = false
+pharaoh_favour_wave3_enemies_seen = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_thebes"
+trigger = "start"
+
+[[mission]]
+id = 25
+key = "m_025_kebet"
+name = "Kebet"
+notes = "Runs failed/perfect flood economy events, a famine food-request chain, a henna tribute chain triggering two Egyptian raid waves, four timed Egyptian invasions, and a two-wave Pharaoh-favour invasion (x60); no ui.popup_message calls exist beyond the start message."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "clay_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "fishing_wharf", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "henna_farm", "clay_pit", "reed_gatherer", "stone_quarry", "limestone_quarry", "granite_quarry", "copper_mine", "gemstone_mine", "large_obelisk", "small_obelisk", "temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "temple_seth", "shrine_seth", "temple_complex_osiris", "temple_complex_ra", "temple_complex_seth", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "library"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [40000, 26600, 20000, 13400, 10600]
+rescue_loans = [7000, 4700, 3500, 2300, 1800]
+debt_interest = [10, 15, 20, 25, 30]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 9
+enable_scenario_events = true
+start_message = "message_mission_coptos"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 7000
+
+[mission.win.culture]
+enabled = true
+goal = 40
+
+[mission.win.prosperity]
+enabled = true
+goal = 45
+
+[mission.win.monuments]
+enabled = true
+goal = 14
+
+[mission.win.kingdom]
+enabled = true
+goal = 85
+
+[mission.win.housing_level]
+enabled = true
+goal = 13
+
+[mission.vars]
+flood_leaves_wired = false
+food_leaves_wired = false
+henna_leaves_wired = false
+fish_i22_leaves_wired = false
+event0_flood_done = false
+event3_flood_done = false
+event6_demand_done = false
+event7_figs_done = false
+event12_weapons_done = false
+event15_henna_done = false
+event22_fish_done = false
+event33_demand_done = false
+event35_flood_done = false
+event24_invasion_done = false
+event25_invasion_done = false
+event26_invasion_done = false
+event27_invasion_done = false
+henna_raid_done = false
+henna_raid_wave2_done = false
+henna_raid_enemies_seen = false
+pharaoh_favour_invasion_done = false
+pharaoh_favour_wave2_done = false
+pharaoh_favour_enemies_seen = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_coptos"
+trigger = "start"
+
+[[mission]]
+id = 26
+key = "m_026_menat_khufu"
+name = "Menat Khufu"
+notes = "Runs six one-time pomegranates/figs resource requests sharing common reputation outcomes, a linen demand event, and a two-wave Pharaoh-favour invasion (x40 each); no ui.popup_message calls exist beyond the start message."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "grain_farm", "barley_farm", "flax_farm", "pomegranates_farm", "figs_farm", "stone_quarry", "clay_pit", "reed_gatherer", "small_obelisk", "small_mudbrick_pyramid", "temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "temple_bast", "shrine_bast", "temple_complex_osiris", "temple_complex_ra", "temple_complex_bast", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "library"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [20000, 13300, 10000, 6700, 5300]
+rescue_loans = [5000, 3300, 2500, 1700, 1300]
+debt_interest = [10, 15, 20, 25, 30]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 9
+enable_scenario_events = true
+start_message = "message_mission_beni_hasan"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 7000
+
+[mission.win.culture]
+enabled = true
+goal = 60
+
+[mission.win.prosperity]
+enabled = true
+goal = 50
+
+[mission.win.monuments]
+enabled = true
+goal = 21
+
+[mission.win.kingdom]
+enabled = true
+goal = 75
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+shared_kr_leaves_wired = false
+figs_i7_leaves_wired = false
+pome_i13_leaves_wired = false
+pome_i20_leaves_wired = false
+pome_i26_leaves_wired = false
+pome_i32_leaves_wired = false
+event0_pome_done = false
+event7_figs_done = false
+event13_pome_done = false
+event19_linen_demand_done = false
+event20_pome_done = false
+event26_pome_done = false
+event32_pome_done = false
+event40_figs_done = false
+event41_pome_done = false
+pharaoh_favour_invasion_done = false
+pharaoh_favour_wave2_done = false
+pharaoh_favour_wave2_enemies_seen = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_beni_hasan"
+trigger = "start"
+
+[[mission]]
+id = 27
+key = "m_027_itjtawy"
+name = "Itjtawy"
+notes = "Runs five construction/tribute resource requests (meat, pottery, bricks, limestone, recurring linen), three of which chain into an Egyptian raid on refusal, plus recurring land-trade, wage, and contaminated-water nuisance events and a two-wave Pharaoh-favour invasion (x50 each); no ui.popup_message calls exist beyond the start message."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "grain_farm", "barley_farm", "flax_farm", "lettuce_farm", "pomegranates_farm", "cattle_ranch", "reed_gatherer", "stone_quarry", "limestone_quarry", "clay_pit", "sphinx", "small_mudbrick_pyramid", "medium_mudbrick_pyramid", "temple_osiris", "shrine_osiris", "temple_ptah", "shrine_ptah", "temple_seth", "shrine_seth", "temple_bast", "shrine_bast", "temple_complex_osiris", "temple_complex_ptah", "temple_complex_seth", "temple_complex_bast", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "library"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [16000, 10600, 8000, 5400, 4200]
+rescue_loans = [6000, 4000, 3000, 2000, 1500]
+debt_interest = [4, 6, 8, 10, 12]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_itjtawy"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 7500
+
+[mission.win.culture]
+enabled = true
+goal = 60
+
+[mission.win.prosperity]
+enabled = true
+goal = 60
+
+[mission.win.monuments]
+enabled = true
+goal = 33
+
+[mission.win.kingdom]
+enabled = true
+goal = 85
+
+[mission.win.housing_count]
+enabled = true
+goal = 6
+
+[mission.win.housing_level]
+enabled = true
+goal = 17
+
+[mission.vars]
+i0_leaves_wired = false
+i17_leaves_wired = false
+i48_leaves_wired = false
+i67_leaves_wired = false
+i70_leaves_wired = false
+i43_leaves_wired = false
+event0_meat_done = false
+event17_bricks_done = false
+event48_pottery_done = false
+event67_meat_done = false
+event70_limestone_done = false
+event43_linen_last_year = -1
+event78_trade_last_year = -1
+event79_trade_last_year = -1
+event80_trade_last_year = -1
+event82_trade_last_year = -1
+event83_trade_last_year = -1
+event84_wage_last_year = -1
+event85_wage_last_year = -1
+event86_wage_last_year = -1
+event87_wage_last_year = -1
+event88_water_last_year = -1
+event89_water_last_year = -1
+event90_water_last_year = -1
+b12_i0_done = false
+b12_i17_done = false
+b12_i70_done = false
+egypt_favour_invasion_done = false
+egypt_favour_wave2_done = false
+egypt_favour_wave2_enemies_seen = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_itjtawy"
+trigger = "start"
+
+[[mission]]
+id = 28
+key = "m_028_iken"
+name = "Iken"
+notes = "Runs gamemeat/oil/barley/linen/weapons resource requests (oil refusal triggers an Egyptian raid), a copper x200 request that on refusal launches a five-stage Hittite invasion ladder, six timed beduin/Hittite raids, and a three-wave Pharaoh-favour invasion (x40 each); no ui.popup_message calls exist beyond the start message."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "clay_pit", "reed_gatherer", "stone_quarry", "granite_quarry", "gold_mine", "copper_mine", "large_obelisk", "temple_osiris", "shrine_osiris", "temple_seth", "shrine_seth", "temple_bast", "shrine_bast", "temple_complex_osiris", "temple_complex_seth", "temple_complex_bast", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "library"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [14000, 9300, 7000, 4700, 3700]
+rescue_loans = [6000, 4000, 3000, 2000, 1600]
+debt_interest = [0, 0, 0, 0, 0]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_mirgissa"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 6000
+
+[mission.win.culture]
+enabled = true
+goal = 45
+
+[mission.win.prosperity]
+enabled = true
+goal = 40
+
+[mission.win.monuments]
+enabled = true
+goal = 11
+
+[mission.win.kingdom]
+enabled = true
+goal = 80
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+shared_leaves_wired = false
+copper_ladder_active = false
+copper_ladder_pending = false
+copper_ladder_step = 0
+copper_ladder_enemies_seen = false
+event0_gamemeat_done = false
+event3_oil_done = false
+event8_barley_done = false
+event12_weapons_done = false
+event16_copper_done = false
+event26_newtrade_done = false
+event34_demand_done = false
+event6_beduin_done = false
+event7_enemy_done = false
+event36_beduin_done = false
+event37_beduin_done = false
+event38_beduin_done = false
+event39_beduin_done = false
+event40_beduin_done = false
+oil_egypt_raid_done = false
+linen_recurring_was_busy = false
+linen_recurring_idle_since_abs = -1
+pharaoh_favour_invasion_done = false
+pharaoh_favour_wave2_done = false
+pharaoh_favour_wave3_done = false
+pharaoh_favour_enemies_seen = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_mirgissa"
+trigger = "start"
+
+[[mission]]
+id = 29
+key = "m_029_sawu"
+name = "Sawu"
+notes = "Runs an extensive scripted network of resource-request/invasion chains (city.create_chain_event / create_good_request / start_foreign_army_invasion) tied to calendar year/month milestones and Pharaoh-favour (kingdom rating) triggers, plus recurring Libyan raids and Pharaoh-favour invasion waves; not individually modeled here. No ui.popup_message() calls found in the script."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "clay_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "fishing_wharf", "grain_farm", "barley_farm", "flax_farm", "chickpeas_farm", "henna_farm", "clay_pit", "reed_gatherer", "stone_quarry", "granite_quarry", "gold_mine", "copper_mine", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah", "temple_bast", "shrine_bast", "temple_complex_ra", "temple_complex_ptah", "temple_complex_bast", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "library", "mausoleum", "small_mudbrick_pyramid"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [16000, 10600, 8000, 5400, 4200]
+rescue_loans = [6000, 4000, 3000, 2000, 1500]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_mersa_gawasis"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 8000
+
+[mission.win.culture]
+enabled = true
+goal = 65
+
+[mission.win.prosperity]
+enabled = true
+goal = 65
+
+[mission.win.monuments]
+enabled = true
+goal = 20
+
+[mission.win.kingdom]
+enabled = true
+goal = 75
+
+[mission.win.housing_level]
+enabled = true
+goal = 17
+
+[mission.vars]
+shared_leaves_wired = false
+kerma_chain_leaves_wired = false
+event0_weapons_done = false
+event4_gold_mine_done = false
+event6_linen_done = false
+event12_pottery_done = false
+event15_clay_pit_done = false
+event16_troops_last_year = -1
+event18_henna_last_year = -1
+event21_beer_last_year = -1
+event22_beer_last_year = -1
+troops_recurring_was_busy = false
+troops_recurring_idle_since_abs = -1
+henna_recurring_was_busy = false
+henna_recurring_idle_since_abs = -1
+beer_recurring_was_busy = false
+beer_recurring_idle_since_abs = -1
+event23_invasion_done = false
+event24_invasion_done = false
+event25_invasion_done = false
+event26_invasion_done = false
+event27_invasion_last_abs = -1
+event28_invasion_last_abs = -1
+pharaoh_favour_invasion_done = false
+pharaoh_favour_wave2_done = false
+pharaoh_favour_wave3_done = false
+pharaoh_favour_enemies_seen = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_mersa_gawasis"
+trigger = "start"
+
+[[mission]]
+id = 30
+key = "m_030_heh"
+name = "Heh"
+notes = "Runs an extensive scripted network of resource-request/invasion chains tied to calendar year/month milestones and Pharaoh-favour (kingdom rating) triggers, plus recurring Kushite raids and Pharaoh-favour invasion waves; not individually modeled here. No ui.popup_message() calls found in the script."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "grain_farm", "barley_farm", "flax_farm", "pomegranates_farm", "figs_farm", "chickpeas_farm", "stone_quarry", "sandstone_quarry", "clay_pit", "reed_gatherer", "gemstone_mine", "temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "temple_seth", "shrine_seth", "temple_complex_osiris", "temple_complex_ra", "temple_complex_seth", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "library", "mausoleum"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [11000, 7300, 5500, 3700, 2900]
+rescue_loans = [0, 0, 0, 0, 0]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_semna"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 6000
+
+[mission.win.culture]
+enabled = true
+goal = 50
+
+[mission.win.prosperity]
+enabled = true
+goal = 45
+
+[mission.win.monuments]
+enabled = true
+goal = 15
+
+[mission.win.kingdom]
+enabled = true
+goal = 60
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+misc_leaves_wired = false
+troops_i6_leaves_wired = false
+troops_i1_leaves_wired = false
+henna_leaves_wired = false
+chickpeas_leaves_wired = false
+event0_gems_price_done = false
+event5_price_done = false
+event10_troops_done = false
+event14_price_done = false
+event26_sandstone_gift_done = false
+event18_invasion_done = false
+event20_invasion_done = false
+event21_invasion_done = false
+event22_invasion_done = false
+event22_enemies_seen = false
+event23_invasion_done = false
+event24_invasion_done = false
+event25_invasion_done = false
+event27_invasion_done = false
+event28_invasion_last_year = -1
+event29_invasion_done = false
+event30_invasion_done = false
+event31_invasion_done = false
+event32_chickpeas_done = false
+event37_demand_done = false
+pharaoh_favour_invasion_done = false
+pharaoh_favour_wave2_done = false
+pharaoh_favour_enemies_seen = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_semna"
+trigger = "start"
+
+[[mission]]
+id = 31
+key = "m_031_bubastis"
+name = "Bubastis"
+notes = "Runs a scripted network of resource-request chains (troops/timber/fish) and Pharaoh-favour invasion waves tied to kingdom rating; not individually modeled here. No ui.popup_message() calls found in the script."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "fishing_wharf", "grain_farm", "barley_farm", "flax_farm", "pomegranates_farm", "figs_farm", "chickpeas_farm", "henna_farm", "clay_pit", "reed_gatherer", "stone_quarry", "limestone_quarry", "granite_quarry", "temple_osiris", "shrine_osiris", "temple_ptah", "shrine_ptah", "temple_bast", "shrine_bast", "temple_complex_osiris", "temple_complex_ptah", "temple_complex_bast", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "library", "zoo", "large_obelisk"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [20000, 13300, 10000, 6700, 5300]
+rescue_loans = [0, 0, 0, 0, 0]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_bubastis"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = false
+
+[mission.win.culture]
+enabled = true
+goal = 85
+
+[mission.win.prosperity]
+enabled = true
+goal = 85
+
+[mission.win.monuments]
+enabled = true
+goal = 15
+
+[mission.win.kingdom]
+enabled = true
+goal = 65
+
+[mission.win.housing_count]
+enabled = true
+goal = 4
+
+[mission.win.housing_level]
+enabled = true
+goal = 19
+
+[mission.vars]
+misc_leaves_wired = false
+event0_troops_done = false
+event6_timber_armed = false
+event9_weapons_done = false
+event13_fish_armed = false
+gaza_trade_done = false
+pharaoh_favour_invasion_done = false
+pharaoh_favour_wave2_done = false
+pharaoh_favour_wave3_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_enemies_seen2 = false
+pharaoh_favour_wave1_abs = -1
+pharaoh_favour_wave2_abs = -1
+timber_recurring_was_busy = false
+timber_recurring_idle_since_abs = -1
+fish_recurring_was_busy = false
+fish_recurring_idle_since_abs = -1
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_bubastis"
+trigger = "start"
+
+[[mission]]
+id = 32
+key = "m_032_khmun"
+name = "Khmun"
+notes = "Runs a scripted network of resource-request/invasion chains (Heh/Iken city-fell beats, henna, Kerma trade, recurring invasions) and Pharaoh-favour invasion waves tied to kingdom rating; not individually modeled here. No ui.popup_message() calls found in the script."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "chariots_workshop", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "clay_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "fishing_wharf", "grain_farm", "barley_farm", "flax_farm", "chickpeas_farm", "henna_farm", "clay_pit", "reed_gatherer", "stone_quarry", "limestone_quarry", "copper_mine", "small_mudbrick_pyramid", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah", "temple_seth", "shrine_seth", "temple_complex_ra", "temple_complex_ptah", "temple_complex_seth", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "library"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [18000, 12000, 9000, 6000, 4800]
+rescue_loans = [7000, 4700, 3500, 2300, 1800]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_hermopolis"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 6000
+
+[mission.win.culture]
+enabled = true
+goal = 55
+
+[mission.win.prosperity]
+enabled = true
+goal = 50
+
+[mission.win.monuments]
+enabled = true
+goal = 13
+
+[mission.win.kingdom]
+enabled = true
+goal = 75
+
+[mission.win.housing_level]
+enabled = true
+goal = 14
+
+[mission.vars]
+chain_leaves_wired = false
+event0_heh_fell_done = false
+event1_iken_fell_done = false
+event2_henna_done = false
+event23_kerma_done = false
+inv4_done = false
+inv10_done = false
+inv13_done = false
+inv18_done = false
+inv19_done = false
+inv_loop_done = false
+pending_inv13 = false
+pending_inv4_after_demand = false
+pharaoh_favour_invasion_done = false
+pharaoh_favour_chain_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_wave_next = -1
+pharaoh_favour_wave_seq = 0
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_hermopolis"
+trigger = "start"
+
+[[mission]]
+id = 33
+key = "m_033_sauty"
+name = "Sauty"
+notes = "Runs a scripted network of resource-request/invasion chains (Heh/Iken city-fell beats, oil, pomegranates, henna, meat demand) and Pharaoh-favour invasion waves tied to kingdom rating; not individually modeled here. No ui.popup_message() calls found in the script."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "chariots_workshop", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "clay_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "fishing_wharf", "grain_farm", "barley_farm", "flax_farm", "chickpeas_farm", "henna_farm", "pomegranates_farm", "clay_pit", "reed_gatherer", "stone_quarry", "limestone_quarry", "gold_mine", "gemstone_mine", "medium_mudbrick_pyramid", "temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "temple_seth", "shrine_seth", "temple_complex_osiris", "temple_complex_ra", "temple_complex_seth", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "senet_house", "scribal_school", "library", "zoo"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [18000, 12000, 9000, 6000, 4800]
+rescue_loans = [0, 0, 0, 0, 0]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_lykopolis"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 6500
+
+[mission.win.culture]
+enabled = true
+goal = 70
+
+[mission.win.prosperity]
+enabled = true
+goal = 75
+
+[mission.win.monuments]
+enabled = true
+goal = 40
+
+[mission.win.kingdom]
+enabled = true
+goal = 60
+
+[mission.win.housing_level]
+enabled = true
+goal = 14
+
+[mission.vars]
+chain_leaves_wired = false
+event0_heh_fell_done = false
+event1_iken_fell_done = false
+event2_pom_done = false
+event10_oil_done = false
+hub15_done = false
+hub33_done = false
+oil_ladder_loop_done = false
+pom_bounce_done = false
+henna24_bounce_done = false
+henna48_bounce_done = false
+pharaoh_favour_invasion_done = false
+pharaoh_favour_chain_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_wave_next = -1
+pharaoh_favour_wave_seq = 0
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_lykopolis"
+trigger = "start"
+
+[[mission]]
+id = 34
+key = "m_034_byblos"
+name = "Byblos"
+notes = "Runs an extensive scripted network of resource-request/invasion chains (henna, timber, chariots) and Pharaoh-favour invasion waves tied to kingdom rating; not individually modeled here. No ui.popup_message() calls found in the script."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "chariots_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "clay_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "fishing_wharf", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "chickpeas_farm", "henna_farm", "clay_pit", "reed_gatherer", "stone_quarry", "limestone_quarry", "copper_mine", "gemstone_mine", "large_obelisk", "small_obelisk", "temple_ptah", "shrine_ptah", "temple_seth", "shrine_seth", "temple_bast", "shrine_bast", "temple_complex_ptah", "temple_complex_seth", "temple_complex_bast", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "senet_house", "scribal_school", "library", "zoo"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [90000, 60000, 45000, 30000, 24000]
+rescue_loans = [10000, 6700, 5000, 3300, 2700]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_byblos"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 6000
+
+[mission.win.culture]
+enabled = true
+goal = 60
+
+[mission.win.prosperity]
+enabled = true
+goal = 40
+
+[mission.win.monuments]
+enabled = true
+goal = 14
+
+[mission.win.kingdom]
+enabled = true
+goal = 75
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.vars]
+chain_leaves_wired = false
+event0_invasion_done = false
+event1_henna_done = false
+event5_invasion_done = false
+event9_henna_done = false
+event14_henna_done = false
+event25_henna_done = false
+event33_invasion_done = false
+event34_demand_done = false
+event35_demand_done = false
+event36_demand_done = false
+event47_timber_done = false
+event51_chariots_done = false
+event11_timber_last_abs = -1
+event24_beduin_last_abs = -1
+event29_invasion_last_abs = -1
+event30_price_last_abs = -1
+event31_price_last_abs = -1
+event32_price_last_abs = -1
+event37_invasion_last_abs = -1
+timber_recurring_was_busy = false
+timber_recurring_idle_since_abs = -1
+kr39_once_done = false
+pharaoh_favour_invasion_done = false
+pharaoh_favour_chain_done = false
+pharaoh_favour_enemies_seen = false
+pharaoh_favour_wave_next = -1
+pharaoh_favour_wave_seq = 0
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_byblos"
+trigger = "start"
+
+[[mission]]
+id = 35
+key = "m_035_baki"
+name = "Baki"
+notes = "Runs a scripted network of resource-request chains (gems, henna, luxury, gamemeat, copper, recurring sandstone/gems) and a multi-wave Pharaoh-favour invasion sequence tied to kingdom rating; not individually modeled here. No ui.popup_message() calls found in the script."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "chariots_workshop", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "clay_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "fishing_wharf", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "chickpeas_farm", "henna_farm", "clay_pit", "reed_gatherer", "stone_quarry", "sandstone_quarry", "gold_mine", "copper_mine", "gemstone_mine", "mausoleum", "medium_mudbrick_pyramid", "small_mudbrick_pyramid", "temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah", "temple_seth", "shrine_seth", "temple_complex_osiris", "temple_complex_ra", "temple_complex_ptah", "temple_complex_seth", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "senet_house", "scribal_school", "library", "zoo"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [14000, 9300, 7000, 4700, 3700]
+rescue_loans = [5000, 3300, 2500, 1700, 1300]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_kuban"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 10000
+
+[mission.win.culture]
+enabled = true
+goal = 70
+
+[mission.win.prosperity]
+enabled = true
+goal = 70
+
+[mission.win.monuments]
+enabled = true
+goal = 35
+
+[mission.win.kingdom]
+enabled = true
+goal = 85
+
+[mission.win.housing_level]
+enabled = true
+goal = 19
+
+[mission.vars]
+shared_leaves_wired = false
+henna_iken_leaves_wired = false
+heh_gems_leaves_wired = false
+event0_gems_done = false
+event4_henna_done = false
+event9_luxury_done = false
+event10_gamemeat_done = false
+event11_gems_done = false
+event19_copper_done = false
+event21_sandstone_last_year = -1
+event22_gems_last_year = -1
+sandstone_recurring_was_busy = false
+sandstone_recurring_idle_since_abs = -1
+gems_recurring_was_busy = false
+gems_recurring_idle_since_abs = -1
+pharaoh_favour_invasion_done = false
+pharaoh_favour_wave2_done = false
+pharaoh_favour_wave3_done = false
+pharaoh_favour_wave4_done = false
+pharaoh_favour_wave5_done = false
+pharaoh_favour_enemies_seen = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_kuban"
+trigger = "start"
+
+[[mission]]
+id = 36
+key = "m_036_rowarty"
+name = "Rowarty"
+notes = "Uses the engine's scripted events[] timeline (EVENT_TYPE_INVASION etc., out of scope) plus JS-driven recurring invasions, a henna request, and a multi-wave Pharaoh-favour invasion sequence tied to kingdom rating; not individually modeled here. No ui.popup_message() calls found in the script."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "chariots_workshop", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "clay_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "fishing_wharf", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "chickpeas_farm", "henna_farm", "lettuce_farm", "clay_pit", "reed_gatherer", "stone_quarry", "limestone_quarry", "sandstone_quarry", "gold_mine", "copper_mine", "gemstone_mine", "mausoleum", "medium_mudbrick_pyramid", "small_mudbrick_pyramid", "temple_osiris", "shrine_osiris", "temple_ptah", "shrine_ptah", "temple_seth", "shrine_seth", "temple_complex_osiris", "temple_complex_ptah", "temple_complex_seth", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "senet_house", "scribal_school", "library", "zoo"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [20000, 13300, 10000, 6700, 5300]
+rescue_loans = [10000, 6700, 5000, 3400, 2700]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_avarist"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 7000
+
+[mission.win.culture]
+enabled = true
+goal = 65
+
+[mission.win.prosperity]
+enabled = true
+goal = 50
+
+[mission.win.monuments]
+enabled = true
+goal = 29
+
+[mission.win.kingdom]
+enabled = true
+goal = 80
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.win.milestones]
+p25 = 10
+p50 = 20
+p75 = 30
+
+[mission.vars]
+start_message_shown = false
+inv0_done = false
+inv1_done = false
+inv5_done = false
+inv8_done = false
+inv11_last_year = -1
+pharaoh_favour_invasion_done = false
+pharaoh_favour_wave2_done = false
+pharaoh_favour_wave3_done = false
+pharaoh_favour_wave4_done = false
+pharaoh_favour_enemies_seen = false
+inv56_done = false
+henna6_fired = false
+
+[[mission.messages]]
+key = "message_mission_avarist"
+trigger = "start"
+
+[[mission]]
+id = 37
+key = "m_037_hetepsensusret"
+name = "Hetepsensusret"
+notes = "Uses the engine's scripted events[] timeline (reputation/demand/invasion entries, out of scope) plus a Pharaoh-favour invasion tied to kingdom rating; not individually modeled here. No ui.popup_message() calls found in the script."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "hunting_lodge", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "chariots_workshop", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "clay_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "low_bridge", "ferry", "fishing_wharf", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "chickpeas_farm", "henna_farm", "clay_pit", "reed_gatherer", "stone_quarry", "limestone_quarry", "sandstone_quarry", "gold_mine", "copper_mine", "gemstone_mine", "mausoleum", "grand_mudbrick_pyramid_complex", "large_mudbrick_pyramid", "temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah", "temple_bast", "shrine_bast", "temple_complex_osiris", "temple_complex_ra", "temple_complex_ptah", "temple_complex_bast", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "senet_house", "scribal_school", "library", "zoo"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [4000, 2660, 2000, 1340, 1060]
+rescue_loans = [6000, 4000, 3000, 2000, 1590]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [10, 15, 20, 25, 30]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_kahun"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 12000
+
+[mission.win.culture]
+enabled = true
+goal = 80
+
+[mission.win.prosperity]
+enabled = true
+goal = 80
+
+[mission.win.monuments]
+enabled = true
+goal = 70
+
+[mission.win.kingdom]
+enabled = true
+goal = 75
+
+[mission.win.housing_level]
+enabled = true
+goal = 14
+
+[mission.win.milestones]
+p25 = 10
+p50 = 20
+p75 = 30
+
+[mission.vars]
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_kahun"
+trigger = "start"
+
+[[mission]]
+id = 38
+key = "m_038_valley_thutmose"
+name = "Thutmose in the Valley"
+notes = "Runs a scripted environmental event (EVENT_TYPE_CLAY_PIT_FLOOD, y9m7) and sets scenario.start_year/climate and enemy id at start; these are world-setup/flavor, not building unlocks, and are not modeled in this data file. Comment in source: 'gradual unlock thresholds provisional until pak dump of OG tutorial beats' — the 400/800 population thresholds below carry that caveat from the source itself."
+buildings = [
+  "house_crude_hut", "road",
+  "roadblock", "firehouse", "architect_post", "police_station",
+  "water_supply", "apothecary", "physician", "dentist", "mortuary",
+  "well", "water_lift", "irrigation_ditch",
+  "village_palace", "town_palace", "city_palace", "work_camp",
+  "wood_cutters", "stonemasons_guild", "carpenters_guild",
+  "bricklayers_guild",
+  "small_statue", "medium_statue", "large_statue", "gardens", "plaza",
+  "pottery_workshop", "brewery_workshop", "jewels_workshop",
+  "weaver_workshop", "papyrus_workshop", "bricks_workshop",
+  "chariots_workshop", "weaponsmith",
+  "tax_collector", "courthouse", "personal_mansion", "family_mansion",
+  "bazaar", "granary", "storage_yard",
+  "recruiter", "military_academy",
+  "fort_infantry", "fort_archers", "fort_charioteers",
+  "mud_wall", "mud_gatehouse", "mud_tower",
+  "dock", "shipwright", "transport_wharf", "low_bridge", "ferry",
+  "grain_farm", "barley_farm", "flax_farm", "figs_farm",
+  "chickpeas_farm", "lettuce_farm", "henna_farm",
+  "clay_pit", "reed_gatherer", "gemstone_mine",
+  "temple_osiris", "shrine_osiris", "temple_ptah", "shrine_ptah",
+  "temple_bast", "shrine_bast",
+  "festival_square", "booth", "juggler_school", "bandstand",
+  "conservatory", "pavillion", "dance_school",
+  "scribal_school", "library",
+]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+# lamp_workshop, paint_workshop, artisans_guild and small_royal_tomb are deliberately absent here
+# (see unlocks below): the source script gates them behind population thresholds.
+
+[mission.funds]
+initial_funds = [16000, 10670, 8000, 5360, 4240]
+rescue_loans = [5000, 3330, 2500, 1670, 1325]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [5, 7, 9, 11, 13]
+player_rank = 5
+enable_scenario_events = true
+start_message = "message_mission_thutmose_valley"
+
+[mission.env]
+has_animals = true
+flotsam_enabled = false
+
+[mission.win.population]
+enabled = false
+goal = 2000
+
+[mission.win.culture]
+enabled = true
+goal = 35
+
+[mission.win.prosperity]
+enabled = true
+goal = 40
+
+[mission.win.monuments]
+enabled = true
+goal = 13
+
+[mission.win.kingdom]
+enabled = true
+goal = 65
+
+[mission.win.housing_count]
+enabled = true
+goal = 0
+
+[mission.win.housing_level]
+enabled = true
+goal = 14
+
+[mission.win.milestones]
+p25 = 4
+p50 = 8
+p75 = 12
+
+[mission.vars]
+start_message_shown = false
+tutorial_lamps_unlocked = false
+tutorial_tomb_unlocked = false
+
+[[mission.unlocks]]
+when = "population >= 400"
+enable = ["lamp_workshop", "paint_workshop", "artisans_guild"]
+notes = "ev.value (population) >= 400, from event_population_changed. No popup message is fired for this beat in the source script."
+
+[[mission.unlocks]]
+when = "population >= 800"
+enable = ["small_royal_tomb"]
+notes = "ev.value (population) >= 800, from event_population_changed. No popup message is fired for this beat in the source script."
+
+[[mission.messages]]
+key = "message_mission_thutmose_valley"
+trigger = "start"
+
+[[mission]]
+id = 39
+key = "m_039_valley_tut"
+name = "Tut in the Valley"
+buildings = [
+	"house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station",
+	"water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift",
+	"irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters",
+	"stonemasons_guild", "carpenters_guild", "bricklayers_guild", "artisans_guild", "small_statue",
+	"medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop",
+	"jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "chariots_workshop",
+	"lamp_workshop", "paint_workshop", "weaponsmith", "tax_collector", "courthouse",
+	"personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter",
+	"military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall",
+	"mud_gatehouse", "mud_tower", "dock", "shipwright", "transport_wharf", "low_bridge", "ferry",
+	"grain_farm", "barley_farm", "flax_farm", "figs_farm", "chickpeas_farm", "lettuce_farm",
+	"henna_farm", "clay_pit", "reed_gatherer", "gemstone_mine", "temple_osiris", "shrine_osiris",
+	"temple_ra", "shrine_ra", "festival_square", "booth", "juggler_school", "bandstand",
+	"conservatory", "pavillion", "dance_school", "scribal_school", "library", "small_royal_tomb",
+	"medium_royal_tomb",
+]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [17000, 11330, 8500, 5670, 4505]
+rescue_loans = [6000, 4000, 3000, 2000, 1590]
+debt_interest = [8, 10, 12, 14, 16]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 6
+enable_scenario_events = true
+start_message = "message_mission_tutankhamun_valley"
+
+[mission.env]
+has_animals = true
+flotsam_enabled = false
+
+[mission.win.population]
+enabled = true
+goal = 1500
+
+[mission.win.culture]
+enabled = false
+goal = 35
+
+[mission.win.prosperity]
+enabled = false
+goal = 40
+
+[mission.win.monuments]
+enabled = true
+goal = 22
+
+[mission.win.kingdom]
+enabled = true
+goal = 45
+
+[mission.win.housing_count]
+enabled = true
+goal = 0
+
+[mission.win.housing_level]
+enabled = true
+goal = 14
+
+[mission.win.time_limit]
+enabled = true
+years = 8
+
+[mission.win.milestones]
+p25 = 2
+p50 = 4
+p75 = 6
+
+[mission.vars]
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_tutankhamun_valley"
+trigger = "start"
+
+[[mission]]
+id = 40
+key = "m_040_valley_seti"
+name = "Seti in the Valley"
+buildings = [
+	"house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station",
+	"water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift",
+	"irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters",
+	"stonemasons_guild", "carpenters_guild", "bricklayers_guild", "artisans_guild", "small_statue",
+	"medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop",
+	"jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "chariots_workshop",
+	"lamp_workshop", "paint_workshop", "weaponsmith", "tax_collector", "courthouse",
+	"personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter",
+	"military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall",
+	"mud_gatehouse", "mud_tower", "dock", "shipwright", "transport_wharf", "fishing_wharf",
+	"low_bridge", "ferry", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "chickpeas_farm",
+	"lettuce_farm", "pomegranates_farm", "henna_farm", "clay_pit", "reed_gatherer", "gemstone_mine",
+	"temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah",
+	"festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion",
+	"dance_school", "scribal_school", "library", "small_royal_tomb", "medium_royal_tomb",
+	"large_royal_tomb",
+]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [27440, 18290, 13720, 9150, 7270]
+rescue_loans = [6000, 4000, 3000, 2000, 1590]
+debt_interest = [4, 6, 8, 10, 12]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 6
+enable_scenario_events = true
+start_message = "message_mission_seti_valley"
+
+[mission.env]
+has_animals = true
+flotsam_enabled = false
+
+[mission.win.population]
+enabled = true
+goal = 3000
+
+[mission.win.culture]
+enabled = true
+goal = 40
+
+[mission.win.prosperity]
+enabled = true
+goal = 70
+
+[mission.win.monuments]
+enabled = true
+goal = 33
+
+[mission.win.kingdom]
+enabled = true
+goal = 80
+
+[mission.win.housing_count]
+enabled = true
+goal = 12
+
+[mission.win.housing_level]
+enabled = true
+goal = 15
+
+[mission.win.milestones]
+p25 = 4
+p50 = 8
+p75 = 12
+
+[mission.vars]
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_seti_valley"
+trigger = "start"
+
+[[mission]]
+id = 41
+key = "m_041_sumur"
+name = "Sumur"
+buildings = [
+	"house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station",
+	"water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift",
+	"irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters",
+	"stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue",
+	"large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop",
+	"weaver_workshop", "papyrus_workshop", "bricks_workshop", "chariots_workshop", "tax_collector",
+	"courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard",
+	"recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers",
+	"fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "dock", "shipwright",
+	"transport_wharf", "fishing_wharf", "low_bridge", "ferry", "grain_farm", "barley_farm",
+	"flax_farm", "figs_farm", "chickpeas_farm", "clay_pit", "reed_gatherer", "copper_mine",
+	"gemstone_mine", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah", "temple_complex_ra",
+	"temple_complex_ptah", "festival_square", "booth", "juggler_school", "bandstand",
+	"conservatory", "pavillion", "dance_school", "scribal_school", "library", "small_obelisk",
+]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [11130, 7420, 5565, 3730, 2950]
+rescue_loans = [3000, 2000, 1500, 1000, 800]
+debt_interest = [5, 7, 9, 11, 13]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 6
+enable_scenario_events = true
+start_message = "message_mission_sumur"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 3000
+
+[mission.win.culture]
+enabled = true
+goal = 35
+
+[mission.win.prosperity]
+enabled = true
+goal = 40
+
+[mission.win.monuments]
+enabled = true
+goal = 9
+
+[mission.win.kingdom]
+enabled = true
+goal = 90
+
+[mission.win.housing_level]
+enabled = true
+goal = 14
+
+[mission.vars]
+chain_leaves_wired = false
+event0_gift_done = false
+event5_gift_armed = false
+event5_gift_last_year = -1
+event6_timber_armed = false
+event9_gems_done = false
+event13_water_armed = false
+event13_water_last_year = -1
+event14_demand_done = false
+event15_demand_done = false
+event16_oil_armed = false
+event18_sea_done = false
+event19_wage_done = false
+event20_grain_done = false
+event23_wage_done = false
+event24_timber_armed = false
+event27_sea_done = false
+event28_timber_done = false
+event31_invasion_done = false
+timber6_recurring_was_busy = false
+timber6_recurring_idle_since_abs = -1
+oil_recurring_was_busy = false
+oil_recurring_idle_since_abs = -1
+timber24_recurring_was_busy = false
+timber24_recurring_idle_since_abs = -1
+copper5_recurring_was_busy = false
+copper5_recurring_idle_since_abs = -1
+inv_lost_qadesh_done = false
+pharaoh_favour_invasion_done = false
+kr_seq = 0
+gift_seq = 0
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_sumur"
+trigger = "start"
+
+notes = "Runs an elaborate resource-request/gift/reputation chain (source events i=0,5,6,9,13-16,18-20,23,24,27,28,30,31) via city.create_chain_event/create_good_request, including recurring timber/oil/copper requests and two invasion triggers (a kingdom-favour Egyptian raid when rating_kingdom<=0, and a Canaanite raid chained from a lost-trade-route failure state after a weapons/gems request chain fails). The mission never calls ui.popup_message directly, so no additional messages[] entries are enumerated beyond the start message."
+
+[[mission]]
+id = 42
+key = "m_042_qadesh"
+name = "Qadesh"
+buildings = [
+	"house_crude_hut", "road", "roadblock", "low_bridge", "ferry", "firehouse", "architect_post",
+	"police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well",
+	"water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp",
+	"wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue",
+	"medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop",
+	"jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "chariots_workshop",
+	"tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary",
+	"storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers",
+	"fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "grain_farm", "barley_farm",
+	"flax_farm", "figs_farm", "chickpeas_farm", "lettuce_farm", "pomegranates_farm", "clay_pit",
+	"reed_gatherer", "gemstone_mine", "copper_mine", "temple_osiris", "shrine_osiris", "temple_ra",
+	"shrine_ra", "temple_complex_osiris", "temple_complex_ra", "festival_square", "booth",
+	"juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school",
+	"library",
+]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [36000, 24000, 18000, 12000, 9540]
+rescue_loans = [3000, 2000, 1500, 1000, 800]
+debt_interest = [4, 6, 8, 10, 12]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_qadesh"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 1800
+
+[mission.win.culture]
+enabled = false
+goal = 15
+
+[mission.win.prosperity]
+enabled = true
+goal = 20
+
+[mission.win.monuments]
+enabled = false
+goal = 0
+
+[mission.win.kingdom]
+enabled = true
+goal = 50
+
+[mission.win.housing_count]
+enabled = true
+goal = 0
+
+[mission.win.housing_level]
+enabled = true
+goal = 14
+
+[mission.win.time_limit]
+enabled = true
+years = 7
+
+[mission.win.milestones]
+p25 = 2
+p50 = 4
+p75 = 6
+
+[mission.vars]
+chain_leaves_wired = false
+event0_luxury_done = false
+event5_luxury_done = false
+event10_troops_done = false
+event14_beer_done = false
+event17_gems_done = false
+event20_trade_done = false
+event21_pomegranates_done = false
+inv_wave1_done = false
+inv_wave1_seq = 0
+inv_wave1_abs = -1
+inv_wave2_done = false
+inv_wave2_seq = 0
+inv_wave2_abs = -1
+inv_wave3_done = false
+kr_seq = 0
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_qadesh"
+trigger = "start"
+
+notes = "Runs a resource-request/gift chain (source events i=0,5,10,14,17,20,21) via city.create_chain_event/create_good_request, plus a three-wave Canaanite invasion chain (sizes 50/30/35) gated on each prior wave's outcome. The mission never calls ui.popup_message directly, so no additional messages[] entries are enumerated beyond the start message."
+
+[[mission]]
+id = 43
+key = "m_043_abu_simbel"
+name = "Abu Simbel"
+buildings = [
+	"house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station",
+	"water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift",
+	"irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters",
+	"stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue",
+	"large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop",
+	"weaver_workshop", "papyrus_workshop", "bricks_workshop", "chariots_workshop", "tax_collector",
+	"courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard",
+	"recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers",
+	"fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "dock", "shipwright",
+	"transport_wharf", "fishing_wharf", "low_bridge", "ferry", "grain_farm", "barley_farm",
+	"flax_farm", "figs_farm", "chickpeas_farm", "lettuce_farm", "cattle_ranch", "clay_pit",
+	"reed_gatherer", "gold_mine", "gemstone_mine", "sandstone_quarry", "temple_osiris",
+	"shrine_osiris", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah",
+	"temple_complex_osiris", "temple_complex_ra", "temple_complex_ptah", "festival_square", "booth",
+	"juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school",
+	"library", "zoo", "abu_simbel",
+]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [16000, 10670, 8000, 5360, 4240]
+rescue_loans = [4000, 2670, 2000, 1340, 1060]
+debt_interest = [6, 8, 10, 12, 14]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 5
+enable_scenario_events = true
+start_message = "message_mission_abu_simbel"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 2200
+
+[mission.win.culture]
+enabled = true
+goal = 35
+
+[mission.win.prosperity]
+enabled = true
+goal = 35
+
+[mission.win.monuments]
+enabled = true
+goal = 44
+
+[mission.win.kingdom]
+enabled = true
+goal = 80
+
+[mission.win.housing_count]
+enabled = true
+goal = 0
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.win.milestones]
+p25 = 5
+p50 = 9
+p75 = 13
+
+[mission.vars]
+start_message_shown = false
+pharaoh_favour_invasion_done = false
+inv20_done = false
+inv20_seq = 0
+inv20_chain_done = false
+inv12_done = false
+
+[[mission.messages]]
+key = "message_mission_abu_simbel"
+trigger = "start"
+
+notes = "Runs a kingdom-favour Egyptian invasion (size 15, when rating_kingdom<=0), a calendar Kushite invasion (size 27, year 8) that chains into a further trade/reputation/troops-request sequence on a win outcome, and a second Kushite invasion (size 25) triggered if an earlier figs request (tag 2010) is refused. The mission never calls ui.popup_message directly, so no additional messages[] entries are enumerated beyond the start message."
+
+[[mission]]
+id = 44
+key = "m_044_ramses_in_the_valley"
+name = "Ramses in the Valley"
+buildings = [
+	"house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station",
+	"water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift",
+	"irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters",
+	"stonemasons_guild", "carpenters_guild", "bricklayers_guild", "artisans_guild", "small_statue",
+	"medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop",
+	"jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "chariots_workshop",
+	"lamp_workshop", "paint_workshop", "weaponsmith", "tax_collector", "courthouse",
+	"personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter",
+	"military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall",
+	"mud_gatehouse", "mud_tower", "dock", "shipwright", "transport_wharf", "fishing_wharf",
+	"low_bridge", "ferry", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "chickpeas_farm",
+	"lettuce_farm", "henna_farm", "clay_pit", "reed_gatherer", "gold_mine", "gemstone_mine",
+	"temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "temple_bast", "shrine_bast",
+	"festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion",
+	"dance_school", "scribal_school", "library", "zoo", "grand_royal_tomb",
+]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [30040, 20030, 15020, 10010, 7960]
+rescue_loans = [6000, 4000, 3000, 2000, 1590]
+debt_interest = [4, 6, 8, 10, 12]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 6
+enable_scenario_events = true
+start_message = "message_mission_ramses_valley"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 3000
+
+[mission.win.culture]
+enabled = true
+goal = 50
+
+[mission.win.prosperity]
+enabled = true
+goal = 55
+
+[mission.win.monuments]
+enabled = true
+goal = 45
+
+[mission.win.kingdom]
+enabled = true
+goal = 100
+
+[mission.win.housing_count]
+enabled = true
+goal = 6
+
+[mission.win.housing_level]
+enabled = true
+goal = 17
+
+[mission.win.milestones]
+p25 = 6
+p50 = 12
+p75 = 18
+
+[mission.vars]
+start_message_shown = false
+pharaoh_favour_invasion_done = false
+
+[[mission.messages]]
+key = "message_mission_ramses_valley"
+trigger = "start"
+
+notes = "Runs a kingdom-favour Egyptian invasion (size 27, when rating_kingdom<=0). The mission never calls ui.popup_message directly, so no additional messages[] entries are enumerated beyond the start message."
+
+[[mission]]
+id = 45
+key = "m_045_pi_yer"
+name = "Pi-Yer"
+buildings = [
+	"house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station",
+	"water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift",
+	"irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters",
+	"stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue",
+	"large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop",
+	"weaver_workshop", "papyrus_workshop", "bricks_workshop", "tax_collector", "courthouse",
+	"personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter",
+	"weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers",
+	"mud_wall", "mud_gatehouse", "mud_tower", "warship_wharf", "transport_wharf", "shipwright",
+	"dock", "low_bridge", "ferry", "grain_farm", "barley_farm", "flax_farm", "figs_farm",
+	"chickpeas_farm", "clay_pit", "reed_gatherer", "stone_quarry", "sandstone_quarry",
+	"temple_osiris", "shrine_osiris", "temple_seth", "shrine_seth", "temple_complex_osiris",
+	"temple_complex_seth", "festival_square", "booth", "juggler_school", "bandstand",
+	"conservatory", "pavillion", "dance_school", "scribal_school", "library",
+]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [20160, 13400, 10080, 6750, 5340]
+rescue_loans = [6000, 4000, 3000, 2000, 1600]
+debt_interest = [4, 5, 7, 9, 11]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 4
+enable_scenario_events = true
+start_message = "message_mission_pi_yer"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 2500
+
+[mission.win.culture]
+enabled = true
+goal = 25
+
+[mission.win.prosperity]
+enabled = true
+goal = 30
+
+[mission.win.monuments]
+enabled = false
+goal = 0
+
+[mission.win.kingdom]
+enabled = true
+goal = 45
+
+[mission.win.housing_count]
+enabled = true
+goal = 5
+
+[mission.win.housing_level]
+enabled = true
+goal = 8
+
+[mission.vars]
+chain_leaves_wired = false
+event0_chickpeas_last_year = -1
+chickpeas_recurring_was_busy = false
+chickpeas_recurring_idle_since_abs = -1
+event5_copper_done = false
+event8_message_done = false
+event12_troops_done = false
+event19_papyrus_done = false
+event23_grain_done = false
+event27_troops_done = false
+event30_papyrus_last_year = -1
+papyrus_recurring_was_busy = false
+papyrus_recurring_idle_since_abs = -1
+event33_wage_done = false
+event34_bricks_done = false
+event36_grain_done = false
+event37_bricks_done = false
+inv_copper_wave1_done = false
+inv_copper_wave1_seq = 0
+inv_copper_wave1_abs = -1
+inv_copper_wave2_done = false
+inv_bricks_done = false
+inv_troops_pharaoh_done = false
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_pi_yer"
+trigger = "start"
+
+notes = "Runs an elaborate resource-request/gift/reputation chain (source events i=0,5,8,12,19,23,27,30,33,34,36,37) via city.create_chain_event/create_good_request, including recurring chickpeas/papyrus requests and a chained two-wave Assyrian invasion (sizes 17 then 13) plus separate Assyrian and Egyptian raids triggered by other request refusals. The mission never calls ui.popup_message directly, so no additional messages[] entries are enumerated beyond the start message."
+
+[[mission]]
+id = 46
+key = "m_046_migdol"
+name = "Migdol"
+buildings = [
+	"house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station",
+	"water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "irrigation_ditch",
+	"village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters", "stonemasons_guild",
+	"carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue",
+	"plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop",
+	"papyrus_workshop", "bricks_workshop", "chariots_workshop", "tax_collector", "courthouse",
+	"personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter",
+	"weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers",
+	"mud_wall", "mud_gatehouse", "mud_tower", "dock", "fishing_wharf", "low_bridge", "grain_farm",
+	"barley_farm", "flax_farm", "figs_farm", "chickpeas_farm", "lettuce_farm", "clay_pit",
+	"reed_gatherer", "gold_mine", "gemstone_mine", "temple_osiris", "shrine_osiris", "temple_ptah",
+	"shrine_ptah", "temple_seth", "shrine_seth", "temple_complex_osiris", "temple_complex_ptah",
+	"temple_complex_seth", "booth", "juggler_school", "bandstand", "conservatory", "pavillion",
+	"dance_school", "scribal_school",
+]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [30004, 20003, 15002, 10001, 7951]
+rescue_loans = [5000, 3330, 2500, 1670, 1325]
+debt_interest = [4, 5, 7, 9, 11]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+player_rank = 5
+enable_scenario_events = true
+start_message = "message_mission_migdol"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 1000
+
+[mission.win.culture]
+enabled = true
+goal = 10
+
+[mission.win.prosperity]
+enabled = true
+goal = 15
+
+[mission.win.monuments]
+enabled = false
+goal = 0
+
+[mission.win.kingdom]
+enabled = false
+goal = 0
+
+[mission.win.housing_count]
+enabled = true
+goal = 0
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.win.survival_time]
+enabled = true
+years = 7
+
+[mission.win.milestones]
+p25 = 2
+p50 = 4
+p75 = 6
+
+[mission.vars]
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_migdol"
+trigger = "start"
+
+notes = "Fixed calendar invasion defense mission: four EVENT_TYPE_INVASION entries in the declarative events[] timeline (sizes 4, 8, 15, 25 at years 1-5) plus a few reputation/gift/demand flavor events; no scripted request/gift chain functions in this file beyond mission_start. No ui.popup_message calls, so no additional messages[] entries beyond the start message."
+
+[[mission]]
+id = 47
+key = "m_047_tanis"
+name = "Tanis"
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "chariots_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "weaponsmith", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "warship_wharf", "transport_wharf", "shipwright", "dock", "fishing_wharf", "low_bridge", "ferry", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "chickpeas_farm", "pomegranates_farm", "clay_pit", "reed_gatherer", "gold_mine", "gemstone_mine", "stone_quarry", "limestone_quarry", "sandstone_quarry", "temple_osiris", "shrine_osiris", "temple_ra", "shrine_ra", "temple_seth", "shrine_seth", "temple_complex_osiris", "temple_complex_ra", "temple_complex_seth", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "senet_house", "scribal_school", "library", "zoo"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [16000, 10670, 8000, 5360, 4240]
+rescue_loans = [4000, 2670, 2000, 1340, 1060]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [5, 6, 8, 10, 12]
+player_rank = 6
+enable_scenario_events = true
+start_message = "message_mission_tanis"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 2500
+
+[mission.win.culture]
+enabled = true
+goal = 30
+
+[mission.win.prosperity]
+enabled = true
+goal = 40
+
+[mission.win.monuments]
+enabled = false
+goal = 0
+
+[mission.win.kingdom]
+enabled = true
+goal = 45
+
+[mission.win.housing_count]
+enabled = true
+goal = 0
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.win.survival_time]
+enabled = true
+years = 10
+
+[mission.win.milestones]
+p25 = 3
+p50 = 6
+p75 = 10
+
+[mission.vars]
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_tanis"
+trigger = "start"
+
+[[mission]]
+id = 48
+key = "m_048_alexandria_1"
+name = "Alexandria"
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "water_lift", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "weaponsmith", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "military_academy", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "dock", "shipwright", "transport_wharf", "fishing_wharf", "low_bridge", "ferry", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "chickpeas_farm", "pomegranates_farm", "lettuce_farm", "clay_pit", "reed_gatherer", "stone_quarry", "sandstone_quarry", "gemstone_mine", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah", "temple_complex_ra", "temple_complex_ptah", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "scribal_school", "library", "mausoleum"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [25960, 17310, 12980, 8700, 6880]
+rescue_loans = [10000, 6670, 5000, 3350, 2650]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [2, 3, 5, 7, 9]
+player_rank = 5
+enable_scenario_events = true
+start_message = "message_mission_alexandria_2"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 4000
+
+[mission.win.culture]
+enabled = true
+goal = 45
+
+[mission.win.prosperity]
+enabled = true
+goal = 55
+
+[mission.win.monuments]
+enabled = true
+goal = 14
+
+[mission.win.kingdom]
+enabled = true
+goal = 60
+
+[mission.win.housing_count]
+enabled = true
+goal = 12
+
+[mission.win.housing_level]
+enabled = true
+goal = 10
+
+[mission.win.time_limit]
+enabled = true
+years = 12
+
+[mission.win.milestones]
+p25 = 3
+p50 = 6
+p75 = 9
+
+[mission.vars]
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_alexandria_2"
+trigger = "start"
+
+[[mission]]
+id = 49
+key = "m_049_alexandria_2"
+name = "Ptolemy's Alexandria"
+notes = "Source also sets carry_troops = [\"archer\", \"infantry\"] and carry_monuments = true at mission scope (state carried over from the prior campaign mission); not modeled as sim rules data here."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "weaponsmith", "chariots_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "dock", "shipwright", "transport_wharf", "fishing_wharf", "low_bridge", "ferry", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "chickpeas_farm", "pomegranates_farm", "lettuce_farm", "clay_pit", "reed_gatherer", "stone_quarry", "sandstone_quarry", "gold_mine", "gemstone_mine", "copper_mine", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah", "temple_bast", "shrine_bast", "temple_complex_ra", "temple_complex_ptah", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "senet_house", "scribal_school", "library", "zoo", "alexandria_library", "pharos_lighthouse"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [60000, 40000, 30000, 20100, 15900]
+rescue_loans = [10000, 6670, 5000, 3350, 2650]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [3, 4, 6, 8, 10]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_ptolemy_alexandria"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 7000
+
+[mission.win.culture]
+enabled = true
+goal = 75
+
+[mission.win.prosperity]
+enabled = true
+goal = 75
+
+[mission.win.monuments]
+enabled = true
+goal = 28
+
+[mission.win.kingdom]
+enabled = true
+goal = 75
+
+[mission.win.housing_count]
+enabled = true
+goal = 6
+
+[mission.win.housing_level]
+enabled = true
+goal = 16
+
+[mission.win.time_limit]
+enabled = false
+years = 12
+
+[mission.win.milestones]
+p25 = 6
+p50 = 12
+p75 = 18
+
+[mission.vars]
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_ptolemy_alexandria"
+trigger = "start"
+
+[[mission]]
+id = 50
+key = "m_050_maritis"
+name = "Maritis"
+notes = "on_start sets scenario.alt_predator_type = true (swaps the wild-predator variant, e.g. lion vs crocodile); not a scalar in the source env{} block so not modeled under [mission.env]."
+buildings = ["house_crude_hut", "road", "firehouse", "architect_post", "police_station", "physician", "dentist", "mortuary", "well", "irrigation_ditch", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "weaponsmith", "chariots_workshop", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "dock", "fishing_wharf", "low_bridge", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "chickpeas_farm", "lettuce_farm", "clay_pit", "reed_gatherer", "gold_mine", "gemstone_mine", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah", "temple_complex_ra", "temple_complex_ptah", "booth", "juggler_school", "bandstand", "conservatory", "zoo"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [22000, 14670, 11000, 7370, 5830]
+rescue_loans = [3000, 2000, 1500, 1005, 795]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [4, 5, 7, 9, 11]
+player_rank = 1
+enable_scenario_events = true
+start_message = "message_mission_maritis"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 1000
+
+[mission.win.culture]
+enabled = true
+goal = 10
+
+[mission.win.prosperity]
+enabled = true
+goal = 25
+
+[mission.win.monuments]
+enabled = false
+goal = 0
+
+[mission.win.kingdom]
+enabled = true
+goal = 35
+
+[mission.win.housing_count]
+enabled = true
+goal = 15
+
+[mission.win.housing_level]
+enabled = true
+goal = 4
+
+[mission.win.survival_time]
+enabled = true
+years = 7
+
+[mission.win.milestones]
+p25 = 3
+p50 = 4
+p75 = 5
+
+[mission.vars]
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_maritis"
+trigger = "start"
+
+[[mission]]
+id = 51
+key = "m_051_alexandria_3"
+name = "Cleopatra's Alexandria"
+notes = "Source also sets carry_monuments = true (monuments carried over from the prior campaign mission) and, in on_start, scenario.alt_predator_type = true; neither is a per-mission env{} scalar so neither is modeled under [mission.env]."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "water_supply", "apothecary", "physician", "dentist", "mortuary", "well", "irrigation_ditch", "village_palace", "town_palace", "city_palace", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "small_statue", "medium_statue", "large_statue", "gardens", "plaza", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "weaponsmith", "chariots_workshop", "tax_collector", "courthouse", "personal_mansion", "family_mansion", "bazaar", "granary", "storage_yard", "recruiter", "fort_infantry", "fort_archers", "fort_charioteers", "mud_wall", "mud_gatehouse", "mud_tower", "dock", "shipwright", "transport_wharf", "fishing_wharf", "low_bridge", "ferry", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "chickpeas_farm", "pomegranates_farm", "lettuce_farm", "clay_pit", "reed_gatherer", "stone_quarry", "sandstone_quarry", "gold_mine", "gemstone_mine", "copper_mine", "temple_ra", "shrine_ra", "temple_ptah", "shrine_ptah", "temple_bast", "shrine_bast", "temple_complex_ra", "temple_complex_ptah", "festival_square", "booth", "juggler_school", "bandstand", "conservatory", "pavillion", "dance_school", "senet_house", "scribal_school", "library", "zoo", "caesareum", "mausoleum"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [112000, 74670, 56000, 37520, 29680]
+rescue_loans = [8000, 5330, 4000, 2680, 2120]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [4, 5, 7, 9, 11]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_cleopatra_alexandria"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 10000
+
+[mission.win.culture]
+enabled = true
+goal = 80
+
+[mission.win.prosperity]
+enabled = true
+goal = 70
+
+[mission.win.monuments]
+enabled = true
+goal = 24
+
+[mission.win.kingdom]
+enabled = true
+goal = 80
+
+[mission.win.housing_count]
+enabled = true
+goal = 6
+
+[mission.win.housing_level]
+enabled = true
+goal = 19
+
+[mission.win.time_limit]
+enabled = false
+years = 12
+
+[mission.win.milestones]
+p25 = 5
+p50 = 10
+p75 = 15
+
+[mission.vars]
+start_message_shown = false
+
+[[mission.messages]]
+key = "message_mission_cleopatra_alexandria"
+trigger = "start"
+
+[[mission]]
+id = 52
+key = "m_052_actium"
+name = "Actium"
+notes = "Source also sets carry_troops = [\"archer\", \"infantry\"] and, in on_start, scenario.alt_predator_type = true; neither is modeled here (carry state / non-env{} scalar). Also runs a hand-scripted calendar invasion chain in an event_advance_month handler (mission52_calendar_invasions): at year 4 month 4, a ×19 sea invasion (city.start_foreign_army_invasion, invasion_id 12); once its troops are seen and then cleared, a ×40 sea invasion (invasion_id 17) fires next, chaining to a LOST_TRADE-style city-status event (tag 18). This exists because the engine's events[] EVENT_TYPE_INVASION entries are a no-op in this build, so this mission's invasions had to be reimplemented in script; not enumerated as unlocks/messages since it gates no building."
+buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_post", "police_station", "physician", "dentist", "mortuary", "well", "work_camp", "wood_cutters", "stonemasons_guild", "carpenters_guild", "bricklayers_guild", "pottery_workshop", "brewery_workshop", "jewels_workshop", "weaver_workshop", "papyrus_workshop", "bricks_workshop", "chariots_workshop", "bazaar", "storage_yard", "recruiter", "fort_infantry", "fort_archers", "fort_charioteers", "mud_tower", "dock", "shipwright", "warship_wharf", "transport_wharf", "low_bridge", "grain_farm", "barley_farm", "flax_farm", "figs_farm", "chickpeas_farm", "lettuce_farm", "clay_pit", "reed_gatherer", "gold_mine", "gemstone_mine", "copper_mine", "temple_ra", "shrine_ra", "temple_complex_ra", "booth", "juggler_school"]
+# BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
+
+[mission.funds]
+initial_funds = [14000, 9330, 7000, 4690, 3710]
+rescue_loans = [4000, 2670, 2000, 1340, 1060]
+house_tax_multipliers = [300, 200, 150, 100, 75]
+debt_interest = [0, 1, 3, 5, 7]
+player_rank = 10
+enable_scenario_events = true
+start_message = "message_mission_actium"
+
+[mission.env]
+has_animals = true
+
+[mission.win.population]
+enabled = true
+goal = 1000
+
+[mission.win.culture]
+enabled = false
+goal = 0
+
+[mission.win.prosperity]
+enabled = false
+goal = 15
+
+[mission.win.monuments]
+enabled = false
+goal = 0
+
+[mission.win.kingdom]
+enabled = true
+goal = 50
+
+[mission.win.housing_count]
+enabled = true
+goal = 0
+
+[mission.win.housing_level]
+enabled = true
+goal = 5
+
+[mission.win.survival_time]
+enabled = true
+years = 6
+
+[mission.win.milestones]
+p25 = 2
+p50 = 4
+p75 = 6
+
+[mission.vars]
+start_message_shown = false
+inv12_done = false
+inv12_active = false
+inv12_enemies_seen = false
+inv17_done = false
+
+[[mission.messages]]
+key = "message_mission_actium"
+trigger = "start"

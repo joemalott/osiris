@@ -67,8 +67,13 @@ pub struct World {
     /// Percentage of workers without a job.
     pub unemployment: i32,
     pub migration: crate::people::Migration,
+    pub census: crate::census::Census,
+    pub labor: crate::labor::Labor,
+    pub finance: crate::finance::Finance,
     pub migration_params: crate::people::MigrationParams,
     pub scenario_name: String,
+    /// 0 central, 1 northern, 2 desert.
+    pub climate: u8,
     /// Where immigrants arrive and emigrants leave, in map coordinates.
     pub entry_point: (i32, i32),
     pub exit_point: (i32, i32),
@@ -95,8 +100,12 @@ impl World {
             sentiment: 60,
             unemployment: 0,
             migration: Default::default(),
+            census: Default::default(),
+            labor: Default::default(),
+            finance: Default::default(),
             migration_params: Default::default(),
             scenario_name: info.subtitle.clone(),
+            climate: info.climate,
             entry_point: (info.entry_point.x, info.entry_point.y),
             exit_point: (info.exit_point.x, info.exit_point.y),
             counters: ContextCounters::default(),

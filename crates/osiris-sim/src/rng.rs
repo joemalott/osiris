@@ -2,28 +2,50 @@
 //! times per draw. Every consumer takes explicit draws from a `Rng` it is handed, so
 //! the order of draws is visible in the code.
 
+pub const POOL_SIZE: usize = 100;
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Rng {
     iv1: u32,
     iv2: u32,
+    /// The last 100 7-bit values, used where the original draws "from the pool".
+    pool: Vec<u8>,
+    pool_index: usize,
 }
 
 impl Default for Rng {
     fn default() -> Self {
-        Self {
-            iv1: 0x5465_7687,
-            iv2: 0x7264_1663,
-        }
+        Self::from_seed(0x5465_7687, 0x7264_1663)
     }
 }
 
 impl Rng {
     pub fn from_seed(iv1: u32, iv2: u32) -> Self {
-        Self { iv1, iv2 }
+        Self {
+            iv1,
+            iv2,
+            pool: vec![0; POOL_SIZE],
+            pool_index: 0,
+        }
+    }
+
+    /// Value `index` places ahead in the pool of recent draws.
+    pub fn from_pool(&self, index: usize) -> i32 {
+        self.pool[(self.pool_index + index) % POOL_SIZE] as i32
+    }
+
+    /// Refills the whole pool with fresh draws.
+    pub fn generate_pool(&mut self) {
+        self.pool_index = 0;
+        for _ in 0..POOL_SIZE {
+            self.next();
+        }
     }
 
     /// Advances both registers.
     pub fn next(&mut self) {
+        self.pool[self.pool_index] = self.byte() as u8;
+        self.pool_index = (self.pool_index + 1) % POOL_SIZE;
         for _ in 0..31 {
             let r1 = ((self.iv1 & 0x10) >> 4 ^ self.iv1) & 1;
             let r2 = ((self.iv2 & 0x10) >> 4 ^ self.iv2) & 1;

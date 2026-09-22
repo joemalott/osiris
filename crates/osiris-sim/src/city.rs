@@ -23,16 +23,25 @@ impl World {
             12 => self.decay_houses_covered(),
             22 => self.update_room(),
             23 => self.update_migration(),
+            25 => self.update_labor(),
             27 => self.update_wells(),
-            35 => self.decay_house_services(),
+            31 => self.generate_walkers(),
+            9 => self.decay_house_services(),
             36 => self.update_culture(),
             38 => self.update_building_desirability(),
             39 => self.evolve_houses(),
+            43 => self.update_burning_ruins(),
+            44 => self.check_fire_and_collapse(),
+            48 => self.decay_tax_coverage(),
             _ => {}
         }
         self.update_figures();
         if roll.month {
             self.migration.newcomers_this_month = 0;
+            self.advance_month_finance();
+        }
+        if roll.year {
+            self.advance_year_finance();
         }
     }
 
@@ -43,6 +52,7 @@ impl World {
                 crate::people::figure_kind::IMMIGRANT
                 | crate::people::figure_kind::EMIGRANT
                 | crate::people::figure_kind::HOMELESS => self.update_migrant(fid),
+                k if crate::services::is_roamer(k) => self.update_roamer(fid),
                 _ => {}
             }
             if self.figures.get(fid).is_some_and(|f| f.dead) {
@@ -180,6 +190,7 @@ impl World {
                 h.population = cap;
             }
             self.population -= extra;
+            self.census.remove(&self.rng, extra);
             let fid = self.figures.spawn(crate::people::figure_kind::HOMELESS, x, y, crate::figures::Travel::Land);
             if let Some(f) = self.figures.get_mut(fid) {
                 f.amount = extra;
