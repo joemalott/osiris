@@ -192,12 +192,13 @@ impl World {
                         let mut left = amount;
                         while left > 0 && self.accepts(target, r, LOAD.min(left)) {
                             let n = LOAD.min(left);
-                            if let Some(b) = self.buildings.get_mut(target) {
-                                b.stock[r as usize] += n;
-                            }
                             left -= n;
                             if r == resource::GOLD {
+                                // The palace turns gold straight into deben.
                                 self.gold_delivered += n;
+                                self.treasury += n;
+                            } else if let Some(b) = self.buildings.get_mut(target) {
+                                b.stock[r as usize] += n;
                             }
                         }
                         let home_road = self.buildings.get(home).and_then(|b| b.road);

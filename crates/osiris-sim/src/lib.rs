@@ -13,6 +13,7 @@ pub mod desirability;
 pub mod economy;
 pub mod figures;
 pub mod finance;
+pub mod floods;
 pub mod food;
 pub mod houses;
 pub mod labor;

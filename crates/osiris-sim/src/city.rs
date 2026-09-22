@@ -13,6 +13,7 @@ impl World {
     pub(crate) fn run_tick(&mut self) {
         self.rng.next();
         let roll = self.time.advance();
+        self.update_floods();
         match self.time.tick {
             1 => self.check_unlocks(),
             7 => {

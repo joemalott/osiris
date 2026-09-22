@@ -262,6 +262,8 @@ pub struct Scenario {
     pub moisture: Vec<u8>,
     pub random_iv: [u32; 2],
     pub camera: [i32; 2],
+    /// Raw `floodplain_settings` chunk (season, duration, quality, ...).
+    pub floodplain_settings: Vec<u8>,
 }
 
 fn u32_grid(bytes: &[u8]) -> Vec<u32> {
@@ -291,6 +293,7 @@ impl Scenario {
             moisture: file.require("moisture_grid")?.to_vec(),
             random_iv: [iv[0], iv[1]],
             camera: [cam[0] as i32, cam[1] as i32],
+            floodplain_settings: file.get("floodplain_settings").map(<[u8]>::to_vec).unwrap_or_default(),
         };
         debug_assert_eq!(s.images.len(), GRID_TILES);
         Ok(s)

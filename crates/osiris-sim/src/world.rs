@@ -73,6 +73,7 @@ pub struct World {
     /// Gold delivered to the palace since the scenario began.
     pub gold_delivered: i32,
     pub herds: Vec<crate::animals::Herd>,
+    pub floods: crate::floods::Floods,
     pub mission: Option<crate::missions::Mission>,
     /// Message keys waiting to be shown to the player, oldest first.
     pub messages: VecDeque<String>,
@@ -113,6 +114,7 @@ impl World {
             finance: Default::default(),
             gold_delivered: 0,
             herds: Vec::new(),
+            floods: Default::default(),
             mission: None,
             messages: VecDeque::new(),
             events: Default::default(),
@@ -136,6 +138,7 @@ impl World {
             .map(|p| (p.x, p.y, 0))
             .collect();
         self.create_herds(&points);
+        self.init_floods(&scenario.floodplain_settings);
     }
 
     pub fn cost_of(&self, building_type: usize) -> i32 {
