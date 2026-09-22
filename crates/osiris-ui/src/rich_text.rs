@@ -174,9 +174,14 @@ fn tokenize(text: &str) -> Vec<Token> {
 
 /// Lays `text` out into `opts.width` pixels, using `measure` for glyph widths and
 /// (optionally) inline image sizes. Pure: performs no drawing.
+/// Vertical distance between wrapped lines; the original spaces 11-pixel fonts 16 apart.
+pub fn line_advance(font: Font) -> i32 {
+    font.line_height() + if font.line_height() <= 11 { 5 } else { 3 }
+}
+
 pub fn layout(text: &str, opts: &Options, measure: &mut dyn Measure) -> Layout {
     let tokens = tokenize(text);
-    let line_h = opts.font.line_height();
+    let line_h = line_advance(opts.font);
     let space_w = measure.width(opts.font, " ");
     let mut runs = Vec::new();
     let mut y = 0;
@@ -310,7 +315,7 @@ mod tests {
         let mut m = FixedWidth::new();
         let l = layout("aaa bbb ccc", &opts(65), &mut m);
         assert_eq!(texts(&l), vec!["aaa bbb", "ccc"]);
-        assert_eq!(l.height, Font::NormalBlackOnLight.line_height() * 2);
+        assert_eq!(l.height, line_advance(Font::NormalBlackOnLight) * 2);
     }
 
     #[test]
@@ -364,7 +369,7 @@ mod tests {
         assert!(matches!(&l.runs[1], Run::Image { id: 999, w: 100, h: 32, .. }));
         assert!(matches!(&l.runs[2], Run::Text { text, .. } if text == "after"));
         // before (1 line) + image rows (32px / 11px line -> 3 rows) + after (1 line)
-        let line_h = Font::NormalBlackOnLight.line_height();
+        let line_h = line_advance(Font::NormalBlackOnLight);
         let img_rows = (32 + line_h - 1) / line_h;
         assert_eq!(l.height, line_h * (2 + img_rows));
     }

@@ -1,6 +1,7 @@
 mod city_view;
 mod game;
 mod gfx;
+mod info;
 mod minimap;
 mod sidebar;
 
@@ -147,7 +148,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::MouseInput { state, button, .. } => match (button, state) {
                 (MouseButton::Left, ElementState::Pressed) => {
-                    if let Some((x, y)) = game.press(gfx.renderer.screen) {
+                    if let Some((x, y)) = game.press_at(&gfx.renderer) {
                         game.view.center_on(&mut gfx.renderer, &game.world.map, x, y);
                     }
                 }
@@ -239,9 +240,17 @@ fn parse_point(s: &str) -> Result<(i32, i32)> {
     Ok((x.trim().parse()?, y.trim().parse()?))
 }
 
-/// Runs `--script` steps against the world; returns the tile to centre the view on.
-fn run_script(world: &mut World, script: &str) -> Result<Option<(i32, i32)>> {
-    let mut view = None;
+/// What a script asks the screenshot to show.
+#[derive(Default)]
+struct ScriptView {
+    centre: Option<(i32, i32)>,
+    info: Option<(i32, i32)>,
+    keep_dialogs: bool,
+}
+
+/// Runs `--script` steps against the world.
+fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
+    let mut view = ScriptView::default();
     for step in script.split(';').map(str::trim).filter(|s| !s.is_empty()) {
         let parts: Vec<&str> = step.split_whitespace().collect();
         match parts.as_slice() {
@@ -265,7 +274,9 @@ fn run_script(world: &mut World, script: &str) -> Result<Option<(i32, i32)>> {
                     world.tick();
                 }
             }
-            ["view", p] => view = Some(parse_point(p)?),
+            ["view", p] => view.centre = Some(parse_point(p)?),
+            ["info", p] => view.info = Some(parse_point(p)?),
+            ["dialogs"] => view.keep_dialogs = true,
             ["report"] => {
                 let houses: Vec<String> = world
                     .buildings
@@ -314,13 +325,20 @@ fn main() -> Result<()> {
     let messages = Arc::new(MessageTable::parse(&std::fs::read(args.data.join("Pharaoh_MM.eng"))?)?);
     let script_view = match &args.script {
         Some(s) => run_script(&mut world, s)?,
-        None => None,
+        None => ScriptView { keep_dialogs: true, ..Default::default() },
     };
 
     if let Some(out) = &args.screenshot {
         let images = sidebar::SidebarImages::load(&library)?;
         let mut game = game::Game::new(world, images, text, messages, None);
-        let (cx, cy) = script_view.unwrap_or_else(|| start_view(&game.world));
+        let (cx, cy) = script_view.centre.or(script_view.info).unwrap_or_else(|| start_view(&game.world));
+        if !script_view.keep_dialogs {
+            game.close_dialog();
+        }
+        if let Some((x, y)) = script_view.info {
+            let id = game.world.map.building.at_or(x, y, 0);
+            game.info = (id != 0).then_some(info::InfoPanel { building: id });
+        }
         return gfx::screenshot(library, args.size, out, |r| {
             game.view.center_on(r, &game.world.map, cx, cy);
             game.draw(r);

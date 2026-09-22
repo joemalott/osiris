@@ -80,8 +80,11 @@ pub struct House {
     /// Pottery, jewelry, linen, beer.
     pub goods: [i32; 4],
     pub devolve_delay: i32,
-    /// Why the house can't evolve, for the info panel.
+    /// Why the house can't evolve (or is decaying), for the info panel.
     pub blocked_by: Option<Need>,
+    /// The house fails its own level's needs and will devolve soon.
+    #[serde(default)]
+    pub decaying: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -196,6 +199,7 @@ impl House {
         let level = self.level as usize;
         let model = &models[level];
         let evolve_des = if level + 1 >= models.len() { 1000 } else { model.evolve_desirability };
+        self.decaying = false;
         let mut status = if desirability <= model.devolve_desirability {
             self.blocked_by = Some(Need::Desirability);
             Progress::Decay
@@ -208,6 +212,9 @@ impl House {
         if let Err(need) = self.meets(model, rules) {
             self.blocked_by = Some(need);
             status = Progress::Decay;
+        }
+        if status == Progress::Decay {
+            self.decaying = true;
         } else if status == Progress::Evolve {
             match models.get(level + 1).map(|next| self.meets(next, rules)) {
                 Some(Ok(())) => self.blocked_by = None,

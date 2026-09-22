@@ -2,6 +2,7 @@
 
 use crate::city_view::{self, CityView, Highlight, Sprite};
 use crate::sidebar::{Category, Click, MenuItem, Sidebar, SidebarImages};
+use crate::info::InfoPanel;
 use crate::minimap::Minimap;
 use osiris_audio::Audio;
 use osiris_formats::{Message, MessageTable, TextTable};
@@ -68,6 +69,7 @@ pub struct Game {
     message: Option<(String, f32)>,
     messages: Arc<MessageTable>,
     dialog: Option<MessageDialog>,
+    pub info: Option<InfoPanel>,
     minimap: Option<Minimap>,
     pub audio: Option<Arc<Audio>>,
     music_timer: f32,
@@ -100,6 +102,7 @@ impl Game {
             message: None,
             messages,
             dialog: None,
+            info: None,
             minimap: None,
             audio,
             music_timer: 0.0,
@@ -139,6 +142,11 @@ impl Game {
         self.sound("BUTTON.WAV");
     }
 
+
+    pub fn close_dialog(&mut self) {
+        self.dialog = None;
+        self.world.messages.clear();
+    }
 
     pub fn scroll_dialog(&mut self, delta: f32, screen: [f32; 2]) -> bool {
         match &mut self.dialog {
@@ -284,7 +292,17 @@ impl Game {
     }
 
     /// Handles a left click. Returns a tile to centre the view on (minimap clicks).
-    pub fn press(&mut self, screen: [f32; 2]) -> Option<(i32, i32)> {
+    pub fn press_at(&mut self, r: &Renderer) -> Option<(i32, i32)> {
+        if let Some(i) = &self.info
+            && !i.contains(r, self.cursor)
+        {
+            self.info = None;
+            return None;
+        }
+        self.press(r.screen)
+    }
+
+    fn press(&mut self, screen: [f32; 2]) -> Option<(i32, i32)> {
         let screen_w = screen[0];
         if let Some(d) = &mut self.dialog {
             if d.click(self.cursor, screen) {
@@ -323,8 +341,18 @@ impl Game {
             Click::Absorbed => {}
             Click::Outside => {
                 self.sidebar.open = None;
+                if self.info.is_some() {
+                    // Clicks inside the window do nothing; outside it they close it.
+                    return None;
+                }
                 if self.tool != Tool::None {
                     self.drag_start = self.hover;
+                } else if let Some((x, y)) = self.hover {
+                    let id = self.world.map.building.at_or(x, y, 0);
+                    if id != 0 {
+                        self.info = Some(InfoPanel { building: id });
+                        self.sound("BUTTON.WAV");
+                    }
                 }
             }
         }
@@ -352,7 +380,7 @@ impl Game {
     }
 
     pub fn cancel(&mut self) {
-        if self.dialog.take().is_some() {
+        if self.dialog.take().is_some() || self.info.take().is_some() {
             return;
         }
         if self.sidebar.open.take().is_some() {
@@ -471,6 +499,9 @@ impl Game {
             let w = r.screen[0] - crate::sidebar::WIDTH;
             let mw = osiris_ui::text_width(r, Font::LargeBlackOnDark, m) as f32;
             draw_text(r, Font::LargeBlackOnDark, m, (w - mw) / 2.0, 70.0, font::WHITE);
+        }
+        if let Some(i) = &self.info {
+            i.draw(r, &self.images.panels, &self.world, &self.text);
         }
         if let Some(d) = &self.dialog {
             d.draw(r);
