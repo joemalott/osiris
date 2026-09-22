@@ -3,6 +3,8 @@ mod game;
 mod gfx;
 mod info;
 mod menu;
+mod message_list;
+mod rules_panel;
 mod minimap;
 mod script;
 mod sidebar;
@@ -125,6 +127,21 @@ fn list_files(dir: &Path, ext: &str) -> Vec<PathBuf> {
     v
 }
 
+fn rules_path() -> PathBuf {
+    user_dir().join("rules.toml")
+}
+
+/// The player's game rules, applied to every game.
+fn load_rules() -> osiris_sim::Rules {
+    std::fs::read_to_string(rules_path()).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default()
+}
+
+fn save_rules(rules: &osiris_sim::Rules) {
+    if let Ok(s) = toml::to_string(rules) {
+        let _ = std::fs::write(rules_path(), s);
+    }
+}
+
 fn progress_path() -> PathBuf {
     user_dir().join("progress.txt")
 }
@@ -167,11 +184,13 @@ impl App {
             unlocked_missions(),
             list_files(&self.assets.data.join("Maps"), "map"),
             list_files(&user_dir().join("saves"), "osiris"),
+            load_rules(),
         )
     }
 
-    fn start(&mut self, world: World, mission: Option<usize>) {
+    fn start(&mut self, mut world: World, mission: Option<usize>) {
         let (Some(gfx), Some(images)) = (self.gfx.as_mut(), self.images.clone()) else { return };
+        world.rules = load_rules();
         let mut game = game::Game::new(world, images, self.assets.text.clone(), self.assets.messages.clone(), self.audio.clone());
         let (cx, cy) = start_view(&game.world);
         game.view.center_on(&mut gfx.renderer, &game.world.map, cx, cy);
@@ -324,7 +343,12 @@ impl ApplicationHandler for App {
                 let mut chosen = None;
                 match &mut self.screen {
                     Some(Screen::Menu(m)) => match (button, state) {
-                        (MouseButton::Left, ElementState::Pressed) => chosen = m.click(screen, at),
+                        (MouseButton::Left, ElementState::Pressed) => {
+                            chosen = m.click(screen, at);
+                            if std::mem::take(&mut m.rules_changed) {
+                                save_rules(&m.rules);
+                            }
+                        }
                         (MouseButton::Right, ElementState::Pressed) => m.back(),
                         _ => {}
                     },
@@ -332,6 +356,9 @@ impl ApplicationHandler for App {
                         (MouseButton::Left, ElementState::Pressed) => {
                             if let Some((x, y)) = game.press_at(&gfx.renderer) {
                                 game.view.center_on(&mut gfx.renderer, &game.world.map, x, y);
+                            }
+                            if std::mem::take(&mut game.rules_changed) {
+                                save_rules(&game.world.rules);
                             }
                         }
                         (MouseButton::Left, ElementState::Released) => game.release(),
@@ -449,11 +476,12 @@ impl App {
 fn key_pressed(g: &mut game::Game, code: KeyCode) {
     match code {
         KeyCode::Escape => g.cancel(),
+        KeyCode::F2 => g.open_rules(),
         KeyCode::KeyR => g.tool = game::Tool::Road,
         KeyCode::KeyC | KeyCode::Delete | KeyCode::Backspace => g.tool = game::Tool::Clear,
         KeyCode::KeyP | KeyCode::Space => g.paused = !g.paused,
-        KeyCode::BracketRight | KeyCode::Equal => g.speed = (g.speed + 10).min(100),
-        KeyCode::BracketLeft | KeyCode::Minus => g.speed = g.speed.saturating_sub(10).max(10),
+        KeyCode::BracketRight | KeyCode::Equal => g.faster(),
+        KeyCode::BracketLeft | KeyCode::Minus => g.slower(),
         _ => {}
     }
 }
@@ -507,13 +535,22 @@ fn main() -> Result<()> {
         };
         let images = sidebar::SidebarImages::load(&library)?;
         if view.menu {
-            let menu = menu::Menu::new(assets.mission_names.clone(), 2, list_files(&assets.data.join("Maps"), "map"), vec![]);
+            let mut menu = menu::Menu::new(assets.mission_names.clone(), 2, list_files(&assets.data.join("Maps"), "map"), vec![], Default::default());
+            if let Some(page) = &view.menu_page {
+                menu.open_page(page);
+            }
             return gfx::screenshot(library, args.size, out, |r| menu.draw(r, &images.panels));
         }
         let mut game = game::Game::new(world, images, assets.text.clone(), assets.messages.clone(), None);
         let (cx, cy) = view.centre.or(view.info).unwrap_or_else(|| start_view(&game.world));
         if !view.keep_dialogs {
             game.close_dialog();
+        }
+        if view.rules {
+            game.rules_panel = Some(rules_panel::RulesPanel::default());
+        }
+        if view.messages {
+            game.message_list = Some(message_list::MessageList::default());
         }
         if let Some((x, y)) = view.info {
             let id = game.world.map.building.at_or(x, y, 0);

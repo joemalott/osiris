@@ -16,6 +16,9 @@ pub struct ScriptView {
     pub info: Option<(i32, i32)>,
     pub keep_dialogs: bool,
     pub menu: bool,
+    pub messages: bool,
+    pub menu_page: Option<String>,
+    pub rules: bool,
 }
 
 /// Runs `--script` steps against the world.
@@ -48,6 +51,17 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["info", p] => view.info = Some(parse_point(p)?),
             ["dialogs"] => view.keep_dialogs = true,
             ["menu"] => view.menu = true,
+            ["menu", page] => {
+                view.menu = true;
+                view.menu_page = Some(page.to_string());
+            }
+            ["rules"] => view.rules = true,
+            ["messages"] => view.messages = true,
+            ["burn", p] => {
+                let (x, y) = parse_point(p)?;
+                let id = world.map.building.at_or(x, y, 0);
+                world.destroy(id, true);
+            }
             ["safe"] => {
                 world.rules.fire = false;
                 world.rules.collapse = false;

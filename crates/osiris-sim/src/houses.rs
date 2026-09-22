@@ -166,10 +166,10 @@ impl House {
         if rules.gods_enabled && self.gods < model.religion {
             return Err(Need::Religion);
         }
-        if (self.coverage.dentist > 0) < (model.dentist > 0) {
+        if (self.coverage.dentist <= 0) & (model.dentist > 0) {
             return Err(Need::Dentist);
         }
-        if (self.coverage.physician > 0) < (model.physician > 0) {
+        if (self.coverage.physician <= 0) & (model.physician > 0) {
             return Err(Need::Physician);
         }
         if self.health < model.health {

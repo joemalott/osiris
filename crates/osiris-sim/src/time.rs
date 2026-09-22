@@ -46,7 +46,7 @@ impl GameTime {
         self.tick = 0;
         self.day += 1;
         r.day = true;
-        if self.day % (DAYS_PER_MONTH / 2) == 0 {
+        if self.day.is_multiple_of(DAYS_PER_MONTH / 2) {
             r.week = true;
         }
         if self.day < DAYS_PER_MONTH {

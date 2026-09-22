@@ -1,49 +1,16 @@
-//! City minimap for the sidebar's minimap window.
-//!
-//! This module is intentionally *not* wired into the app (see the task constraints on
-//! `main.rs`/`game.rs`/`sidebar.rs`/`city_view.rs`). To integrate it:
-//!
-//! 1. Add `mod minimap;` to `osiris-app/src/main.rs`, and give `Game` a
-//!    `minimap: minimap::Minimap` field, built once with `Minimap::new(&gfx.renderer)`
-//!    (needs `ImageLibrary` access, via `Renderer::library`).
-//! 2. Whenever the map changes shape — after a successful `World::apply` command, and
-//!    periodically to catch simulation-driven terrain changes such as flooding or tree
-//!    growth — call `game.minimap.mark_dirty()`. Rebuilding is skipped on frames where
-//!    nothing changed.
-//! 3. From `Game::draw_overlay` (or wherever `self.sidebar.draw(...)` is called), after
-//!    drawing the sidebar, call:
-//!    ```ignore
-//!    let panel_left = r.screen[0] - 162.0; // sidebar::PANEL_W; not exported, keep in sync
-//!    let is_house = |id| self.world.buildings.get(id).is_some_and(|b| b.house.is_some());
-//!    self.minimap.draw(r, &self.world.map, is_house, panel_left);
-//!    ```
-//! 4. From the mouse-press handler, before falling through to the normal tile click:
-//!    ```ignore
-//!    let panel_left = gfx.renderer.screen[0] - 162.0;
-//!    if game.minimap.contains(panel_left, game.cursor) {
-//!        if let Some((x, y)) = game.minimap.pixel_to_tile(&game.world.map, panel_left, game.cursor) {
-//!            game.view.center_on(&mut gfx.renderer, &game.world.map, x, y);
-//!        }
-//!        return; // absorbed by the minimap, not a normal map/sidebar click
-//!    }
-//!    ```
-//!    `Sidebar::contains`/`Sidebar::click` would need a similar early-out for the
-//!    minimap's rectangle so drags don't fall through to road/build tools; that's a
-//!    one-line change in `sidebar.rs` for the lead dev to make alongside the `mod`
-//!    line above.
+//! City minimap for the sidebar's minimap window: one dot per tile in the city's own
+//! isometric layout, scaled to fit, with the camera's view outlined.
 
 use osiris_formats::ImageLibrary;
 use osiris_render::{DynamicHandle, Renderer, Space};
 use osiris_sim::map::{Map, terrain};
 
-/// Pixel rectangle of the minimap window inside the sidebar panel art (`Pharaoh_General`
-/// group 121 offset 0, a 162x450 image), measured from its transparent hole: x `8..154`,
-/// y `30+15..30+125` (30 is the sidebar's top margin, `sidebar::TOP`) relative to the
-/// panel's own left edge.
-pub const X: f32 = 8.0;
-pub const Y: f32 = 45.0;
-pub const W: f32 = 146.0;
-pub const H: f32 = 110.0;
+/// The minimap window in the sidebar panel art, from the panel's left edge and the
+/// screen top.
+pub const X: f32 = 13.0;
+pub const Y: f32 = 59.0;
+pub const W: f32 = 144.0;
+pub const H: f32 = 111.0;
 
 /// Key passed to `Renderer::upload_dynamic`; arbitrary but stable so re-uploads reuse
 /// the same texture instead of leaking a new one.
@@ -141,6 +108,7 @@ pub struct Minimap {
     buffer: Vec<u8>,
     handle: Option<DynamicHandle>,
     dirty: bool,
+    bounds: [f32; 4],
 }
 
 impl Minimap {
@@ -150,6 +118,7 @@ impl Minimap {
             buffer: vec![0; (BUF_W * BUF_H * 4) as usize],
             handle: None,
             dirty: true,
+            bounds: [0.0, 0.0, 1.0, 1.0],
         }
     }
 
@@ -159,37 +128,24 @@ impl Minimap {
         self.dirty = true;
     }
 
-    /// World-pixel bounding box of the whole map's tile grid, matching the anchor
-    /// points `city_view::tile_to_world` would produce for tiles `(0, 0)..(width,
-    /// height)`, padded by one tile so the last row/column's footprint fits.
-    fn world_bounds(map: &Map) -> (f32, f32, f32, f32) {
-        let tw = crate::city_view::TILE_W;
-        let th = crate::city_view::TILE_H;
-        let x1 = (map.width + map.height - 2) as f32 * tw / 2.0 + tw;
-        let y1 = (map.width + map.height - 2) as f32 * th / 2.0 + th;
-        (0.0, 0.0, x1, y1)
-    }
-
-    /// Scale (world pixels -> minimap pixels) and the margin that centres the map's
-    /// bounding box inside the `W x H` window.
-    fn transform(map: &Map) -> (f32, f32, f32) {
-        let (x0, y0, x1, y1) = Self::world_bounds(map);
+    /// Scale (world pixels to minimap pixels) and the offset that centres the map
+    /// inside the `W x H` window.
+    fn transform(&self) -> (f32, f32, f32) {
+        let [x0, y0, x1, y1] = self.bounds;
         let (bw, bh) = ((x1 - x0).max(1.0), (y1 - y0).max(1.0));
         let scale = (W / bw).min(H / bh);
-        let margin_x = (W - bw * scale) / 2.0;
-        let margin_y = (H - bh * scale) / 2.0;
-        (scale, margin_x, margin_y)
+        (scale, (W - bw * scale) / 2.0 - x0 * scale, (H - bh * scale) / 2.0 - y0 * scale)
     }
 
     /// World pixel `w` to a local (window-relative) minimap pixel.
-    fn to_local(map: &Map, w: [f32; 2]) -> [f32; 2] {
-        let (scale, mx, my) = Self::transform(map);
+    fn to_local(&self, w: [f32; 2]) -> [f32; 2] {
+        let (scale, mx, my) = self.transform();
         [w[0] * scale + mx, w[1] * scale + my]
     }
 
     /// A local (window-relative) minimap pixel back to world pixels.
-    fn from_local(map: &Map, p: [f32; 2]) -> [f32; 2] {
-        let (scale, mx, my) = Self::transform(map);
+    fn local_to_world(&self, p: [f32; 2]) -> [f32; 2] {
+        let (scale, mx, my) = self.transform();
         [(p[0] - mx) / scale, (p[1] - my) / scale]
     }
 
@@ -208,7 +164,7 @@ impl Minimap {
             return None;
         }
         let local = [p[0] - (panel_left + X), p[1] - Y];
-        let world = Self::from_local(map, local);
+        let world = self.local_to_world(local);
         crate::city_view::world_to_tile(map, world)
     }
 
@@ -259,18 +215,21 @@ impl Minimap {
         for px in self.buffer.as_chunks_mut::<4>().0.iter_mut() {
             *px = bytes;
         }
-        let (scale, ..) = Self::transform(map);
-        let dot = ((scale * crate::city_view::TILE_H / 2.0).round() as i32).clamp(1, 2);
+        self.bounds = crate::city_view::map_bounds(map);
+        let (scale, ..) = self.transform();
+        // A tile is 60x30 world pixels; draw it as a small diamond-ish block.
+        let dw = (scale * crate::city_view::TILE_W).ceil().max(1.0) as i32;
+        let dh = (scale * crate::city_view::TILE_H).ceil().max(1.0) as i32;
         for y in 0..map.height {
             for x in 0..map.width {
+                if map.images.at_or(x, y, 0) == 0 {
+                    continue;
+                }
                 let color = self.tile_color(map, is_house, x, y);
-                let tw = crate::city_view::TILE_W;
-                let th = crate::city_view::TILE_H;
-                let center = [(x - y) as f32 * tw / 2.0 + tw / 2.0, (x + y) as f32 * th / 2.0 + th / 2.0];
-                let p = Self::to_local(map, center);
-                let (cx, cy) = (p[0].round() as i32, p[1].round() as i32);
-                for dy in 0..dot {
-                    for dx in 0..dot {
+                let p = self.to_local(crate::city_view::tile_to_world(map, x, y));
+                let (cx, cy) = (p[0].floor() as i32, p[1].floor() as i32);
+                for dy in 0..dh {
+                    for dx in 0..dw {
                         self.put(cx + dx, cy + dy, color);
                     }
                 }
@@ -296,8 +255,8 @@ impl Minimap {
         r.dynamic_image(handle, origin, [W, H], Space::Screen);
 
         let [vx0, vy0, vx1, vy1] = r.world_view();
-        let a = Self::to_local(map, [vx0, vy0]);
-        let b = Self::to_local(map, [vx1, vy1]);
+        let a = self.to_local([vx0, vy0]);
+        let b = self.to_local([vx1, vy1]);
         let (x0, y0) = (a[0].max(0.0), a[1].max(0.0));
         let (x1, y1) = (b[0].min(W), b[1].min(H));
         if x1 > x0 && y1 > y0 {

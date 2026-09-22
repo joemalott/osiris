@@ -15,7 +15,10 @@ impl World {
         let roll = self.time.advance();
         self.update_floods();
         match self.time.tick {
-            1 => self.check_unlocks(),
+            1 => {
+                self.check_unlocks();
+                self.check_milestones();
+            }
             7 => {
                 for id in self.buildings.ids() {
                     self.refresh_road_access(id);
@@ -172,7 +175,7 @@ impl World {
         for b in self.buildings.iter_mut() {
             let Some(h) = b.house.as_mut() else { continue };
             let near = shrines.iter().any(|&(sx, sy, ss)| {
-                b.x + b.size - 1 >= sx - 3 && b.x <= sx + ss - 1 + 3 && b.y + b.size - 1 >= sy - 3 && b.y <= sy + ss - 1 + 3
+                b.x + b.size > sx - 3 && b.x <= sx + ss - 1 + 3 && b.y + b.size > sy - 3 && b.y <= sy + ss - 1 + 3
             });
             h.coverage.shrine = if near { crate::services::VISIT } else { 0 };
         }

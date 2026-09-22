@@ -36,7 +36,7 @@ pub fn outer_panel(r: &mut Renderer, p: &PanelImages, x: f32, y: f32, w: i32, h:
     let mut image_y = 0;
     for yy in 0..h {
         let mut image_x = 0;
-        let y_add;
+        
         for xx in 0..w {
             let offset = if yy == 0 {
                 if xx == 0 {
@@ -71,7 +71,7 @@ pub fn outer_panel(r: &mut Renderer, p: &PanelImages, x: f32, y: f32, w: i32, h:
                 image_x = 0;
             }
         }
-        y_add = if yy == 0 || yy == h - 1 { 0 } else { 12 };
+        let y_add = if yy == 0 || yy == h - 1 { 0 } else { 12 };
         image_y += y_add;
         if image_y >= 120 {
             image_y = 0;
@@ -124,6 +124,21 @@ pub fn inner_panel(r: &mut Renderer, p: &PanelImages, x: f32, y: f32, w: i32, h:
         if image_y >= 35 {
             image_y = 0;
         }
+    }
+}
+
+/// A 25-pixel-high sandstone button face of `w` 16-pixel blocks. `style` 0 is
+/// plain, 1 highlighted.
+pub fn large_label(r: &mut Renderer, p: &PanelImages, x: f32, y: f32, w: i32, style: u32) {
+    for i in 0..w {
+        let part = if i == 0 {
+            0
+        } else if i < w - 1 {
+            1
+        } else {
+            2
+        };
+        img(r, p.panel_button + 3 * style + part, x + 16.0 * i as f32, y);
     }
 }
 

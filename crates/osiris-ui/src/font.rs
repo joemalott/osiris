@@ -122,6 +122,15 @@ pub const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 /// Draws `text` with its top-left at `(x, y)` and returns the width drawn. `color` tints
 /// the silhouette fonts and is ignored by the coloured ones.
 pub fn draw_text(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: [f32; 4]) -> i32 {
+    draw(r, font, text, x, y, color, WHITE)
+}
+
+/// Like [`draw_text`], but also multiplies the coloured fonts by `tint` (to dim text).
+pub fn draw_text_tinted(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, tint: [f32; 4]) -> i32 {
+    draw(r, font, text, x, y, tint, tint)
+}
+
+fn draw(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: [f32; 4], tint: [f32; 4]) -> i32 {
     let d = font.def();
     let mut cx = x;
     for c in text.chars() {
@@ -148,7 +157,7 @@ pub fn draw_text(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color
                 r.image_painted(id, [cx, gy], color, Space::Screen, Paint::Silhouette);
             }
             _ => {
-                r.image_painted(id, [cx, gy], WHITE, Space::Screen, Paint::Normal);
+                r.image_painted(id, [cx, gy], tint, Space::Screen, Paint::Normal);
             }
         }
         cx += (w + d.spacing) as f32;

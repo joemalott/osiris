@@ -7,6 +7,7 @@ use crate::buildings::{Building, BuildingId, kind};
 use crate::figures::Travel;
 use crate::map::{NEIGHBOURS, terrain};
 use crate::people::figure_kind::HOMELESS;
+use crate::missions::Condition;
 use crate::world::World;
 
 const THRESHOLD: i32 = 1000;
@@ -57,8 +58,10 @@ impl World {
     pub fn destroy(&mut self, id: BuildingId, by_fire: bool) {
         let Some(b) = self.buildings.get(id).cloned() else { return };
         if by_fire {
+            self.post_trouble("message_fire_in_the_city", (b.x, b.y), Condition::Fire);
             self.events.fire = true;
         } else {
+            self.post_trouble("message_collapsed_building", (b.x, b.y), Condition::Collapse);
             self.events.collapse = true;
         }
         let tiles: Vec<(i32, i32)> = b.tiles().collect();

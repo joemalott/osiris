@@ -207,7 +207,7 @@ impl World {
                 let mut dir = if roads.len() == 2 {
                     f.direction
                 } else {
-                    ((f.counter as i32 + self.map.random.at_or(x, y, 0) as i32) & 6) as u8
+                    ((f.counter + self.map.random.at_or(x, y, 0) as i32) & 6) as u8
                 };
                 for _ in 0..4 {
                     if roads.contains(&dir) && dir != came_from {

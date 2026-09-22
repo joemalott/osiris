@@ -293,12 +293,19 @@ impl World {
         if let Some(t) = target {
             self.floods.flood_progress_target = t.clamp(0, 30);
         }
+        // With floods turned off the seasons still turn, so floodplain farms are still
+        // harvested and replanted each year, but the water stays in the river.
+        if !self.rules.floods {
+            self.floods.flood_progress_target = 30;
+        }
 
         // Once a year, at the cycle right before the flood starts rising: roll next year's
         // quality forward and tell the player what to expect.
         if subcycle == 0 && cycle == self.floods.start_cycle() - 1 {
             self.roll_next_flood_quality();
-            self.queue_flood_prediction_message();
+            if self.rules.floods {
+                self.queue_flood_prediction_message();
+            }
         }
 
         if new_state == FloodState::Imminent && old_state != FloodState::Imminent {
@@ -331,6 +338,11 @@ impl World {
         self.floods.state
     }
 
+    /// Whether this map has a floodplain for the Nile to flood.
+    pub fn has_floodplain(&self) -> bool {
+        self.floods.floodplain_width > 0
+    }
+
     /// Whether `(x, y)` is currently underwater from the flood (or, for a floodplain tile
     /// with a building on it, would be if the building weren't hiding the water).
     pub fn is_flooded(&self, x: i32, y: i32) -> bool {
@@ -360,7 +372,7 @@ impl World {
             1..=24 => "message_poor_inundation",
             _ => "message_no_inundation",
         };
-        self.messages.push_back(key.to_owned());
+        self.post(key, None, true);
     }
 
     /// Floods or dries the rows crossed by `flood_progress` moving from `old` to `new`.

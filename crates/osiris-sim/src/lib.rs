@@ -23,6 +23,7 @@ pub mod grid;
 pub mod maintenance;
 pub mod map;
 pub mod missions;
+pub mod notices;
 pub mod people;
 pub mod rng;
 pub mod rules;

@@ -15,6 +15,24 @@ pub const TILE_H: f32 = 30.0;
 #[derive(Default)]
 pub struct CityView {
     pub last_sprites: usize,
+    /// World-pixel bounds of the playable area, found on first use.
+    bounds: Option<[f32; 4]>,
+}
+
+/// World-pixel bounding box of the tiles that are part of the map (tiles outside the
+/// playable area have no image).
+pub fn map_bounds(map: &Map) -> [f32; 4] {
+    let mut b = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+    for y in 0..map.height {
+        for x in 0..map.width {
+            if map.images.at_or(x, y, 0) == 0 {
+                continue;
+            }
+            let p = tile_to_world(map, x, y);
+            b = [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0] + TILE_W), b[3].max(p[1] + TILE_H)];
+        }
+    }
+    if b[0] > b[2] { [0.0, 0.0, 1.0, 1.0] } else { b }
 }
 
 /// World pixel of the top-left corner of tile `(x, y)`'s bounding box.
@@ -88,6 +106,22 @@ pub struct Highlight {
 }
 
 impl CityView {
+    /// Keeps the camera over the map. `visible_w` is the screen width left of the
+    /// sidebar; `top` is the height of the bar above the view.
+    pub fn clamp_camera(&mut self, r: &mut Renderer, map: &Map, visible_w: f32, top: f32) {
+        let [x0, y0, x1, y1] = *self.bounds.get_or_insert_with(|| map_bounds(map));
+        // Stay a tile inside the ragged edge of the map.
+        let (x0, y0, x1, y1) = (x0 + TILE_W / 2.0, y0 + TILE_H * 1.5, x1 - TILE_W / 2.0, y1 - TILE_H);
+        let z = r.camera.zoom;
+        let (vw, vh) = (visible_w / z, (r.screen[1] - top) / z);
+        let clamp = |v: f32, lo: f32, hi: f32, span: f32| {
+            if hi - lo <= span { (lo + hi - span) / 2.0 } else { v.clamp(lo, hi - span) }
+        };
+        r.camera.x = clamp(r.camera.x, x0, x1, vw);
+        // The view starts below the top bar.
+        r.camera.y = clamp(r.camera.y + top / z, y0, y1, vh) - top / z;
+    }
+
     pub fn center_on(&mut self, r: &mut Renderer, map: &Map, x: i32, y: i32) {
         let c = tile_to_world(map, x, y);
         r.camera.x = c[0] - r.screen[0] / 2.0 / r.camera.zoom;

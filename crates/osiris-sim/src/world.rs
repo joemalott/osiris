@@ -81,6 +81,9 @@ pub struct World {
     pub mission: Option<crate::missions::Mission>,
     /// Message keys waiting to be shown to the player, oldest first.
     pub messages: VecDeque<String>,
+    /// The message log shown in the messages window.
+    #[serde(default)]
+    pub notices: crate::notices::Notices,
     pub events: crate::missions::CityEvents,
     pub won: bool,
     pub migration_params: crate::people::MigrationParams,
@@ -152,6 +155,7 @@ impl World {
             floods: Default::default(),
             mission: None,
             messages: VecDeque::new(),
+            notices: Default::default(),
             events: Default::default(),
             won: false,
             migration_params: Default::default(),

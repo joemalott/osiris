@@ -1,7 +1,9 @@
 //! A running city: the world, the view onto it, the sidebar and the player's tool.
 
 use crate::city_view::{self, CityView, Highlight, Overlay, Sprite};
-use crate::sidebar::{Category, Click, MenuItem, Sidebar, SidebarImages};
+use crate::message_list::MessageList;
+use crate::rules_panel::{RulesClick, RulesPanel};
+use crate::sidebar::{self, Button, Category, Click, MenuItem, Sidebar, SidebarImages, SidebarState};
 use crate::info::InfoPanel;
 use crate::minimap::Minimap;
 use osiris_audio::Audio;
@@ -13,8 +15,30 @@ use osiris_ui::dialog::MessageDialog;
 use osiris_ui::{Font, draw_text, font};
 use std::sync::Arc;
 
+/// Game speeds in percent. Up to 100% these follow the original's ladder; above it
+/// they are multiples of normal speed, up to 200x.
+pub const SPEEDS: [u32; 18] = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 500, 1000, 2000, 5000, 10000, 20000];
+
 /// Milliseconds per simulation tick at game speeds 100%, 90%, ... 10%.
 const MS_PER_TICK: [f32; 10] = [20.0, 35.0, 55.0, 80.0, 110.0, 160.0, 240.0, 350.0, 500.0, 700.0];
+
+/// Longest the simulation may run in one frame, so fast speeds stay responsive.
+const TICK_BUDGET_MS: f32 = 12.0;
+
+/// How long after building the action can be undone, in ticks (two days).
+const UNDO_TICKS: u64 = 100;
+
+fn ms_per_tick(speed: u32) -> f32 {
+    if speed <= 100 {
+        MS_PER_TICK[((100 - speed.clamp(10, 100)) / 10) as usize]
+    } else {
+        MS_PER_TICK[0] * 100.0 / speed as f32
+    }
+}
+
+pub fn speed_label(speed: u32) -> String {
+    if speed <= 100 { format!("{speed}%") } else { format!("{}x", speed / 100) }
+}
 
 /// Text group with building and menu names, indexed by building type id.
 const TEXT_BUILDING_NAMES: usize = 28;
@@ -75,6 +99,19 @@ pub struct Game {
     music_timer: f32,
     /// Map-changing actions since the minimap was last rebuilt.
     map_changed: bool,
+    /// The world as it was before the last build action, and when that was.
+    undo: Option<(Vec<u8>, u64)>,
+    pub message_list: Option<MessageList>,
+    pub rules_panel: Option<RulesPanel>,
+    /// Set when the player changes the rules, so the caller can store them.
+    pub rules_changed: bool,
+    /// Screen rectangle of the "Rules" link in the top bar.
+    rules_link: [f32; 4],
+    /// Next entry of the problem list to jump to.
+    problem_cursor: usize,
+    /// Build categories with nothing to build, refreshed daily.
+    empty: Vec<Category>,
+    empty_day: Option<(u32, u32)>,
 }
 
 impl Game {
@@ -107,6 +144,14 @@ impl Game {
             audio,
             music_timer: 0.0,
             map_changed: true,
+            undo: None,
+            message_list: None,
+            rules_panel: None,
+            rules_changed: false,
+            rules_link: [0.0; 4],
+            problem_cursor: 0,
+            empty: Vec::new(),
+            empty_day: None,
         }
     }
 
@@ -145,7 +190,7 @@ impl Game {
 
     /// Nothing modal is open and no tool is in hand.
     pub fn idle(&self) -> bool {
-        self.dialog.is_none() && self.info.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
+        self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.rules_panel.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
     }
 
     pub fn close_dialog(&mut self) {
@@ -159,8 +204,76 @@ impl Game {
                 d.scroll(delta, screen);
                 true
             }
-            None => false,
+            None => match &mut self.message_list {
+                Some(l) => {
+                    l.scroll(&self.world, if delta < 0.0 { 1 } else { -1 });
+                    true
+                }
+                None => false,
+            },
         }
+    }
+
+    pub fn faster(&mut self) {
+        if let Some(&s) = SPEEDS.iter().find(|&&s| s > self.speed) {
+            self.speed = s;
+        }
+    }
+
+    pub fn slower(&mut self) {
+        if let Some(&s) = SPEEDS.iter().rev().find(|&&s| s < self.speed) {
+            self.speed = s;
+        }
+    }
+
+    fn can_undo(&self) -> bool {
+        self.undo.as_ref().is_some_and(|(_, t)| self.world.time.total_ticks - t <= UNDO_TICKS)
+    }
+
+    fn undo(&mut self) {
+        let Some((data, _)) = self.undo.take() else { return };
+        match World::load(&data, self.world.defs.clone(), self.world.balance.clone()) {
+            Ok(mut w) => {
+                w.rules = self.world.rules.clone();
+                self.world = w;
+                self.map_changed = true;
+            }
+            Err(e) => self.say(&e),
+        }
+    }
+
+    /// Build categories whose menus hold nothing buildable in this mission.
+    fn refresh_empty_categories(&mut self) {
+        let day = (self.world.time.day, self.world.time.month);
+        if self.empty_day == Some(day) {
+            return;
+        }
+        self.empty_day = Some(day);
+        let menus = [
+            (Category::Food, "food"),
+            (Category::Industry, "industry"),
+            (Category::Distribution, "distribution"),
+            (Category::Entertainment, "entertainment"),
+            (Category::Religion, "religion"),
+            (Category::Education, "education"),
+            (Category::Health, "health"),
+            (Category::Government, "administration"),
+            (Category::Security, "security"),
+        ];
+        self.empty = menus
+            .into_iter()
+            .filter(|(_, key)| !self.menu_has_buildings(key, 0))
+            .map(|(c, _)| c)
+            .collect();
+    }
+
+    fn menu_has_buildings(&self, key: &str, depth: u32) -> bool {
+        let defs = &self.world.defs;
+        let Some(menu) = defs.menu(key) else { return false };
+        menu.items.iter().any(|item| match item.strip_prefix("menu_") {
+            Some(sub) => depth < 4 && self.menu_has_buildings(sub, depth + 1),
+            None => defs.building_by_key(item).is_some_and(|d| self.world.is_allowed(d.id)),
+        })
     }
 
     fn building_name(&self, k: u16) -> String {
@@ -188,16 +301,22 @@ impl Game {
         if self.paused || self.dialog.is_some() {
             return;
         }
-        let ms = MS_PER_TICK[((100 - self.speed.clamp(10, 100)) / 10) as usize];
-        self.accumulator += dt * 1000.0;
-        let mut ticks = 0;
-        while self.accumulator >= ms && ticks < 50 {
+        let ms = ms_per_tick(self.speed);
+        // Don't try to catch up after a long stall (window hidden, debugger).
+        self.accumulator = (self.accumulator + dt * 1000.0).min(ms.max(TICK_BUDGET_MS) * 50.0);
+        let start = std::time::Instant::now();
+        while self.accumulator >= ms {
             self.accumulator -= ms;
             self.world.tick();
-            ticks += 1;
-        }
-        if ticks == 50 {
-            self.accumulator = 0.0;
+            if !self.world.messages.is_empty() {
+                // Stop at a new message so it shows at the moment it happened.
+                self.accumulator = 0.0;
+                break;
+            }
+            if start.elapsed().as_secs_f32() * 1000.0 > TICK_BUDGET_MS {
+                self.accumulator = 0.0;
+                break;
+            }
         }
     }
 
@@ -208,8 +327,18 @@ impl Game {
             self.hover = None;
             return;
         }
-        self.sidebar.hover(r.screen[0], screen);
-        if self.sidebar.contains(r.screen[0], screen) {
+        if let Some(p) = &mut self.rules_panel {
+            p.hover(r.screen, sidebar::panel_left(r.screen[0]), screen);
+            self.hover = None;
+            return;
+        }
+        if let Some(l) = &mut self.message_list {
+            l.hover(&self.world, r.screen, screen);
+            self.hover = None;
+            return;
+        }
+        self.sidebar.hover(r.screen, screen);
+        if self.sidebar.contains(r.screen, screen) {
             self.hover = None;
             return;
         }
@@ -316,17 +445,38 @@ impl Game {
             }
             return None;
         }
-        let panel_left = screen_w - 162.0;
+        if let Some(p) = &mut self.rules_panel {
+            match p.click(&mut self.world.rules, screen, sidebar::panel_left(screen_w), self.cursor) {
+                RulesClick::Toggled => {
+                    self.rules_changed = true;
+                    self.sound("BUTTON.WAV");
+                }
+                RulesClick::Close | RulesClick::Outside => self.rules_panel = None,
+                RulesClick::Inside => {}
+            }
+            return None;
+        }
+        let [lx, ly, lw, lh] = self.rules_link;
+        if self.cursor[0] >= lx && self.cursor[0] < lx + lw && self.cursor[1] >= ly && self.cursor[1] < ly + lh {
+            self.open_rules();
+            return None;
+        }
+        if let Some(l) = &self.message_list {
+            if let Some(i) = l.click(&self.world, screen, self.cursor) {
+                self.open_notice(i);
+            } else if !l.contains(screen, self.cursor) {
+                self.message_list = None;
+            }
+            return None;
+        }
+        let panel_left = sidebar::panel_left(screen_w);
         if let Some(m) = &self.minimap
             && m.contains(panel_left, self.cursor)
         {
             return m.pixel_to_tile(&self.world.map, panel_left, self.cursor);
         }
-        match self.sidebar.click(screen_w, self.cursor) {
-            Click::Button(c) => {
-                self.sound("BUTTON.WAV");
-                self.choose_category(c);
-            }
+        match self.sidebar.click(screen, self.cursor) {
+            Click::Button(b) => return self.press_button(b),
             Click::Item(i) => match self.entries.get(i).cloned() {
                 Some(Entry::Building(k)) => {
                     self.tool = match k {
@@ -364,11 +514,75 @@ impl Game {
         None
     }
 
+    fn press_button(&mut self, b: Button) -> Option<(i32, i32)> {
+        let enabled = match b {
+            Button::Build(c) => !self.empty.contains(&c),
+            Button::Undo => self.can_undo(),
+            Button::Messages => !self.world.notices.log.is_empty(),
+            Button::Problem => self.world.problems().next().is_some(),
+            Button::Briefing => self.briefing().is_some(),
+            Button::SpeedDown | Button::SpeedUp => true,
+            Button::Advisors | Button::Empire | Button::Collapse => false,
+        };
+        if !enabled {
+            return None;
+        }
+        self.sound("BUTTON.WAV");
+        match b {
+            Button::Build(c) => self.choose_category(c),
+            Button::Undo => self.undo(),
+            Button::Messages => {
+                self.sidebar.open = None;
+                self.tool = Tool::None;
+                self.message_list = Some(MessageList::default());
+            }
+            Button::Problem => {
+                let problems: Vec<(i32, i32)> = self.world.problems().filter_map(|n| n.tile).take(10).collect();
+                let tile = problems[self.problem_cursor % problems.len()];
+                self.problem_cursor += 1;
+                return Some(tile);
+            }
+            Button::Briefing => {
+                if let Some(key) = self.briefing() {
+                    self.world.messages.push_back(key);
+                }
+            }
+            Button::SpeedDown => self.slower(),
+            Button::SpeedUp => self.faster(),
+            Button::Advisors | Button::Empire | Button::Collapse => {}
+        }
+        None
+    }
+
+    pub fn open_rules(&mut self) {
+        self.sidebar.open = None;
+        self.tool = Tool::None;
+        self.drag_start = None;
+        self.rules_panel = Some(RulesPanel::default());
+        self.sound("BUTTON.WAV");
+    }
+
+    fn briefing(&self) -> Option<String> {
+        self.world.mission.as_ref()?.start_message.clone()
+    }
+
+    /// Opens entry `i` of the message log.
+    fn open_notice(&mut self, i: usize) {
+        let Some(n) = self.world.notices.log.get_mut(i) else { return };
+        n.read = true;
+        let key = n.key.clone();
+        self.message_list = None;
+        self.world.messages.push_front(key);
+        self.sound("BUTTON.WAV");
+    }
+
     pub fn release(&mut self) {
+        self.sidebar.release();
         if self.drag_start.is_none() {
             return;
         }
         if let Some(cmd) = self.pending_command() {
+            let snapshot = self.world.save().ok();
             match self.world.apply(&cmd) {
                 Outcome::NotEnoughMoney => self.say("Not enough money"),
                 Outcome::Blocked => self.say("Can't build there"),
@@ -376,7 +590,8 @@ impl Game {
                 Outcome::Done { items, .. } => {
                     if items > 0 {
                         self.map_changed = true;
-                        self.sound(if matches!(cmd, Command::Clear { .. }) { "BUILD.WAV" } else { "BUILD.WAV" });
+                        self.undo = snapshot.map(|s| (s, self.world.time.total_ticks));
+                        self.sound("BUILD.WAV");
                     }
                 }
             }
@@ -385,7 +600,7 @@ impl Game {
     }
 
     pub fn cancel(&mut self) {
-        if self.dialog.take().is_some() || self.info.take().is_some() {
+        if self.dialog.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() {
             return;
         }
         if self.sidebar.open.take().is_some() {
@@ -492,6 +707,7 @@ impl Game {
         let marker = self.world.defs.terrain.empty_land;
         let sprites = self.sprites();
         let overlays = self.overlays(r);
+        self.view.clamp_camera(r, &self.world.map, sidebar::panel_left(r.screen[0]), sidebar::TOP);
         self.view.draw(r, &self.world.map, &marks, marker, &sprites, &overlays);
         self.draw_overlay(r, cost);
     }
@@ -501,15 +717,64 @@ impl Game {
         let month = self.text.get(TEXT_MONTHS, t.month as usize).unwrap_or("?");
         let year = if t.year < 0 { format!("{} BC", -t.year) } else { format!("{} AD", t.year) };
         let status = format!(
-            "Deben {}      Pop {}      {} {}      Speed {}%{}",
+            "Deben {}      Pop {}      {} {}      Speed {}{}",
             self.world.treasury,
             self.world.population,
             month,
             year,
-            self.speed,
+            speed_label(self.speed),
             if self.paused { " (paused)" } else { "" }
         );
-        self.sidebar.draw(r, &self.images, &status, &self.world.scenario_name);
+        self.refresh_empty_categories();
+        let category = match self.tool {
+            Tool::Road => Some(Category::Roads),
+            Tool::Clear => Some(Category::Clear),
+            Tool::Build(k) if k == kind::VACANT_LOT => Some(Category::Housing),
+            _ => self.sidebar.open,
+        };
+        let flood = match self.world.flood_state() {
+            _ if !self.world.has_floodplain() => None,
+            osiris_sim::floods::FloodState::Resting | osiris_sim::floods::FloodState::Farmable => Some("Farming"),
+            osiris_sim::floods::FloodState::Imminent => Some("Flood soon"),
+            osiris_sim::floods::FloodState::Flooding => Some("Rising"),
+            osiris_sim::floods::FloodState::Inundated => Some("Flooded"),
+            osiris_sim::floods::FloodState::Contracting => Some("Receding"),
+        };
+        let mut lines = vec![
+            ("Unemployed".to_owned(), format!("{}%", self.world.unemployment)),
+            ("Workers".to_owned(), format!("{}/{}", self.world.labor.employed, self.world.labor.needed)),
+        ];
+        if let Some(f) = flood {
+            lines.push(("Nile".to_owned(), f.to_owned()));
+        }
+        let text = self.text.clone();
+        let tips = move |i: usize| text.get(68, i).map(str::to_owned);
+        let speed = speed_label(self.speed);
+        let state = SidebarState {
+            status: &status,
+            title: &self.world.scenario_name,
+            empty: &self.empty,
+            category,
+            unread: self.world.unread_notices(),
+            has_messages: !self.world.notices.log.is_empty(),
+            has_problems: self.world.problems().next().is_some(),
+            has_briefing: self.briefing().is_some(),
+            can_undo: self.can_undo(),
+            speed: &speed,
+            lines: &lines,
+            tips: &tips,
+        };
+        self.sidebar.draw(r, &self.images, &state);
+        let sw = osiris_ui::text_width(r, Font::NormalWhiteOnDark, &status) as f32;
+        let link = "Rules";
+        let lw = osiris_ui::text_width(r, Font::NormalWhiteOnDark, link) as f32;
+        self.rules_link = [10.0 + sw + 40.0, 4.0, lw + 8.0, 22.0];
+        let hot = {
+            let [lx, ly, lw, lh] = self.rules_link;
+            self.cursor[0] >= lx && self.cursor[0] < lx + lw && self.cursor[1] >= ly && self.cursor[1] < ly + lh
+        };
+        let f = if hot { Font::NormalYellow } else { Font::NormalWhiteOnDark };
+        draw_text(r, f, link, self.rules_link[0] + 4.0, 8.0, font::WHITE);
         let minimap = self.minimap.get_or_insert_with(|| Minimap::new(r));
         // The simulation changes terrain too (fires, rubble); refresh about once a second.
         if self.map_changed || self.world.time.tick == 0 {
@@ -518,7 +783,7 @@ impl Game {
         }
         let buildings = &self.world.buildings;
         let is_house = |id: u32| buildings.get(id).is_some_and(|b| b.house.is_some());
-        minimap.draw(r, &self.world.map, is_house, r.screen[0] - 162.0);
+        minimap.draw(r, &self.world.map, is_house, sidebar::panel_left(r.screen[0]));
         let tool = match self.tool {
             Tool::None => String::new(),
             Tool::Road => self.building_name(5),
@@ -539,6 +804,12 @@ impl Game {
         }
         if let Some(i) = &self.info {
             i.draw(r, &self.images.panels, &self.world, &self.text);
+        }
+        if let Some(p) = &self.rules_panel {
+            p.draw(r, &self.images.panels, &self.world.rules, sidebar::panel_left(r.screen[0]), "Changes apply now, and to every game you play.");
+        }
+        if let Some(l) = &self.message_list {
+            l.draw(r, &self.images.panels, &self.world, &self.messages, &self.text);
         }
         if let Some(d) = &self.dialog {
             d.draw(r);
