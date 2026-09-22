@@ -48,6 +48,10 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["info", p] => view.info = Some(parse_point(p)?),
             ["dialogs"] => view.keep_dialogs = true,
             ["menu"] => view.menu = true,
+            ["safe"] => {
+                world.rules.fire = false;
+                world.rules.collapse = false;
+            }
             ["saveload"] => {
                 let bytes = world.save().map_err(anyhow::Error::msg)?;
                 let loaded = World::load(&bytes, world.defs.clone(), world.balance.clone()).map_err(anyhow::Error::msg)?;
