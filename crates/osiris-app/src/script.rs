@@ -256,7 +256,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 eprintln!("     x from {}", cx - 8);
             }
-            ["monlist"] => eprintln!("monuments {:?}", world.scenario_monuments),
+            ["monlist"] => eprintln!("monuments {:?} complex gods {:?}", world.scenario_monuments, world.complex_gods),
             ["report"] => {
                 let houses: Vec<String> = world
                     .buildings

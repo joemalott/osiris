@@ -435,9 +435,12 @@ impl Game {
     }
 
     fn footprint_origin(&self, k: u16, tile: (i32, i32)) -> (i32, i32) {
-        // The cursor sits on the footprint's middle tile.
-        let s = self.world.size_of(k);
-        (tile.0 - (s - 1) / 2, tile.1 - (s - 1) / 2)
+        // The cursor sits on the footprint's middle tile; an upgrade goes where it points.
+        if osiris_sim::temple_complex::is_upgrade(k) {
+            return tile;
+        }
+        let (w, h) = self.world.footprint_of(k);
+        (tile.0 - (w - 1) / 2, tile.1 - (h - 1) / 2)
     }
 
     fn pending_command(&self) -> Option<Command> {
@@ -959,8 +962,8 @@ impl Game {
             Command::Clear { x0, y0, x1, y1 } => rect(x0, y0, x1, y1),
             Command::Build { kind: k, x, y, x1, y1 } if k == kind::VACANT_LOT => rect(x, y, x1, y1),
             Command::Build { kind: k, x, y, .. } => {
-                let s = self.world.size_of(k);
-                rect(x, y, x + s - 1, y + s - 1)
+                let (w, h) = if osiris_sim::temple_complex::is_upgrade(k) { (1, 1) } else { self.world.footprint_of(k) };
+                rect(x, y, x + w - 1, y + h - 1)
             }
         };
         (tiles.into_iter().map(|(x, y)| Highlight { x, y, color }).collect(), cost)

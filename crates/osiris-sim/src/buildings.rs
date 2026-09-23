@@ -58,6 +58,9 @@ pub mod kind {
 pub struct Building {
     pub id: BuildingId,
     pub kind: u16,
+    /// A temple complex's altar and oracle (bits 1 and 2).
+    #[serde(default)]
+    pub upgrades: u8,
     pub x: i32,
     pub y: i32,
     pub size: i32,
@@ -202,6 +205,15 @@ impl Buildings {
 
 /// A road tile orthogonally adjacent to the `size x size` footprint at `(x, y)`,
 /// scanning the perimeter the way the original does (top edge first).
+/// A road tile beside a `w` x `h` footprint, going round it from the top.
+pub fn road_access_rect(map: &Map, x: i32, y: i32, (w, h): (i32, i32)) -> Option<(i32, i32)> {
+    let top = (0..w).map(|i| (x + i, y - 1));
+    let right = (0..h).map(|i| (x + w, y + i));
+    let bottom = (0..w).map(|i| (x + w - 1 - i, y + h));
+    let left = (0..h).map(|i| (x - 1, y + h - 1 - i));
+    top.chain(right).chain(bottom).chain(left).find(|&(rx, ry)| map.terrain_is(rx, ry, terrain::ROAD) && !map.terrain_is(rx, ry, terrain::WATER | terrain::BUILDING))
+}
+
 pub fn road_access(map: &Map, x: i32, y: i32, size: i32) -> Option<(i32, i32)> {
     let mut candidates = Vec::with_capacity((4 * size) as usize);
     for i in 0..size {

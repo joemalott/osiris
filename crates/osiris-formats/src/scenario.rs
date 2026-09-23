@@ -118,6 +118,12 @@ fn point(r: &mut Reader) -> Result<TilePoint> {
 }
 
 impl ScenarioInfo {
+    /// The gods a temple complex may be built to (Osiris, Ra, Ptah, Seth, Bast):
+    /// words at bytes 1240-1249 of the scenario's info, in the reserved block.
+    pub fn temple_complex_gods(&self) -> [bool; 5] {
+        std::array::from_fn(|g| self.reserved.get(104 + g).is_some_and(|&w| w != 0))
+    }
+
     pub fn parse(data: &[u8]) -> Result<Self> {
         let mut r = Reader::new(data, "scenario_info");
         let mut s = Self {

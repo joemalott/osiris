@@ -200,6 +200,10 @@ impl World {
     }
 
     pub fn is_allowed(&self, k: u16) -> bool {
+        // Temple complexes follow the scenario's gods, and their upgrades the complex.
+        if let Some(ok) = self.complex_allowed(k) {
+            return ok;
+        }
         self.mission.as_ref().is_none_or(|m| m.allowed.contains(&k)) && self.monument_allowed(k)
     }
 

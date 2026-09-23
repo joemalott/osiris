@@ -9,6 +9,18 @@ impl World {
         self.defs.building(k).map_or(1, |d| d.size.max(1))
     }
 
+    /// The tiles building type `k` covers, across and down: a monument's or temple
+    /// complex's own shape, otherwise its square.
+    pub fn footprint_of(&self, k: u16) -> (i32, i32) {
+        if crate::temple_complex::is_complex(k) {
+            return crate::temple_complex::SIZE;
+        }
+        self.monument_footprint(k).unwrap_or_else(|| {
+            let s = self.size_of(k);
+            (s, s)
+        })
+    }
+
     /// Checks the placement rules for one building of type `k` at `(x, y)`.
     pub fn can_place(&self, k: u16, x: i32, y: i32) -> Result<(), &'static str> {
         let def = self.defs.building(k).ok_or("Unknown building")?;
@@ -22,7 +34,7 @@ impl World {
         if k == crate::bridges::LOW_BRIDGE {
             return self.bridge_span(x, y).map(|_| ());
         }
-        let (fw, fh) = self.monument_footprint(k).unwrap_or((size, size));
+        let (fw, fh) = self.footprint_of(k);
         if def.needs("shoreline") {
             return self.can_place_on_shore(k, x, y);
         }
@@ -111,6 +123,9 @@ impl World {
     }
 
     pub(crate) fn build(&mut self, k: u16, x: i32, y: i32, x1: i32, y1: i32, measure: bool) -> Outcome {
+        if crate::temple_complex::is_upgrade(k) {
+            return self.build_upgrade(k, (x1, y1), measure);
+        }
         let sites = self.build_sites(k, x, y, x1, y1);
         let ok: Vec<(i32, i32)> = sites.iter().copied().filter(|&(sx, sy)| self.can_place(k, sx, sy).is_ok()).collect();
         if ok.is_empty() {
@@ -148,7 +163,7 @@ impl World {
     /// Adds a building without charging for it.
     pub fn create_building(&mut self, k: u16, x: i32, y: i32) -> BuildingId {
         let size = self.size_of(k);
-        let dims = self.monument_footprint(k);
+        let dims = self.monument_footprint(k).or_else(|| crate::temple_complex::is_complex(k).then_some(crate::temple_complex::SIZE));
         let (fw, fh) = dims.unwrap_or((size, size));
         let image = self.defs.building(k).map_or(0, |d| d.image);
         let mut b = Building {
@@ -179,6 +194,8 @@ impl World {
             self.place_venue(id);
         } else if k == kind::STORAGE_YARD {
             self.place_storage_yard(id);
+        } else if crate::temple_complex::is_complex(k) {
+            self.place_temple_complex(id);
         } else if dims.is_some() {
             self.place_monument(id);
         } else if crate::military::fort_soldier(k).is_some() {
@@ -201,6 +218,8 @@ impl World {
         let Some(b) = self.buildings.get(id) else { return };
         let road = if b.is_house() {
             crate::buildings::road_within(&self.map, b.x, b.y, b.size, 2)
+        } else if b.dims.is_some() {
+            crate::buildings::road_access_rect(&self.map, b.x, b.y, b.footprint())
         } else {
             crate::buildings::road_access(&self.map, b.x, b.y, b.size)
         };
