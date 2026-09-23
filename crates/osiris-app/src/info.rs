@@ -159,8 +159,9 @@ impl InfoPanel {
         use osiris_sim::military::Order;
         let orders: &[(Order, usize)] = match co.kind {
             osiris_sim::military::INFANTRY => &[(Order::HoldTight, 12), (Order::HoldLoose, 14), (Order::Engage, 16), (Order::MopUp, 18)],
-            osiris_sim::military::CHARIOTEER => &[(Order::HoldLoose, 14), (Order::Engage, 16), (Order::MopUp, 18), (Order::Charge, 20)],
-            _ => &[(Order::HoldLoose, 14), (Order::Engage, 16), (Order::MopUp, 18)],
+            // Charioteers can't hold a loose formation (manual, Marching Orders).
+            osiris_sim::military::CHARIOTEER => &[(Order::HoldTight, 12), (Order::Engage, 16), (Order::MopUp, 18), (Order::Charge, 20)],
+            _ => &[(Order::HoldTight, 12), (Order::HoldLoose, 14), (Order::Engage, 16), (Order::MopUp, 18)],
         };
         for (i, &(order, text)) in orders.iter().enumerate() {
             let rect = [x + 24.0, y + 196.0 + 26.0 * i as f32, 240.0, 22.0];

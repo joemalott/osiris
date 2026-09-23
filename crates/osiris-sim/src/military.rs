@@ -123,6 +123,22 @@ pub struct Company {
     pub abroad: i32,
     #[serde(default)]
     pub order: Order,
+    /// Charioteers' horses: the ticks of charging they have left in them.
+    #[serde(default = "full_wind")]
+    pub wind: i32,
+    /// The tick the horses last ran or rested, so a company tires once a tick.
+    #[serde(default)]
+    pub wind_tick: u64,
+}
+
+/// Ticks a company of charioteers can charge at top speed before its horses tire,
+/// and how many ticks of rest win back one. (The manual only says the horses tire
+/// after a great distance and must rest; these amounts are placeholders.)
+const WIND: i32 = 300;
+const REST_PER_WIND: u64 = 2;
+
+fn full_wind() -> i32 {
+    WIND
 }
 
 /// A company's standing orders.
@@ -257,7 +273,7 @@ impl World {
             f.home = id;
             f.action = action::AT_REST;
         }
-        self.military.companies.push(Company { fort: id, ground, kind, standard, standard_tile: (gx, gy), at_fort: true, morale: 50, ..Default::default() });
+        self.military.companies.push(Company { fort: id, ground, kind, standard, standard_tile: (gx, gy), at_fort: true, morale: 50, wind: WIND, ..Default::default() });
     }
 
     /// Whether a fort's parade ground fits beside it.
@@ -442,6 +458,7 @@ impl World {
                 }
             }
             action::AT_STANDARD => {
+                self.breathe(fid, false);
                 if kind == ARCHER {
                     self.shoot_at_foes(fid);
                 }
@@ -458,7 +475,7 @@ impl World {
                     self.chase(fid, reach);
                 }
             }
-            action::AT_REST => {}
+            action::AT_REST => self.breathe(fid, false),
             action::ATTACK => self.fight(fid),
             action::GOING_ABROAD => {
                 // Marching out of the city; gone once past its edge.
@@ -525,12 +542,41 @@ impl World {
         }
     }
 
+    /// Whether a soldier is a charioteer charging with horses still fresh.
+    fn charging(&self, fid: FigureId) -> bool {
+        self.figures.get(fid).is_some_and(|f| f.kind == CHARIOTEER)
+            && self.company_of(fid).and_then(|c| self.military.companies.get(c)).is_some_and(|c| c.order == Order::Charge && c.wind > 0)
+    }
+
+    /// Once a tick, a company's horses tire while it charges and recover while it
+    /// doesn't.
+    fn breathe(&mut self, fid: FigureId, running: bool) {
+        let now = self.time.total_ticks;
+        let Some(c) = self.company_of(fid).and_then(|c| self.military.companies.get_mut(c)) else { return };
+        if c.wind_tick == now {
+            return;
+        }
+        c.wind_tick = now;
+        if running {
+            c.wind = (c.wind - 1).max(0);
+        } else if now % REST_PER_WIND == 0 {
+            c.wind = (c.wind + 1).min(WIND);
+        }
+    }
+
     /// A soldier under orders to go after enemies heads for the nearest within `reach`
-    /// tiles, or back to his place when none is left.
+    /// tiles, or back to his place when none is left. Charging charioteers go at the
+    /// gallop until their horses tire, and then at half pace.
     fn chase(&mut self, fid: FigureId, reach: i32) {
         let Some(f) = self.figures.get(fid) else { return };
         let (x, y) = (f.x, f.y);
         let target = self.nearest_foe(false, (x, y), reach).map(|o| (o.1, o.2));
+        let charioteer = f.kind == CHARIOTEER && self.company_of(fid).and_then(|c| self.military.companies.get(c)).is_some_and(|c| c.order == Order::Charge);
+        let fresh = self.charging(fid);
+        if charioteer && target.is_some() {
+            self.breathe(fid, fresh);
+        }
+        let spent = charioteer && !fresh && self.time.total_ticks % 2 == 1;
         let map = &self.map;
         let f = self.figures.get_mut(fid).expect("present");
         match target {
@@ -539,7 +585,11 @@ impl World {
                 if !f.moving && f.destination != Some(to) {
                     f.go_to(map, to);
                 }
-                f.walk(map);
+                f.speed = if fresh { 2 } else { 1 };
+                if !spent {
+                    f.walk(map);
+                }
+                f.speed = 1;
             }
             None if f.action == action::CHASING => self.send_to_post(fid),
             None => {}
@@ -596,6 +646,8 @@ impl World {
                 Some(Order::HoldLoose) => -2,
                 _ => 0,
             };
+        // A charge breaks the enemy's line: his armour does him no good.
+        let armor = if self.charging(fid) { 0 } else { armor };
         self.hurt(foe, (attack - armor).max(0));
     }
 

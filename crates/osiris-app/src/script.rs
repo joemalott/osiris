@@ -182,6 +182,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 world.set_order(c.parse()?, order);
             }
             ["seapoint", p] => world.invasions.sea_points.push(parse_point(p)?),
+            ["landpoint", p] => world.invasions.land_points.push(parse_point(p)?),
             ["troops", n] => {
                 let i = world.scenario_events.request_troops_now(n.parse()?);
                 let ok = world.dispatch_request(i);
@@ -190,7 +191,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["army"] => {
                 for (i, c) in world.military.companies.iter().enumerate() {
                     let alive: Vec<(i32, i32, u16, i32)> = c.soldiers.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.action, f.damage)).collect();
-                    eprintln!("  company {i} fort {} kind {} at_fort {} morale {} trained {} soldiers {} recruits {} {:?}", c.fort, c.kind, c.at_fort, c.morale, c.trained, c.soldiers.len(), c.recruits.len(), alive);
+                    eprintln!("  company {i} fort {} kind {} at_fort {} morale {} wind {} trained {} soldiers {} recruits {} {:?}", c.fort, c.kind, c.at_fort, c.morale, c.wind, c.trained, c.soldiers.len(), c.recruits.len(), alive);
                 }
                 for (i, a) in world.invasions.armies.iter().enumerate() {
                     let alive: Vec<(i32, i32, u16, u16, i32)> = a.figures.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.kind, f.action, f.damage)).collect();
@@ -238,6 +239,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 eprintln!("     x from {}", cx - 8);
             }
+            ["monlist"] => eprintln!("monuments {:?}", world.scenario_monuments),
             ["report"] => {
                 let houses: Vec<String> = world
                     .buildings
