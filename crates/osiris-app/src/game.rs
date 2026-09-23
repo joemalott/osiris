@@ -66,6 +66,23 @@ const SUBMENUS: &[(&str, u16)] = &[
     ("defenses", 176),
 ];
 
+/// A build menu label in title case, as the original's menus are: each word
+/// capitalized but for short joining words after the first.
+fn title_case(s: &str) -> String {
+    const SMALL: [&str; 6] = ["to", "of", "the", "and", "a", "on"];
+    s.split(' ')
+        .enumerate()
+        .map(|(i, w)| {
+            if i > 0 && SMALL.contains(&w) {
+                return w.to_owned();
+            }
+            let mut c = w.chars();
+            c.next().map_or_else(String::new, |f| f.to_uppercase().chain(c).collect())
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
     None,
@@ -470,11 +487,11 @@ impl Game {
                 let label_id = SUBMENUS.iter().find(|(k, _)| *k == sub).map(|&(_, id)| id);
                 let label = label_id.map_or_else(|| sub.replace('_', " "), |id| self.building_name(id));
                 self.entries.push(Entry::Submenu(sub.to_owned()));
-                self.sidebar.items.push(MenuItem { label: format!("{label} ..."), cost: 0, enabled: true });
+                self.sidebar.items.push(MenuItem { label: format!("{} ...", title_case(&label)), cost: 0, enabled: true });
             } else if let Some(d) = defs.building_by_key(item).filter(|d| self.world.is_allowed(d.id)) {
                 self.entries.push(Entry::Building(d.id));
                 self.sidebar.items.push(MenuItem {
-                    label: self.building_name(d.id),
+                    label: title_case(&self.building_name(d.id)),
                     cost: self.world.cost_of(d.id as usize),
                     enabled: true,
                 });
