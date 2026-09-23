@@ -980,6 +980,10 @@ impl Game {
                 out.push(s);
                 continue;
             }
+            if f.kind == osiris_sim::military::STANDARD_BEARER {
+                out.extend(crate::army_view::standard_sprites(r, &self.world, f, self.world.time.total_ticks));
+                continue;
+            }
             if let Some(s) = crate::army_view::fighter_sprite(&self.world, f) {
                 out.push(s);
                 continue;

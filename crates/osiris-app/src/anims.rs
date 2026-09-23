@@ -73,6 +73,14 @@ pub fn building_animations(cx: &AnimContext, out: &mut Vec<Overlay>) {
             monument(cx, b, out);
             continue;
         }
+        if osiris_sim::military::fort_soldier(b.kind).is_some() {
+            // The fort's emblem: which kind of company it holds.
+            if let Some(a) = cx.anim(b, "picture") {
+                let p = cx.point(b.x, b.y);
+                out.push(Overlay { x: b.x, y: b.y + b.size - 1, pos: [p[0] + a.x as f32, p[1] + a.y as f32], image: a.image });
+            }
+            continue;
+        }
         if osiris_sim::water::is_shore_building(b.kind) {
             shore(cx, b, out);
             continue;
