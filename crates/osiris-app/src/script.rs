@@ -85,6 +85,23 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
             }
             ["orders"] => view.orders = true,
+            // Sets every monument's phase, and its blocks' work: "n" for all, or
+            // "a:b" to ramp from a on the first block to b on the last.
+            ["monphase", phase, work] => {
+                let (a, b) = work.split_once(':').unwrap_or((work, work));
+                let (a, b): (i32, i32) = (a.parse()?, b.parse()?);
+                let ids: Vec<_> = world.buildings.iter().filter(|b| b.monument.is_some()).map(|b| b.id).collect();
+                for id in ids {
+                    if let Some(m) = world.buildings.get_mut(id).and_then(|b| b.monument.as_mut()) {
+                        m.phase = phase.parse()?;
+                        let n = m.progress.len().max(2) as i32;
+                        for (i, p) in m.progress.iter_mut().enumerate() {
+                            *p = (a + (b - a) * i as i32 / (n - 1)) as u16;
+                        }
+                    }
+                    world.refresh_monument_images(id);
+                }
+            }
             ["empire"] => view.empire = Some(None),
             ["empire", c] => view.empire = Some(Some(c.parse()?)),
             ["burn", p] => {

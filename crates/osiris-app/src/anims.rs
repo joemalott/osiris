@@ -174,6 +174,12 @@ fn monument(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
         }
         return;
     }
+    // The surveyor's stakes at the corners of a site not yet worked.
+    for (x, y, image) in cx.world.monument_stakes(b.id) {
+        let Some(rec) = cx.r.record(image) else { continue };
+        let p = cx.point(x, y);
+        out.push(Overlay { x, y, pos: [p[0], p[1] + city_view::TILE_H - rec.height as f32], image });
+    }
     for (bx, by, image, lift) in cx.world.monument_stacks(b.id) {
         if lift == 0 {
             continue;

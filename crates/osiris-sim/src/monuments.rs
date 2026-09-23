@@ -202,6 +202,10 @@ pub fn monument_def(k: u16) -> Option<&'static MonumentDef> {
 /// Phase, finished, and (resource, delivered, needed) for the phase's materials.
 pub type MonumentStatus = (u8, bool, Vec<(u16, i32, i32)>);
 
+/// A site tile: where, its image, and the next stage's image fading in over it with
+/// how far in.
+type SiteTile = ((i32, i32), u32, Option<(u32, f32)>);
+
 /// Phases that level the site.
 const LEVELING_PHASES: u8 = 2;
 /// Laborers one monument takes at a time.
@@ -222,6 +226,10 @@ pub struct Monument {
     /// A tomb whose funeral procession has come: it houses the deceased.
     #[serde(default)]
     pub funeral_done: bool,
+    /// The ground the site was staked out on, a row at a time, shown until the
+    /// laborers have levelled it.
+    #[serde(default)]
+    pub ground: Vec<u32>,
 }
 
 impl Monument {
@@ -377,7 +385,10 @@ impl World {
     pub(crate) fn place_monument(&mut self, id: BuildingId) {
         let Some(b) = self.buildings.get_mut(id) else { return };
         let Some(def) = monument_def(b.kind) else { return };
-        let mut m = Monument { progress: vec![0; (def.cols * def.rows) as usize], ..Default::default() };
+        let (w, h) = b.footprint();
+        let (x0, y0) = (b.x, b.y);
+        let ground = (y0..y0 + h).flat_map(|y| (x0..x0 + w).map(move |x| (x, y))).map(|(x, y)| self.map.images.at_or(x, y, 0)).collect();
+        let mut m = Monument { progress: vec![0; (def.cols * def.rows) as usize], ground, ..Default::default() };
         if def.style == Style::Sphinx {
             // Carved from the rock where it stands: no leveling.
             m.phase = LEVELING_PHASES;
@@ -399,8 +410,150 @@ impl World {
         self.refresh_monument_images(id);
     }
 
-    fn levelled_ground(site: u32, x: i32, y: i32) -> u32 {
-        site + 41 + ((x * 3 + y) % 9) as u32
+    /// The site art every tomb's pack shares, by its group 2 start (`site` is group 2
+    /// offset 7): levelled ground (offset 12, eight looks), the surveyor's stake
+    /// (group 8), the four stages of the levelling trenches (groups 3-6, nine pieces
+    /// each) and a pyramid's basement (group 7, four 2x2 pieces).
+    fn grounded(site: u32, dx: i32, dy: i32) -> u32 {
+        site + 5 + ((dy * 4 + dx) & 7) as u32
+    }
+
+    pub(crate) fn stake_image(site: u32) -> u32 {
+        site + 13
+    }
+
+    fn trench(site: u32, stage: u8) -> u32 {
+        site + 14 + 9 * (stage as u32 - 1)
+    }
+
+    fn basement(site: u32) -> u32 {
+        site + 50
+    }
+
+    /// The staked-out foundation: its corners and edges marked, stony ground within.
+    fn foundation(site: u32, (x, y): (i32, i32), (x0, y0): (i32, i32), (x1, y1): (i32, i32)) -> u32 {
+        let inside = x > x0 && x < x1 || y > y0 && y < y1;
+        if (x, y) == (x0, y0) {
+            site
+        } else if (x, y) == (x0, y1) {
+            site - 2
+        } else if (x, y) == (x1, y1) {
+            site - 4
+        } else if (x, y) == (x1, y0) {
+            site - 6
+        } else if x == x0 {
+            site - 1
+        } else if y == y1 {
+            site - 3
+        } else if x == x1 {
+            site - 5
+        } else if y == y0 && inside {
+            site - 7
+        } else {
+            site + 5 + ((x + y) % 7) as u32
+        }
+    }
+
+    /// The piece of a trench grid for a tile, given which of its neighbours (north,
+    /// east, south, west: y-1, x+1, y+1, x-1) are trenches too. The nine pieces are
+    /// the corners NE, ES, SW, WN, the T-joins open to the west, north, east and
+    /// south, and the crossing.
+    fn trench_piece(n: bool, e: bool, s: bool, w: bool) -> u32 {
+        match (n, e, s, w) {
+            (true, true, true, true) => 8,
+            (false, true, true, true) => 5,
+            (true, false, true, true) => 6,
+            (true, true, false, true) => 7,
+            (true, true, true, false) => 4,
+            (true, true, false, false) => 0,
+            (false, true, true, false) => 1,
+            (false, false, true, true) => 2,
+            (true, false, false, true) => 3,
+            // Straight runs and ends, from the T-joins that carry them.
+            (true, false, _, false) | (_, false, true, false) => 4,
+            (false, true, false, _) | (false, _, false, true) => 5,
+            _ => 8,
+        }
+    }
+
+    /// Each tile's site image and, over it, the next stage fading in with the work
+    /// done on its block: (tile, image, fading image and how far in).
+    fn site_tiles(&self, id: BuildingId) -> Vec<SiteTile> {
+        let mut out = Vec::new();
+        let Some(b) = self.buildings.get(id) else { return out };
+        let (Some(def), Some(m)) = (monument_def(b.kind), b.monument.as_ref()) else { return out };
+        if m.finished || !matches!(def.style, Style::Mastaba { .. } | Style::Pyramid(_)) {
+            return out;
+        }
+        let Some(site) = self.defs.building(b.kind).map(|d| d.image) else { return out };
+        let (x0, y0) = (b.x, b.y);
+        let (w, h) = b.footprint();
+        let (x1, y1) = (x0 + w - 1, y0 + h - 1);
+        let work = |x: i32, y: i32| -> u16 {
+            let i = ((y - y0) / 2 * def.cols + (x - x0) / 2) as usize;
+            m.progress.get(i).copied().unwrap_or(0).min(BLOCK_WORK)
+        };
+        let inside = |x: i32, y: i32| x >= x0 && x <= x1 && y >= y0 && y <= y1;
+        let pyramid = matches!(def.style, Style::Pyramid(_));
+        let phase = m.phase;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let p = work(x, y);
+                let fade = (p > 0 && p < BLOCK_WORK).then_some(p as f32 / BLOCK_WORK as f32);
+                let (dx, dy) = (x - x0, y - y0);
+                let grounded = Self::grounded(site, dx, dy);
+                let foundation = Self::foundation(site, (x, y), (x0, y0), (x1, y1));
+                // In the flooding phases every tile of the site is trench; while
+                // digging, only the blocks begun.
+                let dug = |xx: i32, yy: i32| inside(xx, yy) && (phase != 2 || work(xx, yy) > 0);
+                let piece = || Self::trench_piece(dug(x, y - 1), dug(x + 1, y), dug(x, y + 1), dug(x - 1, y));
+                let (under, over) = match phase {
+                    // Bare ground with the corners staked; levelled ground spreads.
+                    0 => {
+                        let bare = m.ground.get((dy * w + dx) as usize).copied().filter(|&g| g != 0).unwrap_or(grounded);
+                        if p >= BLOCK_WORK { (grounded, None) } else { (bare, Some(grounded)) }
+                    }
+                    // The foundation marked out on the levelled ground.
+                    1 => if p >= BLOCK_WORK { (foundation, None) } else { (grounded, Some(foundation)) },
+                    // A pyramid's site is trenched, flooded to find the level,
+                    // filled with rubble and smoothed.
+                    2..=5 if pyramid => {
+                        let stage = phase - 1;
+                        let next = Self::trench(site, stage) + piece();
+                        let before = if phase == 2 { foundation } else { Self::trench(site, stage - 1) + piece() };
+                        if p >= BLOCK_WORK { (next, None) } else { (before, Some(next)) }
+                    }
+                    _ if pyramid => (Self::trench(site, 4) + Self::trench_piece(y > y0, x < x1, y < y1, x > x0), None),
+                    _ => (foundation, None),
+                };
+                out.push(((x, y), under, over.zip(fade)));
+            }
+        }
+        out
+    }
+
+    /// The images fading in over a monument's tiles as its site is worked:
+    /// (x, y, image, opacity).
+    pub fn monument_fades(&self, id: BuildingId) -> Vec<(i32, i32, u32, f32)> {
+        self.site_tiles(id).into_iter().filter_map(|((x, y), _, over)| over.map(|(image, a)| (x, y, image, a))).collect()
+    }
+
+    /// The surveyor's stakes at a site's corners, standing until their block is
+    /// worked: (x, y, image).
+    pub fn monument_stakes(&self, id: BuildingId) -> Vec<(i32, i32, u32)> {
+        let Some(b) = self.buildings.get(id) else { return Vec::new() };
+        let (Some(def), Some(m)) = (monument_def(b.kind), b.monument.as_ref()) else { return Vec::new() };
+        if m.phase != 0 || m.finished || !matches!(def.style, Style::Mastaba { .. } | Style::Pyramid(_)) {
+            return Vec::new();
+        }
+        let Some(site) = self.defs.building(b.kind).map(|d| d.image) else { return Vec::new() };
+        let (w, h) = b.footprint();
+        let (x1, y1) = (b.x + w - 1, b.y + h - 1);
+        [(b.x, b.y), (x1, b.y), (b.x, y1), (x1, y1)]
+            .into_iter()
+            .filter(|&(x, y)| m.progress.get(((y - b.y) / 2 * def.cols + (x - b.x) / 2) as usize).is_some_and(|&p| p == 0))
+            .map(|(x, y)| (x, y, Self::stake_image(site)))
+            .collect()
     }
 
     /// Redraws a monument's ground-level tiles for its phase and the blocks done so far.
@@ -431,51 +584,26 @@ impl World {
             self.map.set_footprint(x0, y0, size, image);
             return;
         }
+        // The site's ground, then each block's course where one has been laid.
+        for ((x, y), image, _) in self.site_tiles(id) {
+            self.map.set_single_image(x, y, image);
+        }
         if phase < LEVELING_PHASES && !finished {
-            // Staked-out ground, with the corners and edges marked.
-            let (x1, y1) = (x0 + w - 1, y0 + h - 1);
-            for y in y0..=y1 {
-                for x in x0..=x1 {
-                    let inside = x > x0 && x < x1 || y > y0 && y < y1;
-                    let image = if phase == 1 {
-                        Self::levelled_ground(site, x, y)
-                    } else if (x, y) == (x0, y0) {
-                        site
-                    } else if (x, y) == (x0, y1) {
-                        site - 2
-                    } else if (x, y) == (x1, y1) {
-                        site - 4
-                    } else if (x, y) == (x1, y0) {
-                        site - 6
-                    } else if x == x0 {
-                        site - 1
-                    } else if y == y1 {
-                        site - 3
-                    } else if x == x1 {
-                        site - 5
-                    } else if y == y0 && inside {
-                        site - 7
-                    } else {
-                        site + 5 + ((x + y) % 7) as u32
-                    };
-                    self.map.set_single_image(x, y, image);
-                }
-            }
             return;
         }
-        // Each block shows the course it has reached; the rest is levelled ground.
+        let pyramid = matches!(def.style, Style::Pyramid(_));
+        if pyramid && !finished && phase == PYRAMID_BASE_PHASES - 1 {
+            // The basement, dug in the four blocks about the centre.
+            let (cx, cy) = (x0 + w / 2, y0 + h / 2);
+            let base = Self::basement(site);
+            for (bx, by, piece) in [(cx, cy - 2, 0), (cx - 2, cy, 1), (cx - 2, cy - 2, 2), (cx, cy, 3)] {
+                self.map.set_footprint(bx, by, 2, base + piece);
+            }
+        }
         let stacks = self.monument_stacks(id);
-        for r in 0..def.rows {
-            for c in 0..def.cols {
-                let (bx, by) = (x0 + c * 2, y0 + r * 2);
-                match stacks.iter().find(|s| (s.0, s.1, s.3) == (bx, by, 0)) {
-                    Some(&(_, _, image, _)) => self.map.set_footprint(bx, by, 2, image),
-                    None => {
-                        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                            self.map.set_single_image(bx + dx, by + dy, Self::levelled_ground(site, bx + dx, by + dy));
-                        }
-                    }
-                }
+        for &(bx, by, image, lift) in &stacks {
+            if lift == 0 {
+                self.map.set_footprint(bx, by, 2, image);
             }
         }
     }
@@ -550,10 +678,7 @@ impl World {
                         let reached = if topped {
                             courses - 1
                         } else if m.phase < PYRAMID_BASE_PHASES {
-                            // The foundation: a floor of stone once the block's first course is laid.
-                            if m.phase > LEVELING_PHASES || done(i) {
-                                out.push((bx, by, cube, 0));
-                            }
+                            // Still levelling: the site shows its trenches and basement.
                             continue;
                         } else if done(i) {
                             course_after(m.phase)
@@ -661,8 +786,14 @@ impl World {
             return true;
         }
         let Some(p) = m.progress.get_mut(block) else { return true };
+        let was = *p;
         *p = (*p + 1).min(BLOCK_WORK);
-        *p >= BLOCK_WORK
+        let done = *p >= BLOCK_WORK;
+        if done && was < BLOCK_WORK {
+            // The block's tiles now show the finished stage.
+            self.refresh_monument_images(id);
+        }
+        done
     }
 
     /// Whether monument `id`'s current phase wants craftsman `figure` on site.

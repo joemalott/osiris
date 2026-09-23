@@ -1118,6 +1118,12 @@ impl Game {
                 })
                 .collect(),
         });
+        self.view.fades.clear();
+        for b in self.world.buildings.iter().filter(|b| b.monument.as_ref().is_some_and(|m| !m.finished)) {
+            for (x, y, image, a) in self.world.monument_fades(b.id) {
+                self.view.fades.insert((x, y), (image, a));
+            }
+        }
         self.view.draw(r, &self.world.map, &marks, marker, &sprites, &overlays, draw.as_ref());
         self.draw_overlay(r, cost);
     }
