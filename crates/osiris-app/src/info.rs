@@ -29,6 +29,8 @@ const TEXT_BAZAAR: usize = 97;
 pub enum Target {
     Building(u32),
     Tile(i32, i32),
+    /// Up to seven walkers on the clicked tile, and the one shown.
+    Figures([u32; 7], u8, u8),
 }
 
 /// What the window asks of the game.
@@ -51,10 +53,6 @@ pub struct InfoPanel {
 impl InfoPanel {
     pub fn new(target: Target) -> Self {
         Self { target, orders: false, click: None, cursor: [0.0; 2], scroll: 0, rect: [0.0; 4] }
-    }
-
-    pub fn building(id: u32) -> Self {
-        Self::new(Target::Building(id))
     }
 
     pub fn open_orders(&mut self) {
@@ -100,6 +98,13 @@ impl InfoPanel {
                 None => Some(InfoAction::Close),
             },
             Target::Tile(x, y) => self.terrain_window(ui, world, x, y),
+            Target::Figures(ids, n, selected) => {
+                let (action, pick) = self.figure_window(ui, world, &ids[..n as usize], selected as usize);
+                if let Some(p) = pick {
+                    self.target = Target::Figures(ids, n, p as u8);
+                }
+                action
+            }
         };
         if self.orders {
             ui.click = orders_click;
@@ -123,6 +128,48 @@ impl InfoPanel {
         ui.image(ctx, x + 14.0, y + h - 40.0);
         let closed = ui.image_button(ctx + 4, x + w - 40.0, y + h - 40.0, 27.0, 27.0);
         ([x, y], closed)
+    }
+
+    /// A walker: tabs for each walker on the tile, then the chosen one's portrait,
+    /// name, what he is and where from, and what he carries. Returns the tab clicked.
+    fn figure_window(&mut self, ui: &mut Ui, world: &World, ids: &[u32], selected: usize) -> (Option<InfoAction>, Option<usize>) {
+        const TYPE_NAMES: usize = 64;
+        let ([x, y], closed) = self.frame(ui, 29, 22, "");
+        panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 40.0, 27, 13);
+        let mut pick = None;
+        for (i, &fid) in ids.iter().enumerate() {
+            let Some(f) = world.figures.get(fid) else { continue };
+            let rect = [x + 27.0 + 60.0 * i as f32, y + 45.0, 52.0, 52.0];
+            panel::button_border(ui.r, ui.panels, rect[0], rect[1], 52, 52, i == selected);
+            ui.image(ui.img.portraits + f.kind as u32, rect[0] + 4.0, rect[1] + 4.0);
+            if ui.clicked(rect) {
+                pick = Some(i);
+            }
+        }
+        let Some(f) = ids.get(selected).and_then(|&fid| world.figures.get(fid)) else {
+            return (Some(InfoAction::Close), None);
+        };
+        ui.image(ui.img.portraits + f.kind as u32, x + 30.0, y + 108.0);
+        // Boats have boat names; everyone else a person's name.
+        let boat = matches!(f.kind, 20 | 25 | 76 | 77 | 78 | 92 | 93 | 100 | 101);
+        let (group, count) = if boat { (261, 16) } else { (254, 128) };
+        // Animals have no names.
+        let name = if osiris_sim::animals::is_animal(f.kind) { ui.t(TYPE_NAMES, f.kind as usize) } else { ui.t(group, f.id as usize % count) };
+        ui.label(Font::LargeBlackOnDark, &name, x + 90.0, y + 108.0);
+        let mut kind = ui.t(TYPE_NAMES, f.kind as usize);
+        if let Some(home) = world.buildings.get(f.home) {
+            let home_name = world.defs.building(home.kind).and_then(|d| d.text_id).filter(|&g| g > 0).map(|g| ui.t(g as usize, 0)).unwrap_or_default();
+            if !home_name.is_empty() {
+                kind = format!("{kind} ({home_name})");
+            }
+        }
+        ui.label(Font::NormalBlackOnDark, &kind, x + 92.0, y + 139.0);
+        if f.cargo > 0 && f.amount > 0 && f.cargo < 36 {
+            let what = format!("{} {}", f.amount, ui.t(TEXT_RESOURCES, f.cargo as usize));
+            ui.icon(f.cargo, x + 90.0, y + 160.0);
+            ui.label(Font::NormalBlackOnDark, &what, x + 116.0, y + 162.0);
+        }
+        (closed.then_some(InfoAction::Close), pick)
     }
 
     /// The employee row: a dark panel with the worker count and a staffing line.

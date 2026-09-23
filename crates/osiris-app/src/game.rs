@@ -666,10 +666,30 @@ impl Game {
     /// Opens the information window for whatever is under the cursor.
     pub fn inspect(&mut self) {
         let Some((x, y)) = self.hover else { return };
-        let id = self.world.map.building.at_or(x, y, 0);
-        let target = if id != 0 { crate::info::Target::Building(id) } else { crate::info::Target::Tile(x, y) };
-        self.info = Some(InfoPanel::new(target));
+        self.info = Some(InfoPanel::new(self.info_target(x, y)));
         self.sound("BUTTON.WAV");
+    }
+
+    /// What an info click on tile `(x, y)` shows: its walkers, else its building,
+    /// else the terrain.
+    pub fn info_target(&self, x: i32, y: i32) -> crate::info::Target {
+        let id = self.world.map.building.at_or(x, y, 0);
+        // Walkers on the tile come first.
+        let mut walkers = [0u32; 7];
+        let mut n = 0;
+        for f in self.world.figures.iter().filter(|f| (f.x, f.y) == (x, y) && !f.dead) {
+            if n < walkers.len() {
+                walkers[n] = f.id;
+                n += 1;
+            }
+        }
+        if n > 0 {
+            crate::info::Target::Figures(walkers, n as u8, 0)
+        } else if id != 0 {
+            crate::info::Target::Building(id)
+        } else {
+            crate::info::Target::Tile(x, y)
+        }
     }
 
     pub fn open_advisor(&mut self, a: crate::advisors::Advisor) {

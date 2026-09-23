@@ -657,8 +657,7 @@ fn main() -> Result<()> {
             game.message_list = Some(message_list::MessageList::default());
         }
         if let Some((x, y)) = view.info {
-            let id = game.world.map.building.at_or(x, y, 0);
-            let mut panel = if id != 0 { info::InfoPanel::building(id) } else { info::InfoPanel::new(info::Target::Tile(x, y)) };
+            let mut panel = info::InfoPanel::new(game.info_target(x, y));
             if view.orders {
                 panel.open_orders();
             }
