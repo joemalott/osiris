@@ -82,6 +82,12 @@ pub struct Figure {
     pub foe: u32,
     #[serde(default)]
     pub attack_tick: u16,
+    /// Consecutive failed pathfinds to the current kind of target (invaders picking an
+    /// attack spot): backs off the retry interval so a permanently unreachable target
+    /// (across water, with no wall to batter) doesn't force a full-map search anew
+    /// every few dozen ticks forever.
+    #[serde(default)]
+    pub stuck: u8,
 }
 
 impl Figure {
@@ -114,6 +120,7 @@ impl Figure {
             slot: 0,
             foe: 0,
             attack_tick: 0,
+            stuck: 0,
         }
     }
 
@@ -163,6 +170,13 @@ pub fn passable(map: &Map, travel: Travel, x: i32, y: i32) -> bool {
 pub fn find_route(map: &Map, travel: Travel, from: (i32, i32), to: (i32, i32)) -> Option<VecDeque<u8>> {
     if from == to {
         return Some(VecDeque::new());
+    }
+    // `from`/`to` can come straight from a click or script command past the map edge
+    // (e.g. `move_company`, which doesn't clamp its target tile): without this, the
+    // flat-index lookups below panic instead of just failing to find a route, matching
+    // the guard `water::water_path` and `World::road_path` already use.
+    if !map.contains(from.0, from.1) || !map.contains(to.0, to.1) {
+        return None;
     }
     let (w, h) = (map.width, map.height);
     let idx = |x: i32, y: i32| (y * w + x) as usize;

@@ -341,9 +341,18 @@ impl Scenario {
     }
 
     /// Grid offset of map tile `(x, y)`, or `None` outside the playable rectangle.
+    /// `width`/`height`/`start_offset` come straight from the file, so the arithmetic
+    /// is checked and the result re-validated against the grid's real size: a
+    /// corrupt or hand-edited map/save could otherwise overflow (wrapping to a bogus
+    /// offset in release builds) or land outside the 228x228 grid despite `x`/`y`
+    /// themselves passing the width/height check.
     pub fn offset(&self, x: i32, y: i32) -> Option<usize> {
         let i = &self.info;
-        (x >= 0 && y >= 0 && x < i.width && y < i.height)
-            .then(|| (i.start_offset + y * GRID_SIZE as i32 + x) as usize)
+        if x < 0 || y < 0 || x >= i.width || y >= i.height {
+            return None;
+        }
+        let row = y.checked_mul(GRID_SIZE as i32)?;
+        let off = i.start_offset.checked_add(row)?.checked_add(x)?;
+        usize::try_from(off).ok().filter(|&o| o < GRID_TILES)
     }
 }
