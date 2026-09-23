@@ -154,6 +154,9 @@ fn describe(name: &str, s: &Scenario) {
     if i.monuments.iter().any(|&m| m != 0) || i.win.monuments.enabled {
         println!("    monuments {:?} goal {:?}", i.monuments, i.win.monuments);
     }
+    if i.win.time_limit.enabled || i.win.survival_time.enabled {
+        println!("    time limit {:?} survival {:?}", i.win.time_limit, i.win.survival_time);
+    }
     let burial: Vec<(usize, u32)> = i.burial_provisions_required.iter().copied().enumerate().filter(|p| p.1 > 0).collect();
     if !burial.is_empty() {
         println!("    burial provisions {burial:?}");

@@ -211,7 +211,14 @@ impl Game {
             return;
         }
         let Some(key) = self.world.messages.pop_front() else { return };
-        let msg = if key == "victory" {
+        let msg = if key == "out_of_time" {
+            Message {
+                title: self.text.get(62, 38).unwrap_or("Out of Time!").to_owned(),
+                content: format!("@P{}", self.text.get(62, 39).unwrap_or("")),
+                size: (30, 16),
+                ..Default::default()
+            }
+        } else if key == "victory" {
             Message {
                 title: "Victory!".to_owned(),
                 content: format!(

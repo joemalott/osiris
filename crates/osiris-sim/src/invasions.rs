@@ -589,8 +589,10 @@ impl World {
         }
         let soldiers = self.figures.iter().filter(|f| crate::military::is_soldier(f.kind) && f.action != action::CORPSE).count() as i32;
         let dwindled = self.population < self.invasions.peak_population / 4 && invaders > 2 + soldiers;
-        if dwindled || self.population <= 0 {
+        // (A city not yet settled cannot fall.)
+        if self.invasions.peak_population > 0 && (dwindled || self.population <= 0) {
             self.invasions.lost = true;
+            self.lost = true;
             self.messages.push_back("message_mission_defeat".to_owned());
         }
     }

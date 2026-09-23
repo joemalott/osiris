@@ -122,6 +122,14 @@ pub struct World {
     #[serde(default)]
     pub message_texts: VecDeque<crate::scenario_events::EventText>,
     pub won: bool,
+    /// The mission is lost (the city fell, or time ran out).
+    #[serde(default)]
+    pub lost: bool,
+    /// Years the scenario allows to meet its goals, and years to survive to win.
+    #[serde(default)]
+    pub time_limit: Option<i32>,
+    #[serde(default)]
+    pub survival: Option<i32>,
     pub migration_params: crate::people::MigrationParams,
     pub scenario_name: String,
     /// 0 central, 1 northern, 2 desert.
@@ -209,6 +217,9 @@ impl World {
             scenario_events: crate::scenario_events::ScenarioEvents::from_records(&scenario.events, info.start_year as i32),
             message_texts: VecDeque::new(),
             won: false,
+            lost: false,
+            time_limit: info.win.time_limit.enabled.then_some(info.win.time_limit.value).filter(|&y| y > 0),
+            survival: info.win.survival_time.enabled.then_some(info.win.survival_time.value).filter(|&y| y > 0),
             migration_params: Default::default(),
             scenario_name: info.subtitle.clone(),
             climate: info.climate,

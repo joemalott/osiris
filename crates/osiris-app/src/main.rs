@@ -467,6 +467,7 @@ impl App {
         let status = self.status.as_ref().map(|(s, _)| s.clone());
         let Some(gfx) = &mut self.gfx else { return };
         let mut finished: Option<Option<usize>> = None;
+        let mut failed = false;
         match &mut self.screen {
             Some(Screen::Menu(m)) => {
                 let panels = self.images.as_ref().map(|i| &i.panels);
@@ -506,12 +507,21 @@ impl App {
                         osiris_ui::draw_text(r, osiris_ui::Font::NormalYellow, s, 20.0, 50.0, osiris_ui::font::WHITE);
                     }
                 });
-                // Once the victory message has been read, go on to the next mission.
+                // Once the victory message has been read, go on to the next mission;
+                // once the defeat has been read, back to try again.
                 if game.world.won && game.idle() {
                     finished = Some(*mission);
                 }
+                if game.world.lost && game.idle() {
+                    failed = true;
+                }
             }
             None => {}
+        }
+        if failed {
+            let mut menu = self.menu();
+            menu.show_campaign();
+            self.screen = Some(Screen::Menu(menu));
         }
         if let Some(mission) = finished {
             let next = mission.map(|m| m + 1);
