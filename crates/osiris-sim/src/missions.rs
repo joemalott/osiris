@@ -91,6 +91,9 @@ pub struct Mission {
     pub initial_funds: Option<i32>,
     pub house_tax_pct: Option<i32>,
     pub religion_enabled: bool,
+    /// The rank Pharaoh has given the governor, which sets the salary he may draw.
+    #[serde(default)]
+    pub player_rank: u8,
 }
 
 /// Always available, whatever the mission says.
@@ -181,6 +184,7 @@ impl World {
             initial_funds: arr(&raw.funds, "initial_funds"),
             house_tax_pct: arr(&raw.funds, "house_tax_multipliers"),
             religion_enabled: raw.funds.get("religion_enabled").and_then(|v| v.as_bool()).unwrap_or(true),
+            player_rank: raw.funds.get("player_rank").and_then(|v| v.as_integer()).unwrap_or(0) as u8,
         };
         if let Some(f) = mission.initial_funds {
             self.treasury = f;

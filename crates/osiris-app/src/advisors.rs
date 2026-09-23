@@ -117,6 +117,24 @@ enum Popup {
     Festival(Option<usize>),
     /// Asking before sending what a request wants, or saying there is not enough.
     Request(usize, bool),
+    /// Choosing the governor's salary.
+    Salary,
+    /// Choosing a gift to the Kingdom.
+    Gift,
+    /// Giving part of the governor's savings to the city: the amount so far.
+    Donate(i32),
+}
+
+impl Advisors {
+    /// Opens a named popup (for scripted screenshots).
+    pub fn open_popup(&mut self, name: &str) {
+        self.popup = match name {
+            "salary" => Some(Popup::Salary),
+            "gift" => Some(Popup::Gift),
+            "donate" => Some(Popup::Donate(0)),
+            _ => None,
+        };
+    }
 }
 
 pub struct Advisors {
@@ -230,6 +248,15 @@ impl Advisors {
                     FestivalChoice::Stay => false,
                 },
                 Some(Popup::Request(i, ok)) => request_popup(&mut ui, world, i, ok),
+                Some(Popup::Salary) => salary_popup(&mut ui, world),
+                Some(Popup::Gift) => gift_popup(&mut ui, world),
+                Some(Popup::Donate(n)) => match donate_popup(&mut ui, world, n) {
+                    Some(n) => {
+                        self.popup = Some(Popup::Donate(n));
+                        false
+                    }
+                    None => true,
+                },
                 None => false,
             };
             if closed {
@@ -1043,10 +1070,115 @@ fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
             *popup = Some(Popup::Request(i, can));
         }
     }
+    // The governor: his rank, savings and salary, and what he can do with them.
     panel::inner_panel(ui.r, ui.panels, px + 64.0, py + 324.0, 32, 6);
-    let rank = ui.t(32, 0);
-    ui.label(Font::NormalWhiteOnDark, &rank, px + 72.0, py + 332.0);
+    let rank = ui.t(32, world.assigned_rank() as usize);
+    ui.label(Font::LargeBlackOnDark, &rank, px + 72.0, py + 332.0);
+    let give = ui.t(G, 2);
+    if ui.button([px + 320.0, py + 330.0, 250.0, 20.0], &give, Font::NormalWhiteOnDark) {
+        *popup = Some(Popup::Donate(0));
+    }
+    let gift = ui.t(G, 49);
+    if ui.button([px + 320.0, py + 352.0, 250.0, 20.0], &gift, Font::NormalWhiteOnDark) {
+        *popup = Some(Popup::Gift);
+    }
+    let savings = format!("{} {} Db", ui.t(G, 1), world.governor.savings);
+    ui.label(Font::NormalWhiteOnDark, &savings, px + 72.0, py + 374.0);
+    let rank = world.governor.salary_rank as usize;
+    let salary = format!("{} {} {}", ui.t(G, 4 + rank), osiris_sim::kingdom::SALARIES[rank], ui.t(G, 3));
+    if ui.button([px + 70.0, py + 392.0, 500.0, 24.0], &salary, Font::NormalWhiteOnDark) {
+        *popup = Some(Popup::Salary);
+    }
     None
+}
+
+/// A small popup panel centred on the screen, `w` by `h` tiles, with its title.
+fn popup_frame(ui: &mut Ui, w: i32, h: i32, title: &str) -> [f32; 2] {
+    let screen = ui.r.screen;
+    let (pw, ph) = (w as f32 * 16.0, h as f32 * 16.0);
+    let (x, y) = (((screen[0] - pw) / 2.0).floor(), ((screen[1] - ph) / 2.0).floor());
+    panel::outer_panel(ui.r, ui.panels, x, y, w, h);
+    ui.centred(Font::LargeBlackOnLight, title, x, y + 16.0, pw);
+    [x, y]
+}
+
+/// The eleven salaries, one per rank. True when it closes.
+fn salary_popup(ui: &mut Ui, world: &mut World) -> bool {
+    const G: usize = 52;
+    let title = ui.t(G, 15);
+    let [x, y] = popup_frame(ui, 32, 22, &title);
+    panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 48.0, 30, 15);
+    for rank in 0..osiris_sim::kingdom::SALARIES.len() {
+        let rect = [x + 24.0, y + 56.0 + 20.0 * rank as f32, 30.0 * 16.0 - 16.0, 20.0];
+        let hot = ui.hot(rect);
+        let f = if hot || rank == world.governor.salary_rank as usize { Font::NormalYellow } else { Font::NormalWhiteOnDark };
+        let line = format!("{} {} {}", ui.t(G, 4 + rank), osiris_sim::kingdom::SALARIES[rank], ui.t(G, 3));
+        ui.label(f, &line, rect[0] + 8.0, rect[1] + 3.0);
+        if ui.clicked(rect) {
+            world.set_salary_rank(rank as u8);
+            return true;
+        }
+    }
+    let note = if world.has_mansion() { ui.t(G, 76) } else { ui.t(G, 78) };
+    ui.wrapped(Font::NormalBlackOnLight, &note, x + 24.0, y + 300.0, 28.0 * 16.0);
+    ui.button([x + 216.0, y + 324.0, 80.0, 24.0], "Cancel", Font::NormalBlackOnLight)
+}
+
+/// Modest, generous and lavish gifts and what they cost. True when it closes.
+fn gift_popup(ui: &mut Ui, world: &mut World) -> bool {
+    const G: usize = 52;
+    let title = ui.t(G, 49);
+    let [x, y] = popup_frame(ui, 32, 17, &title);
+    let savings = format!("{} {} Db", ui.t(G, 1), world.governor.savings);
+    ui.centred(Font::NormalBlackOnLight, &savings, x, y + 46.0, 32.0 * 16.0);
+    for size in 0..3 {
+        let ry = y + 76.0 + 48.0 * size as f32;
+        let cost = world.gift_cost(size);
+        let label = format!("{} {} Db", ui.t(G, 63 + size), cost);
+        ui.label(Font::NormalBlackOnLight, &label, x + 32.0, ry + 4.0);
+        let send = ui.t(G, 66 + size);
+        let can = cost <= world.governor.savings;
+        if ui.button([x + 240.0, ry, 240.0, 24.0], &send, if can { Font::NormalBlackOnLight } else { Font::SmallPlain }) && can {
+            world.send_gift(size);
+            return true;
+        }
+    }
+    if world.gift_cost(0) > world.governor.savings {
+        let none = ui.t(G, 70);
+        ui.wrapped(Font::NormalBlackOnLight, &none, x + 32.0, y + 220.0, 28.0 * 16.0);
+    }
+    ui.button([x + 216.0, y + 240.0, 80.0, 24.0], "Cancel", Font::NormalBlackOnLight)
+}
+
+/// Choosing how much of his savings the governor gives the city. The new amount while
+/// it stays open, `None` when it closes.
+fn donate_popup(ui: &mut Ui, world: &mut World, amount: i32) -> Option<i32> {
+    const G: usize = 52;
+    let title = ui.t(G, 16);
+    let [x, y] = popup_frame(ui, 26, 12, &title);
+    let savings = world.governor.savings;
+    let line = format!("{} {} Db", ui.t(G, 17), amount);
+    ui.centred(Font::NormalBlackOnLight, &line, x, y + 56.0, 26.0 * 16.0);
+    let mut amount = amount;
+    for (i, step) in [-100, -10, 10, 100].into_iter().enumerate() {
+        let label = if step > 0 { format!("+{step}") } else { step.to_string() };
+        if ui.button([x + 40.0 + 70.0 * i as f32, y + 90.0, 60.0, 22.0], &label, Font::NormalBlackOnLight) {
+            amount = (amount + step).clamp(0, savings);
+        }
+    }
+    let all = ui.t(G, 19);
+    if ui.button([x + 320.0, y + 90.0, 60.0, 22.0], &all, Font::NormalBlackOnLight) {
+        amount = savings;
+    }
+    let give = ui.t(G, 18);
+    if ui.button([x + 60.0, y + 140.0, 140.0, 24.0], &give, Font::NormalBlackOnLight) {
+        world.donate(amount);
+        return None;
+    }
+    if ui.button([x + 216.0, y + 140.0, 140.0, 24.0], "Cancel", Font::NormalBlackOnLight) {
+        return None;
+    }
+    Some(amount)
 }
 
 /// "Dispatch goods?" with Yes and No, or "You do not have enough" with OK. True when

@@ -80,6 +80,7 @@ impl World {
             self.update_gods_month();
             self.update_ratings_month();
             self.check_outbreak();
+            self.pay_salary();
             self.process_scenario_events();
             self.update_sieges();
             if !self.won && self.goals_met() {

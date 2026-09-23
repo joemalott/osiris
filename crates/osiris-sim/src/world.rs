@@ -100,6 +100,9 @@ pub struct World {
     #[serde(default)]
     pub water: crate::water::Water,
     pub events: crate::missions::CityEvents,
+    /// The governor's salary, savings and gifts to the Kingdom.
+    #[serde(default)]
+    pub governor: crate::kingdom::Governor,
     /// What the scenario has planned: requests, gifts, changes in the empire.
     #[serde(default)]
     pub scenario_events: crate::scenario_events::ScenarioEvents,
@@ -185,6 +188,7 @@ impl World {
             ratings: crate::ratings::Ratings { last_year_worth: info.initial_funds, ..Default::default() },
             water,
             events: Default::default(),
+            governor: Default::default(),
             scenario_events: crate::scenario_events::ScenarioEvents::from_records(&scenario.events, info.start_year as i32),
             message_texts: VecDeque::new(),
             won: false,

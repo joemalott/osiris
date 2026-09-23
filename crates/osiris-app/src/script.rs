@@ -24,6 +24,8 @@ pub struct ScriptView {
     pub build_menu: Option<String>,
     pub empire: Option<Option<usize>>,
     pub advisor: Option<String>,
+    /// A popup to open over the overseer: salary, gift or donate.
+    pub advisor_popup: Option<String>,
     pub orders: bool,
 }
 
@@ -67,6 +69,11 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["messages"] => view.messages = true,
             ["buildmenu", name] => view.build_menu = Some(name.to_string()),
             ["advisor", name] => view.advisor = Some(name.to_string()),
+            ["advisor", name, popup] => {
+                view.advisor = Some(name.to_string());
+                view.advisor_popup = Some(popup.to_string());
+            }
+            ["savings", n] => world.governor.savings = n.parse()?,
             ["orders"] => view.orders = true,
             ["empire"] => view.empire = Some(None),
             ["empire", c] => view.empire = Some(Some(c.parse()?)),

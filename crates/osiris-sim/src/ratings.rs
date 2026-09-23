@@ -322,6 +322,7 @@ impl World {
         if self.mission.as_ref().is_some_and(|m| m.id < 3) {
             self.ratings.change_kingdom(-2);
         }
+        self.salary_year();
         self.ratings.last_kingdom = self.ratings.kingdom;
     }
 

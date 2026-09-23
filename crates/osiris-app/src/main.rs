@@ -641,6 +641,9 @@ fn main() -> Result<()> {
             && let Some(a) = advisors::ALL.iter().find(|a| format!("{a:?}").eq_ignore_ascii_case(name))
         {
             game.open_advisor(*a);
+            if let (Some(p), Some(adv)) = (&view.advisor_popup, game.advisors.as_mut()) {
+                adv.open_popup(p);
+            }
         }
         if let Some(city) = view.empire {
             let mut e = empire_window::EmpireWindow::default();

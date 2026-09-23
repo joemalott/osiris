@@ -42,6 +42,9 @@ pub struct YearTotals {
     pub gold: i32,
     #[serde(default)]
     pub tribute: i32,
+    /// The governor's salary.
+    #[serde(default)]
+    pub salary: i32,
 }
 
 impl Default for Finance {
