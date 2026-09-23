@@ -4,7 +4,7 @@
 use crate::rules_panel::{RulesClick, RulesPanel};
 use osiris_render::{Renderer, Space, WHITE};
 use osiris_sim::Rules;
-use osiris_ui::{Font, PanelImages, draw_text, draw_text_tinted, font, panel, text_width};
+use osiris_ui::{Font, PanelImages, draw_text, draw_text_tinted, font, panel, rich_text, text_width};
 use std::path::PathBuf;
 
 /// Background images in Pharaoh_Unloaded (global ids).
@@ -12,6 +12,14 @@ const BG_TITLE: u32 = 201;
 const BG_CHOOSE_GAME: u32 = 656;
 const BG_HISTORY: u32 = 658;
 const BG_CUSTOM: u32 = 657;
+/// The family registry's own background (group 29, "FE_Registry.BMP"); the "create a
+/// family" page reuses `BG_CHOOSE_GAME`, as the original does.
+const BG_REGISTRY: u32 = 654;
+/// Size of the family pages' popups (a notice, or a delete confirmation).
+const NOTICE_W: f32 = 340.0;
+const NOTICE_H: f32 = 130.0;
+const CONFIRM_W: f32 = 360.0;
+const CONFIRM_H: f32 = 170.0;
 /// The choice of city: the frame, the maps of Egypt (one per choice screen, 640x400,
 /// shown at 192,144 in the frame) and the city marker (normal, hover, pressed).
 const CHOICE_BACK: u32 = 492;
@@ -59,6 +67,8 @@ pub enum Choice {
     Path(u32),
     Map(PathBuf),
     Save(PathBuf),
+    /// A family chosen (or freshly created) on the registry page, to make active.
+    Family(String),
     Quit,
 }
 
@@ -71,6 +81,48 @@ enum Page {
     Custom,
     Load,
     Rules,
+    /// The family registry: create, delete or choose a family.
+    Family,
+    /// Typing a new family's name.
+    NewFamily,
+}
+
+/// The family pages' text, resolved from `Pharaoh_Text.eng` so they read like the
+/// original's (group numbers are the original's own, found in its text table).
+#[derive(Debug, Clone, Default)]
+pub struct FamilyText {
+    /// 292.3, the registry's title.
+    pub registry_title: String,
+    /// 292.0
+    pub new_button: String,
+    /// 292.1
+    pub delete_button: String,
+    /// 292.2
+    pub proceed_button: String,
+    /// 292.4
+    pub back_button: String,
+    /// 31.0, the "create a family" page's title.
+    pub enter_name: String,
+    /// 13.5, that page's commit button.
+    pub continue_button: String,
+    /// 12.0, that page's cancel button.
+    pub cancel_button: String,
+    /// 5.90
+    pub delete_title: String,
+    /// 5.91
+    pub delete_body: String,
+    /// 5.92
+    pub exists_title: String,
+    /// 5.93
+    pub exists_body: String,
+    /// 5.94
+    pub none_title: String,
+    /// 5.95
+    pub none_body: String,
+    /// 18.1
+    pub yes: String,
+    /// 18.0
+    pub no: String,
 }
 
 struct Item {
@@ -102,9 +154,22 @@ pub struct Menu {
     /// Set when the rules change, so the caller can store them.
     pub rules_changed: bool,
     hover_back: bool,
-    /// The governor's name, and whether it is being typed.
-    pub name: String,
-    pub editing_name: bool,
+    /// The active family, whose name is used in messages; empty until one is chosen.
+    pub family: String,
+    /// Families found in the registry, refreshed whenever it's opened.
+    families: Vec<String>,
+    /// The registry row awaiting Delete or Proceed.
+    family_selected: Option<usize>,
+    /// The name being typed on the "create a family" page.
+    new_family: String,
+    /// An OK-only popup on the family pages: title and body.
+    family_notice: Option<(String, String)>,
+    /// A delete confirmation, naming the family that would be removed.
+    family_confirm: Option<String>,
+    /// The hovered button on the family pages: New/Continue is 0, Delete 1, Proceed
+    /// 2; a popup's OK or Yes is 0, No is 1.
+    family_hover: Option<u8>,
+    family_text: FamilyText,
 }
 
 const LIST_ROWS: usize = 16;
@@ -131,8 +196,13 @@ fn inside(p: [f32; 2], x: f32, y: f32, w: f32, h: f32) -> bool {
     p[0] >= x && p[0] < x + w && p[1] >= y && p[1] < y + h
 }
 
+fn inside4(p: [f32; 2], r: [f32; 4]) -> bool {
+    inside(p, r[0], r[1], r[2], r[3])
+}
+
 impl Menu {
-    pub fn new(mission_names: Vec<String>, campaign: CampaignView, maps: Vec<PathBuf>, mut saves: Vec<PathBuf>, rules: Rules) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(mission_names: Vec<String>, campaign: CampaignView, maps: Vec<PathBuf>, mut saves: Vec<PathBuf>, rules: Rules, family: String, family_text: FamilyText) -> Self {
         saves.sort_by_key(|p| std::cmp::Reverse(std::fs::metadata(p).and_then(|m| m.modified()).ok()));
         let mut m = Self {
             page: Page::Main,
@@ -149,8 +219,14 @@ impl Menu {
             rules_panel: RulesPanel::default(),
             rules_changed: false,
             hover_back: false,
-            name: crate::player_name(),
-            editing_name: false,
+            family,
+            families: Vec::new(),
+            family_selected: None,
+            new_family: String::new(),
+            family_notice: None,
+            family_confirm: None,
+            family_hover: None,
+            family_text,
         };
         m.build();
         m
@@ -158,15 +234,34 @@ impl Menu {
 
     /// Opens a page by name (for scripted screenshots).
     pub fn open_page(&mut self, name: &str) {
+        // The registry's own popups, for screenshotting them too.
+        if name == "family-confirm" {
+            self.go(Page::Family);
+            self.family_confirm = self.families.first().cloned();
+            return;
+        }
+        if name == "family-notice" {
+            self.go(Page::Family);
+            self.family_notice = Some((self.family_text.none_title.clone(), self.family_text.none_body.clone()));
+            return;
+        }
         let page = match name {
             "campaign" => Page::Campaign,
             "choice" => Page::CityChoice,
             "custom" => Page::Custom,
             "load" => Page::Load,
             "rules" => Page::Rules,
+            "family" => Page::Family,
+            "newfamily" => Page::NewFamily,
             _ => Page::Main,
         };
         self.go(page);
+    }
+
+    /// Rereads the family registry and re-selects the active family's row, if any.
+    fn refresh_families(&mut self) {
+        self.families = crate::list_families();
+        self.family_selected = self.families.iter().position(|f| f.eq_ignore_ascii_case(&self.family));
     }
 
     /// The campaign after a mission: the choice of the next city when one is waiting,
@@ -176,6 +271,9 @@ impl Menu {
     }
 
     fn go(&mut self, page: Page) {
+        if page == Page::Family {
+            self.refresh_families();
+        }
         self.page = page;
         self.build();
         self.scroll = if page == Page::Campaign {
@@ -190,7 +288,7 @@ impl Menu {
         let go = |p| Action::Go(p);
         self.items = match self.page {
             Page::Main => {
-                let mut v = Vec::new();
+                let mut v = vec![Item { label: format!("Family: {}", self.family), enabled: true, action: go(Page::Family) }];
                 if let Some(latest) = self.saves.first() {
                     let name = latest.file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned());
                     v.push(Item { label: format!("Continue: {name}"), enabled: true, action: Action::Choose(Choice::Save(latest.clone())) });
@@ -222,7 +320,12 @@ impl Menu {
             }
             Page::Custom => Self::files(&self.maps, Choice::Map),
             Page::Load => Self::files(&self.saves, Choice::Save),
-            Page::Rules | Page::CityChoice => Vec::new(),
+            Page::Family => self
+                .families
+                .iter()
+                .map(|name| Item { label: name.clone(), enabled: true, action: Action::Choose(Choice::Family(name.clone())) })
+                .collect(),
+            Page::Rules | Page::CityChoice | Page::NewFamily => Vec::new(),
         };
         self.hover = None;
     }
@@ -259,9 +362,12 @@ impl Menu {
     }
 
     /// List pages other than the campaign: an outer panel in the middle of the screen.
+    /// The family registry has an extra row of buttons (New/Delete/Proceed) above its
+    /// Back button, so it reserves more height.
     fn list_box(&self, screen: [f32; 2]) -> (f32, f32) {
         let rows = self.items.len().clamp(1, LIST_ROWS) as f32;
-        let h = rows * ROW_H + 64.0 + 40.0;
+        let extra = if self.page == Page::Family { 40.0 } else { 0.0 };
+        let h = rows * ROW_H + 64.0 + 40.0 + extra;
         (((screen[0] - BOX_W) / 2.0).floor(), ((screen[1] - h) / 2.0).max(40.0).floor())
     }
 
@@ -271,12 +377,59 @@ impl Menu {
                 let (_, info) = Self::plaque(screen);
                 [((info[0] + info[2]) / 2.0 - 80.0).floor(), (info[3] - BUTTON_H).floor()]
             }
+            Page::Family => {
+                let (x, y) = self.list_box(screen);
+                let rows = self.items.len().clamp(1, LIST_ROWS) as f32;
+                [x + (BOX_W - 160.0) / 2.0, y + 44.0 + rows * ROW_H + 12.0 + BUTTON_H + 12.0]
+            }
+            Page::NewFamily => {
+                let [x, y, w, h] = self.new_family_box(screen);
+                [x + w / 2.0 + 8.0, y + h - 40.0]
+            }
             _ => {
                 let (x, y) = self.list_box(screen);
                 let rows = self.items.len().clamp(1, LIST_ROWS) as f32;
                 [x + (BOX_W - 160.0) / 2.0, y + 44.0 + rows * ROW_H + 12.0]
             }
         }
+    }
+
+    /// The "create a family" page's panel: a fixed size, since it has no rows.
+    fn new_family_box(&self, screen: [f32; 2]) -> [f32; 4] {
+        let (w, h) = (BOX_W, 190.0);
+        [((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).max(40.0).floor(), w, h]
+    }
+
+    /// The family registry's New/Delete/Proceed buttons, side by side above Back.
+    fn family_buttons(&self, screen: [f32; 2]) -> [[f32; 4]; 3] {
+        let (x, y) = self.list_box(screen);
+        let rows = self.items.len().clamp(1, LIST_ROWS) as f32;
+        let by = y + 44.0 + rows * ROW_H + 12.0;
+        let w = (BOX_W - 24.0) / 3.0;
+        [[x + 8.0, by, w, BUTTON_H], [x + 12.0 + w, by, w, BUTTON_H], [x + 16.0 + 2.0 * w, by, w, BUTTON_H]]
+    }
+
+    /// The "create a family" page's commit button (its Back button reuses the generic
+    /// `back_button`, next to it).
+    fn new_family_ok_button(&self, screen: [f32; 2]) -> [f32; 4] {
+        let [x, y, w, h] = self.new_family_box(screen);
+        [x + w / 2.0 - 168.0, y + h - 40.0, 160.0, BUTTON_H]
+    }
+
+    /// A popup panel, centred on screen.
+    fn popup_rect(screen: [f32; 2], w: f32, h: f32) -> [f32; 4] {
+        [((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor(), w, h]
+    }
+
+    fn notice_ok_button(screen: [f32; 2]) -> [f32; 4] {
+        let [x, y, w, h] = Self::popup_rect(screen, NOTICE_W, NOTICE_H);
+        [x + (w - 100.0) / 2.0, y + h - 40.0, 100.0, BUTTON_H]
+    }
+
+    fn confirm_buttons(screen: [f32; 2]) -> ([f32; 4], [f32; 4]) {
+        let [x, y, w, h] = Self::popup_rect(screen, CONFIRM_W, CONFIRM_H);
+        let by = y + h - 40.0;
+        ([x + w / 2.0 - 108.0, by, 100.0, BUTTON_H], [x + w / 2.0 + 8.0, by, 100.0, BUTTON_H])
     }
 
     fn item_at(&self, screen: [f32; 2], p: [f32; 2]) -> Option<usize> {
@@ -294,7 +447,7 @@ impl Menu {
                 let rows = ((list[3] - list[1] - 8.0) / ROW_H) as usize;
                 (row < rows).then_some(row + self.scroll)
             }
-            Page::Custom | Page::Load => {
+            Page::Custom | Page::Load | Page::Family => {
                 let (x, y) = self.list_box(screen);
                 let top = y + 44.0;
                 if p[0] < x + 16.0 || p[0] > x + BOX_W - 16.0 || p[1] < top {
@@ -303,7 +456,7 @@ impl Menu {
                 let row = ((p[1] - top) / ROW_H) as usize;
                 (row < self.visible_rows()).then_some(row + self.scroll)
             }
-            Page::Rules | Page::CityChoice => None,
+            Page::Rules | Page::CityChoice | Page::NewFamily => None,
         };
         found.filter(|&i| i < self.items.len())
     }
@@ -313,10 +466,24 @@ impl Menu {
             self.rules_panel.hover(screen, screen[0], p);
             return;
         }
+        if self.family_notice.is_some() {
+            self.family_hover = inside4(p, Self::notice_ok_button(screen)).then_some(0);
+            return;
+        }
+        if self.family_confirm.is_some() {
+            let (yes, no) = Self::confirm_buttons(screen);
+            self.family_hover = if inside4(p, yes) { Some(0) } else if inside4(p, no) { Some(1) } else { None };
+            return;
+        }
         self.hover = self.item_at(screen, p);
         self.hover_point = self.point_at(screen, p);
         let [bx, by] = self.back_button(screen);
         self.hover_back = !matches!(self.page, Page::Main | Page::CityChoice) && inside(p, bx, by, 160.0, BUTTON_H);
+        self.family_hover = match self.page {
+            Page::Family => self.family_buttons(screen).iter().position(|&r| inside4(p, r)).map(|i| i as u8),
+            Page::NewFamily => inside4(p, self.new_family_ok_button(screen)).then_some(0),
+            _ => None,
+        };
     }
 
     pub fn scroll(&mut self, lines: i32) {
@@ -325,9 +492,16 @@ impl Menu {
     }
 
     pub fn back(&mut self) {
+        if self.family_notice.take().is_some() || self.family_confirm.take().is_some() {
+            return;
+        }
         match self.page {
             Page::CityChoice => self.go(Page::Campaign),
             Page::Main => {}
+            // Nothing to fall back to until a family exists: the registry is the
+            // only page reachable, and it must stay so.
+            Page::Family if self.family.is_empty() => {}
+            Page::NewFamily => self.go(Page::Family),
             _ => self.go(Page::Main),
         }
     }
@@ -350,40 +524,139 @@ impl Menu {
         })
     }
 
-    /// Where the governor's name is written on the campaign page.
+    /// Where the active family's name is written, read-only, on the campaign page.
     fn name_rect(screen: [f32; 2]) -> [f32; 4] {
         let (_, info) = Self::plaque(screen);
         [info[0], info[3] - 60.0, info[2] - info[0], 24.0]
     }
 
-    /// Typing the governor's name: a character, backspace, or Enter to keep it.
-    pub fn type_name(&mut self, text: &str) {
+    /// Whether the window should forward typed text to [`Self::type_family_name`].
+    pub fn wants_text(&self) -> bool {
+        self.page == Page::NewFamily
+    }
+
+    /// Typing the new family's name: a character, backspace, or Enter to create it.
+    pub fn type_family_name(&mut self, text: &str) {
+        if self.family_notice.is_some() {
+            return; // a popup must be dismissed with a click first
+        }
         for c in text.chars() {
             match c {
                 '\u{8}' | '\u{7f}' => {
-                    self.name.pop();
+                    self.new_family.pop();
                 }
                 '\r' | '\n' => {
-                    self.editing_name = false;
-                    crate::save_player_name(&self.name);
+                    self.commit_new_family();
+                    return;
                 }
-                c if !c.is_control() && self.name.chars().count() < 24 => self.name.push(c),
+                c if !c.is_control() && self.new_family.chars().count() < 31 => self.new_family.push(c),
                 _ => {}
             }
         }
     }
 
-    pub fn click(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
-        if self.page == Page::Campaign {
-            let [x, y, w, h] = Self::name_rect(screen);
-            let on_name = inside(p, x, y, w, h);
-            if self.editing_name && !on_name {
-                self.editing_name = false;
-                crate::save_player_name(&self.name);
-            } else if on_name {
-                self.editing_name = true;
-                return None;
+    /// Creates the typed family, after checking it is non-empty and unique, and
+    /// returns to the registry with it selected.
+    fn commit_new_family(&mut self) {
+        let name = self.new_family.trim().to_owned();
+        if name.is_empty() {
+            return;
+        }
+        // Compared as folder names would collide (sanitized), not just as typed: two
+        // names differing only in punctuation must not silently share a family.
+        if self.families.iter().any(|f| crate::sanitize(f).eq_ignore_ascii_case(&crate::sanitize(&name))) {
+            self.family_notice = Some((self.family_text.exists_title.clone(), self.family_text.exists_body.clone()));
+            return;
+        }
+        crate::create_family(&name);
+        self.new_family.clear();
+        self.go(Page::Family);
+        self.family_selected = self.families.iter().position(|f| f.eq_ignore_ascii_case(&name));
+    }
+
+    /// A click on the family registry: a row selects it; New opens the "create a
+    /// family" page; Delete and Proceed act on the selected row, or complain that
+    /// none is selected; Back leaves (once a family is already active).
+    fn click_family(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
+        if self.family_notice.is_some() {
+            if inside4(p, Self::notice_ok_button(screen)) {
+                self.family_notice = None;
             }
+            return None;
+        }
+        if let Some(name) = self.family_confirm.clone() {
+            let (yes, no) = Self::confirm_buttons(screen);
+            if inside4(p, yes) {
+                crate::delete_family(&name);
+                if self.family.eq_ignore_ascii_case(&name) {
+                    self.family.clear();
+                }
+                self.family_confirm = None;
+                self.go(Page::Family);
+            } else if inside4(p, no) {
+                self.family_confirm = None;
+            }
+            return None;
+        }
+        let [new_r, delete_r, proceed_r] = self.family_buttons(screen);
+        if inside4(p, new_r) {
+            self.go(Page::NewFamily);
+            return None;
+        }
+        let selected = self.family_selected.and_then(|i| self.families.get(i)).cloned();
+        if inside4(p, delete_r) {
+            match selected {
+                Some(name) => self.family_confirm = Some(name),
+                None => self.family_notice = Some((self.family_text.none_title.clone(), self.family_text.none_body.clone())),
+            }
+            return None;
+        }
+        if inside4(p, proceed_r) {
+            return match selected {
+                Some(name) => Some(Choice::Family(name)),
+                None => {
+                    self.family_notice = Some((self.family_text.none_title.clone(), self.family_text.none_body.clone()));
+                    None
+                }
+            };
+        }
+        let [bx, by] = self.back_button(screen);
+        if inside(p, bx, by, 160.0, BUTTON_H) {
+            self.back();
+            return None;
+        }
+        if let Some(i) = self.item_at(screen, p) {
+            self.family_selected = Some(i);
+        }
+        None
+    }
+
+    /// A click on the "create a family" page: the commit button (validated in
+    /// [`Self::commit_new_family`]) or Back, cancelling.
+    fn click_new_family(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
+        if self.family_notice.is_some() {
+            if inside4(p, Self::notice_ok_button(screen)) {
+                self.family_notice = None;
+            }
+            return None;
+        }
+        if inside4(p, self.new_family_ok_button(screen)) {
+            self.commit_new_family();
+            return None;
+        }
+        let [bx, by] = self.back_button(screen);
+        if inside(p, bx, by, 160.0, BUTTON_H) {
+            self.back();
+        }
+        None
+    }
+
+    pub fn click(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
+        if self.page == Page::Family {
+            return self.click_family(screen, p);
+        }
+        if self.page == Page::NewFamily {
+            return self.click_new_family(screen, p);
         }
         if self.page == Page::CityChoice {
             let i = self.point_at(screen, p)?;
@@ -453,6 +726,8 @@ impl Menu {
                 Self::background(r, BG_TITLE);
                 self.rules_panel.draw(r, panels, &self.rules, r.screen[0], "These apply to every game you play.");
             }
+            Page::Family => self.draw_family(r, panels),
+            Page::NewFamily => self.draw_new_family(r, panels),
         }
     }
 
@@ -521,12 +796,12 @@ impl Menu {
                 y += 22.0;
             }
         }
-        // The governor, whose name the messages will use; click to change it.
+        // The governor, whose name the messages use: the active family, read-only
+        // here (switch families from the main menu instead).
         let [nx, ny, nw, _] = Self::name_rect(r.screen);
-        let caret = if self.editing_name { "_" } else { "" };
-        let label = format!("Governor: {}{caret}", self.name);
+        let label = format!("Governor: {}", self.family);
         let w = text_width(r, Font::NormalBlackOnLight, &label) as f32;
-        draw_text(r, if self.editing_name { Font::NormalBlue } else { Font::NormalBlackOnLight }, &label, (nx + (nw - w) / 2.0).floor(), ny, font::BLACK);
+        draw_text(r, Font::NormalBlackOnLight, &label, (nx + (nw - w) / 2.0).floor(), ny, font::BLACK);
         let [bx, by] = self.back_button(r.screen);
         Self::button(r, panels, "Back", bx, by, 160.0, self.hover_back, true);
     }
@@ -581,5 +856,105 @@ impl Menu {
         }
         let [bx, by] = self.back_button(r.screen);
         Self::button(r, panels, "Back", bx, by, 160.0, self.hover_back, true);
+    }
+
+    /// The family registry: a list of existing families, with New/Delete/Proceed
+    /// above the usual Back button.
+    fn draw_family(&self, r: &mut Renderer, panels: &PanelImages) {
+        Self::background(r, BG_REGISTRY);
+        let (x, y) = self.list_box(r.screen);
+        let rows = self.items.len().clamp(1, LIST_ROWS);
+        let hb = ((rows as f32 * ROW_H + 64.0 + 40.0 + 40.0) / 16.0).ceil() as i32;
+        panel::outer_panel(r, panels, x, y, (BOX_W / 16.0) as i32, hb);
+        let title = &self.family_text.registry_title;
+        let tw = text_width(r, Font::LargeBlackOnLight, title) as f32;
+        draw_text(r, Font::LargeBlackOnLight, title, x + (BOX_W - tw) / 2.0, y + 12.0, font::BLACK);
+        panel::inner_panel(r, panels, x + 16.0, y + 40.0, (BOX_W / 16.0) as i32 - 2, ((rows as f32 * ROW_H + 8.0) / 16.0).ceil() as i32);
+        for (row, i) in (self.scroll..self.items.len()).take(LIST_ROWS).enumerate() {
+            let item = &self.items[i];
+            let iy = y + 46.0 + row as f32 * ROW_H;
+            let f = if self.family_selected == Some(i) || self.hover == Some(i) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
+            let lw = text_width(r, f, &item.label) as f32;
+            draw_text(r, f, &item.label, x + (BOX_W - lw) / 2.0, iy, font::WHITE);
+        }
+        if self.families.is_empty() {
+            let empty = "No families yet - create one below.";
+            let ew = text_width(r, Font::NormalWhiteOnDark, empty) as f32;
+            draw_text(r, Font::NormalWhiteOnDark, empty, x + (BOX_W - ew) / 2.0, y + 46.0, font::WHITE);
+        }
+        let [new_r, delete_r, proceed_r] = self.family_buttons(r.screen);
+        let labels = [&self.family_text.new_button, &self.family_text.delete_button, &self.family_text.proceed_button];
+        for (i, (r_, label)) in [new_r, delete_r, proceed_r].into_iter().zip(labels).enumerate() {
+            Self::button(r, panels, label, r_[0], r_[1], r_[2], self.family_hover == Some(i as u8), true);
+        }
+        let [bx, by] = self.back_button(r.screen);
+        Self::button(r, panels, &self.family_text.back_button, bx, by, 160.0, self.hover_back, !self.family.is_empty());
+        if let Some((title, body)) = &self.family_notice {
+            self.draw_notice(r, panels, title, body);
+        } else if self.family_confirm.is_some() {
+            self.draw_confirm(r, panels);
+        }
+    }
+
+    /// The "create a family" page: a title, a text box and Continue/Back buttons.
+    fn draw_new_family(&self, r: &mut Renderer, panels: &PanelImages) {
+        Self::background(r, BG_CHOOSE_GAME);
+        let [x, y, w, h] = self.new_family_box(r.screen);
+        panel::outer_panel(r, panels, x, y, (w / 16.0) as i32, (h / 16.0).ceil() as i32);
+        let title = &self.family_text.enter_name;
+        let tw = text_width(r, Font::LargeBlackOnLight, title) as f32;
+        draw_text(r, Font::LargeBlackOnLight, title, x + (w - tw) / 2.0, y + 14.0, font::BLACK);
+        panel::inner_panel(r, panels, x + 16.0, y + 48.0, (w / 16.0) as i32 - 2, 2);
+        let shown = format!("{}_", self.new_family);
+        draw_text(r, Font::NormalWhiteOnDark, &shown, x + 24.0, y + 54.0, font::WHITE);
+        let ok = self.new_family_ok_button(r.screen);
+        Self::button(r, panels, &self.family_text.continue_button, ok[0], ok[1], ok[2], self.family_hover == Some(0), true);
+        let [bx, by] = self.back_button(r.screen);
+        Self::button(r, panels, &self.family_text.cancel_button, bx, by, 160.0, self.hover_back, true);
+        if let Some((title, body)) = &self.family_notice {
+            self.draw_notice(r, panels, title, body);
+        }
+    }
+
+    /// Wraps `text` to `width` px in the popups' body font.
+    fn wrap(r: &Renderer, text: &str, width: f32) -> rich_text::Layout {
+        let opts = rich_text::Options { font: Font::NormalBlackOnLight, width: width as i32, paragraph_indent: 0 };
+        rich_text::layout(text, &opts, &mut rich_text::RendererMeasure::new(r))
+    }
+
+    /// An OK-only popup: a title and a short wrapped message.
+    fn draw_notice(&self, r: &mut Renderer, panels: &PanelImages, title: &str, body: &str) {
+        let screen = r.screen;
+        r.rect([0.0, 0.0], screen, [0.0, 0.0, 0.0, 0.5], Space::Screen);
+        let [x, y, w, h] = Self::popup_rect(screen, NOTICE_W, NOTICE_H);
+        panel::outer_panel(r, panels, x, y, (w / 16.0) as i32, (h / 16.0).ceil() as i32);
+        let tw = text_width(r, Font::LargeBlackOnLight, title) as f32;
+        draw_text(r, Font::LargeBlackOnLight, title, x + (w - tw) / 2.0, y + 10.0, font::BLACK);
+        let layout = Self::wrap(r, body, w - 32.0);
+        r.set_clip(Some([x + 16.0, y + 38.0, w - 32.0, h - 78.0]));
+        rich_text::draw(r, &layout, [x + 16.0, y + 38.0], h - 78.0, 0.0, font::BLACK);
+        r.set_clip(None);
+        let ok = Self::notice_ok_button(screen);
+        Self::button(r, panels, "OK", ok[0], ok[1], ok[2], self.family_hover == Some(0), true);
+    }
+
+    /// The delete-family Yes/No confirmation.
+    fn draw_confirm(&self, r: &mut Renderer, panels: &PanelImages) {
+        let Some(name) = &self.family_confirm else { return };
+        let screen = r.screen;
+        r.rect([0.0, 0.0], screen, [0.0, 0.0, 0.0, 0.5], Space::Screen);
+        let [x, y, w, h] = Self::popup_rect(screen, CONFIRM_W, CONFIRM_H);
+        panel::outer_panel(r, panels, x, y, (w / 16.0) as i32, (h / 16.0).ceil() as i32);
+        let title = &self.family_text.delete_title;
+        let tw = text_width(r, Font::LargeBlackOnLight, title) as f32;
+        draw_text(r, Font::LargeBlackOnLight, title, x + (w - tw) / 2.0, y + 10.0, font::BLACK);
+        let body = format!("{} ({name})", self.family_text.delete_body);
+        let layout = Self::wrap(r, &body, w - 32.0);
+        r.set_clip(Some([x + 16.0, y + 38.0, w - 32.0, h - 78.0]));
+        rich_text::draw(r, &layout, [x + 16.0, y + 38.0], h - 78.0, 0.0, font::BLACK);
+        r.set_clip(None);
+        let (yes, no) = Self::confirm_buttons(screen);
+        Self::button(r, panels, &self.family_text.yes, yes[0], yes[1], yes[2], self.family_hover == Some(0), true);
+        Self::button(r, panels, &self.family_text.no, no[0], no[1], no[2], self.family_hover == Some(1), true);
     }
 }
