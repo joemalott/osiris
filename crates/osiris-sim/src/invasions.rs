@@ -291,7 +291,7 @@ impl World {
                 pick < 0
             });
             let k = k.map_or(ENEMY_INFANTRY, |a| a.0);
-            let fid = self.figures.spawn(k, spot.0, spot.1, Travel::Land);
+            let fid = self.figures.spawn(k, spot.0, spot.1, Travel::Hostile);
             if let Some(f) = self.figures.get_mut(fid) {
                 f.cargo = nation;
                 f.formation = 1000 + army;
@@ -365,7 +365,7 @@ impl World {
         };
         self.buildings
             .iter()
-            .filter(|b| b.kind != crate::military::FORT_GROUND && !matches!(b.kind, kind::ROAD))
+            .filter(|b| !matches!(b.kind, crate::military::FORT_GROUND | kind::ROAD | kind::BURNING_RUIN) && !crate::defenses::is_defense(b.kind))
             .map(|b| {
                 let level = b.house.as_ref().map_or(0, |h| h.level + 1);
                 let d = (b.x - from.0).abs() + (b.y - from.1).abs();
@@ -458,6 +458,7 @@ impl World {
         let Some(b) = self.buildings.get(target) else { return };
         let (bx, by) = (b.x, b.y);
         let (w, h) = b.footprint();
+        let battering = crate::defenses::is_defense(b.kind);
         let adjacent = x >= bx - 1 && x <= bx + w && y >= by - 1 && y <= by + h;
         if adjacent {
             let f = self.figures.get_mut(fid).expect("present");
@@ -472,7 +473,16 @@ impl World {
             let Some(b) = self.buildings.get_mut(target) else { return };
             b.enemy_damage += attack;
             if b.enemy_damage > BUILDING_HP {
-                self.destroy(target, true);
+                // Walls crumble; everything else is put to the torch.
+                if crate::defenses::is_defense(b.kind) {
+                    self.wreck(target, false);
+                } else {
+                    self.destroy(target, true);
+                }
+                // Its id may go to the ruin: look for a new target.
+                if let Some(a) = self.invasions.armies.get_mut(army) {
+                    a.target = 0;
+                }
             }
             return;
         }
@@ -483,11 +493,29 @@ impl World {
             .filter(|&(xx, yy)| (xx == bx - 1 || yy == by - 1 || xx == bx + w || yy == by + h) && crate::figures::passable(&self.map, Travel::Land, xx, yy))
             .collect();
         ring.sort_by_key(|&(xx, yy)| (xx - x).abs() + (yy - y).abs());
-        let spot = ring.get(slot % ring.len().max(1)).copied().unwrap_or((bx, by));
+        // A wall is attacked from the near side.
+        let pick = if battering { 0 } else { slot % ring.len().max(1) };
+        let spot = ring.get(pick).copied().unwrap_or((bx, by));
+        // After a failed search for a way, wait a while before searching again.
+        if let Some(f) = self.figures.get_mut(fid)
+            && f.counter > 0
+        {
+            f.counter -= 1;
+            return;
+        }
         let map = &self.map;
         let f = self.figures.get_mut(fid).expect("present");
         if (f.destination != Some(spot) || (!f.moving && f.route.is_empty())) && !f.go_to(map, spot) {
+            // Walled off: batter the nearest part of the wall instead.
             f.destination = Some(spot);
+            f.counter = 50;
+            let wall = self.nearest_defense((x, y), i32::MAX);
+            if let (Some(w), Some(a)) = (wall, self.invasions.armies.get_mut(army))
+                && a.target != w
+            {
+                a.target = w;
+            }
+            return;
         }
         if f.walk(map) == Step::Lost {
             f.route.clear();

@@ -16,6 +16,9 @@ impl World {
             return Err("Not available yet");
         }
         let size = def.size.max(1);
+        if let Some(rule) = self.can_place_defense(k, x, y) {
+            return rule;
+        }
         let (fw, fh) = self.monument_footprint(k).unwrap_or((size, size));
         if def.needs("shoreline") {
             return self.can_place_on_shore(k, x, y);
@@ -88,6 +91,9 @@ impl World {
 
     /// Tiles a build command covers, one entry per building placed.
     pub fn build_sites(&self, k: u16, x: i32, y: i32, x1: i32, y1: i32) -> Vec<(i32, i32)> {
+        if crate::defenses::is_wall(k) {
+            return self.wall_sites(x, y, x1, y1);
+        }
         if k == kind::VACANT_LOT {
             let mut v = Vec::new();
             for yy in y.min(y1)..=y.max(y1) {
@@ -122,6 +128,9 @@ impl World {
         self.treasury -= cost;
         self.finance.this_year.construction += cost;
         for (sx, sy) in ok {
+            if crate::defenses::is_tower(k) {
+                self.clear_walls_for_tower(sx, sy);
+            }
             self.create_building(k, sx, sy);
         }
         Outcome::Done { items, cost }
@@ -166,6 +175,8 @@ impl World {
         } else if crate::military::fort_soldier(k).is_some() {
             self.map.set_footprint(x, y, size, image);
             self.place_fort(id);
+        } else if crate::defenses::is_wall(k) || crate::defenses::is_gatehouse(k) {
+            self.place_defense(id);
         } else {
             self.map.set_footprint(x, y, size, image);
         }
@@ -194,6 +205,7 @@ impl World {
             self.remove_fort(id);
         }
         let Some(b) = self.buildings.remove(id) else { return };
+        let defense = (crate::defenses::is_wall(b.kind) || crate::defenses::is_gatehouse(b.kind)).then_some((b.kind, b.x, b.y));
         for (xx, yy) in b.tiles().collect::<Vec<_>>() {
             self.map.terrain.update(xx, yy, |t| t & !terrain::BUILDING);
             self.map.building.set(xx, yy, 0);
@@ -210,6 +222,9 @@ impl World {
         if let Some(h) = &b.house {
             self.population -= h.population;
             self.census.remove(&self.rng, h.population);
+        }
+        if let Some((k, x, y)) = defense {
+            self.remove_defense(k, x, y);
         }
     }
 

@@ -23,6 +23,7 @@ impl World {
                 self.update_house_health();
                 self.update_crime();
                 self.update_recruiters();
+                self.man_towers();
                 self.check_siege();
             }
             7 => {
@@ -127,6 +128,7 @@ impl World {
                 crate::military::STANDARD_BEARER => self.update_standard_bearer(fid),
                 crate::military::ARROW | crate::military::JAVELIN => self.update_missile(fid),
                 k if crate::invasions::is_invader_kind(k) => self.update_invader(fid),
+                crate::defenses::TOWER_SENTRY => self.update_sentry(fid),
                 crate::fishing::FISHING_BOAT => self.update_fishing_boat(fid),
                 crate::docks::TRADE_SHIP => self.update_trade_ship(fid),
                 crate::docks::DOCKER => self.update_docker(fid),

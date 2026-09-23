@@ -988,6 +988,14 @@ impl Game {
                 out.push(s);
                 continue;
             }
+            // A sentry at his post stands on top of his tower.
+            if f.kind == osiris_sim::defenses::TOWER_SENTRY
+                && f.action == osiris_sim::military::action::AT_STANDARD
+                && let Some(walk) = defs.figure(f.kind).and_then(|d| d.anims.get("walk"))
+            {
+                out.push(Sprite { x: f.x + 1, y: f.y + 1, offset: (0, -52), image: walk.image + f.direction as u32 });
+                continue;
+            }
             let Some(walk) = defs.figure(f.kind).and_then(|d| d.anims.get("walk")) else { continue };
             let frame = if f.moving { f.frame(walk.frames.max(1)) } else { 0 };
             let offset = f.pixel_offset();

@@ -18,6 +18,8 @@ pub enum Travel {
     Land,
     /// Open river water (boats); see `water::navigable`.
     Water,
+    /// Invaders: as on land, but a gatehouse bars the way like a wall.
+    Hostile,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -151,6 +153,7 @@ pub fn passable(map: &Map, travel: Travel, x: i32, y: i32) -> bool {
                 || ferry
         }
         Travel::Water => crate::water::navigable(map, x, y),
+        Travel::Hostile => t & terrain::GATEHOUSE == 0 && passable(map, Travel::Land, x, y),
     }
 }
 
@@ -168,7 +171,7 @@ pub fn find_route(map: &Map, travel: Travel, from: (i32, i32), to: (i32, i32)) -
     came[idx(from.0, from.1)] = 8;
     let dirs: &[u8] = match travel {
         Travel::Roads => &[0, 2, 4, 6],
-        Travel::Land | Travel::Water => &[0, 2, 4, 6, 1, 3, 5, 7],
+        Travel::Land | Travel::Water | Travel::Hostile => &[0, 2, 4, 6, 1, 3, 5, 7],
     };
     // The destination may be a building entrance off the road network; allow it.
     let ok = |x: i32, y: i32| (x, y) == to || passable(map, travel, x, y);

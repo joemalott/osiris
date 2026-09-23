@@ -164,7 +164,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 for (i, a) in world.invasions.armies.iter().enumerate() {
                     let alive: Vec<(i32, i32, u16, u16, i32)> = a.figures.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.kind, f.action, f.damage)).collect();
-                    eprintln!("  army {i} invader {} nation {} target {} morale {} fleeing {} {:?}", a.invader, a.nation, a.target, a.morale, a.fleeing, alive);
+                    let t = world.buildings.get(a.target).map(|b| (b.kind, b.x, b.y, b.enemy_damage));
+                    eprintln!("  army {i} invader {} nation {} target {} {:?} morale {} fleeing {} {:?}", a.invader, a.nation, a.target, t, a.morale, a.fleeing, alive);
                 }
                 eprintln!("  battle {:?} kingdom {}", world.military.battle, world.ratings.kingdom);
                 eprintln!("  planned {:?} lost {}", world.invasions.planned.iter().map(|p| (p.invader, p.year, p.month, p.warning, p.done)).collect::<Vec<_>>(), world.invasions.lost);

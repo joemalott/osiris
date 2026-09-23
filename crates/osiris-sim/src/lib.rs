@@ -9,6 +9,7 @@ pub mod buildings;
 pub mod census;
 pub mod city;
 pub mod crime;
+pub mod defenses;
 pub mod defs;
 pub mod desirability;
 pub mod docks;
