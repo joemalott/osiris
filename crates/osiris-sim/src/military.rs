@@ -1,7 +1,8 @@
 //! The army. Each fort holds a company of up to sixteen soldiers of its kind
 //! (infantry, archers or charioteers) with a standard bearer, mustered on the parade
-//! ground beside it. A recruiter turns each hundred weapons it is sent into a new
-//! soldier for the nearest fort short of men. The player sends a company to a spot
+//! ground beside it. A recruiter enlists men for the nearest fort short of them,
+//! outfitting each infantryman with a load of weapons and each charioteer with a load
+//! of chariots; archers bring their own bows. The player sends a company to a spot
 //! (it forms up around its standard) or back to its fort.
 //!
 //! Fighting: a soldier or invader next to an enemy strikes it once his blow comes
@@ -41,6 +42,16 @@ pub const FORT_GROUND: u16 = 54;
 pub const RECRUITER: u16 = 95;
 const ACADEMIES: [u16; 3] = [94, 185, 186];
 const WEAPONS: u16 = 10;
+const CHARIOTS: u16 = 28;
+
+/// What a recruiter must hand a new soldier of `kind`, if anything.
+fn outfit(kind: u16) -> Option<u16> {
+    match kind {
+        INFANTRY => Some(WEAPONS),
+        CHARIOTEER => Some(CHARIOTS),
+        _ => None,
+    }
+}
 
 /// Soldiers a company holds.
 pub const COMPANY_SIZE: usize = 16;
@@ -278,22 +289,24 @@ impl World {
         let recruiters: Vec<BuildingId> = self.buildings.iter().filter(|b| b.kind == RECRUITER && b.workers > 0 && b.road.is_some()).map(|b| b.id).collect();
         for r in recruiters {
             let Some(b) = self.buildings.get(r) else { continue };
-            if b.stock.get(WEAPONS as usize).copied().unwrap_or(0) < crate::economy::LOAD {
-                continue;
-            }
             let (rx, ry) = (b.x, b.y);
             let road = b.road.expect("checked");
+            let has = |res: u16| b.stock.get(res as usize).copied().unwrap_or(0) >= crate::economy::LOAD;
+            // The nearest fort short of men whom this recruiter can outfit.
             let needing = self
                 .military
                 .companies
                 .iter()
                 .enumerate()
                 .filter(|(_, c)| c.fort != 0 && c.soldiers.len() + c.recruits.len() + (c.abroad as usize) < COMPANY_SIZE)
+                .filter(|(_, c)| outfit(c.kind).is_none_or(has))
                 .filter_map(|(i, c)| self.buildings.get(c.fort).map(|f| (i, (f.x - rx).abs() + (f.y - ry).abs())))
                 .min_by_key(|&(_, d)| d)
                 .map(|(i, _)| i);
             let Some(c) = needing else { continue };
-            self.buildings.get_mut(r).expect("present").stock[WEAPONS as usize] -= crate::economy::LOAD;
+            if let Some(res) = outfit(self.military.companies[c].kind) {
+                self.buildings.get_mut(r).expect("present").stock[res as usize] -= crate::economy::LOAD;
+            }
             let company = &self.military.companies[c];
             let kind = company.kind;
             let used: Vec<u8> = company.soldiers.iter().chain(&company.recruits).filter_map(|&s| self.figures.get(s).map(|f| f.slot)).collect();

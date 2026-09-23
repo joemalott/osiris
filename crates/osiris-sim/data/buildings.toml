@@ -1121,7 +1121,7 @@ id = 95
 key = "recruiter"
 size = 3
 labor = "military"
-inputs = ["weapons"]
+inputs = ["weapons", "chariots"]
 image = { pack = "Pharaoh_General", group = 166, offset = 0, x = 0, y = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 166, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 166, offset = 1, frames = 11, x = 10, y = 10 } }
 flags = ["is_military"]
@@ -1873,7 +1873,7 @@ labor = "industry_commerce"
 image = { pack = "Pharaoh_General", group = 124, offset = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 124, offset = 0 }, work = { pack = "Pharaoh_General", group = 124, offset = 0 }, timber = { pack = "Pharaoh_General", group = 206, offset = 0, x = 51, y = 18 }, weapon = { pack = "Pharaoh_General", group = 207, offset = 0, x = 46, y = 25 } }
 flags = ["is_workshop", "is_industry"]
-inputs = ["timber", "weapons"]
+inputs = ["timber"]
 outputs = ["chariots"]
 help = "message_building_weapongsmith_and_chariot_maker"
 info_advisors = ["labor", "military"]
