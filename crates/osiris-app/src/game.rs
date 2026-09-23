@@ -830,6 +830,9 @@ impl Game {
 
     pub fn release(&mut self) {
         self.sidebar.release();
+        if let Some(d) = &mut self.dialog {
+            d.release();
+        }
         if let Some(e) = &mut self.empire {
             e.release();
         }
@@ -1065,7 +1068,7 @@ impl Game {
             let images = *self.advisor_images.get_or_insert_with(|| crate::advisors::AdvisorImages::load(&r.library).expect("overseer images"));
             let ui_images = *self.ui_images.get_or_insert_with(|| crate::widgets::UiImages::load(&r.library).expect("ui images"));
             let action = a.draw(r, &self.images.panels, images, ui_images, &mut self.world, &self.text);
-            if let Some(d) = &self.dialog {
+            if let Some(d) = &mut self.dialog {
                 d.draw(r);
             }
             match action {
@@ -1089,7 +1092,7 @@ impl Game {
         if let Some(e) = &mut self.empire {
             let images = *self.empire_images.get_or_insert_with(|| crate::empire_window::EmpireImages::load(&r.library).expect("empire images"));
             e.draw(r, &self.images.panels, &self.world, &self.text, &images);
-            if let Some(d) = &self.dialog {
+            if let Some(d) = &mut self.dialog {
                 d.draw(r);
             }
             return;
@@ -1216,7 +1219,7 @@ impl Game {
         if let Some(l) = &self.message_list {
             l.draw(r, &self.images.panels, &self.world, &self.messages, &self.text);
         }
-        if let Some(d) = &self.dialog {
+        if let Some(d) = &mut self.dialog {
             d.draw(r);
         }
     }
