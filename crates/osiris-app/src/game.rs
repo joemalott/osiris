@@ -426,7 +426,7 @@ impl Game {
         self.sidebar.open = Some(category);
     }
 
-    fn choose_category(&mut self, c: Category) {
+    pub fn choose_category(&mut self, c: Category) {
         self.drag_start = None;
         if self.sidebar.open == Some(c) {
             self.sidebar.open = None;

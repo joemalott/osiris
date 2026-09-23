@@ -7,7 +7,7 @@
 
 use osiris_formats::ImageLibrary;
 use osiris_render::{Renderer, Space, WHITE};
-use osiris_ui::{Font, PanelImages, draw_text, font, panel, text_width};
+use osiris_ui::{Font, PanelImages, draw_text, draw_text_tinted, font, panel, text_width};
 
 /// Panel plus the strip beside it.
 pub const WIDTH: f32 = 186.0;
@@ -38,6 +38,21 @@ pub enum Category {
 }
 
 impl Category {
+    pub const ALL: [Category; 12] = [
+        Category::Housing,
+        Category::Roads,
+        Category::Clear,
+        Category::Food,
+        Category::Industry,
+        Category::Distribution,
+        Category::Entertainment,
+        Category::Religion,
+        Category::Education,
+        Category::Health,
+        Category::Government,
+        Category::Security,
+    ];
+
     /// Offset in group 117 of the picture shown for this category.
     fn picture(self) -> u32 {
         match self {
@@ -211,11 +226,14 @@ impl Sidebar {
         LAYOUT.iter().find(|l| inside(l.x, l.y, l.w, l.h)).map(|l| l.button)
     }
 
+    /// The build submenu, as in the original: 384-wide strips ending 10 pixels left of
+    /// the panel, the last one at y 432 and the list growing upwards. Returns the
+    /// rectangle with 8 pixels above the first strip.
     fn menu_rect(&self, screen: [f32; 2]) -> (f32, f32, f32, f32) {
-        let w = 260.0;
-        let h = 24.0 * self.items.len() as f32 + 16.0;
-        let y = (281.0f32).min(screen[1] - h - 8.0).max(TOP + 8.0);
-        (panel_left(screen[0]) - w - 6.0, y, w, h)
+        let w = 384.0;
+        let n = self.items.len().max(1) as f32;
+        let first = (432.0 - 24.0 * (n - 1.0)).max(TOP + 8.0).min(screen[1] - 24.0 * n);
+        (panel_left(screen[0]) - w - 10.0, first - 8.0, w, 24.0 * n + 16.0)
     }
 
     fn item_at(&self, screen: [f32; 2], p: [f32; 2]) -> Option<usize> {
@@ -355,19 +373,13 @@ impl Sidebar {
         for (i, item) in self.items.iter().enumerate() {
             let iy = y + 8.0 + 24.0 * i as f32;
             let focus = self.hover_item == Some(i) && item.enabled;
-            panel::label(r, &img.panels, x, iy, (w / 16.0) as i32, focus as u32);
-            let f = if !item.enabled {
-                Font::NormalBlackOnDark
-            } else if focus {
-                Font::NormalYellow
-            } else {
-                Font::NormalWhiteOnDark
-            };
-            draw_text(r, f, &item.label, x + 10.0, iy + 4.0, font::WHITE);
+            // Panel-button strips: style 2 normally, 1 under the mouse.
+            panel::label(r, &img.panels, x, iy, (w / 16.0) as i32, if focus { 1 } else { 2 });
+            let f = if focus { Font::NormalBlackOnDark } else { Font::NormalBlackOnLight };
+            let tint = if item.enabled { [1.0; 4] } else { [0.55, 0.5, 0.45, 1.0] };
+            draw_text_tinted(r, f, &item.label, x + 8.0, iy + 3.0, tint);
             if item.cost > 0 {
-                let c = format!("{} Db", item.cost);
-                let cw = text_width(r, f, &c) as f32;
-                draw_text(r, f, &c, x + w - cw - 12.0, iy + 4.0, font::WHITE);
+                draw_text_tinted(r, f, &format!("{} Deben", item.cost), x + w - 92.0, iy + 3.0, tint);
             }
         }
     }

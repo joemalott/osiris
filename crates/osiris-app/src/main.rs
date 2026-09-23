@@ -600,6 +600,11 @@ fn main() -> Result<()> {
         if let Some(n) = view.top_menu {
             game.open_top_menu(n);
         }
+        if let Some(name) = &view.build_menu {
+            if let Some(c) = sidebar::Category::ALL.iter().find(|c| format!("{c:?}").eq_ignore_ascii_case(name)) {
+                game.choose_category(*c);
+            }
+        }
         if view.rules {
             game.rules_panel = Some(rules_panel::RulesPanel::default());
         }

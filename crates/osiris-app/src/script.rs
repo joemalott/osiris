@@ -21,6 +21,7 @@ pub struct ScriptView {
     pub rules: bool,
     pub overlay: Option<String>,
     pub top_menu: Option<usize>,
+    pub build_menu: Option<String>,
 }
 
 /// Runs `--script` steps against the world.
@@ -61,6 +62,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["overlay", name] => view.overlay = Some(name.to_string()),
             ["topmenu", n] => view.top_menu = Some(n.parse()?),
             ["messages"] => view.messages = true,
+            ["buildmenu", name] => view.build_menu = Some(name.to_string()),
             ["burn", p] => {
                 let (x, y) = parse_point(p)?;
                 let id = world.map.building.at_or(x, y, 0);
