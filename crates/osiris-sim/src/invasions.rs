@@ -37,6 +37,8 @@ const CHASE_RANGE: i32 = 5;
 /// Months before arrival when reminders come.
 const REMINDERS: [i32; 4] = [24, 12, 6, 1];
 const TRIGGER_BY_FAVOUR: u8 = 16;
+/// Action of a routed invader.
+const FLEEING: u16 = 148;
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Invasion {
@@ -69,6 +71,18 @@ pub struct Army {
     pub nation: u16,
     pub target: BuildingId,
     pub priority: i8,
+    #[serde(default = "full_morale")]
+    pub morale: i32,
+    /// Broken and running for the edge of the map.
+    #[serde(default)]
+    pub fleeing: bool,
+    /// Where it came in, and leaves.
+    #[serde(default)]
+    pub entry: (i32, i32),
+}
+
+fn full_morale() -> i32 {
+    100
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -286,7 +300,7 @@ impl World {
             }
             figures.push(fid);
         }
-        self.invasions.armies.push(Army { figures, invader: inv.invader, nation, target: 0, priority: inv.target });
+        self.invasions.armies.push(Army { figures, invader: inv.invader, nation, target: 0, priority: inv.target, morale: 100, fleeing: false, entry: spot });
         let group = phrases(inv.invader);
         self.post_invasion_text(inv.invader, &format!("{group}_city_attacked_alert"), 0);
         if let Some(n) = self.notices.log.last_mut() {
@@ -361,6 +375,27 @@ impl World {
             .map(|(_, id)| id)
     }
 
+    /// An army loses a man: its morale drops, and when it breaks the army flees.
+    pub(crate) fn army_loses(&mut self, army: usize) {
+        let Some(a) = self.invasions.armies.get_mut(army) else { return };
+        let size = a.figures.len().max(1) as i32;
+        a.morale = (a.morale - crate::military::morale_loss(100 / size)).max(0);
+        if a.morale <= crate::military::BROKEN_MORALE && !a.fleeing {
+            a.fleeing = true;
+            let (entry, figures) = (a.entry, a.figures.clone());
+            let map = &self.map;
+            for fid in figures {
+                if let Some(f) = self.figures.get_mut(fid)
+                    && f.action != action::CORPSE
+                {
+                    f.action = FLEEING;
+                    f.foe = 0;
+                    f.go_to(map, entry);
+                }
+            }
+        }
+    }
+
     /// An invader's turn: fight what is at hand, chase soldiers near by, else march on
     /// the army's target and wreck it.
     pub(crate) fn update_invader(&mut self, fid: FigureId) {
@@ -369,6 +404,19 @@ impl World {
         match act {
             action::CORPSE => return self.update_invader_corpse(fid),
             action::ATTACK => return self.fight(fid),
+            FLEEING => {
+                // Running for the edge of the map, and gone once there.
+                let map = &self.map;
+                let f = self.figures.get_mut(fid).expect("present");
+                if f.walk(map) != Step::Moving {
+                    f.dead = true;
+                    let army = f.formation.saturating_sub(1000) as usize;
+                    if let Some(a) = self.invasions.armies.get_mut(army) {
+                        a.figures.retain(|&g| g != fid);
+                    }
+                }
+                return;
+            }
             _ => {}
         }
         if kind == ENEMY_ARCHER {

@@ -9,6 +9,11 @@
 //! at enemies in range every so often; a missile does its attack less the target's
 //! armour against missiles. A figure dies when its damage passes its hit points, and
 //! lies on the field a while before it is gone.
+//!
+//! Morale: every man lost shakes his side, the more so the bigger the share of it
+//! that fell; a company rests its spirits at the fort month by month and loses heart
+//! when kept out long. A company whose morale breaks runs home, and a broken army
+//! runs for the edge of the map.
 
 use crate::balance::UnitStats;
 use crate::buildings::BuildingId;
@@ -37,6 +42,25 @@ const BLOW_TICKS: u16 = 24;
 const CORPSE_TICKS: i32 = 200;
 /// Where the parade ground sits beside its fort.
 const GROUND_OFFSET: (i32, i32) = (3, -1);
+/// Morale at or below which a side breaks and runs.
+pub const BROKEN_MORALE: i32 = 20;
+
+/// Morale lost for a death, by the share of the side it was (percent).
+pub fn morale_loss(share_pct: i32) -> i32 {
+    match share_pct {
+        p if p < 8 => 5,
+        p if p < 10 => 7,
+        p if p < 14 => 10,
+        p if p < 20 => 12,
+        p if p < 30 => 15,
+        _ => 20,
+    }
+}
+
+/// The highest morale a company of `kind` reaches.
+fn morale_cap(kind: u16) -> i32 {
+    if kind == INFANTRY { 80 } else { 60 }
+}
 
 /// Action states of fighters.
 pub mod action {
@@ -63,6 +87,9 @@ pub struct Company {
     pub standard_tile: (i32, i32),
     pub at_fort: bool,
     pub morale: i32,
+    /// Months out of the fort.
+    #[serde(default)]
+    pub months_away: i32,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -359,17 +386,45 @@ impl World {
         self.hurt(foe, (attack - armor).max(0));
     }
 
-    /// Adds damage to a figure; it falls when the damage passes its hit points.
+    /// Adds damage to a figure; it falls when the damage passes its hit points, and
+    /// its side's morale suffers.
     pub(crate) fn hurt(&mut self, fid: FigureId, damage: i32) {
         let hp = self.fighter_stats(fid).hp.max(1);
         let Some(f) = self.figures.get_mut(fid) else { return };
         f.damage += damage;
-        if f.damage > hp {
-            f.action = action::CORPSE;
-            f.counter = 0;
-            f.foe = 0;
-            f.route.clear();
-            f.moving = false;
+        if f.damage <= hp || f.action == action::CORPSE {
+            return;
+        }
+        f.action = action::CORPSE;
+        f.counter = 0;
+        f.foe = 0;
+        f.route.clear();
+        f.moving = false;
+        let formation = f.formation;
+        if let Some(c) = self.company_of(fid).and_then(|c| self.military.companies.get_mut(c)) {
+            let size = (c.soldiers.len() + c.recruits.len()).max(1) as i32;
+            c.morale = (c.morale - morale_loss(100 / size)).max(0);
+            if c.morale <= BROKEN_MORALE && !c.at_fort {
+                let company = self.company_of(fid).expect("checked");
+                self.return_company(company);
+            }
+        } else if formation >= 1000 {
+            self.army_loses(formation as usize - 1000);
+        }
+    }
+
+    /// Monthly: a company at its fort regains heart; one kept out long loses it.
+    pub(crate) fn update_morale_month(&mut self) {
+        for c in &mut self.military.companies {
+            if c.at_fort {
+                c.months_away = 0;
+                c.morale = (c.morale + 5).min(morale_cap(c.kind));
+            } else {
+                c.months_away += 1;
+                if c.months_away > 3 {
+                    c.morale = (c.morale - 5).max(0);
+                }
+            }
         }
     }
 

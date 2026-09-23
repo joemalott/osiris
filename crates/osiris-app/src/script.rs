@@ -154,11 +154,11 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["army"] => {
                 for (i, c) in world.military.companies.iter().enumerate() {
                     let alive: Vec<(i32, i32, u16, i32)> = c.soldiers.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.action, f.damage)).collect();
-                    eprintln!("  company {i} fort {} kind {} at_fort {} soldiers {} recruits {} {:?}", c.fort, c.kind, c.at_fort, c.soldiers.len(), c.recruits.len(), alive);
+                    eprintln!("  company {i} fort {} kind {} at_fort {} morale {} soldiers {} recruits {} {:?}", c.fort, c.kind, c.at_fort, c.morale, c.soldiers.len(), c.recruits.len(), alive);
                 }
                 for (i, a) in world.invasions.armies.iter().enumerate() {
                     let alive: Vec<(i32, i32, u16, u16, i32)> = a.figures.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.kind, f.action, f.damage)).collect();
-                    eprintln!("  army {i} invader {} nation {} target {} {:?}", a.invader, a.nation, a.target, alive);
+                    eprintln!("  army {i} invader {} nation {} target {} morale {} fleeing {} {:?}", a.invader, a.nation, a.target, a.morale, a.fleeing, alive);
                 }
                 eprintln!("  planned {:?} lost {}", world.invasions.planned.iter().map(|p| (p.invader, p.year, p.month, p.warning, p.done)).collect::<Vec<_>>(), world.invasions.lost);
             }
