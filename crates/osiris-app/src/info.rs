@@ -400,6 +400,13 @@ impl InfoPanel {
         let obelisk = matches!(def.style, Style::Obelisk { .. });
         let (done_line, fine) = if brick {
             (41, 40)
+        } else if def.style == Style::Sphinx {
+            // Rough shape, fine carving, then painting.
+            (48, match phase {
+                p if p < 4 => 45,
+                p if p < 8 => 46,
+                _ => 47,
+            })
         } else if obelisk {
             (44, if phase >= 4 { 43 } else { 42 })
         } else {

@@ -1329,6 +1329,7 @@ fn monument_lines(k: u16) -> Option<([usize; 2], usize, usize, usize)> {
         Style::Pyramid(Family::Bent) => ([29, 30], 31, 32, 33),
         Style::Mastaba { .. } => ([34, 35], 36, 37, 38),
         Style::Obelisk { .. } => ([43, 44], 45, 46, 46),
+        Style::Sphinx => ([39, 40], 41, 42, 42),
     })
 }
 

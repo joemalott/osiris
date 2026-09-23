@@ -38,6 +38,7 @@ const TIMBER: u16 = 20;
 const STONE: u16 = 24;
 const LIMESTONE: u16 = 25;
 const GRANITE: u16 = 26;
+const PAINT: u16 = 33;
 
 pub const SMALL_BENT_PYRAMID: u16 = 241;
 pub const MEDIUM_BENT_PYRAMID: u16 = 242;
@@ -50,6 +51,7 @@ pub const MEDIUM_PYRAMID: u16 = 254;
 pub const LARGE_PYRAMID: u16 = 255;
 pub const SMALL_STEPPED_PYRAMID: u16 = 319;
 pub const MEDIUM_STEPPED_PYRAMID: u16 = 324;
+pub const SPHINX: u16 = 210;
 pub const SMALL_OBELISK: u16 = 262;
 pub const LARGE_OBELISK: u16 = 263;
 
@@ -72,7 +74,15 @@ pub enum Style {
     /// Granite paid for when placed, then scaffolding and carving; `size` tiles
     /// square, drawn in `stages` images.
     Obelisk { size: i32, stages: u8, granite: i32, timber: &'static [i32] },
+    /// Three 6x6 parts in a line (head, body, tail), carved from a buried outcrop in
+    /// six stages: carpenters' scaffolding, then stonemasons carving, then painting.
+    Sphinx,
 }
+
+/// The sphinx's phases after placing it: (timber, paint, clay). These are the
+/// placeholder amounts of the reconstruction the facts come from; the original's
+/// are not known.
+const SPHINX_PHASES: [(i32, i32, i32); 7] = [(400, 0, 0), (400, 0, 0), (800, 0, 0), (600, 0, 0), (400, 0, 0), (200, 0, 0), (0, 400, 400)];
 
 /// Pyramids: stepped pyramids are plain stone; bent and true pyramids are stone and
 /// mudbrick pyramids brick, all three cased in limestone and polished at the end.
@@ -165,7 +175,8 @@ const fn obelisk(kind: u16, size: i32, stages: u8, granite: i32, timber: &'stati
     MonumentDef { kind, cols: size, rows: size, style: Style::Obelisk { size, stages, granite, timber }, phase_count: LEVELING_PHASES + stages + 1, polish: 0, mastaba_phases: &[], weight, title }
 }
 
-pub const MONUMENTS: [MonumentDef; 16] = [
+pub const MONUMENTS: [MonumentDef; 17] = [
+    MonumentDef { kind: SPHINX, cols: 3, rows: 6, style: Style::Sphinx, phase_count: LEVELING_PHASES + SPHINX_PHASES.len() as u8 + 1, polish: 0, mastaba_phases: &[], weight: 1, title: 21 },
     obelisk(SMALL_OBELISK, 3, 4, 100, &[200, 200, 200], 2, 22),
     obelisk(LARGE_OBELISK, 5, 6, 200, &[400, 400, 400, 200], 4, 23),
     mastaba(kind::SMALL_MASTABA, (2, 5), Style::Mastaba { entrance_row: 2, side_rows: 1, first_row_side: false }, &SMALL_MASTABA_PHASES, 2, 18),
@@ -245,6 +256,11 @@ impl MonumentDef {
                 let own = p.saturating_sub(LEVELING_PHASES) as usize;
                 return timber.get(own).map_or_else(Vec::new, |&t| vec![(TIMBER, t)]);
             }
+            Style::Sphinx => {
+                let own = p.saturating_sub(LEVELING_PHASES) as usize;
+                let Some(&(timber, paint, clay)) = SPHINX_PHASES.get(own) else { return Vec::new() };
+                return [(TIMBER, timber), (PAINT, paint), (CLAY, clay)].into_iter().filter(|m| m.1 > 0).collect();
+            }
             Style::Pyramid(f) => f,
         };
         if p < LEVELING_PHASES || p >= self.courses_end() {
@@ -274,11 +290,12 @@ impl MonumentDef {
         let phase = self.phase(p);
         let has = |r: u16| phase.iter().any(|e| e.0 == r);
         let mut crew = Vec::new();
-        if has(BRICKS) || has(CLAY) {
+        let brickwork = matches!(self.style, Style::Mastaba { .. } | Style::Pyramid(_));
+        if has(BRICKS) || has(CLAY) && brickwork {
             crew.push(BRICKLAYER);
         }
         let polishing = matches!(self.style, Style::Pyramid(_)) && p >= self.courses_end() && p + 1 < self.phase_count;
-        let carving = matches!(self.style, Style::Obelisk { .. }) && p >= LEVELING_PHASES + 2 && p + 1 < self.phase_count;
+        let carving = matches!(self.style, Style::Obelisk { .. } | Style::Sphinx) && p >= LEVELING_PHASES + 2 && p + 1 < self.phase_count;
         if has(STONE) || has(LIMESTONE) || polishing || carving {
             crew.push(STONEMASON);
         }
@@ -335,6 +352,7 @@ impl World {
     pub fn monument_footprint(&self, k: u16) -> Option<(i32, i32)> {
         monument_def(k).map(|d| match d.style {
             Style::Obelisk { size, .. } => (size, size),
+            Style::Sphinx => (6, 18),
             _ => (d.cols * 2, d.rows * 2),
         })
     }
@@ -360,6 +378,10 @@ impl World {
         let Some(b) = self.buildings.get_mut(id) else { return };
         let Some(def) = monument_def(b.kind) else { return };
         let mut m = Monument { progress: vec![0; (def.cols * def.rows) as usize], ..Default::default() };
+        if def.style == Style::Sphinx {
+            // Carved from the rock where it stands: no leveling.
+            m.phase = LEVELING_PHASES;
+        }
         if let Style::Obelisk { granite, .. } = def.style {
             // The granite goes to the site at once, and there is no leveling.
             m.phase = LEVELING_PHASES;
@@ -391,6 +413,17 @@ impl World {
         let (w, h) = b.footprint();
         let Some(bdef) = self.defs.building(b.kind) else { return };
         let site = bdef.image;
+        if def.style == Style::Sphinx {
+            // Each part shows its stage of carving: the rough outcrop first, the
+            // finished, painted figure at the end.
+            let own = phase.saturating_sub(LEVELING_PHASES);
+            let stage = if finished { 6 } else { own.clamp(1, 6) };
+            for (part, letter) in ["a", "b", "c"].iter().enumerate() {
+                let image = bdef.anims.get(&format!("s{stage}{letter}1")).map_or(site, |a| a.image);
+                self.map.set_footprint(x0, y0 + 6 * part as i32, 6, image);
+            }
+            return;
+        }
         if let Style::Obelisk { size, stages, .. } = def.style {
             let stage = if finished { stages } else { phase.saturating_sub(LEVELING_PHASES).clamp(1, stages) };
             let key = ["sa", "sb", "sc", "sd", "se", "sf"][(stage - 1) as usize];
@@ -489,7 +522,7 @@ impl World {
                     }
                 }
             }
-            Style::Obelisk { .. } => {}
+            Style::Obelisk { .. } | Style::Sphinx => {}
             Style::Pyramid(family) => {
                 let (corner, wall, cube) = (img("corner_bricks"), img("wall_bricks"), img("base_bricks"));
                 let courses = def.rings() * COURSES_PER_RING;
@@ -887,6 +920,7 @@ impl World {
                     Style::Pyramid(Family::True) => "pyramid",
                     Style::Pyramid(Family::Mudbrick) => "mudbrick_pyramid",
                     Style::Obelisk { .. } => "obelisk",
+                    Style::Sphinx => "sphinx",
                 };
                 self.post_event_text(crate::scenario_events::EventText {
                     title: format!("{name}_congratulations_title"),
