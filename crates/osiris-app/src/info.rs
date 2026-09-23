@@ -360,7 +360,10 @@ impl InfoPanel {
         }
         // Everything else: the description, then what the building is doing.
         let temple = (kind::TEMPLE_OSIRIS..=kind::TEMPLE_BAST).contains(&b.kind);
-        let ([x, y], closed) = self.frame(ui, 29, 17, &name);
+        // Schools and libraries show their papyrus, mortuaries their linen.
+        let supply = world.walker_supplies(b.kind).map(|(r, _)| r);
+        let ([x, y], closed) = self.frame(ui, 29, if supply.is_some() { 18 } else { 17 }, &name);
+        let supplied = supply.map(|r| b.stock.get(r as usize).copied().unwrap_or(0));
         let walker_out = b.walkers[0] != 0;
         let status = if b.road.is_none() {
             no_road
@@ -369,15 +372,26 @@ impl InfoPanel {
         } else if b.workers <= 0 {
             let s = t(ui, 9);
             if s.is_empty() { t(ui, 2) } else { s }
-        } else if walker_out {
+        } else if b.kind == kind::MORTUARY && supplied.unwrap_or(0) < 1 {
+            // "Without linen, we cannot prepare the dead..." Schools and libraries
+            // have no such line: theirs says only whether they are staffed.
+            t(ui, 4)
+        } else if walker_out && supply.is_none() {
             t(ui, 2)
         } else {
             t(ui, 3)
         };
+        let mut text_y = 46.0;
+        if let (Some(r), Some(n)) = (supply, supplied) {
+            ui.icon(r, x + 32.0, y + 44.0);
+            let line = format!("{} {}", n, ui.t(TEXT_RESOURCES, r as usize));
+            ui.label(Font::NormalBlackOnLight, &line, x + 60.0, y + 48.0);
+            text_y = 72.0;
+        }
         let desc = t(ui, 1);
         let line = if status.is_empty() || status == desc { desc } else { format!("{desc} {status}") };
-        ui.wrapped(Font::NormalBlackOnLight, &line, x + 20.0, y + 46.0, 27.0 * 16.0);
-        Self::workers(ui, world, b, x + 16.0, y + 136.0, "");
+        ui.wrapped(Font::NormalBlackOnLight, &line, x + 20.0, y + text_y, 27.0 * 16.0);
+        Self::workers(ui, world, b, x + 16.0, y + if supply.is_some() { 152.0 } else { 136.0 }, "");
         closed.then_some(InfoAction::Close)
     }
 

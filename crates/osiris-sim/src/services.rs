@@ -124,11 +124,39 @@ impl World {
                 }
                 continue;
             }
+            // Schools, libraries and mortuaries send a walker only with his papyrus or
+            // linen in stock, and keep waiting, ready, until they have it.
+            if let Some((r, n)) = self.walker_supplies(b.kind) {
+                if b.stock.get(r as usize).copied().unwrap_or(0) < n {
+                    continue;
+                }
+                self.take_stored(id, r, n);
+            }
             if let Some(b) = self.buildings.get_mut(id) {
                 b.spawn_delay = delay;
             }
             self.spawn_roamer(id, kind, 0);
         }
+    }
+
+    /// The good a building's walker takes with him and how much: papyrus for a
+    /// teacher or librarian, linen for an embalmer. The amount is column i of the
+    /// building's model row (10, 20 and 20 on Normal); the Oracle of Thoth cuts the
+    /// papyrus and the Altar of Anubis the linen to the Ptah or Seth complex's column
+    /// i percent (60 on Normal).
+    pub fn walker_supplies(&self, k: u16) -> Option<(u16, i32)> {
+        use crate::economy::resource;
+        use crate::temple_complex::{ALTAR, ORACLE, PTAH, SETH};
+        let (r, god, bit) = match k {
+            kind::SCRIBAL_SCHOOL | kind::LIBRARY => (resource::PAPYRUS, PTAH, ORACLE),
+            kind::MORTUARY => (resource::LINEN, SETH, ALTAR),
+            _ => return None,
+        };
+        let mut n = self.balance.stats(k).i;
+        if self.complex_blessing(god, bit) {
+            n = n * self.balance.stats(crate::temple_complex::OSIRIS_COMPLEX + god as u16).i / 100;
+        }
+        Some((r, n))
     }
 
     /// Applies a roamer's service around `(x, y)`.

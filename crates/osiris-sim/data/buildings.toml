@@ -647,6 +647,7 @@ figure = "librarian"
 image = { pack = "Pharaoh_General", group = 43, offset = 0, x = 0, y = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 43, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 43, offset = 1, frames = 12, x = 48, y = -20, duration = 8 } }
 flags = ["draw_normal_anim"]
+inputs = ["papyrus"]
 text_id = 87
 help = "message_building_library"
 max_service = 800

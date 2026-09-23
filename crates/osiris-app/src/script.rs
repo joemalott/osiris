@@ -283,6 +283,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 eprintln!("     x from {}", cx - 8);
             }
+            // Lets the city raise a temple complex to god g (0 Osiris .. 4 Bast).
+            ["complexgod", g] => world.complex_gods[g.parse::<usize>()?] = true,
             ["monlist"] => eprintln!("monuments {:?} complex gods {:?} debt rate {}", world.scenario_monuments, world.complex_gods, world.debt_rate),
             ["report"] => {
                 let houses: Vec<String> = world

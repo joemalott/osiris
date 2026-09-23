@@ -30,6 +30,7 @@ pub mod resource {
     pub const TIMBER: u16 = 20;
     pub const GOLD: u16 = 21;
     pub const REEDS: u16 = 22;
+    pub const PAPYRUS: u16 = 23;
     pub const COUNT: usize = 40;
 
     /// The goods houses use, in the order of a house's goods slots.
@@ -73,6 +74,7 @@ pub const REED_GATHERER: u16 = 90;
 const WOOD_CUTTERS: u16 = 108;
 const REED_GATHERERS: u16 = 195;
 const FISHING_WHARF: u16 = 76;
+const SENET_HOUSE: u16 = 32;
 const PALACES: [u16; 3] = [kind::VILLAGE_PALACE, 85, 189];
 /// Ticks a gatherer spends cutting once it reaches its tree or reeds.
 const GATHER_TICKS: i32 = 300;
@@ -94,6 +96,17 @@ mod action {
     pub const TO_HARVEST: u16 = 6;
     /// A gatherer cutting.
     pub const HARVESTING: u16 = 7;
+}
+
+/// What a building that uses goods keeps on site of each: 300 at a scribal school or
+/// senet house, 500 at a mortuary or library, 200 anywhere else. A storage yard
+/// supplies it while a load more still fits.
+fn site_cap(k: u16) -> i32 {
+    match k {
+        kind::SCRIBAL_SCHOOL | SENET_HOUSE => 300,
+        kind::MORTUARY | kind::LIBRARY => 500,
+        _ => SITE_CAP,
+    }
 }
 
 /// Quarries: stone, limestone, granite and sandstone.
@@ -281,7 +294,7 @@ impl World {
         if b.road.is_none() || b.workers <= 0 || !self.inputs_of(b.kind).contains(&r) {
             return 0;
         }
-        SITE_CAP - b.stock[r as usize]
+        site_cap(b.kind) - b.stock[r as usize]
     }
 
     /// Where a producer's cart takes `r`, in the original's order of preference: gold
@@ -477,7 +490,8 @@ impl World {
                 return;
             }
         }
-        // 2. Buildings that use goods it holds: workshops, schools, venues, guilds.
+        // 2. Buildings that use goods it holds: workshops, schools, libraries,
+        // mortuaries, venues, guilds. A cart brings them one load.
         let users: Vec<(BuildingId, u16)> = self
             .buildings
             .iter()
@@ -485,8 +499,7 @@ impl World {
             .flat_map(|u| held.iter().filter(|h| h.1 >= LOAD && !self.is_stockpiled(h.0) && self.room_for(u.id, h.0) >= LOAD).map(move |h| (u.id, h.0)))
             .collect();
         if let Some(&(user, r)) = users.iter().min_by_key(|(u, _)| (self.distance(*u, from), *u)) {
-            let n = self.room_for(user, r).min(YARD_DELIVER);
-            let taken = self.take_stored(yard, r, n);
+            let taken = self.take_stored(yard, r, LOAD);
             self.yard_cart(yard, r, taken, user, action::DELIVERING);
             return;
         }

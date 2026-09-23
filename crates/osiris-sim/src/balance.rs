@@ -73,6 +73,8 @@ impl Balance {
                 employees: b.employees as i32,
                 fire_risk: b.fire_risk as i32,
                 damage_risk: b.damage_risk as i32,
+                i: b.values.get(8).copied().unwrap_or(0.0) as i32,
+                j: b.values.get(9).copied().unwrap_or(0.0) as i32,
             };
         }
         let houses = model
