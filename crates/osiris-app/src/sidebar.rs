@@ -191,6 +191,8 @@ pub struct SidebarState<'a> {
     pub has_messages: bool,
     pub has_problems: bool,
     pub has_briefing: bool,
+    /// Whether the kingdom has cities to show.
+    pub has_empire: bool,
     pub can_undo: bool,
     pub speed: &'a str,
     pub lines: &'a [(String, String)],
@@ -280,8 +282,9 @@ impl Sidebar {
             Button::Messages => s.has_messages,
             Button::Problem => s.has_problems,
             Button::Briefing => s.has_briefing,
-            Button::Advisors | Button::Empire | Button::Collapse => false,
-            Button::SpeedDown | Button::SpeedUp => true,
+            Button::Empire => s.has_empire,
+            Button::Collapse => false,
+            Button::Advisors | Button::SpeedDown | Button::SpeedUp => true,
         }
     }
 

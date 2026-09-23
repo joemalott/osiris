@@ -1175,6 +1175,7 @@ impl Game {
             has_messages: !self.world.notices.log.is_empty(),
             has_problems: self.world.problems().next().is_some(),
             has_briefing: self.briefing().is_some(),
+            has_empire: !self.world.trade.cities.is_empty(),
             can_undo: self.can_undo(),
             speed: &speed,
             lines: &lines,
