@@ -38,7 +38,9 @@ impl World {
     }
 
     fn wage_sentiment(&self) -> i32 {
-        let diff = self.finance.wages - self.finance.kingdom_wages;
+        // Horus's oracle (Ra) has people content with two less than they'd want.
+        let horus = if self.complex_blessing(crate::temple_complex::RA, crate::temple_complex::ORACLE) { 2 } else { 0 };
+        let diff = self.finance.wages - self.finance.kingdom_wages + horus;
         match diff {
             d if d < 0 => (d / 2).min(-1),
             d if d > 7 => 4,
@@ -151,6 +153,10 @@ impl World {
         let occupied: Vec<i32> = self.buildings.iter().filter_map(|b| b.house.as_ref()).filter(|h| h.population > 0).map(|h| h.happiness).collect();
         let previous = self.sentiment;
         self.sentiment = if occupied.is_empty() { BASELINE } else { occupied.iter().sum::<i32>() / occupied.len() as i32 };
+        // Hathor's oracle (Bast) lifts the whole city's mood.
+        if self.complex_blessing(crate::temple_complex::BAST, crate::temple_complex::ORACLE) {
+            self.sentiment = (self.sentiment + 10).min(100);
+        }
         let s = &mut self.sentiment_state;
         s.message_delay = (s.message_delay - 1).max(0);
         let value = self.sentiment;

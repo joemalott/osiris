@@ -246,6 +246,10 @@ impl World {
     }
 
     fn decay_house_services(&mut self) {
+        // Under a complex to Bast, what services leave behind lasts twice as long.
+        if self.complex_blessing(crate::temple_complex::BAST, 0) && self.time.day % 2 == 1 {
+            return;
+        }
         for b in self.buildings.iter_mut() {
             if let Some(h) = b.house.as_mut() {
                 houses::decay(&mut h.coverage);

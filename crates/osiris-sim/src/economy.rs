@@ -158,6 +158,17 @@ impl World {
         }
     }
 
+    /// Whether Ptah speeds building type `k` by half: his complex the mines, clay pits,
+    /// shipwrights, jewelers and weavers; Amon's altar the quarries and brickworks.
+    fn ptah_speeds(&self, k: u16) -> bool {
+        use crate::temple_complex::{ALTAR, PTAH};
+        match k {
+            74 | 109 | 111 | 113 | 161 | 162 | 217 => self.complex_blessing(PTAH, 0),
+            106 | 107 | 216 | 221 | 204 => self.complex_blessing(PTAH, ALTAR),
+            _ => false,
+        }
+    }
+
     /// Tick 20: industries make progress, starting a new batch when they can.
     pub(crate) fn update_production(&mut self) {
         for id in self.buildings.ids() {
@@ -169,6 +180,7 @@ impl World {
             let inputs = self.inputs_of(k);
             let max = self.max_progress(k);
             let gain = Self::daily_progress(k, b.workers);
+            let gain = if self.ptah_speeds(k) { gain * 3 / 2 } else { gain };
             let b = self.buildings.get_mut(id).expect("present");
             if b.progress == 0 {
                 // A batch starts with a load of each input.

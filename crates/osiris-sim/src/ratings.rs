@@ -195,6 +195,8 @@ impl World {
             healthy += if cared { h.population } else { h.population / 4 };
         }
         let target = healthy * 100 / pop;
+        // Isis's altar (a complex to Bast) makes the city healthier.
+        let target = if self.complex_blessing(crate::temple_complex::BAST, crate::temple_complex::ALTAR) { (target * 105 / 100).min(100) } else { target };
         let r = &mut self.ratings;
         r.health_target = target;
         r.health = if r.health < target { (r.health + 2).min(target) } else { (r.health - 2).max(target) }.clamp(0, 100);
@@ -212,16 +214,7 @@ impl World {
 
     /// How far a monument has been built, 0-100.
     fn monument_progress(&self, id: u32) -> i32 {
-        let Some(b) = self.buildings.get(id) else { return 0 };
-        let Some(m) = &b.monument else { return 0 };
-        if m.finished {
-            return 100;
-        }
-        let Some(def) = crate::monuments::monument_def(b.kind) else { return 0 };
-        let phases = def.phase_count as i32 - 1;
-        let done = m.progress.iter().map(|&p| p as i32).sum::<i32>();
-        let per_phase = (m.progress.len() as i32 * crate::monuments::BLOCK_WORK as i32).max(1);
-        (m.phase as i32 * 100 + done * 100 / per_phase) / phases.max(1)
+        self.monument_percent(id)
     }
 
     fn update_monument_rating(&mut self) {

@@ -160,6 +160,7 @@ impl World {
                 self.patrol(kind, x, y, &houses);
             }
             figure_kind::HERBALIST => self.cure_plagued_near(x, y),
+            figure_kind::PRIEST => self.priest_blessings(home_kind, x, y, &seen),
             _ => {}
         }
         for id in seen {
@@ -211,6 +212,37 @@ impl World {
         }
         if let Some(b) = self.buildings.get_mut(home) {
             b.houses_covered = (b.houses_covered + served).min(300);
+        }
+    }
+
+    /// What a temple complex's upgrades let its god's priests do as they pass: Ma'at's
+    /// altar (Ra) and Sekhmet's oracle (Seth) calm would-be criminals like a
+    /// constable; Isis's altar (Bast) cures the plague-stricken in the street, and
+    /// with Hathor's oracle too, cleanses infected houses.
+    fn priest_blessings(&mut self, home_kind: u16, x: i32, y: i32, seen: &[BuildingId]) {
+        use crate::temple_complex::{ALTAR, BAST, ORACLE, RA, SETH};
+        let god = match home_kind {
+            60..=64 => (home_kind - 60) as usize,
+            65..=69 => (home_kind - 65) as usize,
+            _ => return,
+        };
+        let calms = god == RA && self.complex_blessing(RA, ALTAR) || god == SETH && self.complex_blessing(SETH, ORACLE);
+        let cures = god == BAST && self.complex_blessing(BAST, ALTAR);
+        let cleanses = cures && self.complex_blessing(BAST, ALTAR | ORACLE);
+        if cures {
+            self.cure_plagued_near(x, y);
+        }
+        if !calms && !cleanses {
+            return;
+        }
+        for &id in seen {
+            let Some(h) = self.buildings.get_mut(id).and_then(|b| b.house.as_mut()) else { continue };
+            if calms {
+                h.criminal_active = (h.criminal_active - 1).max(0);
+            }
+            if cleanses {
+                h.plague_days = 0;
+            }
         }
     }
 
