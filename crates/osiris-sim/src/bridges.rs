@@ -10,6 +10,9 @@ pub const LOW_BRIDGE: u16 = 82;
 /// Longest bridge, in tiles.
 const MAX_LENGTH: i32 = 40;
 
+/// A bridge's direction across the water and the tiles it covers.
+pub type Span = (u8, Vec<(i32, i32)>);
+
 impl World {
     fn water_at(&self, x: i32, y: i32) -> bool {
         self.map.contains(x, y) && self.map.terrain_is(x, y, terrain::WATER) && !self.map.terrain_is(x, y, terrain::BRIDGE | terrain::BUILDING)
@@ -21,7 +24,7 @@ impl World {
 
     /// The span of a bridge started at water tile `(x, y)`: its direction (0, 2, 4 or
     /// 6, pointing across the water) and the water tiles it covers, shore to shore.
-    pub fn bridge_span(&self, x: i32, y: i32) -> Result<(u8, Vec<(i32, i32)>), &'static str> {
+    pub fn bridge_span(&self, x: i32, y: i32) -> Result<Span, &'static str> {
         if !self.water_at(x, y) {
             return Err("Bridges start at the water's edge");
         }
