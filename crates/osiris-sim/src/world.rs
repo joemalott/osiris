@@ -155,7 +155,7 @@ impl World {
             migration: Default::default(),
             census: Default::default(),
             labor: Default::default(),
-            finance: Default::default(),
+            finance: crate::finance::Finance { last_year_balance: info.initial_funds, ..Default::default() },
             gold_delivered: 0,
             herds: Vec::new(),
             floods: Default::default(),

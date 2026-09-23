@@ -38,7 +38,7 @@ impl World {
         let from = (b.x, b.y);
         self.buildings
             .iter()
-            .filter(|s| crate::storage::is_storage(s.kind) && s.road.is_some() && self.stored(s.id, r) >= LOAD)
+            .filter(|s| crate::storage::is_storage(s.kind) && s.road.is_some() && !self.is_stockpiled(r) && self.stored(s.id, r) >= LOAD)
             .filter(|s| (s.x - from.0).abs().max((s.y - from.1).abs()) <= MAX_SEARCH)
             .min_by_key(|s| ((s.x - from.0).abs().max((s.y - from.1).abs()), s.id))
             .map(|s| s.id)
@@ -203,6 +203,24 @@ impl World {
                 h.goods[slot] -= need.max(0).min(h.goods[slot]);
             }
         }
+    }
+
+    /// Months the food in granaries and bazaars would last at the current rate of eating.
+    pub fn food_supply_months(&self) -> i32 {
+        let food: i32 = self
+            .buildings
+            .iter()
+            .filter(|b| matches!(b.kind, kind::GRANARY | kind::BAZAAR))
+            .map(|b| (resource::GRAIN..=resource::GAMEMEAT).map(|r| b.stock.get(r as usize).copied().unwrap_or(0)).sum::<i32>())
+            .sum();
+        // Houses eat about half their people's worth a month (two meals of the weekly share).
+        let per_month: i32 = self
+            .buildings
+            .iter()
+            .filter_map(|b| b.house.as_ref())
+            .map(|h| h.population * FOOD_CONSUMPTION_PCT[h.level as usize] * (100 - CONSUMPTION_REDUCTION_PCT) / 100 / 100 * 2)
+            .sum();
+        if per_month > 0 { food / per_month } else { 0 }
     }
 
     /// Twice a month: every house eats.

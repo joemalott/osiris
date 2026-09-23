@@ -20,6 +20,7 @@ pub enum MenuAction {
     Controls,
     About,
     Overlay(Option<crate::overlay::Overlay>),
+    Overseer(crate::advisors::Advisor),
     /// Not in Osiris yet; shown greyed out.
     Unavailable,
 }
@@ -55,7 +56,11 @@ impl TopMenu {
         for (o, id) in crate::overlay::MENU {
             overlays.push(e(t(14, id, "?"), MenuAction::Overlay(Some(o))));
         }
-        let overseers = (1..=13).map(|i| e(t(4, i, "Overseer"), MenuAction::Unavailable)).collect();
+        let overseers = crate::advisors::ALL
+            .iter()
+            .enumerate()
+            .map(|(i, &a)| e(t(4, i + 1, "Overseer"), if a.available() { MenuAction::Overseer(a) } else { MenuAction::Unavailable }))
+            .collect();
         let headers = vec![
             (
                 t(1, 0, "File"),

@@ -82,6 +82,11 @@ impl World {
     }
 
     /// Tick 22: room left in all houses.
+    /// Room for more people in the city's houses.
+    pub fn housing_room(&self) -> i32 {
+        self.migration.room_in_houses
+    }
+
     pub(crate) fn update_room(&mut self) {
         let ids: Vec<BuildingId> = self.buildings.iter().filter(|b| b.is_house()).map(|b| b.id).collect();
         self.migration.room_in_houses = ids.iter().map(|&id| self.house_room(id).max(0)).sum();

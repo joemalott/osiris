@@ -1,3 +1,4 @@
+mod advisors;
 mod anims;
 mod city_view;
 mod empire_window;
@@ -520,8 +521,10 @@ fn key_pressed(g: &mut game::Game, code: KeyCode, ctrl: bool) {
         (KeyCode::Escape, _) => g.cancel(),
         (KeyCode::F2, _) => g.open_rules(),
         (KeyCode::KeyP, _) => g.paused = !g.paused,
-        (KeyCode::BracketRight | KeyCode::PageDown | KeyCode::Equal, false) => g.faster(),
-        (KeyCode::BracketLeft | KeyCode::PageUp | KeyCode::Minus, false) => g.slower(),
+        (KeyCode::BracketRight | KeyCode::PageDown, false) => g.faster(),
+        (KeyCode::BracketLeft | KeyCode::PageUp, false) => g.slower(),
+        (KeyCode::Minus, false) => g.open_advisor(advisors::Advisor::Financial),
+        (KeyCode::Equal, false) => g.open_advisor(advisors::Advisor::Chief),
         (KeyCode::Space, _) => g.toggle_overlay(),
         (KeyCode::KeyW, false) => g.show_overlay(overlay::Overlay::Water),
         (KeyCode::KeyF, false) => g.show_overlay(overlay::Overlay::Fire),
@@ -611,6 +614,11 @@ fn main() -> Result<()> {
             && let Some(c) = sidebar::Category::ALL.iter().find(|c| format!("{c:?}").eq_ignore_ascii_case(name))
         {
             game.choose_category(*c);
+        }
+        if let Some(name) = &view.advisor
+            && let Some(a) = advisors::ALL.iter().find(|a| format!("{a:?}").eq_ignore_ascii_case(name))
+        {
+            game.open_advisor(*a);
         }
         if let Some(city) = view.empire {
             let mut e = empire_window::EmpireWindow::default();

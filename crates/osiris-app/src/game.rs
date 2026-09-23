@@ -42,7 +42,7 @@ pub fn speed_label(speed: u32) -> String {
     if speed <= 100 { format!("{speed}%") } else { format!("{}x", speed / 100) }
 }
 
-const CONTROLS: &str = "@PLeft-click a build button, then click or drag on the map to build. Right-click cancels the tool, closes windows, and drags to scroll. The arrow keys scroll the map and the mouse wheel zooms.@PP pauses. [ and ] (or Page Up and Page Down) change the speed, from 10% up to 200 times normal.@PW, F and D show the water, fire and damage overlays; the Overlays menu has the rest. Space switches between the normal view and the last overlay.@PB builds roads and X clears land. M, N, U, O, T and G pick up a bazaar, granary, storage yard, apothecary, water supply and gardens; Ctrl+H housing, Ctrl+F firehouse and Ctrl+A architect.@PF2 opens the game rules, F5 saves and F9 loads the saved game for this city. Escape backs out of whatever is open, and goes to the main menu when nothing is.";
+const CONTROLS: &str = "@PLeft-click a build button, then click or drag on the map to build. Right-click cancels the tool, closes windows, and drags to scroll. The arrow keys scroll the map and the mouse wheel zooms.@PP pauses. [ and ] (or Page Up and Page Down) change the speed, from 10% up to 200 times normal. - opens the Overseer of the Treasury and = the Chief Overseer.@PW, F and D show the water, fire and damage overlays; the Overlays menu has the rest. Space switches between the normal view and the last overlay.@PB builds roads and X clears land. M, N, U, O, T and G pick up a bazaar, granary, storage yard, apothecary, water supply and gardens; Ctrl+H housing, Ctrl+F firehouse and Ctrl+A architect.@PF2 opens the game rules, F5 saves and F9 loads the saved game for this city. Escape backs out of whatever is open, and goes to the main menu when nothing is.";
 
 const ABOUT: &str = "@POsiris is an open-source engine for Pharaoh, written in Rust and released under the GNU GPL version 3.@PIt plays the original campaign using your own copy of the game data. Pharaoh and its art, music and text are the work of Impressions Games and Sierra.";
 
@@ -110,6 +110,8 @@ pub struct Game {
     undo: Option<(Vec<u8>, u64)>,
     pub message_list: Option<MessageList>,
     pub empire: Option<crate::empire_window::EmpireWindow>,
+    pub advisors: Option<crate::advisors::Advisors>,
+    advisor_images: Option<crate::advisors::AdvisorImages>,
     empire_images: Option<crate::empire_window::EmpireImages>,
     custom_dialog: Option<Message>,
     pub rules_panel: Option<RulesPanel>,
@@ -167,6 +169,8 @@ impl Game {
             undo: None,
             message_list: None,
             empire: None,
+            advisors: None,
+            advisor_images: None,
             empire_images: None,
             custom_dialog: None,
             rules_panel: None,
@@ -222,7 +226,7 @@ impl Game {
 
     /// Nothing modal is open and no tool is in hand.
     pub fn idle(&self) -> bool {
-        self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.empire.is_none() && self.rules_panel.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
+        self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.empire.is_none() && self.advisors.is_none() && self.rules_panel.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
     }
 
     pub fn close_dialog(&mut self) {
@@ -231,6 +235,10 @@ impl Game {
     }
 
     pub fn scroll_dialog(&mut self, delta: f32, screen: [f32; 2]) -> bool {
+        if let Some(a) = &mut self.advisors {
+            a.scroll(if delta < 0.0 { 1 } else { -1 });
+            return true;
+        }
         match &mut self.dialog {
             Some(d) => {
                 d.scroll(delta, screen);
@@ -362,6 +370,11 @@ impl Game {
             self.hover = None;
             return;
         }
+        if let Some(a) = &mut self.advisors {
+            a.hover(screen);
+            self.hover = None;
+            return;
+        }
         if let Some(e) = &mut self.empire {
             e.hover(r.screen, screen);
             self.hover = None;
@@ -472,6 +485,12 @@ impl Game {
 
     /// Handles a left click. Returns a tile to centre the view on (minimap clicks).
     pub fn press_at(&mut self, r: &Renderer) -> Option<(i32, i32)> {
+        if self.dialog.is_none()
+            && let Some(a) = &mut self.advisors
+        {
+            a.press(self.cursor);
+            return None;
+        }
         if self.dialog.is_none()
             && let Some(e) = &mut self.empire
         {
@@ -585,7 +604,8 @@ impl Game {
             Button::Briefing => self.briefing().is_some(),
             Button::SpeedDown | Button::SpeedUp => true,
             Button::Empire => !self.world.trade.cities.is_empty(),
-            Button::Advisors | Button::Collapse => false,
+            Button::Advisors => true,
+            Button::Collapse => false,
         };
         if !enabled {
             return None;
@@ -617,14 +637,23 @@ impl Game {
                 self.tool = Tool::None;
                 self.empire = Some(Default::default());
             }
-            Button::Advisors | Button::Collapse => {}
+            Button::Advisors => self.open_advisor(crate::advisors::Advisor::Chief),
+            Button::Collapse => {}
         }
         None
+    }
+
+    pub fn open_advisor(&mut self, a: crate::advisors::Advisor) {
+        self.sidebar.open = None;
+        self.tool = Tool::None;
+        self.empire = None;
+        self.advisors = Some(crate::advisors::Advisors::new(a));
     }
 
     fn menu_action(&mut self, action: MenuAction) {
         self.sound("BUTTON.WAV");
         match action {
+            MenuAction::Overseer(a) => self.open_advisor(a),
             MenuAction::Rules => self.open_rules(),
             MenuAction::Faster => self.faster(),
             MenuAction::Slower => self.slower(),
@@ -727,6 +756,14 @@ impl Game {
     }
 
     pub fn cancel(&mut self) {
+        if let Some(a) = &mut self.advisors
+            && self.dialog.is_none()
+        {
+            if a.back() {
+                self.advisors = None;
+            }
+            return;
+        }
         if self.dialog.take().is_some() || self.empire.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() {
             return;
         }
@@ -839,6 +876,22 @@ impl Game {
 
     pub fn draw(&mut self, r: &mut Renderer) {
         self.next_dialog(r);
+        if let Some(a) = &mut self.advisors {
+            let images = *self.advisor_images.get_or_insert_with(|| crate::advisors::AdvisorImages::load(&r.library).expect("overseer images"));
+            let action = a.draw(r, &self.images.panels, images, &mut self.world, &self.text);
+            if let Some(d) = &self.dialog {
+                d.draw(r);
+            }
+            match action {
+                Some(crate::advisors::AdvisorAction::Close) => self.advisors = None,
+                Some(crate::advisors::AdvisorAction::OpenEmpire) => {
+                    self.advisors = None;
+                    self.empire = Some(Default::default());
+                }
+                None => {}
+            }
+            return;
+        }
         if let Some(e) = &mut self.empire {
             let images = *self.empire_images.get_or_insert_with(|| crate::empire_window::EmpireImages::load(&r.library).expect("empire images"));
             e.draw(r, &self.images.panels, &self.world, &self.text, &images);

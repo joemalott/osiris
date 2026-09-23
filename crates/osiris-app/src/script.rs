@@ -23,6 +23,7 @@ pub struct ScriptView {
     pub top_menu: Option<usize>,
     pub build_menu: Option<String>,
     pub empire: Option<Option<usize>>,
+    pub advisor: Option<String>,
 }
 
 /// Runs `--script` steps against the world.
@@ -64,6 +65,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["topmenu", n] => view.top_menu = Some(n.parse()?),
             ["messages"] => view.messages = true,
             ["buildmenu", name] => view.build_menu = Some(name.to_string()),
+            ["advisor", name] => view.advisor = Some(name.to_string()),
             ["empire"] => view.empire = Some(None),
             ["empire", c] => view.empire = Some(Some(c.parse()?)),
             ["burn", p] => {

@@ -163,7 +163,7 @@ impl World {
         for id in self.buildings.ids() {
             let Some(b) = self.buildings.get(id) else { continue };
             let k = b.kind;
-            if !self.is_industry(k) || b.workers <= 0 {
+            if !self.is_industry(k) || b.workers <= 0 || self.output_of(k).is_some_and(|r| self.is_mothballed(r)) {
                 continue;
             }
             let inputs = self.inputs_of(k);
@@ -278,6 +278,11 @@ impl World {
                 from,
             );
         }
+        if self.is_stockpiled(r)
+            && let Some(y) = self.nearest(with_room(kind::STORAGE_YARD), from)
+        {
+            return Some(y);
+        }
         if resource::is_food(r)
             && let Some(g) = self.nearest(with_room(kind::GRANARY), from)
         {
@@ -301,6 +306,7 @@ impl World {
             // The palace turns gold straight into deben.
             self.gold_delivered += amount;
             self.treasury += amount;
+            self.finance.this_year.gold += amount;
             return 0;
         }
         if is_storage {
@@ -459,7 +465,7 @@ impl World {
             .buildings
             .iter()
             .filter(|u| !storage::is_storage(u.kind))
-            .flat_map(|u| held.iter().filter(|h| h.1 >= LOAD && self.room_for(u.id, h.0) >= LOAD).map(move |h| (u.id, h.0)))
+            .flat_map(|u| held.iter().filter(|h| h.1 >= LOAD && !self.is_stockpiled(h.0) && self.room_for(u.id, h.0) >= LOAD).map(move |h| (u.id, h.0)))
             .collect();
         if let Some(&(user, r)) = users.iter().min_by_key(|(u, _)| (self.distance(*u, from), *u)) {
             let n = self.room_for(user, r).min(YARD_DELIVER);

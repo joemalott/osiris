@@ -36,6 +36,7 @@ pub mod kind {
     pub const HUNTING_LODGE: u16 = 115;
     pub const SHRINE_OSIRIS: u16 = 140;
     pub const SHRINE_BAST: u16 = 144;
+    pub const SHIPWRIGHT: u16 = 74;
     pub const FIREHOUSE: u16 = 167;
     pub const WATER_SUPPLY: u16 = 180;
     pub const WORK_CAMP: u16 = 199;

@@ -84,7 +84,12 @@ impl ImageLibrary {
                 index: index as u16,
             });
         }
-        None
+        // A system slot no other pack claims (the first pack's, whose ids start at 0)
+        // is the pack's own image: the UI's arrows and other system sprites.
+        self.packs.iter().enumerate().find_map(|(i, p)| {
+            let index = id.checked_sub(p.base)? as usize;
+            (index < SYSTEM_SLOTS.min(p.sg3.len())).then_some(PackImage { pack: i as u16, index: index as u16 })
+        })
     }
 
     /// Global id of image `offset` in group `group` of pack `pack_name`.

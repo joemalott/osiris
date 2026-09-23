@@ -73,6 +73,10 @@ pub mod status {
     pub const IMPORT: u8 = 1;
     /// Sell it to traders while the storage yards hold more than the set amount.
     pub const EXPORT: u8 = 2;
+    /// Import up to a level the overseer sets from the city's size and industry.
+    pub const IMPORT_AS_NEEDED: u8 = 3;
+    /// Export what is over the level the overseer sets.
+    pub const EXPORT_SURPLUS: u8 = 4;
 }
 
 mod action {
@@ -137,6 +141,12 @@ pub struct Trade {
     /// Per resource: the player's trade status and amount.
     pub status: Vec<u8>,
     pub amount: Vec<i32>,
+    /// Resources kept in storage: not used by industry or bazaars, nor traded.
+    #[serde(default)]
+    pub stockpiled: Vec<bool>,
+    /// Resources whose industries are shut down.
+    #[serde(default)]
+    pub mothballed: Vec<bool>,
     pub traders: Vec<EmpireTrader>,
     /// Map decorations for the empire window: (kind, x, y, image id).
     pub objects: Vec<(u8, i32, i32, u16)>,
@@ -161,6 +171,8 @@ impl Trade {
             prices: if e.prices.iter().any(|&p| p != (0, 0)) { e.prices.clone() } else { DEFAULT_PRICES.to_vec() },
             status: vec![status::NONE; RESOURCES],
             amount: vec![0; RESOURCES],
+            stockpiled: vec![false; RESOURCES],
+            mothballed: vec![false; RESOURCES],
             ..Default::default()
         };
         for o in e.objects.iter().filter(|o| o.in_use) {
@@ -225,22 +237,117 @@ impl World {
         self.trade.routes.get(c.route as usize).is_none_or(|rt| rt.traded[r as usize] >= rt.limit[r as usize])
     }
 
+    pub fn is_stockpiled(&self, r: u16) -> bool {
+        self.trade.stockpiled.get(r as usize).copied().unwrap_or(false)
+    }
+
+    pub fn is_mothballed(&self, r: u16) -> bool {
+        self.trade.mothballed.get(r as usize).copied().unwrap_or(false)
+    }
+
+    /// The stock the overseer aims for when importing as needed or exporting surpluses:
+    /// food and drink by population, raw materials by the industries using them, and
+    /// so on.
+    pub fn trade_level(&self, r: u16) -> i32 {
+        use crate::economy::resource as res;
+        let pop = self.population;
+        let active = |k: u16| self.buildings.iter().filter(|b| b.kind == k && b.workers > 0).count() as i32;
+        let users = |r: u16| {
+            self.buildings.iter().filter(|b| b.workers > 0 && self.defs.building(b.kind).is_some_and(|d| d.inputs.iter().any(|i| self.resource_id(i) == Some(r)))).count() as i32
+        };
+        match r {
+            res::GRAIN | res::MEAT | res::LETTUCE | res::GAMEMEAT | 31 | res::BEER => (pop / 100 * 100).max(100),
+            35 | 10 => 10,
+            11 | res::STRAW | 14 | 29 | 16 => 200 + 200 * users(r),
+            res::TIMBER => active(crate::buildings::kind::SHIPWRIGHT) * 200,
+            12 => (pop / 100 * 100).max(100),
+            res::POTTERY | res::LUXURY_GOODS => (pop / 100 * 50).max(100),
+            23 => (active(51) + active(53)).max(1) * 100,
+            _ => 100,
+        }
+    }
+
     /// Whether traders from `city` would buy `r` from us now.
     pub fn can_export(&self, city: usize, r: u16) -> bool {
         let Some(c) = self.trade.cities.get(city) else { return false };
-        c.buys[r as usize]
-            && self.trade.status[r as usize] == status::EXPORT
-            && !self.limit_reached(city, r)
-            && self.yards_stored(r) > self.trade.amount[r as usize]
+        let keep = match self.trade.status[r as usize] {
+            status::EXPORT => self.trade.amount[r as usize],
+            status::EXPORT_SURPLUS => self.trade_level(r),
+            _ => return false,
+        };
+        c.buys[r as usize] && !self.is_stockpiled(r) && !self.limit_reached(city, r) && self.yards_stored(r) > keep
     }
 
     /// Whether traders from `city` would sell `r` to us now.
     pub fn can_import(&self, city: usize, r: u16) -> bool {
         let Some(c) = self.trade.cities.get(city) else { return false };
-        c.sells[r as usize]
-            && self.trade.status[r as usize] == status::IMPORT
-            && !self.limit_reached(city, r)
-            && self.yards_stored(r) < self.trade.amount[r as usize]
+        let want = match self.trade.status[r as usize] {
+            status::IMPORT => self.trade.amount[r as usize],
+            status::IMPORT_AS_NEEDED => self.trade_level(r),
+            _ => return false,
+        };
+        c.sells[r as usize] && !self.limit_reached(city, r) && self.yards_stored(r) < want
+    }
+
+    /// Whether any trading city sells (or buys) `r`, and whether its route is open.
+    pub fn trade_partners(&self, r: u16, buying: bool) -> (bool, bool) {
+        let mut any = false;
+        let mut open = false;
+        for c in self.trade.cities.iter().filter(|c| c.trades()) {
+            let list = if buying { &c.sells } else { &c.buys };
+            if list.get(r as usize).copied().unwrap_or(false) {
+                any = true;
+                open |= c.open;
+            }
+        }
+        (any, open)
+    }
+
+    /// Clicking a resource's import button: as needed, then to a set amount, then off.
+    pub fn cycle_import(&mut self, r: u16) {
+        if !self.trade_partners(r, true).1 {
+            return;
+        }
+        let s = &mut self.trade.status[r as usize];
+        *s = match *s {
+            status::IMPORT_AS_NEEDED => status::IMPORT,
+            status::IMPORT => status::NONE,
+            _ => status::IMPORT_AS_NEEDED,
+        };
+    }
+
+    /// Clicking a resource's export button: surpluses, then over a set amount, then off.
+    pub fn cycle_export(&mut self, r: u16) {
+        if !self.trade_partners(r, false).1 {
+            return;
+        }
+        let s = &mut self.trade.status[r as usize];
+        *s = match *s {
+            status::EXPORT_SURPLUS => status::EXPORT,
+            status::EXPORT => status::NONE,
+            _ => status::EXPORT_SURPLUS,
+        };
+        if *s != status::NONE {
+            self.trade.stockpiled[r as usize] = false;
+        }
+    }
+
+    pub fn change_trade_amount(&mut self, r: u16, delta: i32) {
+        if let Some(a) = self.trade.amount.get_mut(r as usize) {
+            *a = (*a + delta).clamp(0, 10000);
+        }
+    }
+
+    pub fn toggle_stockpiled(&mut self, r: u16) {
+        if let Some(s) = self.trade.stockpiled.get_mut(r as usize) {
+            *s = !*s;
+        }
+    }
+
+    pub fn toggle_mothballed(&mut self, r: u16) {
+        if let Some(s) = self.trade.mothballed.get_mut(r as usize) {
+            *s = !*s;
+        }
     }
 
     /// Opens the trade route to `city`, paying its cost.
