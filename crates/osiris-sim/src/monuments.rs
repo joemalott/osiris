@@ -410,6 +410,9 @@ pub type MonumentStatus = (u8, bool, Vec<(u16, i32, i32)>);
 /// how far in.
 type SiteTile = ((i32, i32), u32, Option<(u32, f32)>);
 
+/// Scaffolding pieces (image, pixel offset) and the tile they are placed from.
+pub type Scaffold = (Vec<(u32, (i32, i32))>, (i32, i32));
+
 /// Phases that level the site.
 const LEVELING_PHASES: u8 = 2;
 /// Laborers one monument takes at a time.
@@ -998,7 +1001,7 @@ impl World {
 
     /// The scaffolding standing about a sun temple's obelisk as it is worked:
     /// (image, pixel offset from the obelisk's left edge and the top of its footprint).
-    pub fn sun_temple_scaffold(&self, id: BuildingId) -> (Vec<(u32, (i32, i32))>, (i32, i32)) {
+    pub fn sun_temple_scaffold(&self, id: BuildingId) -> Scaffold {
         let none = (Vec::new(), (0, 0));
         let Some(b) = self.buildings.get(id).filter(|b| b.kind == SUN_TEMPLE) else { return none };
         let (Some(bdef), Some(m)) = (self.defs.building(b.kind), b.monument.as_ref()) else { return none };
