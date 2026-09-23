@@ -32,6 +32,8 @@ pub struct TerrainImages {
     pub shrub: u32,
     pub tree: u32,
     pub water: u32,
+    /// Earthquake cracks (`Pharaoh_Terrain` group 6).
+    pub earthquake: u32,
     pub empty_land_alt: u32,
     pub rock: u32,
     pub empty_land: u32,
@@ -335,6 +337,7 @@ impl Defs {
             shrub: t(2)?,
             tree: t(4)?,
             water: t(5)?,
+            earthquake: t(6)?,
             empty_land_alt: t(7)?,
             rock: t(8)?,
             empty_land: t(10)?,

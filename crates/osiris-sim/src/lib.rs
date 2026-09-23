@@ -13,6 +13,7 @@ pub mod crime;
 pub mod defenses;
 pub mod defs;
 pub mod desirability;
+pub mod earthquakes;
 pub mod docks;
 pub mod economy;
 pub mod entertainment;

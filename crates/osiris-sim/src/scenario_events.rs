@@ -33,6 +33,7 @@ impl From<EventValue> for Pick {
 pub mod event {
     pub const REQUEST: u8 = 1;
     pub const INVASION: u8 = 2;
+    pub const EARTHQUAKE: u8 = 3;
     pub const SEA_TRADE_PROBLEM: u8 = 6;
     pub const LAND_TRADE_PROBLEM: u8 = 7;
     pub const WAGE_INCREASE: u8 = 8;
@@ -253,7 +254,7 @@ impl ScenarioEvent {
 impl World {
     /// A pick among the scenario's choices: a fixed value, one of up to three values,
     /// or anything in a range.
-    fn roll(&mut self, v: Pick) -> i32 {
+    pub(crate) fn roll(&mut self, v: Pick) -> i32 {
         let (fixed, min, max) = (v.fixed as i32, v.min as i32, v.max as i32);
         if fixed == -1 && min > -1 && max > -1 && max == min {
             return fixed;

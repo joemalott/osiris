@@ -124,6 +124,9 @@ pub struct World {
     /// Texts of the event messages in `messages`, in the same order.
     #[serde(default)]
     pub message_texts: VecDeque<crate::scenario_events::EventText>,
+    /// The scenario's earthquakes and its epicentre.
+    #[serde(default)]
+    pub earthquakes: crate::earthquakes::Earthquakes,
     pub won: bool,
     /// The mission is lost (the city fell, or time ran out).
     #[serde(default)]
@@ -234,6 +237,7 @@ impl World {
             burial: info.burial_provisions_required.iter().map(|&r| (r as i32 * 100, 0)).collect(),
             scenario_events: crate::scenario_events::ScenarioEvents::from_records(&scenario.events, info.start_year as i32),
             message_texts: VecDeque::new(),
+            earthquakes: crate::earthquakes::Earthquakes::from_scenario(scenario),
             won: false,
             lost: false,
             time_limit: info.win.time_limit.enabled.then_some(info.win.time_limit.value).filter(|&y| y > 0),
