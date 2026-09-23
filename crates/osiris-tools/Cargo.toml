@@ -9,3 +9,4 @@ version.workspace = true
 osiris-formats = { path = "../osiris-formats" }
 png = "0.18"
 anyhow = "1"
+osiris-sim = { path = "../osiris-sim" }

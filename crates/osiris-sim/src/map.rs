@@ -2,6 +2,7 @@
 
 use crate::grid::Grid;
 use osiris_formats::Scenario;
+use osiris_formats::chunks::GRID_SIZE;
 pub use osiris_formats::scenario::terrain;
 
 /// Terrain combinations used by placement and tile-image rules.
@@ -61,6 +62,10 @@ pub struct Map {
     pub vegetation: Grid<u8>,
     /// Building occupying each tile; 0 = none.
     pub building: Grid<u32>,
+    /// Terrain of the ring of tiles just outside the map, as the map file stores it
+    /// (see `terrain_around`). Only redrawing the terrain on load reads it.
+    #[serde(skip)]
+    pub border: Vec<u32>,
 }
 
 impl Map {
@@ -80,7 +85,35 @@ impl Map {
             moisture: Grid::from_fn(w, h, |x, y| s.moisture[off(x, y)]),
             vegetation: Grid::from_fn(w, h, |x, y| s.vegetation_growth[off(x, y)]),
             building: Grid::new(w, h),
+            border: Self::border_ring(w, h)
+                .map(|(x, y)| usize::try_from(s.info.start_offset + y * GRID_SIZE as i32 + x).ok().and_then(|i| s.terrain.get(i).copied()).unwrap_or(0))
+                .collect(),
         }
+    }
+
+    /// The tiles just outside a `w x h` map: the rows above and below (corners
+    /// included), then the columns to the left and right.
+    fn border_ring(w: i32, h: i32) -> impl Iterator<Item = (i32, i32)> {
+        let rows = [-1, h].into_iter().flat_map(move |y| (-1..=w).map(move |x| (x, y)));
+        let columns = [-1, w].into_iter().flat_map(move |x| (0..h).map(move |y| (x, y)));
+        rows.chain(columns)
+    }
+
+    /// Terrain at `(x, y)`, reading tiles just outside the map from `border` and
+    /// `outside` beyond them.
+    pub fn terrain_around(&self, x: i32, y: i32, outside: u32) -> u32 {
+        if self.contains(x, y) {
+            return self.terrain.at_or(x, y, outside);
+        }
+        let (w, h) = (self.width, self.height);
+        let index = if (y == -1 || y == h) && (-1..=w).contains(&x) {
+            (if y == -1 { 0 } else { w + 2 }) + x + 1
+        } else if (x == -1 || x == w) && (0..h).contains(&y) {
+            2 * (w + 2) + if x == -1 { 0 } else { h } + y
+        } else {
+            return outside;
+        };
+        self.border.get(index as usize).copied().unwrap_or(outside)
     }
 
     pub fn contains(&self, x: i32, y: i32) -> bool {

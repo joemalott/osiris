@@ -249,6 +249,8 @@ pub mod terrain {
     pub const SUBMERGED_ROAD: u32 = 0x800_0000;
     /// A bridge's deck over water (Osiris's own flag; not in the original grids).
     pub const BRIDGE: u32 = 0x1000_0000;
+    /// Cleopatra's cliffs: always set together with `ROCK`.
+    pub const CLIFF: u32 = 0x2000_0000;
     pub const SHORE: u32 = 0x8000_0000;
 }
 

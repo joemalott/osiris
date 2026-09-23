@@ -1773,3 +1773,162 @@ tiles = [2, 2, 1, 2, 1, 2, 2, 2]
 offsets = [11, 10, 9, 8]
 canal = 0
 variants = 1
+
+# Land beside the floodplain (1 = floodplain neighbour) and deep
+# water (1 = neighbour not deep water, rows tried last to first).
+
+[[shore]]
+tiles = [1, 2, 1, 2, 1, 2, 1, 2]
+offsets = [14, 14, 14, 14]
+canal = 0
+variants = 6
+
+[[shore]]
+tiles = [1, 2, 1, 2, 1, 2, 0, 2]
+offsets = [14, 14, 14, 14]
+canal = 0
+variants = 6
+
+[[shore]]
+tiles = [0, 2, 1, 2, 1, 2, 1, 2]
+offsets = [14, 14, 14, 14]
+canal = 0
+variants = 6
+
+[[shore]]
+tiles = [1, 2, 0, 2, 1, 2, 1, 2]
+offsets = [14, 14, 14, 14]
+canal = 0
+variants = 6
+
+[[shore]]
+tiles = [1, 2, 1, 2, 0, 2, 1, 2]
+offsets = [14, 14, 14, 14]
+canal = 0
+variants = 6
+
+[[shore]]
+tiles = [1, 2, 0, 2, 1, 2, 0, 2]
+offsets = [14, 14, 14, 14]
+canal = 0
+variants = 6
+
+[[shore]]
+tiles = [0, 2, 1, 2, 0, 2, 1, 2]
+offsets = [14, 14, 14, 14]
+canal = 0
+variants = 6
+
+[[shore]]
+tiles = [1, 2, 1, 2, 1, 2, 0, 2]
+offsets = [14, 14, 14, 14]
+canal = 0
+variants = 6
+
+[[shore]]
+tiles = [0, 2, 1, 2, 1, 2, 1, 2]
+offsets = [14, 14, 14, 14]
+canal = 0
+variants = 6
+
+[[shore]]
+tiles = [1, 2, 0, 2, 1, 2, 1, 2]
+offsets = [14, 14, 14, 14]
+canal = 0
+variants = 6
+
+[[shore]]
+tiles = [1, 2, 1, 2, 0, 2, 1, 2]
+offsets = [14, 14, 14, 14]
+canal = 0
+variants = 6
+
+[[shore]]
+tiles = [1, 2, 1, 2, 0, 0, 0, 2]
+offsets = [1, 7, 5, 3]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [0, 2, 1, 2, 1, 2, 0, 0]
+offsets = [3, 1, 7, 5]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [0, 0, 0, 2, 1, 2, 1, 2]
+offsets = [5, 3, 1, 7]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [1, 2, 0, 0, 0, 2, 1, 2]
+offsets = [7, 5, 3, 1]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [1, 2, 0, 0, 0, 0, 0, 2]
+offsets = [0, 6, 4, 2]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [0, 2, 1, 2, 0, 0, 0, 0]
+offsets = [2, 0, 6, 4]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [0, 0, 0, 2, 1, 2, 0, 0]
+offsets = [4, 2, 0, 6]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [0, 0, 0, 0, 0, 2, 1, 2]
+offsets = [6, 4, 2, 0]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [0, 1, 0, 0, 0, 1, 0, 0]
+offsets = [12, 13, 12, 13]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [0, 0, 0, 1, 0, 0, 0, 1]
+offsets = [13, 12, 13, 12]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [0, 1, 0, 0, 0, 0, 0, 0]
+offsets = [8, 11, 10, 9]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [0, 0, 0, 1, 0, 0, 0, 0]
+offsets = [9, 8, 11, 10]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [0, 0, 0, 0, 0, 1, 0, 0]
+offsets = [10, 9, 8, 11]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [0, 0, 0, 0, 0, 0, 0, 1]
+offsets = [11, 10, 9, 8]
+canal = 0
+variants = 1
+
+[[shore]]
+tiles = [0, 0, 0, 0, 0, 0, 0, 0]
+offsets = [14, 14, 14, 14]
+canal = 0
+variants = 6

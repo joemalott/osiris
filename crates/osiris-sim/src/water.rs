@@ -472,6 +472,7 @@ mod tests {
             moisture: Grid::new(w, h),
             vegetation: Grid::new(w, h),
             building: Grid::new(w, h),
+            border: Vec::new(),
         };
         for y in y0..y1 {
             for x in 0..w {
