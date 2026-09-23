@@ -14,6 +14,7 @@ mod message_list;
 mod rules_panel;
 mod minimap;
 mod overlay;
+mod progress;
 mod script;
 mod sidebar;
 mod top_menu;
@@ -114,6 +115,7 @@ struct Assets {
     messages: Arc<MessageTable>,
     phrases: Arc<osiris_formats::Phrases>,
     mission_names: Vec<String>,
+    campaign: Arc<Campaign>,
 }
 
 enum Source {
@@ -191,19 +193,39 @@ fn progress_path() -> PathBuf {
     user_dir().join("progress.txt")
 }
 
-/// Highest campaign mission index the player may start.
-fn unlocked_missions() -> usize {
-    std::fs::read_to_string(progress_path()).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0)
+/// Where the player is in the campaign.
+fn load_progress(c: &Campaign) -> progress::Progress {
+    match std::fs::read_to_string(progress_path()) {
+        Ok(text) => progress::Progress::parse(c, &text),
+        Err(_) => progress::Progress::new(c),
+    }
 }
 
-fn unlock_mission(n: usize) {
-    if n > unlocked_missions() {
-        let _ = std::fs::write(progress_path(), n.to_string());
+fn save_progress(p: &progress::Progress) {
+    let _ = std::fs::create_dir_all(user_dir());
+    let _ = std::fs::write(progress_path(), p.to_text());
+}
+
+/// What the menu shows of the campaign: the missions the player may start, which are
+/// won, and the choice of city waiting to be made, if any.
+fn campaign_view(assets: &Assets, p: &progress::Progress) -> menu::CampaignView {
+    let text = |id: u32| assets.text.get(144, id as usize).unwrap_or("").trim().to_string();
+    let choice = p.choice(&assets.campaign).map(|(screen, choices)| menu::ChoiceView {
+        map: menu::CHOICE_MAPS + screen.graphic_id,
+        title: text(screen.title_text_id),
+        prompt: text(0),
+        points: choices.iter().map(|c| menu::ChoicePoint { x: c.x as f32, y: c.y as f32, label: text(c.text_id), path: c.path_id }).collect(),
+    });
+    let count = assets.mission_names.len();
+    menu::CampaignView {
+        playable: p.playable().into_iter().filter(|&m| m < count).collect(),
+        done: p.done.clone(),
+        choice,
     }
 }
 
 enum Screen {
-    Menu(menu::Menu),
+    Menu(Box<menu::Menu>),
     Playing(Box<game::Game>, Option<usize>),
 }
 
@@ -225,14 +247,14 @@ struct App {
 }
 
 impl App {
-    fn menu(&self) -> menu::Menu {
-        menu::Menu::new(
+    fn menu(&self) -> Box<menu::Menu> {
+        Box::new(menu::Menu::new(
             self.assets.mission_names.clone(),
-            unlocked_missions(),
+            campaign_view(&self.assets, &load_progress(&self.assets.campaign)),
             list_files(&self.assets.data.join("Maps"), "map"),
             list_files(&user_dir().join("saves"), "osiris"),
             load_rules(),
-        )
+        ))
     }
 
     fn start(&mut self, mut world: World, mission: Option<usize>) {
@@ -252,6 +274,23 @@ impl App {
                 return;
             }
             menu::Choice::Mission(n) => new_world(&self.assets, &Source::Mission(*n)).map(|w| (w, Some(*n))),
+            menu::Choice::Path(path) => {
+                // The city is chosen: on to its first mission.
+                let mut p = load_progress(&self.assets.campaign);
+                p.choose(&self.assets.campaign, *path);
+                save_progress(&p);
+                match p.next {
+                    progress::Next::Mission(m) => {
+                        self.choose(menu::Choice::Mission(m), event_loop);
+                    }
+                    _ => {
+                        let mut menu = self.menu();
+                        menu.show_campaign();
+                        self.screen = Some(Screen::Menu(menu));
+                    }
+                }
+                return;
+            }
             menu::Choice::Map(p) => new_world(&self.assets, &Source::Map(p.clone())).map(|w| (w, None)),
             menu::Choice::Save(p) => load_game(&self.assets, p).map(|w| {
                 let m = w.mission.as_ref().map(|m| m.id as usize);
@@ -570,12 +609,14 @@ impl App {
             self.screen = Some(Screen::Menu(menu));
         }
         if let Some(mission) = finished {
-            let next = mission.map(|m| m + 1);
-            if let Some(n) = next {
-                unlock_mission(n);
+            if let Some(m) = mission {
+                let mut p = load_progress(&self.assets.campaign);
+                p.won(&self.assets.campaign, m);
+                save_progress(&p);
             }
             let mut menu = self.menu();
-            if next.is_some() {
+            if mission.is_some() {
+                // The next mission, or the choice of the next city.
                 menu.show_campaign();
             }
             self.screen = Some(Screen::Menu(menu));
@@ -653,15 +694,16 @@ fn load_assets(data: &Path, library: &ImageLibrary) -> Result<Assets> {
     let messages = Arc::new(MessageTable::parse(&std::fs::read(data.join("Pharaoh_MM.eng"))?)?);
     let campaign = std::fs::read(data.join("campaign.txt"))
         .ok()
-        .and_then(|b| Campaign::parse(&String::from_utf8_lossy(&b)).ok());
+        .and_then(|b| Campaign::parse(&String::from_utf8_lossy(&b)).ok())
+        .unwrap_or_default();
     let pak = MissionPak::open(&data.join("mission1.pak"))?;
     let count = (0..pak.slots()).filter(|&i| pak.entry(i).is_some()).count();
-    let names = campaign.map(|c| c.mission_names).unwrap_or_default();
+    let names = campaign.mission_names.clone();
     let mission_names = (0..count)
         .map(|i| names.get(i).cloned().unwrap_or_else(|| format!("Mission {}", i + 1)))
         .collect();
     let phrases = Arc::new(osiris_formats::Phrases::parse(&String::from_utf8_lossy(&std::fs::read(data.join("eventmsg.txt")).unwrap_or_default())));
-    Ok(Assets { data: data.to_owned(), defs, balance, text, messages, phrases, mission_names })
+    Ok(Assets { data: data.to_owned(), defs, balance, text, messages, phrases, mission_names, campaign: Arc::new(campaign) })
 }
 
 fn main() -> Result<()> {
@@ -688,7 +730,13 @@ fn main() -> Result<()> {
         };
         let images = sidebar::SidebarImages::load(&library)?;
         if view.menu {
-            let mut menu = menu::Menu::new(assets.mission_names.clone(), 2, list_files(&assets.data.join("Maps"), "map"), vec![], Default::default());
+            // A campaign part-way through, at its first choice of city.
+            let c = &assets.campaign;
+            let mut p = progress::Progress::new(c);
+            while let progress::Next::Mission(m) = p.next {
+                p.won(c, m);
+            }
+            let mut menu = menu::Menu::new(assets.mission_names.clone(), campaign_view(&assets, &p), list_files(&assets.data.join("Maps"), "map"), vec![], Default::default());
             if let Some(page) = &view.menu_page {
                 menu.open_page(page);
             }

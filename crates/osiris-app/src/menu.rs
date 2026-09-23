@@ -12,15 +12,51 @@ const BG_TITLE: u32 = 201;
 const BG_CHOOSE_GAME: u32 = 656;
 const BG_HISTORY: u32 = 658;
 const BG_CUSTOM: u32 = 657;
+/// The choice of city: the frame, the maps of Egypt (one per choice screen, 640x400,
+/// shown at 192,144 in the frame) and the city marker (normal, hover, pressed).
+const CHOICE_BACK: u32 = 492;
+pub const CHOICE_MAPS: u32 = 493;
+const CHOICE_MARKER: u32 = 502;
+const CHOICE_MAP_AT: [f32; 2] = [192.0, 144.0];
+const MARKER_R: f32 = 23.0;
 
 /// The history plaque in `BG_HISTORY` (1024x768): the dark list panel on the right and
 /// the sandstone area under the picture frame on the left.
 const PLAQUE_LIST: [f32; 4] = [522.0, 204.0, 808.0, 584.0];
 const PLAQUE_INFO: [f32; 4] = [226.0, 366.0, 496.0, 600.0];
 
+/// The campaign as the menu shows it.
+#[derive(Debug, Clone, Default)]
+pub struct CampaignView {
+    /// Missions the player may start, in the order played.
+    pub playable: Vec<usize>,
+    pub done: Vec<usize>,
+    /// The choice of the next city, when one is waiting.
+    pub choice: Option<ChoiceView>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChoiceView {
+    pub map: u32,
+    pub title: String,
+    pub prompt: String,
+    pub points: Vec<ChoicePoint>,
+}
+
+/// A city to choose: its place on the map (the marker's centre) and its line.
+#[derive(Debug, Clone)]
+pub struct ChoicePoint {
+    pub x: f32,
+    pub y: f32,
+    pub label: String,
+    pub path: u32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Choice {
     Mission(usize),
+    /// The city on this campaign path.
+    Path(u32),
     Map(PathBuf),
     Save(PathBuf),
     Quit,
@@ -30,6 +66,8 @@ pub enum Choice {
 enum Page {
     Main,
     Campaign,
+    /// The map of Egypt with the cities to choose between.
+    CityChoice,
     Custom,
     Load,
     Rules,
@@ -53,7 +91,8 @@ pub struct Menu {
     hover: Option<usize>,
     scroll: usize,
     mission_names: Vec<String>,
-    unlocked: usize,
+    campaign: CampaignView,
+    hover_point: Option<usize>,
     maps: Vec<PathBuf>,
     /// Newest first.
     saves: Vec<PathBuf>,
@@ -93,7 +132,7 @@ fn inside(p: [f32; 2], x: f32, y: f32, w: f32, h: f32) -> bool {
 }
 
 impl Menu {
-    pub fn new(mission_names: Vec<String>, unlocked: usize, maps: Vec<PathBuf>, mut saves: Vec<PathBuf>, rules: Rules) -> Self {
+    pub fn new(mission_names: Vec<String>, campaign: CampaignView, maps: Vec<PathBuf>, mut saves: Vec<PathBuf>, rules: Rules) -> Self {
         saves.sort_by_key(|p| std::cmp::Reverse(std::fs::metadata(p).and_then(|m| m.modified()).ok()));
         let mut m = Self {
             page: Page::Main,
@@ -101,7 +140,8 @@ impl Menu {
             hover: None,
             scroll: 0,
             mission_names,
-            unlocked,
+            campaign,
+            hover_point: None,
             maps,
             saves,
             selected_mission: None,
@@ -120,6 +160,7 @@ impl Menu {
     pub fn open_page(&mut self, name: &str) {
         let page = match name {
             "campaign" => Page::Campaign,
+            "choice" => Page::CityChoice,
             "custom" => Page::Custom,
             "load" => Page::Load,
             "rules" => Page::Rules,
@@ -128,15 +169,17 @@ impl Menu {
         self.go(page);
     }
 
+    /// The campaign after a mission: the choice of the next city when one is waiting,
+    /// otherwise the mission list.
     pub fn show_campaign(&mut self) {
-        self.go(Page::Campaign);
+        self.go(if self.campaign.choice.is_some() { Page::CityChoice } else { Page::Campaign });
     }
 
     fn go(&mut self, page: Page) {
         self.page = page;
         self.build();
         self.scroll = if page == Page::Campaign {
-            self.unlocked.saturating_sub(self.visible_rows() / 2)
+            self.items.len().saturating_sub(self.visible_rows() / 2)
         } else {
             0
         };
@@ -161,19 +204,25 @@ impl Menu {
                 ]);
                 v
             }
-            Page::Campaign => self
-                .mission_names
-                .iter()
-                .enumerate()
-                .map(|(i, name)| Item {
-                    label: format!("{}. {}", i + 1, name),
-                    enabled: i <= self.unlocked,
-                    action: Action::Choose(Choice::Mission(i)),
-                })
-                .collect(),
+            Page::Campaign => {
+                let mut v: Vec<Item> = self
+                    .campaign
+                    .playable
+                    .iter()
+                    .map(|&m| Item {
+                        label: format!("{}. {}", m + 1, self.mission_names.get(m).map_or("", |s| s.as_str())),
+                        enabled: true,
+                        action: Action::Choose(Choice::Mission(m)),
+                    })
+                    .collect();
+                if let Some(c) = &self.campaign.choice {
+                    v.push(Item { label: c.title.clone(), enabled: true, action: go(Page::CityChoice) });
+                }
+                v
+            }
             Page::Custom => Self::files(&self.maps, Choice::Map),
             Page::Load => Self::files(&self.saves, Choice::Save),
-            Page::Rules => Vec::new(),
+            Page::Rules | Page::CityChoice => Vec::new(),
         };
         self.hover = None;
     }
@@ -254,7 +303,7 @@ impl Menu {
                 let row = ((p[1] - top) / ROW_H) as usize;
                 (row < self.visible_rows()).then_some(row + self.scroll)
             }
-            Page::Rules => None,
+            Page::Rules | Page::CityChoice => None,
         };
         found.filter(|&i| i < self.items.len())
     }
@@ -265,8 +314,9 @@ impl Menu {
             return;
         }
         self.hover = self.item_at(screen, p);
+        self.hover_point = self.point_at(screen, p);
         let [bx, by] = self.back_button(screen);
-        self.hover_back = self.page != Page::Main && inside(p, bx, by, 160.0, BUTTON_H);
+        self.hover_back = !matches!(self.page, Page::Main | Page::CityChoice) && inside(p, bx, by, 160.0, BUTTON_H);
     }
 
     pub fn scroll(&mut self, lines: i32) {
@@ -275,9 +325,29 @@ impl Menu {
     }
 
     pub fn back(&mut self) {
-        if self.page != Page::Main {
-            self.go(Page::Main);
+        match self.page {
+            Page::CityChoice => self.go(Page::Campaign),
+            Page::Main => {}
+            _ => self.go(Page::Main),
         }
+    }
+
+    /// The choice screen's frame: its offset and scale on screen.
+    fn choice_frame(screen: [f32; 2]) -> ([f32; 2], f32) {
+        cover_screen(screen, [1024.0, 768.0])
+    }
+
+    /// The city marker under `p` on the choice screen.
+    fn point_at(&self, screen: [f32; 2], p: [f32; 2]) -> Option<usize> {
+        if self.page != Page::CityChoice {
+            return None;
+        }
+        let c = self.campaign.choice.as_ref()?;
+        let (o, s) = Self::choice_frame(screen);
+        c.points.iter().position(|pt| {
+            let (cx, cy) = (o[0] + (CHOICE_MAP_AT[0] + pt.x) * s, o[1] + (CHOICE_MAP_AT[1] + pt.y) * s);
+            (p[0] - cx).powi(2) + (p[1] - cy).powi(2) <= (MARKER_R * s).powi(2)
+        })
     }
 
     /// Where the governor's name is written on the campaign page.
@@ -314,6 +384,10 @@ impl Menu {
                 self.editing_name = true;
                 return None;
             }
+        }
+        if self.page == Page::CityChoice {
+            let i = self.point_at(screen, p)?;
+            return self.campaign.choice.as_ref().and_then(|c| c.points.get(i)).map(|pt| Choice::Path(pt.path));
         }
         if self.page == Page::Rules {
             match self.rules_panel.click(&mut self.rules, screen, screen[0], p) {
@@ -373,6 +447,7 @@ impl Menu {
         match self.page {
             Page::Main => self.draw_main(r, panels),
             Page::Campaign => self.draw_campaign(r, panels),
+            Page::CityChoice => self.draw_choice(r),
             Page::Custom | Page::Load => self.draw_list(r, panels),
             Page::Rules => {
                 Self::background(r, BG_TITLE);
@@ -409,7 +484,7 @@ impl Menu {
             }
             let f = if self.hover == Some(i) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
             draw_text(r, f, &item.label, list[0] + 10.0, y, font::WHITE);
-            if i < self.unlocked {
+            if matches!(item.action, Action::Choose(Choice::Mission(m)) if self.campaign.done.contains(&m)) {
                 draw_text(r, f, "done", list[2] - 50.0, y, font::WHITE);
             }
         }
@@ -426,19 +501,19 @@ impl Menu {
         let tw = text_width(r, Font::LargeBlackOnLight, title) as f32;
         let cx = (info[0] + info[2]) / 2.0;
         draw_text(r, Font::LargeBlackOnLight, title, (cx - tw / 2.0).floor(), info[1], font::BLACK);
-        let shown = self.hover.or(Some(self.unlocked.min(self.items.len().saturating_sub(1))));
-        if let Some(i) = shown
-            && let Some(name) = self.mission_names.get(i)
-        {
-            let status = if i < self.unlocked {
-                "Completed. Click to play it again."
-            } else if i == self.unlocked {
-                "Your next mission. Click to begin."
-            } else {
-                "Complete the missions before this one first."
-            };
-            let heading = format!("Mission {}", i + 1);
-            let lines = [(Font::NormalBlackOnLight, heading.as_str()), (Font::NormalBlackOnLight, name.as_str()), (Font::SmallPlain, status)];
+        let shown = self.hover.or(self.items.len().checked_sub(1));
+        let about = shown.and_then(|i| self.items.get(i)).map(|item| match item.action {
+            Action::Choose(Choice::Mission(m)) => {
+                let status = if self.campaign.done.contains(&m) { "Completed. Click to play it again." } else { "Your next mission. Click to begin." };
+                (format!("Mission {}", m + 1), self.mission_names.get(m).cloned().unwrap_or_default(), status.to_string())
+            }
+            _ => {
+                let c = self.campaign.choice.as_ref();
+                ("Next".to_string(), item.label.clone(), c.map_or_else(String::new, |c| c.prompt.clone()))
+            }
+        });
+        if let Some((heading, name, status)) = &about {
+            let lines = [(Font::NormalBlackOnLight, heading.as_str()), (Font::NormalBlackOnLight, name.as_str()), (Font::SmallPlain, status.as_str())];
             let mut y = info[1] + 40.0;
             for (f, text) in lines {
                 let w = text_width(r, f, text) as f32;
@@ -454,6 +529,26 @@ impl Menu {
         draw_text(r, if self.editing_name { Font::NormalBlue } else { Font::NormalBlackOnLight }, &label, (nx + (nw - w) / 2.0).floor(), ny, font::BLACK);
         let [bx, by] = self.back_button(r.screen);
         Self::button(r, panels, "Back", bx, by, 160.0, self.hover_back, true);
+    }
+
+    /// The map of Egypt with a marker on each city to choose from; the period's title
+    /// below, and the city under the mouse (or the prompt to choose one).
+    fn draw_choice(&self, r: &mut Renderer) {
+        let [sw, sh] = r.screen;
+        r.rect([0.0, 0.0], [sw, sh], [0.0, 0.0, 0.0, 1.0], Space::Screen);
+        let Some(c) = &self.campaign.choice else { return };
+        let (o, s) = Self::choice_frame(r.screen);
+        r.image_scaled(CHOICE_BACK, o, [1024.0 * s, 768.0 * s], WHITE, Space::Screen);
+        let at = [o[0] + CHOICE_MAP_AT[0] * s, o[1] + CHOICE_MAP_AT[1] * s];
+        r.image_scaled(c.map, at, [640.0 * s, 400.0 * s], WHITE, Space::Screen);
+        for (i, pt) in c.points.iter().enumerate() {
+            let image = CHOICE_MARKER + (self.hover_point == Some(i)) as u32;
+            let (cx, cy) = (at[0] + pt.x * s, at[1] + pt.y * s);
+            r.image_scaled(image, [cx - MARKER_R * s, cy - MARKER_R * s], [46.0 * s, 46.0 * s], WHITE, Space::Screen);
+        }
+        draw_text(r, Font::LargeBlackOnLight, &c.title, (o[0] + 204.0 * s).floor(), (o[1] + 550.0 * s).floor(), font::BLACK);
+        let line = self.hover_point.and_then(|i| c.points.get(i)).map_or(c.prompt.as_str(), |pt| pt.label.as_str());
+        draw_text(r, Font::NormalBlackOnLight, line, (o[0] + 214.0 * s).floor(), (o[1] + 584.0 * s).floor(), font::BLACK);
     }
 
     fn draw_list(&self, r: &mut Renderer, panels: &PanelImages) {
