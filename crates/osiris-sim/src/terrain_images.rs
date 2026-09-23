@@ -898,6 +898,13 @@ fn only_rocks_trees_in_ring(map: &Map, x: i32, y: i32, distance: i32) -> bool {
     true
 }
 
+/// The image of cliff tile `(x, y)`, as the original draws it on every start (a royal
+/// tomb, sealed or removed, goes back to it).
+pub(crate) fn cliff_image(map: &Map, defs: &Defs, x: i32, y: i32) -> u32 {
+    let r = map.random.at_or(x, y, 0) as u32;
+    cliff_offset(map, x, y, r).map_or(defs.terrain.rock + (r & 7), |o| defs.terrain.cliff + o)
+}
+
 /// Which cliff image a cliff tile takes from the cliffs around it (orientation 0), or
 /// `None` for a lone outcrop, drawn as plain rock.
 fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {

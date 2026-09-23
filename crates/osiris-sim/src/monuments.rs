@@ -78,6 +78,9 @@ pub enum Style {
     /// shaping the obelisk; masons build the gate and the walls a sled of sandstone at
     /// a time; laborers lay the court's floor; masons build the fore temple.
     SunTemple,
+    /// A royal burial tomb, cut chamber by chamber into a cliff: see
+    /// [`crate::royal_tombs`]. Its `cols` and `rows` are its bulk in tiles.
+    RoyalTomb,
 }
 
 /// A mausoleum: 22x8 tiles, the parts at these columns of rows 2-5, the phases'
@@ -296,7 +299,17 @@ const fn obelisk(kind: u16, size: i32, stages: u8, granite: i32, timber: &'stati
     MonumentDef { kind, cols: size, rows: size, style: Style::Obelisk { size, stages, granite, timber }, phase_count: LEVELING_PHASES + stages + 1, weight, title }
 }
 
-pub const MONUMENTS: [MonumentDef; 25] = [
+/// A royal tomb: its bulk in tiles, its one phase being the cutting.
+const fn royal_tomb(kind: u16, (cols, rows): (i32, i32), weight: i32, title: usize) -> MonumentDef {
+    MonumentDef { kind, cols, rows, style: Style::RoyalTomb, phase_count: 2, weight, title }
+}
+
+pub const MONUMENTS: [MonumentDef; 29] = [
+    // The rating weights are placeholders.
+    royal_tomb(crate::royal_tombs::SMALL_ROYAL_TOMB, (11, 20), 4, 33),
+    royal_tomb(crate::royal_tombs::MEDIUM_ROYAL_TOMB, (14, 16), 8, 34),
+    royal_tomb(crate::royal_tombs::LARGE_ROYAL_TOMB, (17, 33), 13, 35),
+    royal_tomb(crate::royal_tombs::GRAND_ROYAL_TOMB, (29, 23), 18, 36),
     MonumentDef { kind: SPHINX, cols: 3, rows: 6, style: Style::Sphinx, phase_count: LEVELING_PHASES + SPHINX_PHASES.len() as u8 + 1, weight: 1, title: 21 },
     // The rating weight is a placeholder.
     MonumentDef { kind: MAUSOLEUM, cols: 11, rows: 4, style: Style::Mausoleum, phase_count: 6, weight: 4, title: 25 },
@@ -389,6 +402,17 @@ pub struct Monument {
     /// A pyramid complex's temples and causeway.
     #[serde(default)]
     pub parts: Vec<crate::pyramids::Part>,
+    /// A royal tomb's chambers.
+    #[serde(default)]
+    pub chambers: Vec<crate::royal_tombs::ChamberState>,
+    /// A royal tomb's lamps, and whether a laborer is fetching more.
+    #[serde(default)]
+    pub lamps: i32,
+    #[serde(default)]
+    pub lamp_run: bool,
+    /// A royal tomb whose completion has been announced.
+    #[serde(default)]
+    pub announced: bool,
 }
 
 impl Monument {
@@ -436,8 +460,9 @@ impl MonumentDef {
                 SUN_FORE => vec![(SANDSTONE, SLED_LOAD * SUN_FORE_SLEDS as i32)],
                 _ => Vec::new(),
             },
-            // Pyramids and mastabas take their material a unit at a time.
-            Style::Pyramid(_) | Style::Mastaba => Vec::new(),
+            // Pyramids and mastabas take their material a unit at a time; royal tombs'
+            // artisans bring theirs.
+            Style::Pyramid(_) | Style::Mastaba | Style::RoyalTomb => Vec::new(),
         }
     }
 
@@ -453,7 +478,7 @@ impl MonumentDef {
                     _ => Vec::new(),
                 };
             }
-            Style::Pyramid(_) | Style::Mastaba => return Vec::new(),
+            Style::Pyramid(_) | Style::Mastaba | Style::RoyalTomb => return Vec::new(),
             _ => {}
         }
         let phase = self.phase(p);
@@ -513,6 +538,8 @@ impl MonumentDef {
             Style::Mausoleum => p == 0 || p == 4,
             Style::SunTemple => p == 0 || p == SUN_FLOOR,
             Style::Pyramid(_) | Style::Mastaba => p == crate::pyramids::PREP,
+            // A tomb's laborers only fetch lamps.
+            Style::RoyalTomb => false,
             _ => p < LEVELING_PHASES,
         }
     }
@@ -536,7 +563,7 @@ impl MonumentDef {
 
     /// Whether the monument is a tomb, which takes burial provisions.
     pub fn is_tomb(&self) -> bool {
-        matches!(self.style, Style::Mastaba | Style::Pyramid(_) | Style::Mausoleum)
+        matches!(self.style, Style::Mastaba | Style::Pyramid(_) | Style::Mausoleum | Style::RoyalTomb)
     }
 
 }
@@ -549,6 +576,7 @@ impl World {
             Style::Sphinx => (6, 18),
             Style::Mausoleum => MAUSOLEUM_SIZE,
             Style::SunTemple => SUN_TEMPLE_SIZE,
+            Style::RoyalTomb => (d.cols, d.rows),
             _ => (d.cols * 2, d.rows * 2),
         })
     }
@@ -612,6 +640,14 @@ impl World {
         if def.style == Style::Sphinx {
             // Carved from the rock where it stands: no leveling.
             m.phase = LEVELING_PHASES;
+        }
+        if def.style == Style::RoyalTomb {
+            if let Some(b) = self.buildings.get_mut(id) {
+                b.monument = Some(m);
+            }
+            self.place_royal_tomb(id);
+            self.refresh_royal_tomb(id);
+            return;
         }
         if def.style == Style::Mausoleum {
             // Its look is the mausoleum the scenario names (text 198: 25, 26 or 27).
@@ -884,6 +920,10 @@ impl World {
             self.refresh_mausoleum(id);
             return;
         }
+        if def.style == Style::RoyalTomb {
+            self.refresh_royal_tomb(id);
+            return;
+        }
         if def.style == Style::SunTemple {
             self.refresh_sun_temple(id);
             return;
@@ -924,6 +964,9 @@ impl World {
     /// A tile beside monument `id` for walkers to stand on, nearest to `from`.
     pub fn monument_access(&self, id: BuildingId, from: (i32, i32)) -> Option<(i32, i32)> {
         let b = self.buildings.get(id)?;
+        if crate::royal_tombs::is_royal_tomb(b.kind) {
+            return self.royal_tomb_access(id, from);
+        }
         let (w, h) = b.footprint();
         let mut best: Option<((i32, i32), i32)> = None;
         for y in b.y - 1..=b.y + h {
@@ -1023,6 +1066,9 @@ impl World {
         if crate::pyramids::blockwise(def.style) {
             return self.tomb_wants(id, figure);
         }
+        if def.style == Style::RoyalTomb {
+            return self.royal_tomb_job(id, figure).is_some();
+        }
         def.crew(m.phase).contains(&figure)
     }
 
@@ -1049,13 +1095,17 @@ impl World {
                 continue;
             }
             let from = (gb.x, gb.y);
-            // A pyramid or mastaba takes a craftsman from every guild; other monuments
-            // one of each.
+            // A pyramid or mastaba takes a craftsman from every guild, and a royal tomb
+            // one for each chamber; other monuments one of each.
             let target = self.active_monuments().into_iter().find(|&id| {
-                let tomb = self.buildings.get(id).and_then(|b| monument_def(b.kind)).is_some_and(|d| crate::pyramids::blockwise(d.style));
+                let tomb = self.buildings.get(id).and_then(|b| monument_def(b.kind)).is_some_and(|d| crate::pyramids::blockwise(d.style) || d.style == Style::RoyalTomb);
                 self.wants_craftsman(id, figure) && (tomb || !self.buildings.get(id).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.has_craftsman(figure)))
             });
             let Some(target) = target else { continue };
+            if self.buildings.get(target).is_some_and(|b| crate::royal_tombs::is_royal_tomb(b.kind)) {
+                self.send_tomb_mason(g, road, target);
+                continue;
+            }
             let Some(spot) = self.monument_access(target, from) else { continue };
             let fid = self.figures.spawn(figure, road.0, road.1, Travel::Land);
             let map = &self.map;
@@ -1080,6 +1130,10 @@ impl World {
     /// allows, and only while the rest of the crew is there too.
     pub(crate) fn update_craftsman(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
+        if self.buildings.get(f.target).is_some_and(|b| crate::royal_tombs::is_royal_tomb(b.kind)) {
+            self.update_tomb_worker(fid);
+            return;
+        }
         let (act, target, figure) = (f.action, f.target, f.kind);
         let listed = self.buildings.get(target).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.craftsmen.contains(&(figure, fid)));
         let busy = f.amount > 0;
@@ -1322,6 +1376,11 @@ impl World {
             let Some(b) = self.buildings.get(id) else { continue };
             let Some(def) = monument_def(b.kind) else { continue };
             let (x, y) = (b.x, b.y);
+            if def.style == Style::RoyalTomb {
+                // Announced and sealed on its own terms.
+                self.update_royal_tomb(id);
+                continue;
+            }
             let finished = if crate::pyramids::blockwise(def.style) {
                 self.advance_tomb(id)
             } else {
@@ -1351,6 +1410,7 @@ impl World {
                     Style::Sphinx => "sphinx",
                     Style::Mausoleum => "mausoleum",
                     Style::SunTemple => "sun_temple",
+                    Style::RoyalTomb => crate::royal_tombs::phrase(def.kind),
                 };
                 self.post_event_text(crate::scenario_events::EventText {
                     title: format!("{name}_congratulations_title"),
@@ -1413,6 +1473,10 @@ impl World {
         if crate::pyramids::blockwise(def.style) {
             return [STONEMASON, BRICKLAYER, CARPENTER].into_iter().filter(|&k| self.tomb_wants(id, k)).collect();
         }
+        if def.style == Style::RoyalTomb {
+            // Whoever the open chambers wait for.
+            return [STONEMASON, crate::royal_tombs::TOMB_ARTISAN].into_iter().filter(|&k| self.royal_tomb_waiting(id, k)).collect();
+        }
         def.crew(m.phase)
     }
 
@@ -1425,6 +1489,9 @@ impl World {
         }
         if crate::pyramids::blockwise(def.style) {
             return self.tomb_percent(id).unwrap_or(0);
+        }
+        if def.style == Style::RoyalTomb {
+            return self.royal_tomb_percent(id);
         }
         let units = m.progress.len().max(1) as i32;
         let within = m.progress.iter().map(|&p| p as i32).sum::<i32>() * 100 / (units * def.unit_work(m.phase).max(1) as i32);

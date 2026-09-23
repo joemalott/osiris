@@ -968,6 +968,10 @@ impl Game {
                 if osiris_sim::military::fort_soldier(k).is_some() {
                     tiles.extend(rect(x + 3, y - 1, x + 6, y + 2));
                 }
+                // A royal tomb's entrance lies just outside its bulk.
+                if let Some(l) = osiris_sim::royal_tombs::layout(k) {
+                    tiles.push((x + l.entrance.0, y + l.entrance.1));
+                }
                 tiles
             }
         };

@@ -416,6 +416,40 @@ impl InfoPanel {
         let m = b.monument.as_ref().expect("monument");
         let has = |k: u16| world.buildings.iter().any(|g| g.kind == k && g.workers > 0);
         let pct = world.monument_percent(b.id);
+        if def.style == Style::RoyalTomb {
+            use osiris_sim::royal_tombs::{ARTISANS_GUILD, TOMB_ARTISAN};
+            let lamps = world.royal_tomb_lamps(b.id);
+            let waiting = |k: u16| world.royal_tomb_waiting(b.id, k);
+            let coming = |k: u16| world.figures.iter().any(|f| f.kind == k && f.target == b.id);
+            let line = if finished {
+                146
+            } else if pct >= 100 {
+                145
+            } else if world.royal_tomb_access(b.id, (b.x, b.y)).is_none() {
+                148
+            } else if waiting(mon::STONEMASON) && !has(kind::STONEMASONS_GUILD) {
+                14
+            } else if waiting(TOMB_ARTISAN) && !has(ARTISANS_GUILD) {
+                105
+            } else if lamps < 100 && !m.chambers.iter().any(|c| c.worker != 0) {
+                143
+            } else if waiting(TOMB_ARTISAN) && !coming(TOMB_ARTISAN) {
+                106
+            } else if waiting(mon::STONEMASON) && !coming(mon::STONEMASON) {
+                18
+            } else {
+                144
+            };
+            let text = if line == 144 { format!("{} {} {}% {}", ui.t(G, 144), ui.t(G, 2), pct, ui.t(G, 0)) } else { ui.t(G, line) };
+            ui.wrapped(Font::NormalBlackOnLight, &text, x + 32.0, y + 66.0, 26.0 * 16.0);
+            if !finished {
+                panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 180.0, 27, 5);
+                ui.icon(34, x + 32.0, y + 192.0);
+                let s = format!("{} {}", ui.t(G, 147), lamps.max(0));
+                ui.label(Font::NormalWhiteOnDark, &s, x + 60.0, y + 194.0);
+            }
+            return closed.then_some(InfoAction::Close);
+        }
         let brick = matches!(def.style, Style::Mastaba);
         // (finished, going well) lines.
         let obelisk = matches!(def.style, Style::Obelisk { .. });

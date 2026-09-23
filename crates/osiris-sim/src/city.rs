@@ -59,6 +59,7 @@ impl World {
                 self.school_walkers();
                 self.venue_walkers();
                 self.guild_walkers();
+                self.artisan_walkers();
             }
             9 => self.decay_house_services(),
             32 => self.update_trade(),
@@ -128,6 +129,7 @@ impl World {
                 crate::economy::LUMBERJACK | crate::economy::REED_GATHERER => self.update_gatherer(fid),
                 crate::trade::TRADE_CARAVAN => self.update_caravan(fid),
                 crate::monuments::BRICKLAYER | crate::monuments::STONEMASON | crate::monuments::CARPENTER => self.update_craftsman(fid),
+                crate::royal_tombs::TOMB_ARTISAN => self.update_tomb_worker(fid),
                 crate::monuments::SLED => self.update_sled(fid),
                 crate::monuments::SLED_PULLER => self.update_sled_puller(fid),
                 crate::monuments::FUNERAL_WALKER => self.update_funeral_walker(fid),

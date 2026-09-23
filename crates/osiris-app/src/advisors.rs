@@ -1337,6 +1337,12 @@ fn monument_lines(k: u16) -> Option<([usize; 2], usize, usize, usize)> {
         Style::Sphinx => ([39, 40], 41, 42, 42),
         Style::Mausoleum => ([51, 52], 53, 54, 55),
         Style::SunTemple => ([47, 48], 49, 50, 50),
+        // Small, medium, large and grand.
+        Style::RoyalTomb => {
+            let n = [229, 234, 235, 236].iter().position(|&t| t == k)?;
+            let a = 75 + 4 * n;
+            ([a, a + 1], a + 2, a + 3, a + 3)
+        }
     })
 }
 
@@ -1368,6 +1374,8 @@ fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
                 None => vec![ui.t(G, begin[0]), ui.t(G, begin[1])],
             },
             Some(m) if m.finished => vec![ui.t(G, if m.funeral_done { rests } else { done })],
+            // A royal tomb all cut awaits its burial provisions before it is sealed.
+            Some(_) if built.is_some_and(|b| osiris_sim::royal_tombs::is_royal_tomb(b.kind) && world.monument_percent(b.id) == 100) => vec![ui.t(G, done)],
             Some(_) => {
                 let pct = built.map_or(0, |b| world.monument_percent(b.id));
                 vec![format!("{} {}% {}", ui.t(G, under_way), pct.min(99), ui.t(178, 0))]

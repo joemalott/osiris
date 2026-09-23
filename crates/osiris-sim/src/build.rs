@@ -34,6 +34,9 @@ impl World {
         if k == crate::bridges::LOW_BRIDGE {
             return self.bridge_span(x, y).map(|_| ());
         }
+        if let Some(rule) = self.can_place_royal_tomb(k, x, y) {
+            return rule;
+        }
         let (fw, fh) = self.footprint_of(k);
         if def.needs("shoreline") {
             return self.can_place_on_shore(k, x, y);
@@ -260,6 +263,9 @@ impl World {
         }
         if let Some((k, x, y)) = defense {
             self.remove_defense(k, x, y);
+        }
+        if crate::royal_tombs::is_royal_tomb(b.kind) {
+            self.remove_royal_tomb(b.kind, b.x, b.y);
         }
     }
 

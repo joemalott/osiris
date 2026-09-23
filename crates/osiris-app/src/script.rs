@@ -88,6 +88,58 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
             }
             ["orders"] => view.orders = true,
+            // Lets building type K be built, as a tutorial unlock would.
+            ["allow", k] => {
+                if let Some(m) = world.mission.as_mut() {
+                    m.allowed.insert(k.parse()?);
+                }
+            }
+            // Where royal tomb type K could first be placed (scanning rows), or "none".
+            ["tombsite", k] => {
+                let k: u16 = k.parse()?;
+                let site = (0..world.map.height).flat_map(|y| (0..world.map.width).map(move |x| (x, y))).find(|&(x, y)| world.can_place(k, x, y).is_ok());
+                let mut why = std::collections::BTreeMap::new();
+                for y in 0..world.map.height {
+                    for x in 0..world.map.width {
+                        if let Err(e) = world.can_place(k, x, y) {
+                            *why.entry(e).or_insert(0) += 1;
+                        }
+                    }
+                }
+                eprintln!("tombsite {k}: {site:?} {why:?}");
+            }
+            // Every royal tomb's state: percent, lamps, and each chamber's stage/work/man.
+            ["tombs"] => {
+                for b in world.buildings.iter().filter(|b| osiris_sim::royal_tombs::is_royal_tomb(b.kind)) {
+                    let Some(m) = &b.monument else { continue };
+                    let chambers: Vec<String> = m.chambers.iter().map(|c| format!("{}/{}{}", c.progress, c.left, if c.worker != 0 { "*" } else { "" })).collect();
+                    eprintln!("tomb {} at {},{}: {}% lamps {} run {} sealed {} chambers {}", b.kind, b.x, b.y, world.monument_percent(b.id), m.lamps, m.lamp_run, m.finished, chambers.join(" "));
+                }
+                eprintln!("burial provisions {:?}", world.burial_needs());
+                for b in world.buildings.iter().filter(|b| matches!(b.kind, 72 | 231 | 179 | 199)) {
+                    eprintln!("  building {} at {},{} workers {} road {:?} lamps {} clay {} paint {}", b.kind, b.x, b.y, b.workers, b.road, world.stored(b.id, 34), b.stock[11], b.stock[33]);
+                }
+                for f in world.figures.iter().filter(|f| matches!(f.kind, 81 | 108) || f.kind == osiris_sim::farms::PEASANT) {
+                    eprintln!("  figure {} kind {} action {} at {},{} job {}", f.id, f.kind, f.action, f.x, f.y, f.amount);
+                }
+            }
+            // Sets every royal tomb chamber to stage N (0-4) and the lamps to L.
+            ["tombstage", n, lamps] => {
+                let (n, lamps): (u8, i32) = (n.parse()?, lamps.parse()?);
+                let ids: Vec<_> = world.buildings.iter().filter(|b| osiris_sim::royal_tombs::is_royal_tomb(b.kind)).map(|b| b.id).collect();
+                for id in ids {
+                    let Some(b) = world.buildings.get_mut(id) else { continue };
+                    let l = osiris_sim::royal_tombs::layout(b.kind).context("tomb")?;
+                    if let Some(m) = b.monument.as_mut() {
+                        m.lamps = lamps;
+                        for (c, s) in l.chambers.iter().zip(m.chambers.iter_mut()) {
+                            s.progress = n;
+                            s.left = if (1..4).contains(&n) { c.work } else { 0 };
+                        }
+                    }
+                    world.refresh_monument_images(id);
+                }
+            }
             // Sets every monument's phase, and its blocks' work: "n" for all, or
             // "a:b" to ramp from a on the first block to b on the last.
             ["monphase", phase, work] => {
@@ -263,13 +315,14 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
             }
             ["asciimap"] => {
-                // The whole map: ~ water, p floodplain, x blocked, . clear land.
+                // The whole map: ~ water, p floodplain, C cliff, B building, x blocked, . clear land.
                 use osiris_sim::map::{mask, terrain};
                 for y in 0..world.map.height {
                     let row: String = (0..world.map.width)
                         .map(|x| {
                             let t = world.map.terrain.at_or(x, y, 0);
-                            if t & terrain::WATER != 0 { '~' } else if t & terrain::FLOODPLAIN != 0 { 'p' } else if t & mask::NOT_CLEAR != 0 { 'x' } else { '.' }
+                            let cliff = terrain::CLIFF | terrain::ROCK;
+                            if t & terrain::WATER != 0 { '~' } else if t & terrain::FLOODPLAIN != 0 { 'p' } else if t & terrain::BUILDING != 0 { 'B' } else if t & cliff == cliff { 'C' } else if t & mask::NOT_CLEAR != 0 { 'x' } else { '.' }
                         })
                         .collect();
                     eprintln!("{y:4} {row}");

@@ -167,6 +167,22 @@ impl World {
                 .min_by_key(|b| (b.x - cx).pow(2) + (b.y - cy).pow(2))
                 .map(|b| b.id);
             let Some(farm) = farm else {
+                // A royal tomb short of lamps sends a laborer to fetch them.
+                if let Some((tomb, yard)) = self.lamp_job((cx, cy)) {
+                    let fid = self.figures.spawn(PEASANT, road.0, road.1, Travel::Land);
+                    if let Some(c) = self.buildings.get_mut(camp) {
+                        c.spawn_delay = 0;
+                    }
+                    if let Some(f) = self.figures.get_mut(fid) {
+                        f.home = camp;
+                    }
+                    if !self.send_for_lamps(fid, tomb, yard)
+                        && let Some(f) = self.figures.get_mut(fid)
+                    {
+                        f.dead = true;
+                    }
+                    continue;
+                }
                 if let Some((monument, block)) = self.leveling_job((cx, cy))
                     && let Some(spot) = self.monument_access(monument, (cx, cy))
                 {
@@ -205,6 +221,10 @@ impl World {
     }
 
     pub(crate) fn update_peasant(&mut self, fid: u32) {
+        if self.figures.get(fid).is_some_and(|f| matches!(f.action, 5 | 6)) {
+            self.update_lamp_carrier(fid);
+            return;
+        }
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return };
         let (act, home, farm) = (f.action, f.home, f.target);

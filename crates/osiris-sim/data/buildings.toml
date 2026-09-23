@@ -2084,22 +2084,14 @@ id = 229
 key = "small_royal_tomb"
 size = 11
 image = { pack = "TombThutFin", group = 11, offset = 12 }
-anims = { sa = { pack = "TombThut", group = 11, offset = 0 }, sb = { pack = "TombThut", group = 11, offset = 2 }, sc = { pack = "TombThut", group = 11, offset = 4 }, sd = { pack = "TombThut", group = 11, offset = 6 }, se = { pack = "TombThut", group = 11, offset = 8 }, sf = { pack = "TombThut", group = 11, offset = 10 }, sg = { pack = "TombThut", group = 11, offset = 12 }, sh = { pack = "TombThut", group = 11, offset = 14 }, si = { pack = "TombThut", group = 11, offset = 14 }, finish = { pack = "TombThutFin", group = 11, offset = 12 }, entrance = { pack = "TombThut", group = 17, offset = 0 }, ground = { pack = "TombThut", group = 15, offset = 0 }, cliff = { pack = "TombThut", group = 18, offset = 0 } }
-flags = ["is_monument", "allow_rotate"]
+anims = { g1 = { pack = "TombThut", group = 1, offset = 0 }, g2 = { pack = "TombThut", group = 2, offset = 0 }, g3 = { pack = "TombThut", group = 3, offset = 0 }, g4 = { pack = "TombThut", group = 4, offset = 0 }, g5 = { pack = "TombThut", group = 5, offset = 0 }, g6 = { pack = "TombThut", group = 6, offset = 0 }, g7 = { pack = "TombThut", group = 7, offset = 0 }, g8 = { pack = "TombThut", group = 8, offset = 0 }, g9 = { pack = "TombThut", group = 9, offset = 0 }, g10 = { pack = "TombThut", group = 10, offset = 0 }, g11 = { pack = "TombThut", group = 11, offset = 0 }, g12 = { pack = "TombThut", group = 12, offset = 0 }, g13 = { pack = "TombThut", group = 13, offset = 0 }, g14 = { pack = "TombThut", group = 14, offset = 0 }, g17 = { pack = "TombThut", group = 17, offset = 0 }, g18 = { pack = "TombThut", group = 18, offset = 0 }, g19 = { pack = "TombThut", group = 19, offset = 0 }, g20 = { pack = "TombThut", group = 20, offset = 0 }, g21 = { pack = "TombThut", group = 21, offset = 0 }, ground = { pack = "TombThut", group = 15, offset = 0 }, rock = { pack = "Pharaoh_Terrain", group = 3, offset = 0 } }
+flags = ["is_monument"]
 text_id = 178
 help = "message_building_royal_burial_tomb"
-art_stages = 9
-clay_loads = [0, 100, 100, 100, 100, 100, 100, 100, 100]
 damage_proof = true
-entrance_size = [1, 1]
 fire_proof = true
 info_sound = "Wavs/rock3.wav"
 info_title_id = [198, 33]
-init_tiles = [11, 20]
-lamp_loads = [400, 0, 0, 0, 0, 0, 0, 0, 0]
-max_artisans = 2
-max_masons = 1
-paint_loads = [0, 100, 100, 100, 100, 100, 100, 100, 100]
 
 [[building]]
 id = 230
@@ -2172,66 +2164,42 @@ id = 234
 key = "medium_royal_tomb"
 size = 14
 image = { pack = "TombTutFin", group = 11, offset = 12 }
-anims = { sa = { pack = "TombTut", group = 11, offset = 0 }, sb = { pack = "TombTut", group = 11, offset = 2 }, sc = { pack = "TombTut", group = 11, offset = 4 }, sd = { pack = "TombTut", group = 11, offset = 6 }, se = { pack = "TombTut", group = 11, offset = 8 }, sf = { pack = "TombTut", group = 11, offset = 10 }, sg = { pack = "TombTut", group = 11, offset = 12 }, sh = { pack = "TombTut", group = 11, offset = 14 }, finish = { pack = "TombTutFin", group = 11, offset = 12 }, entrance = { pack = "TombTut", group = 19, offset = 0 }, ground = { pack = "TombTut", group = 17, offset = 0 }, cliff = { pack = "TombTut", group = 20, offset = 0 } }
-flags = ["is_monument", "allow_rotate"]
+anims = { g1 = { pack = "TombTut", group = 1, offset = 0 }, g2 = { pack = "TombTut", group = 2, offset = 0 }, g3 = { pack = "TombTut", group = 3, offset = 0 }, g4 = { pack = "TombTut", group = 4, offset = 0 }, g5 = { pack = "TombTut", group = 5, offset = 0 }, g6 = { pack = "TombTut", group = 6, offset = 0 }, g7 = { pack = "TombTut", group = 7, offset = 0 }, g8 = { pack = "TombTut", group = 8, offset = 0 }, g9 = { pack = "TombTut", group = 9, offset = 0 }, g10 = { pack = "TombTut", group = 10, offset = 0 }, g11 = { pack = "TombTut", group = 11, offset = 0 }, g12 = { pack = "TombTut", group = 12, offset = 0 }, g13 = { pack = "TombTut", group = 13, offset = 0 }, g14 = { pack = "TombTut", group = 14, offset = 0 }, g15 = { pack = "TombTut", group = 15, offset = 0 }, g16 = { pack = "TombTut", group = 16, offset = 0 }, g19 = { pack = "TombTut", group = 19, offset = 0 }, g20 = { pack = "TombTut", group = 20, offset = 0 }, g21 = { pack = "TombTut", group = 21, offset = 0 }, g22 = { pack = "TombTut", group = 22, offset = 0 }, g23 = { pack = "TombTut", group = 23, offset = 0 }, ground = { pack = "TombThut", group = 15, offset = 0 }, rock = { pack = "Pharaoh_Terrain", group = 3, offset = 0 } }
+flags = ["is_monument"]
 text_id = 178
 help = "message_building_royal_burial_tomb"
-art_stages = 8
-clay_loads = [0, 100, 100, 100, 100, 100, 100, 100]
 damage_proof = true
-entrance_size = [1, 1]
 fire_proof = true
 info_sound = "Wavs/rock3.wav"
 info_title_id = [198, 34]
-init_tiles = [14, 16]
-lamp_loads = [400, 0, 0, 0, 0, 0, 0, 0]
-max_artisans = 2
-max_masons = 1
-paint_loads = [0, 100, 100, 100, 100, 100, 100, 100]
 
 [[building]]
 id = 235
 key = "large_royal_tomb"
 size = 17
 image = { pack = "TombSetiFin", group = 21, offset = 12 }
-anims = { sa = { pack = "TombSeti", group = 21, offset = 0 }, sb = { pack = "TombSeti", group = 21, offset = 2 }, sc = { pack = "TombSeti", group = 21, offset = 4 }, sd = { pack = "TombSeti", group = 21, offset = 6 }, se = { pack = "TombSeti", group = 21, offset = 8 }, sf = { pack = "TombSeti", group = 21, offset = 10 }, sg = { pack = "TombSeti", group = 21, offset = 12 }, sh = { pack = "TombSeti", group = 21, offset = 14 }, finish = { pack = "TombSetiFin", group = 21, offset = 12 }, entrance = { pack = "TombSeti", group = 25, offset = 0 }, ground = { pack = "TombSeti", group = 23, offset = 0 }, cliff = { pack = "TombSeti", group = 26, offset = 0 } }
-flags = ["is_monument", "allow_rotate"]
+anims = { g1 = { pack = "TombSeti", group = 1, offset = 0 }, g2 = { pack = "TombSeti", group = 2, offset = 0 }, g3 = { pack = "TombSeti", group = 3, offset = 0 }, g4 = { pack = "TombSeti", group = 4, offset = 0 }, g5 = { pack = "TombSeti", group = 5, offset = 0 }, g6 = { pack = "TombSeti", group = 6, offset = 0 }, g7 = { pack = "TombSeti", group = 7, offset = 0 }, g8 = { pack = "TombSeti", group = 8, offset = 0 }, g9 = { pack = "TombSeti", group = 9, offset = 0 }, g10 = { pack = "TombSeti", group = 10, offset = 0 }, g11 = { pack = "TombSeti", group = 11, offset = 0 }, g12 = { pack = "TombSeti", group = 12, offset = 0 }, g13 = { pack = "TombSeti", group = 13, offset = 0 }, g14 = { pack = "TombSeti", group = 14, offset = 0 }, g15 = { pack = "TombSeti", group = 15, offset = 0 }, g16 = { pack = "TombSeti", group = 16, offset = 0 }, g17 = { pack = "TombSeti", group = 17, offset = 0 }, g18 = { pack = "TombSeti", group = 18, offset = 0 }, g19 = { pack = "TombSeti", group = 19, offset = 0 }, g20 = { pack = "TombSeti", group = 20, offset = 0 }, g21 = { pack = "TombSeti", group = 21, offset = 0 }, g22 = { pack = "TombSeti", group = 22, offset = 0 }, g25 = { pack = "TombSeti", group = 25, offset = 0 }, g26 = { pack = "TombSeti", group = 26, offset = 0 }, g27 = { pack = "TombSeti", group = 27, offset = 0 }, g28 = { pack = "TombSeti", group = 28, offset = 0 }, g29 = { pack = "TombSeti", group = 29, offset = 0 }, ground = { pack = "TombThut", group = 15, offset = 0 }, rock = { pack = "Pharaoh_Terrain", group = 3, offset = 0 } }
+flags = ["is_monument"]
 text_id = 178
 help = "message_building_royal_burial_tomb"
-art_stages = 8
-clay_loads = [0, 100, 100, 100, 100, 100, 100, 100]
 damage_proof = true
-entrance_size = [1, 1]
 fire_proof = true
 info_sound = "Wavs/rock3.wav"
 info_title_id = [198, 35]
-init_tiles = [17, 33]
-lamp_loads = [400, 0, 0, 0, 0, 0, 0, 0]
-max_artisans = 2
-max_masons = 1
-paint_loads = [0, 100, 100, 100, 100, 100, 100, 100]
 
 [[building]]
 id = 236
 key = "grand_royal_tomb"
 size = 23
 image = { pack = "TombRamFin", group = 25, offset = 12 }
-anims = { sa = { pack = "TombRam", group = 25, offset = 0 }, sb = { pack = "TombRam", group = 25, offset = 2 }, sc = { pack = "TombRam", group = 25, offset = 4 }, sd = { pack = "TombRam", group = 25, offset = 6 }, se = { pack = "TombRam", group = 25, offset = 8 }, sf = { pack = "TombRam", group = 25, offset = 10 }, sg = { pack = "TombRam", group = 25, offset = 12 }, sh = { pack = "TombRam", group = 25, offset = 14 }, finish = { pack = "TombRamFin", group = 25, offset = 12 }, entrance = { pack = "TombRam", group = 31, offset = 0 }, ground = { pack = "TombRam", group = 29, offset = 0 }, cliff = { pack = "TombRam", group = 32, offset = 0 } }
-flags = ["is_monument", "allow_rotate"]
+anims = { g1 = { pack = "TombRam", group = 1, offset = 0 }, g2 = { pack = "TombRam", group = 2, offset = 0 }, g3 = { pack = "TombRam", group = 3, offset = 0 }, g4 = { pack = "TombRam", group = 4, offset = 0 }, g5 = { pack = "TombRam", group = 5, offset = 0 }, g6 = { pack = "TombRam", group = 6, offset = 0 }, g7 = { pack = "TombRam", group = 7, offset = 0 }, g8 = { pack = "TombRam", group = 8, offset = 0 }, g9 = { pack = "TombRam", group = 9, offset = 0 }, g10 = { pack = "TombRam", group = 10, offset = 0 }, g11 = { pack = "TombRam", group = 11, offset = 0 }, g12 = { pack = "TombRam", group = 12, offset = 0 }, g13 = { pack = "TombRam", group = 13, offset = 0 }, g14 = { pack = "TombRam", group = 14, offset = 0 }, g15 = { pack = "TombRam", group = 15, offset = 0 }, g16 = { pack = "TombRam", group = 16, offset = 0 }, g17 = { pack = "TombRam", group = 17, offset = 0 }, g18 = { pack = "TombRam", group = 18, offset = 0 }, g19 = { pack = "TombRam", group = 19, offset = 0 }, g20 = { pack = "TombRam", group = 20, offset = 0 }, g21 = { pack = "TombRam", group = 21, offset = 0 }, g22 = { pack = "TombRam", group = 22, offset = 0 }, g23 = { pack = "TombRam", group = 23, offset = 0 }, g24 = { pack = "TombRam", group = 24, offset = 0 }, g25 = { pack = "TombRam", group = 25, offset = 0 }, g26 = { pack = "TombRam", group = 26, offset = 0 }, g27 = { pack = "TombRam", group = 27, offset = 0 }, g28 = { pack = "TombRam", group = 28, offset = 0 }, g31 = { pack = "TombRam", group = 31, offset = 0 }, g32 = { pack = "TombRam", group = 32, offset = 0 }, g33 = { pack = "TombRam", group = 33, offset = 0 }, g34 = { pack = "TombRam", group = 34, offset = 0 }, g35 = { pack = "TombRam", group = 35, offset = 0 }, ground = { pack = "TombThut", group = 15, offset = 0 }, rock = { pack = "Pharaoh_Terrain", group = 3, offset = 0 } }
+flags = ["is_monument"]
 text_id = 178
 help = "message_building_royal_burial_tomb"
-art_stages = 8
-clay_loads = [0, 100, 100, 100, 100, 100, 100, 100]
 damage_proof = true
-entrance_size = [1, 1]
 fire_proof = true
 info_sound = "Wavs/rock3.wav"
 info_title_id = [198, 36]
-init_tiles = [23, 29]
-lamp_loads = [400, 0, 0, 0, 0, 0, 0, 0]
-max_artisans = 2
-max_masons = 1
-paint_loads = [0, 100, 100, 100, 100, 100, 100, 100]
 
 [[building]]
 id = 241
