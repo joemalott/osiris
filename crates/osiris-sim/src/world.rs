@@ -140,6 +140,10 @@ pub struct World {
     /// Where immigrants arrive and emigrants leave, in map coordinates.
     pub entry_point: (i32, i32),
     pub exit_point: (i32, i32),
+    /// Where the editor left the camera: the view's top-left corner in diagonal
+    /// half-tile units, (x - y, x + y) of the map, or `None` when the map has none.
+    #[serde(default)]
+    pub start_corner: Option<(i32, i32)>,
     #[serde(skip)]
     counters: ContextCounters,
 }
@@ -228,6 +232,7 @@ impl World {
             scenario_name: info.subtitle.clone(),
             climate: info.climate,
             entry_point: (info.entry_point.x, info.entry_point.y),
+            start_corner: start_corner(scenario),
             exit_point: (info.exit_point.x, info.exit_point.y),
             counters: ContextCounters::default(),
         }
@@ -465,4 +470,18 @@ pub fn general_direction(from: (i32, i32), to: (i32, i32)) -> Option<usize> {
         (Greater, Less) => Some(5),
         (Equal, Equal) => None,
     }
+}
+
+/// The map's stored camera, a screen tile of the original's 228-tile grid (a column
+/// is two half tiles wide, a row half a tile high), turned into the map's own
+/// diagonal coordinates. In the original, grid tile (x, y) sits in half-tile column
+/// 230 + x - y and row 1 + x + y.
+fn start_corner(s: &Scenario) -> Option<(i32, i32)> {
+    let [cx, cy] = s.camera;
+    if cx <= 0 && cy <= 0 {
+        return None;
+    }
+    let g = osiris_formats::chunks::GRID_SIZE as i32;
+    let (x0, y0) = (s.info.start_offset % g, s.info.start_offset / g);
+    Some((2 * cx - (g + 2) - x0 + y0, cy - 1 - x0 - y0))
 }

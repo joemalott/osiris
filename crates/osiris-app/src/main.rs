@@ -230,8 +230,7 @@ impl App {
         let mut game = game::Game::new(world, images, self.assets.text.clone(), self.assets.messages.clone(), self.audio.clone());
         game.phrases = self.assets.phrases.clone();
         game.player_name = player_name();
-        let (cx, cy) = start_view(&game.world);
-        game.view.center_on(&mut gfx.renderer, &game.world.map, cx, cy);
+        start_camera(&mut gfx.renderer, &mut game);
         self.screen = Some(Screen::Playing(Box::new(game), mission));
     }
 
@@ -607,7 +606,21 @@ fn key_pressed(g: &mut game::Game, code: KeyCode, ctrl: bool) {
     }
 }
 
-/// Where the camera starts: the scenario's entry point, or the map centre.
+/// Puts the camera where the map's editor left it, or else over the entry point.
+fn start_camera(r: &mut osiris_render::Renderer, game: &mut game::Game) {
+    let map = &game.world.map;
+    if let Some((a, b)) = game.world.start_corner {
+        let origin = city_view::tile_to_world(map, 0, 0);
+        r.camera.x = origin[0] + a as f32 * city_view::TILE_W / 2.0;
+        r.camera.y = origin[1] + b as f32 * city_view::TILE_H / 2.0 - sidebar::TOP / r.camera.zoom;
+    } else {
+        let (cx, cy) = start_view(&game.world);
+        game.view.center_on(r, map, cx, cy);
+    }
+}
+
+/// Where the camera starts without a stored view: the scenario's entry point, or
+/// the map centre.
 fn start_view(w: &World) -> (i32, i32) {
     let e = w.entry_point;
     if w.map.contains(e.0, e.1) { e } else { (w.map.width / 2, w.map.height / 2) }
@@ -673,7 +686,7 @@ fn main() -> Result<()> {
         let mut game = game::Game::new(world, images, assets.text.clone(), assets.messages.clone(), None);
         game.phrases = assets.phrases.clone();
         game.player_name = player_name();
-        let (cx, cy) = view.centre.or(view.info).unwrap_or_else(|| start_view(&game.world));
+        let at = view.centre.or(view.info);
         if !view.keep_dialogs {
             game.close_dialog();
         }
@@ -715,7 +728,10 @@ fn main() -> Result<()> {
             game.info = Some(panel);
         }
         return gfx::screenshot(library, args.size, out, |r| {
-            game.view.center_on(r, &game.world.map, cx, cy);
+            match at {
+                Some((cx, cy)) => game.view.center_on(r, &game.world.map, cx, cy),
+                None => start_camera(r, &mut game),
+            }
             game.draw(r);
         });
     }

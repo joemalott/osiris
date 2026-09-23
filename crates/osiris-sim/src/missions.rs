@@ -203,13 +203,17 @@ impl World {
         self.mission.as_ref().is_none_or(|m| m.allowed.contains(&k)) && self.monument_allowed(k)
     }
 
-    /// Only the monuments the scenario names (by their text-198 title) may be built.
+    /// Only the monuments the scenario names (by their text-198 title) may be built,
+    /// each as many times as it is named: a player builds at most the scenario's three
+    /// (Mission Editor Guide, "Number of Monuments").
     fn monument_allowed(&self, k: u16) -> bool {
         let Some(def) = self.defs.building(k).filter(|d| d.has_flag("is_monument")) else { return true };
         let Some(title) = def.extra.get("info_title_id").and_then(|v| v.as_array()).and_then(|a| a.get(1)).and_then(|v| v.as_integer()) else { return true };
-        let listed = |t: i64| self.scenario_monuments.iter().any(|&m| m as i64 == t);
         // The three mausoleum entries are one building.
-        listed(title) || (title == 25 && (listed(26) || listed(27)))
+        let named = |m: u16| m as i64 == title || (title == 25 && matches!(m, 26 | 27));
+        let listed = self.scenario_monuments.iter().filter(|&&m| m > 0 && named(m)).count();
+        let built = self.buildings.iter().filter(|b| b.kind == k && b.monument.is_some()).count();
+        built < listed
     }
 
     fn condition_met(&self, c: &Condition) -> bool {
