@@ -69,6 +69,7 @@ pub mod action {
     pub const GOING_TO_FORT: u16 = 81;
     pub const GOING_TO_STANDARD: u16 = 83;
     pub const GOING_TO_ACADEMY: u16 = 85;
+    pub const GOING_ABROAD: u16 = 87;
     pub const AT_STANDARD: u16 = 84;
     pub const ATTACK: u16 = 90;
     pub const CORPSE: u16 = 149;
@@ -95,11 +96,48 @@ pub struct Company {
     /// Its men have trained at a military academy, which steadies them.
     #[serde(default)]
     pub trained: bool,
+    /// Marked for Kingdom service: it answers Pharaoh's calls for troops.
+    #[serde(default)]
+    pub kingdom_service: bool,
+    /// Soldiers away fighting for the Kingdom.
+    #[serde(default)]
+    pub abroad: i32,
+}
+
+/// Troops sent to fight for the Kingdom, and the request they answer.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct DistantBattle {
+    pub request: usize,
+    pub enemy: i32,
+    pub strength: i32,
+    pub companies: Vec<usize>,
+    /// Months until the battle, or, once fought, until the survivors are home.
+    pub months: i32,
+    pub fought: bool,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Military {
     pub companies: Vec<Company>,
+    #[serde(default)]
+    pub battle: Option<DistantBattle>,
+}
+
+/// Months troops take to reach a distant battle, and to come home.
+const TRAVEL_MONTHS: i32 = 2;
+
+/// Share of the troops lost in a won battle, by how far they outnumbered the enemy
+/// (their surplus as a percentage of their strength).
+fn battle_losses(advantage_pct: i32) -> i32 {
+    match advantage_pct {
+        a if a < 10 => 70,
+        a if a < 25 => 50,
+        a if a < 50 => 25,
+        a if a < 75 => 15,
+        a if a < 100 => 10,
+        a if a < 150 => 5,
+        _ => 0,
+    }
 }
 
 /// The fort kinds and the soldiers they hold.
@@ -204,7 +242,7 @@ impl World {
                 .companies
                 .iter()
                 .enumerate()
-                .filter(|(_, c)| c.fort != 0 && c.soldiers.len() + c.recruits.len() < COMPANY_SIZE)
+                .filter(|(_, c)| c.fort != 0 && c.soldiers.len() + c.recruits.len() + (c.abroad as usize) < COMPANY_SIZE)
                 .filter_map(|(i, c)| self.buildings.get(c.fort).map(|f| (i, (f.x - rx).abs() + (f.y - ry).abs())))
                 .min_by_key(|&(_, d)| d)
                 .map(|(i, _)| i);
@@ -352,6 +390,17 @@ impl World {
             }
             action::AT_REST => {}
             action::ATTACK => self.fight(fid),
+            action::GOING_ABROAD => {
+                // Marching out of the city; gone once past its edge.
+                let map = &self.map;
+                let f = self.figures.get_mut(fid).expect("present");
+                if f.walk(map) != Step::Moving {
+                    f.dead = true;
+                    for c in &mut self.military.companies {
+                        c.soldiers.retain(|&s| s != fid);
+                    }
+                }
+            }
             action::GOING_TO_ACADEMY => {
                 let map = &self.map;
                 let f = self.figures.get_mut(fid).expect("present");
@@ -448,7 +497,90 @@ impl World {
         }
     }
 
-    /// Monthly: a company at its fort regains heart; one kept out long loses it.
+    /// The strength the companies marked for Kingdom service would bring to a distant
+    /// battle: one a soldier, two if trained.
+    pub fn kingdom_service_strength(&self) -> i32 {
+        self.military.companies.iter().filter(|c| c.kingdom_service && c.fort != 0).map(|c| c.soldiers.len() as i32 * if c.trained { 2 } else { 1 }).sum()
+    }
+
+    pub fn toggle_kingdom_service(&mut self, company: usize) {
+        if let Some(c) = self.military.companies.get_mut(company) {
+            c.kingdom_service = !c.kingdom_service;
+        }
+    }
+
+    /// The companies marked for Kingdom service march off to fight `enemy` for the
+    /// request `request`.
+    pub(crate) fn send_to_battle(&mut self, request: usize, enemy: i32) {
+        let strength = self.kingdom_service_strength();
+        let marked: Vec<usize> = (0..self.military.companies.len()).filter(|&c| self.military.companies[c].kingdom_service && !self.military.companies[c].soldiers.is_empty()).collect();
+        let exit = self.exit_point;
+        for &c in &marked {
+            let soldiers = self.military.companies[c].soldiers.clone();
+            self.military.companies[c].abroad = soldiers.len() as i32;
+            self.military.companies[c].at_fort = false;
+            let map = &self.map;
+            for s in soldiers {
+                if let Some(f) = self.figures.get_mut(s) {
+                    f.action = action::GOING_ABROAD;
+                    f.foe = 0;
+                    if !f.go_to(map, exit) {
+                        f.dead = true;
+                    }
+                }
+            }
+        }
+        self.military.battle = Some(DistantBattle { request, enemy, strength, companies: marked, months: TRAVEL_MONTHS, fought: false });
+    }
+
+    /// Monthly: the troops abroad reach their battle and fight it; the survivors come
+    /// home. A won battle meets the request; a lost one fails it.
+    pub(crate) fn update_distant_battle(&mut self) {
+        let Some(b) = self.military.battle.as_mut() else { return };
+        b.months -= 1;
+        if b.months > 0 {
+            return;
+        }
+        let b = b.clone();
+        if b.fought {
+            // Home again: the survivors walk back to their forts.
+            self.military.battle = None;
+            let exit = self.exit_point;
+            for &c in &b.companies {
+                let n = std::mem::take(&mut self.military.companies[c].abroad);
+                self.military.companies[c].at_fort = true;
+                for _ in 0..n {
+                    let kind = self.military.companies[c].kind;
+                    let used: Vec<u8> = self.military.companies[c].soldiers.iter().chain(&self.military.companies[c].recruits).filter_map(|&s| self.figures.get(s).map(|f| f.slot)).collect();
+                    let slot = (0..COMPANY_SIZE as u8).find(|s| !used.contains(s)).unwrap_or(0);
+                    let fid = self.figures.spawn(kind, exit.0, exit.1, Travel::Land);
+                    if let Some(f) = self.figures.get_mut(fid) {
+                        f.formation = c as u16 + 1;
+                        f.slot = slot;
+                        f.home = self.military.companies[c].fort;
+                    }
+                    self.military.companies[c].recruits.push(fid);
+                    self.send_to_post(fid);
+                }
+            }
+            return;
+        }
+        let won = b.strength >= b.enemy && b.strength > 0;
+        let losses = if won { battle_losses((b.strength - b.enemy) * 100 / b.strength.max(1)) } else { 100 };
+        for &c in &b.companies {
+            let co = &mut self.military.companies[c];
+            co.abroad = co.abroad * (100 - losses) / 100;
+        }
+        let returning = b.companies.iter().any(|&c| self.military.companies[c].abroad > 0);
+        if let Some(bb) = self.military.battle.as_mut() {
+            bb.fought = true;
+            bb.months = TRAVEL_MONTHS;
+        }
+        if !returning {
+            self.military.battle = None;
+        }
+        self.settle_troop_request(b.request, won);
+    }
     pub(crate) fn update_morale_month(&mut self) {
         for c in &mut self.military.companies {
             if c.at_fort {

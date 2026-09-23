@@ -1236,7 +1236,14 @@ fn request_popup(ui: &mut Ui, world: &mut World, i: usize, can: bool) -> bool {
     panel::outer_panel(ui.r, ui.panels, x, y, 25, 10);
     let title = ui.t(5, 6);
     ui.centred(Font::LargeBlackOnLight, &title, x, y + 16.0, w);
-    let line = ui.t(5, if can { 7 } else { 9 });
+    let troops = world.scenario_events.list.get(i).is_some_and(|e| e.resource == osiris_sim::scenario_events::TROOPS);
+    let line = ui.t(5, match (troops, can) {
+        (true, true) => 15,
+        (true, false) if world.military.companies.iter().any(|c| c.fort != 0 && !c.soldiers.is_empty()) => 13,
+        (true, false) => 11,
+        (false, true) => 7,
+        (false, false) => 9,
+    });
     ui.centred(Font::NormalBlackOnLight, &line, x, y + 60.0, w);
     if can {
         if ui.button([x + 80.0, y + 110.0, 100.0, 24.0], "Yes", Font::NormalBlackOnLight) {
@@ -1281,13 +1288,31 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
         if !co.at_fort && ui.button([px + 450.0, ry + 4.0, 110.0, 22.0], &back, Font::NormalWhiteOnDark) {
             world.return_company(*c);
         }
+        // Kingdom service: lit when the company answers Pharaoh's calls for troops.
+        let service = format!("{} {}", ui.t(G, 5), ui.t(G, 6));
+        let rect = [px + 450.0, ry + 26.0, 110.0, 18.0];
+        panel::button_border(ui.r, ui.panels, rect[0], rect[1], rect[2] as i32, rect[3] as i32, co.kingdom_service);
+        ui.centred(if co.kingdom_service { Font::NormalYellow } else { Font::NormalWhiteOnDark }, &service, rect[0], rect[1] + 3.0, rect[2]);
+        if ui.clicked(rect) {
+            world.toggle_kingdom_service(*c);
+        }
+        if co.abroad > 0 {
+            let away = format!("{} {}", co.abroad, ui.t(G, 29));
+            ui.label(Font::NormalWhiteOnDark, &away, px + 330.0, ry + 26.0);
+        }
     }
     // What the scouts report.
     let invaders = world.figures.iter().any(|f| osiris_sim::invasions::is_invader_kind(f.kind));
     let coming = world.invasions.planned.iter().any(|p| p.announced && !p.done);
     let threat = ui.t(G, if invaders { 10 } else if coming { 9 } else { 8 });
     ui.label(Font::NormalBlackOnLight, &threat, px + 50.0, py + 432.0 - 90.0);
-    let abroad = ui.t(G, 12);
+    let troops_wanted = world.scenario_events.open_requests().any(|(_, e)| e.resource == osiris_sim::scenario_events::TROOPS);
+    let abroad = ui.t(G, match &world.military.battle {
+        Some(b) if b.fought => 15,
+        Some(_) => 14,
+        None if troops_wanted => 13,
+        None => 12,
+    });
     ui.label(Font::NormalBlackOnLight, &abroad, px + 50.0, py + 432.0 - 70.0);
     action
 }

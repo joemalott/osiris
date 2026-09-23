@@ -71,6 +71,8 @@ pub enum Outcome {
     Completed,
     TooLate,
     Refused,
+    /// Troops sent for a request lost their battle.
+    Defeat,
 }
 
 /// Request states.
@@ -134,6 +136,8 @@ pub struct ScenarioEvent {
     pub on_completed: i16,
     pub on_refusal: i16,
     pub on_too_late: i16,
+    #[serde(default)]
+    pub on_defeat: i16,
     pub months_initial: i32,
     /// What this occurrence is about.
     pub resource: u16,
@@ -180,11 +184,34 @@ impl ScenarioEvents {
                 on_completed: e.on_completed,
                 on_refusal: e.on_refusal,
                 on_too_late: e.on_too_late,
+                on_defeat: e.on_defeat,
                 months_initial: e.months as i32,
                 ..Default::default()
             })
             .collect();
         Self { list, start_year, ..Default::default() }
+    }
+
+    /// Adds a troop request for `enemy` strength, open now (for tests and scripts).
+    pub fn request_troops_now(&mut self, enemy: i32) -> usize {
+        self.list.push(ScenarioEvent {
+            kind: event::REQUEST,
+            trigger: trigger::FIRED,
+            subtype: 2,
+            pharaoh: true,
+            resource: TROOPS,
+            amount: enemy,
+            months_initial: 12,
+            months_left: 12,
+            state: state::IN_PROGRESS,
+            active: true,
+            on_completed: -1,
+            on_refusal: -1,
+            on_too_late: -1,
+            on_defeat: -1,
+            ..Default::default()
+        });
+        self.list.len() - 1
     }
 
     /// Requests the player can still answer, for the Political Overseer.
@@ -196,12 +223,12 @@ impl ScenarioEvents {
 /// The phrase group a request's messages come from, by its reason.
 fn request_group(subtype: i8) -> &'static str {
     match subtype {
-        1 => "great_festival",
-        2 => "project",
-        3 => "famine",
-        4 => "threat",
-        5 => "egyptian_city_attacked",
-        6 => "distant_battle",
+        1 => "egyptian_city_attacked",
+        2 => "distant_battle",
+        3 => "great_festival",
+        4 => "project",
+        5 => "famine",
+        6 => "threat",
         _ => "general_request",
     }
 }
@@ -558,6 +585,7 @@ impl World {
             Outcome::Completed => "comply_reason",
             Outcome::TooLate => "too_late_reason",
             Outcome::Refused => "refuse_reason",
+            Outcome::Defeat => "lost_battle_reason",
         };
         Some(format!("{}_{what}_{}_A", request_group(p.subtype), p.side()))
     }
@@ -653,7 +681,7 @@ impl World {
         let Some(e) = self.scenario_events.list.get(i) else { return false };
         match e.resource {
             DEBEN => self.treasury > e.amount,
-            TROOPS => false,
+            TROOPS => self.kingdom_service_strength() > 0 && self.military.battle.is_none(),
             r => self.city_stored(r) >= e.units(),
         }
     }
@@ -677,6 +705,13 @@ impl World {
             return false;
         }
         let (r, units, overdue) = (e.resource, e.units(), e.overdue);
+        if r == TROOPS {
+            // The troops march off; the request is settled by their battle.
+            self.send_to_battle(i, e.amount);
+            let e = &mut self.scenario_events.list[i];
+            e.active = false;
+            return true;
+        }
         if r == DEBEN {
             self.treasury -= units;
         } else {
@@ -696,6 +731,24 @@ impl World {
         self.ratings.change_kingdom(if overdue { 1 } else { 3 });
         self.follow(next, i, outcome);
         true
+    }
+
+    /// The troops sent for request `i` have fought: a victory meets the request, a
+    /// defeat fails it, and what follows follows.
+    pub(crate) fn settle_troop_request(&mut self, i: usize, won: bool) {
+        let Some(e) = self.scenario_events.list.get_mut(i) else { return };
+        let overdue = e.overdue;
+        e.active = false;
+        if won {
+            e.state = state::RECEIVED;
+            let (next, outcome) = if overdue { (e.on_too_late, Outcome::TooLate) } else { (e.on_completed, Outcome::Completed) };
+            self.ratings.change_kingdom(if overdue { 1 } else { 3 });
+            self.follow(next, i, outcome);
+        } else {
+            e.state = state::FAILED;
+            let next = if e.on_defeat >= 0 { e.on_defeat } else { e.on_refusal };
+            self.follow(next, i, Outcome::Defeat);
+        }
     }
 
     /// Puts `units` of `r` into storage yards (and granaries, for food) with room;

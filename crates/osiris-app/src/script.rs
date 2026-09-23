@@ -151,6 +151,12 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 world.move_company(c.parse()?, p);
             }
             ["fortreturn", c] => world.return_company(c.parse()?),
+            ["service", c] => world.toggle_kingdom_service(c.parse()?),
+            ["troops", n] => {
+                let i = world.scenario_events.request_troops_now(n.parse()?);
+                let ok = world.dispatch_request(i);
+                eprintln!("{step}: request {i} dispatched {ok}");
+            }
             ["army"] => {
                 for (i, c) in world.military.companies.iter().enumerate() {
                     let alive: Vec<(i32, i32, u16, i32)> = c.soldiers.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.action, f.damage)).collect();
@@ -160,6 +166,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     let alive: Vec<(i32, i32, u16, u16, i32)> = a.figures.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.kind, f.action, f.damage)).collect();
                     eprintln!("  army {i} invader {} nation {} target {} morale {} fleeing {} {:?}", a.invader, a.nation, a.target, a.morale, a.fleeing, alive);
                 }
+                eprintln!("  battle {:?} kingdom {}", world.military.battle, world.ratings.kingdom);
                 eprintln!("  planned {:?} lost {}", world.invasions.planned.iter().map(|p| (p.invader, p.year, p.month, p.warning, p.done)).collect::<Vec<_>>(), world.invasions.lost);
             }
             ["clearmessages"] => {

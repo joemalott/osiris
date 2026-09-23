@@ -86,6 +86,7 @@ impl World {
             self.update_funerals();
             self.update_invasions();
             self.update_morale_month();
+            self.update_distant_battle();
             self.process_scenario_events();
             self.update_sieges();
             if !self.won && self.goals_met() {
