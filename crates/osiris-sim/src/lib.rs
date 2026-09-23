@@ -4,6 +4,7 @@
 
 pub mod animals;
 pub mod balance;
+pub mod bridges;
 pub mod build;
 pub mod buildings;
 pub mod census;

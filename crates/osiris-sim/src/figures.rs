@@ -143,8 +143,8 @@ pub fn passable(map: &Map, travel: Travel, x: i32, y: i32) -> bool {
         return false;
     }
     let t = map.terrain.at_or(x, y, 0);
-    // A working ferry's crossing counts as road for people on foot.
-    let ferry = t & terrain::FERRY_ROUTE != 0;
+    // A working ferry's crossing, or a bridge, counts as road for people on foot.
+    let ferry = t & (terrain::FERRY_ROUTE | terrain::BRIDGE) != 0;
     match travel {
         Travel::Roads => t & (terrain::ROAD | terrain::ACCESS_RAMP) != 0 && t & terrain::WATER == 0 || ferry,
         Travel::Land => {

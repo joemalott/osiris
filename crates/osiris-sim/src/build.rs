@@ -19,6 +19,9 @@ impl World {
         if let Some(rule) = self.can_place_defense(k, x, y) {
             return rule;
         }
+        if k == crate::bridges::LOW_BRIDGE {
+            return self.bridge_span(x, y).map(|_| ());
+        }
         let (fw, fh) = self.monument_footprint(k).unwrap_or((size, size));
         if def.needs("shoreline") {
             return self.can_place_on_shore(k, x, y);
@@ -117,7 +120,9 @@ impl World {
                 .unwrap_or("Can't build there");
             return Outcome::Invalid(reason);
         }
-        let cost = self.cost_of(k as usize) * ok.len() as i32;
+        // A bridge costs by its length.
+        let tiles = if k == crate::bridges::LOW_BRIDGE { ok.iter().filter_map(|&(sx, sy)| self.bridge_span(sx, sy).ok()).map(|(_, t)| t.len() as i32).sum() } else { ok.len() as i32 };
+        let cost = self.cost_of(k as usize) * tiles;
         let items = ok.len() as i32;
         if measure {
             return Outcome::Done { items, cost };
@@ -128,6 +133,10 @@ impl World {
         self.treasury -= cost;
         self.finance.this_year.construction += cost;
         for (sx, sy) in ok {
+            if k == crate::bridges::LOW_BRIDGE {
+                self.place_bridge(sx, sy);
+                continue;
+            }
             if crate::defenses::is_tower(k) {
                 self.clear_walls_for_tower(sx, sy);
             }
@@ -202,6 +211,10 @@ impl World {
 
     /// Removes a building and frees its tiles.
     pub fn demolish(&mut self, id: BuildingId) {
+        if self.buildings.get(id).is_some_and(|b| b.kind == crate::bridges::LOW_BRIDGE) {
+            self.remove_bridge(id);
+            return;
+        }
         if self.buildings.get(id).is_some_and(|b| crate::military::fort_soldier(b.kind).is_some()) {
             self.remove_fort(id);
         }

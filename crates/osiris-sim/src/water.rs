@@ -165,7 +165,7 @@ pub fn navigable(map: &Map, x: i32, y: i32) -> bool {
     let t = map.terrain.at_or(x, y, 0);
     map.contains(x, y)
         && t & terrain::WATER != 0
-        && t & (terrain::FLOODPLAIN | terrain::BUILDING) == 0
+        && t & (terrain::FLOODPLAIN | terrain::BUILDING | terrain::BRIDGE) == 0
         && NEIGHBOURS.iter().all(|&(dx, dy)| water_at(map, x + dx, y + dy))
 }
 

@@ -241,6 +241,8 @@ pub mod terrain {
     pub const DUNE: u32 = 0x200_0000;
     pub const DEEPWATER: u32 = 0x400_0000;
     pub const SUBMERGED_ROAD: u32 = 0x800_0000;
+    /// A bridge's deck over water (Osiris's own flag; not in the original grids).
+    pub const BRIDGE: u32 = 0x1000_0000;
     pub const SHORE: u32 = 0x8000_0000;
 }
 
