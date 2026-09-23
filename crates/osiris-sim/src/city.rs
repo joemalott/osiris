@@ -22,6 +22,8 @@ impl World {
                 self.update_trade_problems();
                 self.update_house_health();
                 self.update_crime();
+                self.update_recruiters();
+                self.check_siege();
             }
             7 => {
                 for id in self.buildings.ids() {
@@ -82,6 +84,7 @@ impl World {
             self.check_outbreak();
             self.pay_salary();
             self.update_funerals();
+            self.update_invasions();
             self.process_scenario_events();
             self.update_sieges();
             if !self.won && self.goals_met() {
@@ -118,6 +121,10 @@ impl World {
                 k if crate::animals::is_hunter(k) => self.update_hunter(fid),
                 crate::farms::PEASANT => self.update_peasant(fid),
                 crate::health::PLAGUED_CITIZEN | crate::crime::PROTESTER | crate::crime::ROBBER => self.update_wanderer(fid),
+                k if crate::military::is_soldier(k) => self.update_soldier(fid),
+                crate::military::STANDARD_BEARER => self.update_standard_bearer(fid),
+                crate::military::ARROW | crate::military::JAVELIN => self.update_missile(fid),
+                k if crate::invasions::is_invader_kind(k) => self.update_invader(fid),
                 crate::fishing::FISHING_BOAT => self.update_fishing_boat(fid),
                 crate::docks::TRADE_SHIP => self.update_trade_ship(fid),
                 crate::docks::DOCKER => self.update_docker(fid),

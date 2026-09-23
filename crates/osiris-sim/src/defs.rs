@@ -223,6 +223,57 @@ pub struct Defs {
     pub menus: Vec<Menu>,
     /// Resource keys indexed by resource id.
     pub resources: Vec<String>,
+    /// Invading armies: the foreign nations, then the Bedouin and the Egyptians.
+    pub armies: Vec<ArmyDef>,
+}
+
+/// One arm of an army (infantry, archers, chariots): marching, striking and falling.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ArmSprites {
+    pub walk: Anim,
+    pub attack: Anim,
+    pub death: Anim,
+}
+
+/// An invading army's make-up and art, from `enemies.toml`.
+#[derive(Debug, Clone, Default)]
+pub struct ArmyDef {
+    pub key: String,
+    /// Its name in text group 37 (the army's title is 28 further on).
+    pub name: Option<usize>,
+    /// Scenario enemy ids that name it.
+    pub enemy_ids: Vec<i64>,
+    /// First of its five rows in the figure model's enemy list.
+    pub stats_row: Option<usize>,
+    /// Infantry, archers, chariots.
+    pub arms: [Option<ArmSprites>; 3],
+}
+
+fn load_armies(lib: &osiris_formats::ImageLibrary) -> Result<Vec<ArmyDef>, String> {
+    let t: toml::Table = toml::from_str(include_str!("../data/enemies.toml")).map_err(|e| format!("enemies.toml: {e}"))?;
+    let army = |v: &toml::Value| -> Option<ArmyDef> {
+        let pack = v.get("pack")?.as_str()?;
+        let anim = |arm: &toml::Value, key: &str| -> Option<Anim> {
+            let a = arm.get(key)?;
+            let group = a.get("group")?.as_integer()? as usize;
+            let frames = a.get("frames")?.as_integer()? as u32;
+            Some(Anim { image: lib.group_id(pack, group, 0).ok()?, frames, x: 0, y: 0, duration: 1 })
+        };
+        let arm = |key: &str| -> Option<ArmSprites> {
+            let a = v.get(key)?;
+            Some(ArmSprites { walk: anim(a, "walk")?, attack: anim(a, "attack")?, death: anim(a, "death")? })
+        };
+        Some(ArmyDef {
+            key: v.get("key")?.as_str()?.to_owned(),
+            name: v.get("name_text").and_then(|n| n.as_array()).and_then(|a| a.get(1)).and_then(|i| i.as_integer()).map(|i| i as usize),
+            enemy_ids: v.get("enemy_ids").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|i| i.as_integer()).collect()).unwrap_or_default(),
+            stats_row: v.get("stats_row").and_then(|r| r.as_integer()).filter(|&r| r >= 0).map(|r| r as usize),
+            arms: [arm("infantry"), arm("archer"), arm("chariot")],
+        })
+    };
+    let mut out: Vec<ArmyDef> = t.get("nation").and_then(|n| n.as_array()).map(|a| a.iter().filter_map(army).collect()).unwrap_or_default();
+    out.extend(["bedouin", "egyptian"].iter().filter_map(|k| t.get(*k).and_then(army)));
+    Ok(out)
 }
 
 #[derive(Deserialize)]
@@ -372,6 +423,7 @@ impl Defs {
             figures,
             menus: menus.menu,
             resources,
+            armies: load_armies(lib)?,
         })
     }
 
@@ -389,6 +441,10 @@ impl Defs {
 
     pub fn figure_by_key(&self, key: &str) -> Option<&FigureDef> {
         self.figures.iter().flatten().find(|f| f.key == key)
+    }
+
+    pub fn army(&self, key: &str) -> Option<usize> {
+        self.armies.iter().position(|a| a.key == key)
     }
 
     pub fn menu(&self, key: &str) -> Option<&Menu> {

@@ -43,7 +43,7 @@ impl World {
                 if !self.map.contains(xx, yy) {
                     return Err("Outside the map");
                 }
-                if self.map.terrain_is(xx, yy, blocked) {
+                if self.map.terrain_is(xx, yy, blocked) || self.map.building.at_or(xx, yy, 0) != 0 {
                     return Err("Can't build there");
                 }
                 if self.figures.iter().any(|f| (f.x, f.y) == (xx, yy)) {
@@ -52,6 +52,9 @@ impl World {
             }
         }
         self.can_place_monument(k)?;
+        if crate::military::fort_soldier(k).is_some() && !self.fort_ground_clear(x, y) {
+            return Err("No room for the parade ground");
+        }
         if def.needs("groundwater") && !self.map.terrain_is(x, y, terrain::GROUNDWATER) {
             return Err("Needs groundwater");
         }
@@ -160,6 +163,9 @@ impl World {
             self.place_storage_yard(id);
         } else if dims.is_some() {
             self.place_monument(id);
+        } else if crate::military::fort_soldier(k).is_some() {
+            self.map.set_footprint(x, y, size, image);
+            self.place_fort(id);
         } else {
             self.map.set_footprint(x, y, size, image);
         }
@@ -184,6 +190,9 @@ impl World {
 
     /// Removes a building and frees its tiles.
     pub fn demolish(&mut self, id: BuildingId) {
+        if self.buildings.get(id).is_some_and(|b| crate::military::fort_soldier(b.kind).is_some()) {
+            self.remove_fort(id);
+        }
         let Some(b) = self.buildings.remove(id) else { return };
         for (xx, yy) in b.tiles().collect::<Vec<_>>() {
             self.map.terrain.update(xx, yy, |t| t & !terrain::BUILDING);

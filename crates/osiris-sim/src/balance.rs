@@ -17,6 +17,43 @@ pub struct Balance {
     pub houses: Vec<HouseModel>,
     /// Sentiment from the tax rate (row, 0-25%) at the city's tax coverage (11 columns).
     pub tax_sentiment: Vec<Vec<i32>>,
+    /// Fighting stats of each figure type (`Figure_model.txt`, "ALL FIGURES").
+    pub units: Vec<UnitStats>,
+    /// Fighting stats of the foreign armies ("ALL ENEMIES"): five rows a nation.
+    pub enemy_units: Vec<UnitStats>,
+}
+
+/// A fighter's stats from the figure model.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UnitStats {
+    pub hp: i32,
+    pub attack: i32,
+    pub armor: i32,
+    pub missile_armor: i32,
+    pub missile_attack: i32,
+    pub missile_range: i32,
+    /// Ticks between shots.
+    pub missile_delay: i32,
+    /// Index into the model's speed table (6 = normal walking pace).
+    pub speed: i32,
+    /// How often this unit appears in an army, as a weight.
+    pub frequency: i32,
+}
+
+impl UnitStats {
+    fn from_model(f: &osiris_formats::FigureModel) -> Self {
+        Self {
+            hp: f.hit_points as i32,
+            attack: f.attack as i32,
+            armor: f.armor as i32,
+            missile_armor: f.armor_vs_missiles as i32,
+            missile_attack: f.missile_attack as i32,
+            missile_range: f.missile_range as i32,
+            missile_delay: f.missile_rate_of_fire as i32,
+            speed: f.speed as i32,
+            frequency: f.frequency as i32,
+        }
+    }
 }
 
 impl Balance {
@@ -66,7 +103,23 @@ impl Balance {
                 disease_increment: h.disease_increment as i32,
             })
             .collect();
-        Self { stats, houses, tax_sentiment: Vec::new() }
+        Self { stats, houses, tax_sentiment: Vec::new(), units: Vec::new(), enemy_units: Vec::new() }
+    }
+
+    /// Takes the fighting stats from a parsed `Figure_model*.txt`.
+    pub fn set_units(&mut self, rows: &[osiris_formats::FigureModel]) {
+        for f in rows {
+            let list = if f.category.is_some() { &mut self.enemy_units } else { &mut self.units };
+            let i = f.id as usize;
+            if list.len() <= i {
+                list.resize(i + 1, UnitStats::default());
+            }
+            list[i] = UnitStats::from_model(f);
+        }
+    }
+
+    pub fn unit(&self, kind: u16) -> UnitStats {
+        self.units.get(kind as usize).copied().unwrap_or_default()
     }
 
     pub fn stats(&self, kind: u16) -> BuildingStats {

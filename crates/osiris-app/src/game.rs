@@ -789,6 +789,7 @@ impl Game {
                 .replace("[item]", &item(r))
                 .replace("[time_allotted]", &t.months.to_string())
                 .replace("[time_until_attack]", &t.months.to_string())
+                .replace("[a_foreign_army]", t.army.and_then(|a| self.text.get(37, a)).unwrap_or("an army"))
         };
         let own = (t.resource, t.amount, t.city_name);
         let reason = fill(&phrase(&t.reason), t.cause.unwrap_or(own), "");
@@ -929,6 +930,10 @@ impl Game {
                 continue;
             }
             if let Some(s) = crate::water_view::figure_sprite(&self.world, f) {
+                out.push(s);
+                continue;
+            }
+            if let Some(s) = crate::army_view::fighter_sprite(&self.world, f) {
                 out.push(s);
                 continue;
             }

@@ -1,0 +1,621 @@
+# Invading enemy army data for Osiris, cross-referenced from three sources:
+#
+#   1. Akhenaten (github pharaoh/Akhenaten, AGPL) -- used here as a source of FACTS ONLY
+#      (pack constants, group ids, frame counts, enemy-id enum, event-type enum). No code
+#      copied.
+#        - crates: src/scripts/enemies.js            (per-nation figure_* / enemy_* blocks)
+#        - src/graphics/image_groups.h                (PACK_ENEMY_* enum)
+#        - src/scripts/imagepaks.js                    (PACK_ENEMY_* -> .sg3 file name)
+#        - src/figure/figure_type.h                     (e_enemy_type enum, ENEMY_0..12)
+#        - src/scenario/scenario.cpp, scenario_invasion.cpp, scenario_invasion.h
+#          (confirms ScenarioInfo.enemy_id is bound 1:1 as raw i16 -> e_enemy_type, no remap)
+#        - src/scenario/scenario_event_manager.h/.cpp   (EVENT_INVADER_* enum incl. BEDUINS=4)
+#        - src/scripts/mission/m_005_timna.js:462        (explicit comment: Bedouin raids use
+#          EVENT_INVADER_BEDUINS as a narrative label but spawn enemy_id = ENEMY_7_LIBIAN)
+#        - src/scripts/localization_base_en.js:1197-1238 (text group 37: nation names / army
+#          phrases -- cross-checked against the live PharaohData text group with
+#          `osiris-tools text PharaohData 37`, values match exactly)
+#
+#   2. PharaohData/Data/*.sg3 (ground truth), inspected with
+#      `osiris-tools info PharaohData/Data <Pack>` for every pack listed below. Every group id
+#      taken from Akhenaten was cross-checked against the actual record count of that group
+#      (walk/attack/bow_attack/swim/idle animations are 8-directional: records = frames * 8;
+#      "death" animations are NOT directional: records = frames, taken directly). Discrepancies
+#      between Akhenaten's declared max_frames and the sg3 group's real record count are marked
+#      CORRECTED inline with the evidence (old JS value vs. actual record count).
+#
+#   3. PharaohData/Figure_model.txt, ALL ENEMIES section (rows 0-59, twelve 5-row blocks:
+#      Infantry, Missile, Chariots, Warship, Transport) and ALL FIGURES rows 54-56 (Egyptian
+#      Infantry/Archers/Chariots), 99 (Bedouin Infantry, unused/lang-only), 100-101 (Egyptian
+#      Warships/Transport Ships). `stats_row` below is the 0-based row index of a nation's
+#      5-row block within the ALL ENEMIES section, except where noted otherwise.
+#
+# enemy_ids = values of ScenarioInfo.enemy_id (crates/osiris-formats/src/scenario.rs) that
+# select this nation for a scripted invasion. These equal the raw e_enemy_type enum value
+# (0=Barbarian, 1=Assyrian, 2=Canaanite, 3=Egyptian, 4=Hittite, 5=Hyksos, 6=Kushite, 7=Libian,
+# 8=Nubian, 9=Persian, 10=Phoenician, 11=Roman, 12=SeaPeople), confirmed by reading
+# scenario.cpp (`iob->bind(BIND_SIGNATURE_INT16, &g_scenario.enemy_id)`, cast straight to
+# e_enemy_type with no lookup table) and figure_type.h's enum block.
+#
+# group = pack image-group index (as printed by `osiris-tools info`), frames = frames per
+# direction for walk/attack/swim/idle (8 directions), or total frames for death (1 direction).
+# attack2 = a nation's secondary attack animation where present (chariots: a second swing
+# pose reusing the same group in some packs; missile infantry: "dagger_attack", a melee
+# fallback used when an archer is engaged at close range).
+#
+# [UNVERIFIED] items:
+#   - mitani: Akhenaten defines NO figure_mitani_* blocks and no enemy_mitani{} entry, and
+#     e_enemy_type (0-12) has no Mitani value at all -- Mitani cannot be spawned as a scripted
+#     invader in Akhenaten, despite Mitani.sg3 existing on disk and Figure_model.txt carrying
+#     a full ALL ENEMIES stats block (rows 15-19) for it. It appears to be diplomacy/text-only,
+#     consistent with the original game (Mitani never appears as an invasion nation in vanilla
+#     Pharaoh either). The group ids given here are INFERRED by analogy: Mitani.sg3's group
+#     layout is byte-for-byte identical (same start offsets) to Assyrian.sg3's, strongly
+#     suggesting a shared animation template, but this has not been confirmed against any
+#     Akhenaten source -- treat as a guess, not a fact.
+#   - barbarian: has no entry in text group 37 (no dedicated nation name) and no ALL ENEMIES
+#     row; Akhenaten's enemy_barbarian{} carries its own literal stat values (max_damage,
+#     attack_value, etc.) directly in enemies.js rather than referencing Figure_model.txt.
+#   - Several nations (Nubian, Phoenician, Persian) have a JS figure class name (e.g.
+#     "axeman", "spearman") that doesn't match the Figure_model.txt row label for the same
+#     stats block (e.g. "Spearmen", "Archers", "Swordsmen") -- flagged inline per nation.
+#     These look like cosmetic naming drift between the two data sources, not a functional
+#     mismatch; the group ids/stats_row are still correctly paired.
+#   - Kushite/Libian/Nubian/Phoenician/Persian/Roman/SeaPeople all have chariot sprite groups
+#     defined in enemies.js, but Figure_model.txt's ALL ENEMIES row for their Chariots slot is
+#     "Blank" (all-zero stats), and enemy_<nation>.figure_types[2] is FIGURE_NONE (or, for
+#     Persian, percentage_type3 = 0) -- i.e. vanilla balance never fields that chariot
+#     contingent even though the art exists. Assyrian is the mirror case: its Warship stats
+#     row is "Blank" even though a full warship sprite/animation set exists.
+#
+# Do NOT copy Akhenaten source code; only ids/counts/facts were extracted here.
+
+[[nation]]
+key = "barbarian"
+name_text = []  # [UNVERIFIED] no dedicated nation-name text id found for generic barbarian invaders
+pack = "Enemy_1"
+enemy_ids = [0]
+stats_row = -1  # [UNVERIFIED] no ALL ENEMIES row for barbarian; Akhenaten uses hardcoded fallback stats in enemies.js instead
+
+# No dedicated transport/warship in Enemy_1.sg3; Akhenaten falls back to Hittite pack ids 7/8/9 (transport) and 10/11/12 (warship) for barbarian invasions (see figure_barbarian_transport_ship / figure_enemy_warship_generic in enemies.js).
+
+[nation.infantry]
+walk = { group = 3, frames = 12 }
+death = { group = 4, frames = 8 }
+attack = { group = 5, frames = 9 }  # CORRECTED: JS declares max_frames:8 (64 recs); Enemy_1.sg3 group5 has 72 recs = 9 frames/dir
+
+[nation.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+
+
+[[nation]]
+key = "assyrian"
+name_text = [37, 8]
+pack = "Assyrian"
+enemy_ids = [1]
+stats_row = 40  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
+
+[nation.infantry]
+walk = { group = 4, frames = 12 }
+death = { group = 5, frames = 8 }
+attack = { group = 6, frames = 12 }
+
+[nation.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+attack2 = { group = 3, frames = 12 }  # dagger_attack
+
+[nation.chariot]
+walk = { group = 13, frames = 12 }
+death = { group = 14, frames = 12 }
+attack = { group = 15, frames = 12 }
+
+[nation.transport]
+swim = { group = 7, frames = 4 }
+death = { group = 8, frames = 11 }
+idle = { group = 9, frames = 1 }
+
+# Figure_model ALL ENEMIES row 43 is "Blank" for Assyrian Warship (0 stats) even though the sprite groups exist -- vanilla balance never fields an Assyrian navy.
+[nation.warship]
+swim = { group = 10, frames = 4 }
+death = { group = 11, frames = 11 }
+idle = { group = 12, frames = 1 }
+
+
+[[nation]]
+key = "canaanite"
+name_text = [37, 7]
+pack = "Canaanite"
+enemy_ids = [2]
+stats_row = 35  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
+
+[nation.infantry]
+walk = { group = 4, frames = 12 }
+death = { group = 5, frames = 8 }
+attack = { group = 6, frames = 12 }  # CORRECTED: JS declares max_frames:10 (80 recs); Canaanite.sg3 group6 has 96 recs = 12 frames/dir
+
+[nation.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+attack2 = { group = 3, frames = 7 }  # dagger_attack
+
+[nation.chariot]
+walk = { group = 13, frames = 12 }
+death = { group = 14, frames = 12 }
+attack = { group = 15, frames = 12 }
+attack2 = { group = 16, frames = 12 }
+
+# CORRECTED: JS figure_canaanite_transport_ship uses ids 0/1/2, which collide with the archer's walk/death/bow_attack groups (96/8/96 recs -- clearly wrong for a transport). ids 7/8/9 (32/11/8 recs) match the universal transport template used by every other nation.
+[nation.transport]
+swim = { group = 7, frames = 4 }
+death = { group = 8, frames = 11 }
+idle = { group = 9, frames = 1 }
+
+[nation.warship]
+swim = { group = 10, frames = 4 }
+death = { group = 11, frames = 11 }
+idle = { group = 12, frames = 1 }
+
+
+[[nation]]
+key = "hittite"
+name_text = [37, 2]
+pack = "Hittite"
+enemy_ids = [4]
+stats_row = 10  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
+
+[nation.infantry]
+walk = { group = 4, frames = 12 }
+death = { group = 5, frames = 8 }
+attack = { group = 6, frames = 8 }
+
+[nation.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+attack2 = { group = 3, frames = 12 }  # dagger_attack -- CORRECTED: JS declares max_frames:7 (56 recs); Hittite.sg3 group3 has 96 recs = 12 frames/dir
+
+[nation.chariot]
+walk = { group = 13, frames = 12 }
+death = { group = 14, frames = 12 }
+attack = { group = 15, frames = 12 }
+
+[nation.transport]
+swim = { group = 7, frames = 4 }
+death = { group = 8, frames = 11 }
+idle = { group = 9, frames = 1 }
+
+[nation.warship]
+swim = { group = 10, frames = 4 }
+death = { group = 11, frames = 11 }
+idle = { group = 12, frames = 1 }
+
+
+[[nation]]
+key = "hyksos"
+name_text = [37, 0]
+pack = "Hyksos"
+enemy_ids = [5]
+stats_row = 0  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
+
+[nation.infantry]
+walk = { group = 4, frames = 12 }
+death = { group = 5, frames = 8 }
+attack = { group = 6, frames = 12 }  # CORRECTED: JS declares max_frames:8 (64 recs); Hyksos.sg3 group6 has 96 recs = 12 frames/dir
+
+[nation.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+attack2 = { group = 3, frames = 12 }  # dagger_attack -- CORRECTED: JS declares max_frames:7 (56 recs); Hyksos.sg3 group3 has 96 recs = 12 frames/dir
+
+[nation.chariot]
+walk = { group = 13, frames = 12 }
+death = { group = 14, frames = 12 }
+attack = { group = 15, frames = 12 }
+attack2 = { group = 16, frames = 12 }
+
+[nation.transport]
+swim = { group = 7, frames = 4 }
+death = { group = 8, frames = 11 }
+idle = { group = 9, frames = 1 }
+
+[nation.warship]
+swim = { group = 10, frames = 4 }
+death = { group = 11, frames = 11 }
+idle = { group = 12, frames = 1 }
+
+
+[[nation]]
+key = "kushite"
+name_text = [37, 4]
+pack = "Kushite"
+enemy_ids = [6]
+stats_row = 20  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
+
+# JS figure_kushite_axeman = melee infantry (Figure_model row 20 "Kushite Axemen").
+[nation.infantry]
+walk = { group = 4, frames = 12 }
+death = { group = 5, frames = 8 }
+attack = { group = 6, frames = 12 }
+
+# JS figure_kushite_spearman: missile_type FIGURE_SPEAR, attack_distance 3 (thrown javelin) = Figure_model row 21 "Kushite Javelins" (Missile). Its declared dagger_attack (also id 2, max_frames:7) is a vestigial duplicate of the same group -- ignored.
+[nation.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+
+# Figure_model row 22 is "Blank" Chariots and enemy_kushite.figure_types[2] = FIGURE_NONE -- sprite exists but no chariot contingent in vanilla balance (see F1/F2 comments in enemies.js).
+[nation.chariot]
+walk = { group = 13, frames = 12 }
+death = { group = 14, frames = 12 }
+attack = { group = 15, frames = 12 }
+attack2 = { group = 16, frames = 12 }
+
+[nation.transport]
+swim = { group = 7, frames = 4 }
+death = { group = 8, frames = 11 }
+idle = { group = 9, frames = 1 }
+
+[nation.warship]
+swim = { group = 10, frames = 4 }
+death = { group = 11, frames = 11 }
+idle = { group = 12, frames = 1 }
+
+
+[[nation]]
+key = "libian"
+name_text = [37, 5]
+pack = "Libian"
+enemy_ids = [7]
+stats_row = 25  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
+army_title = [37, 33]  # group/id for the "a X army" phrase (distinct from the plain nation name)
+
+[nation.infantry]
+walk = { group = 4, frames = 12 }
+death = { group = 5, frames = 8 }
+attack = { group = 6, frames = 12 }  # CORRECTED: JS declares max_frames:10 (80 recs); Libian.sg3 group6 has 96 recs = 12 frames/dir
+
+[nation.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+attack2 = { group = 3, frames = 7 }  # dagger_attack
+
+# Figure_model row 27 is "Blank" Chariots and enemy_libian.figure_types[2] = FIGURE_NONE -- sprite exists but unused in vanilla balance.
+[nation.chariot]
+walk = { group = 13, frames = 12 }
+death = { group = 14, frames = 12 }
+attack = { group = 15, frames = 12 }
+attack2 = { group = 16, frames = 12 }
+
+[nation.transport]
+swim = { group = 7, frames = 4 }
+death = { group = 8, frames = 11 }
+idle = { group = 9, frames = 1 }
+
+[nation.warship]
+swim = { group = 10, frames = 4 }
+death = { group = 11, frames = 11 }
+idle = { group = 12, frames = 1 }
+
+
+[[nation]]
+key = "mitani"
+name_text = [37, 3]
+pack = "Mitani"
+enemy_ids = []
+stats_row = 15  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
+unverified = true
+
+# [UNVERIFIED] Akhenaten's enemies.js has NO figure_mitani_* blocks and NO enemy_mitani{} entry -- Mitani is not a selectable e_enemy_type (no ENEMY_x value maps to it; see figure_type.h e_enemy_type, values 0-12 skip Mitani entirely). Mitani.sg3 exists on disk and Figure_model.txt ALL ENEMIES rows 15-19 give it full stats, but nothing in Akhenaten spawns it as an invader -- likely diplomacy/text-only in the original game too. Group ids above are INFERRED, not sourced: Mitani.sg3's group-start layout (1,97,105,201,297,393,401,497,529,540,548,580,591,599,695,707,803) is numerically IDENTICAL to Assyrian.sg3's, strongly suggesting a shared sprite template -- ids are copied from the verified Assyrian mapping by analogy only.
+
+[nation.infantry]
+walk = { group = 4, frames = 12 }
+death = { group = 5, frames = 8 }
+attack = { group = 6, frames = 12 }
+
+[nation.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+attack2 = { group = 3, frames = 12 }  # dagger_attack
+
+[nation.chariot]
+walk = { group = 13, frames = 12 }
+death = { group = 14, frames = 12 }
+attack = { group = 15, frames = 12 }
+
+[nation.transport]
+swim = { group = 7, frames = 4 }
+death = { group = 8, frames = 11 }
+idle = { group = 9, frames = 1 }
+
+[nation.warship]
+swim = { group = 10, frames = 4 }
+death = { group = 11, frames = 11 }
+idle = { group = 12, frames = 1 }
+
+
+[[nation]]
+key = "nubian"
+name_text = [37, 6]
+pack = "Nubian"
+enemy_ids = [8]
+stats_row = 30  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
+
+# JS class name is figure_nubian_axeman; Figure_model row 30 labels it "Nubian Spearmen" -- cosmetic label mismatch only, same melee-infantry group.
+[nation.infantry]
+walk = { group = 4, frames = 12 }
+death = { group = 5, frames = 8 }
+attack = { group = 6, frames = 8 }
+
+[nation.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+attack2 = { group = 3, frames = 7 }  # dagger_attack
+
+# Figure_model row 32 is "Blank" Chariots and enemy_nubian.figure_types[2] = FIGURE_NONE -- sprite exists but unused in vanilla balance.
+[nation.chariot]
+walk = { group = 13, frames = 12 }
+death = { group = 14, frames = 12 }
+attack = { group = 15, frames = 12 }
+attack2 = { group = 16, frames = 12 }
+
+[nation.transport]
+swim = { group = 7, frames = 4 }
+death = { group = 8, frames = 11 }
+idle = { group = 9, frames = 1 }
+
+[nation.warship]
+swim = { group = 10, frames = 4 }
+death = { group = 11, frames = 11 }
+idle = { group = 12, frames = 1 }
+
+
+[[nation]]
+key = "persian"
+name_text = [37, 11]
+pack = "Persian"
+enemy_ids = [9]
+stats_row = 55  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
+
+# JS class name is figure_persian_spearman; Figure_model row 55 labels it "Persian Swordsmen" -- cosmetic label mismatch only, same melee-infantry group.
+[nation.infantry]
+walk = { group = 4, frames = 12 }
+death = { group = 5, frames = 8 }
+attack = { group = 6, frames = 8 }
+
+[nation.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+attack2 = { group = 3, frames = 12 }  # dagger_attack
+
+# Figure_model row 57 is "Blank" Chariots. enemy_persian.figure_types DOES list FIGURE_ENEMY_PERSIAN_CHARIOT but percentage_type3 = 0, so it never spawns -- consistent with the blank stats row.
+[nation.chariot]
+walk = { group = 13, frames = 12 }
+death = { group = 14, frames = 12 }
+attack = { group = 15, frames = 12 }
+attack2 = { group = 16, frames = 12 }
+
+[nation.transport]
+swim = { group = 7, frames = 4 }
+death = { group = 8, frames = 11 }
+idle = { group = 9, frames = 1 }
+
+[nation.warship]
+swim = { group = 10, frames = 4 }
+death = { group = 11, frames = 11 }
+idle = { group = 12, frames = 1 }
+
+
+[[nation]]
+key = "phoenician"
+name_text = [37, 10]
+pack = "Phoenician"
+enemy_ids = [10]
+stats_row = 50  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
+
+[nation.infantry]
+walk = { group = 4, frames = 12 }
+death = { group = 5, frames = 8 }
+attack = { group = 6, frames = 9 }
+
+# JS class name is figure_phoenician_spearman; Figure_model row 51 labels it "Phoenician Archers" despite missile_type FIGURE_SPEAR (thrown spear, not bow) -- cosmetic label mismatch only.
+[nation.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+attack2 = { group = 3, frames = 7 }  # dagger_attack
+
+# Figure_model row 52 is "Blank" Chariots and enemy_phoenician.figure_types[2] = FIGURE_NONE -- sprite exists but unused in vanilla balance.
+[nation.chariot]
+walk = { group = 13, frames = 12 }
+death = { group = 14, frames = 12 }
+attack = { group = 15, frames = 12 }
+attack2 = { group = 16, frames = 12 }
+
+[nation.transport]
+swim = { group = 7, frames = 4 }
+death = { group = 8, frames = 11 }
+idle = { group = 9, frames = 1 }
+
+[nation.warship]
+swim = { group = 10, frames = 4 }
+death = { group = 11, frames = 11 }
+idle = { group = 12, frames = 1 }
+
+
+[[nation]]
+key = "roman"
+name_text = [37, 9]
+pack = "Roman"
+enemy_ids = [11]
+stats_row = 45  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
+
+[nation.infantry]
+walk = { group = 4, frames = 12 }
+death = { group = 5, frames = 8 }
+attack = { group = 6, frames = 9 }  # CORRECTED: JS declares max_frames:8 (64 recs); Roman.sg3 group6 has 72 recs = 9 frames/dir
+
+[nation.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+attack2 = { group = 3, frames = 12 }  # dagger_attack -- CORRECTED: JS declares max_frames:7 (56 recs); Roman.sg3 group3 has 96 recs = 12 frames/dir
+
+# Figure_model row 47 is "Blank" Chariots and enemy_roman.figure_types[2] = FIGURE_NONE -- both JS and stats agree Rome fields no chariots; sprite groups exist but are unused.
+[nation.chariot]
+walk = { group = 13, frames = 12 }
+death = { group = 14, frames = 12 }
+attack = { group = 15, frames = 12 }
+attack2 = { group = 16, frames = 12 }
+
+[nation.transport]
+swim = { group = 7, frames = 4 }
+death = { group = 8, frames = 11 }
+idle = { group = 9, frames = 1 }
+
+[nation.warship]
+swim = { group = 10, frames = 4 }
+death = { group = 11, frames = 11 }
+idle = { group = 12, frames = 1 }
+
+
+[[nation]]
+key = "seapeople"
+name_text = [37, 1]
+pack = "SeaPeople"
+enemy_ids = [12]
+stats_row = 5  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
+
+[nation.infantry]
+walk = { group = 4, frames = 12 }
+death = { group = 5, frames = 8 }
+attack = { group = 6, frames = 9 }
+
+[nation.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+attack2 = { group = 3, frames = 7 }  # dagger_attack
+
+# Figure_model row 7 is "Blank" Chariots and enemy_seapeople.figure_types[2] = FIGURE_NONE -- sprite exists but unused in vanilla balance.
+[nation.chariot]
+walk = { group = 13, frames = 12 }
+death = { group = 14, frames = 12 }
+attack = { group = 15, frames = 12 }
+attack2 = { group = 16, frames = 12 }
+
+[nation.transport]
+swim = { group = 7, frames = 4 }
+death = { group = 8, frames = 10 }  # CORRECTED: JS declares max_frames:11; SeaPeople.sg3 group8 (nondirectional death) has 10 recs
+idle = { group = 9, frames = 1 }
+
+[nation.warship]
+swim = { group = 10, frames = 4 }
+death = { group = 11, frames = 11 }
+idle = { group = 12, frames = 1 }
+
+
+# --- Bedouin raiders -------------------------------------------------------
+# Bedouin is NOT a distinct e_enemy_type. It is the narrative/event label
+# EVENT_INVADER_BEDUINS = 4 (scenario_event_manager.h e_event_invader enum), used only for
+# the attack-warning message text (city_message_post_full picks PHRASE_bedouin_attacks_you_*
+# instead of PHRASE_foreign_army_attacks_you_*). The actual spawned army is
+# ENEMY_7_LIBIAN -- confirmed directly by two independent source comments:
+#   - src/figure/figure_type.h:151  "FIGURE_BEDOUIN_INFANTRY = 99, // lang/Ambient only;
+#     Bedouin raids -> ENEMY_7_LIBIAN -- won't implement"
+#   - src/scripts/mission/m_005_timna.js:462  "// pak invasions: EVENT_INVADER_BEDUINS field,
+#     but scenario enemy_id = ENEMY_7_LIBIAN (sprites)."
+# So [bedouin] below is Libian's pack/groups/stats reused under the Bedouin display name
+# (text group 37 id 13). ALL FIGURES row 99 "Bedouin Infantry" exists in Figure_model.txt but
+# is explicitly marked lang/Ambient-only / not implemented -- not used for combat stats.
+[bedouin]
+key = "bedouin"
+name_text = [37, 13]
+pack = "Libian"
+enemy_ids = [7]
+stats_row = 25  # shared with the libian [[nation]] entry -- see ALL ENEMIES rows 25-29
+
+[bedouin.infantry]
+walk = { group = 4, frames = 12 }
+death = { group = 5, frames = 8 }
+attack = { group = 6, frames = 12 }  # CORRECTED, see libian nation entry
+
+[bedouin.archer]
+walk = { group = 0, frames = 12 }
+death = { group = 1, frames = 8 }
+attack = { group = 2, frames = 12 }
+attack2 = { group = 3, frames = 7 }  # dagger_attack
+
+[bedouin.transport]
+swim = { group = 7, frames = 4 }
+death = { group = 8, frames = 11 }
+idle = { group = 9, frames = 1 }
+
+[bedouin.warship]
+swim = { group = 10, frames = 4 }
+death = { group = 11, frames = 11 }
+idle = { group = 12, frames = 1 }
+
+# --- Egyptian (Pharaoh's own army / uprising invasions) ---------------------
+# enemy_id = 3 (ENEMY_3_EGYPTIAN). When g_scenario.enemy_id == ENEMY_3_EGYPTIAN,
+# scenario_invasion.cpp sets kind = INVASION_KIND_PHARAOH (see scenario_invasion.cpp:75,
+# :978, :986) -- this is what Pharaoh-army/uprising invasions look like. Uses the base
+# enemy_egyptian.figure_types = [ARCHER, SPEAR, CHARIOT] set below, NOT the
+# figure_kingdome_javelin/infantry/mounted variants -- those are a separate mechanic
+# (ATTACK_TYPE_KINGDOME "favour army", see enemies.js comment above figure_kingdome_javelin)
+# that happens to TEMP-reuse the same Egyptian pack group ids (11-13, 14-15) as placeholder
+# art and is unrelated to the enemy_id=3 scripted-invasion path.
+#
+# Figure_model.txt has no contiguous ALL ENEMIES block for Egyptian; its stats are spread
+# across ALL FIGURES: row 54 Infantry, 55 Missile/Archers, 56 Chariots, 100 Warships,
+# 101 Transport Ships (rows 54-56 per the task brief; rows 100-101 found by searching the
+# file directly -- ALL ENEMIES itself has no Egyptian block at all).
+[egyptian]
+key = "egyptian"
+name_text = [37, 12]
+pack = "Egyptian"
+enemy_ids = [3]
+stats_row_infantry = 54
+stats_row_archer = 55
+stats_row_chariot = 56
+stats_row_warship = 100
+stats_row_transport = 101
+
+[egyptian.infantry]
+walk = { group = 11, frames = 12 }
+death = { group = 12, frames = 8 }
+attack = { group = 13, frames = 8 }
+
+[egyptian.archer]
+walk = { group = 7, frames = 12 }
+death = { group = 8, frames = 8 }
+attack = { group = 9, frames = 12 }
+attack2 = { group = 10, frames = 12 }  # dagger_attack -- CORRECTED: JS declares max_frames:7 (56 recs); Egyptian.sg3 group10 has 96 recs = 12 frames/dir
+
+[egyptian.chariot]
+# CORRECTED: JS's figure_egyptian_chariot declares walk AND death on the same id (14), and
+# attack on id 15. Record counts prove this is wrong: group 14 has 96 records (=12*8, a
+# WALK group), group 15 has 12 records (non-directional -- a DEATH group), and group 16 has
+# 96 records (=12*8, the real ATTACK group). death/attack corrected accordingly.
+walk = { group = 14, frames = 12 }
+death = { group = 15, frames = 12 }
+attack = { group = 16, frames = 12 }
+
+[egyptian.transport]
+swim = { group = 0, frames = 4 }
+death = { group = 1, frames = 11 }
+idle = { group = 2, frames = 1 }
+
+[egyptian.warship]
+swim = { group = 4, frames = 4 }
+death = { group = 5, frames = 11 }
+idle = { group = 6, frames = 1 }

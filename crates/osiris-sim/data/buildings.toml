@@ -1108,7 +1108,6 @@ unnecessary_range_check = 3
 id = 94
 key = "military_academy"
 size = 4
-figure = "magistrate"
 image = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 173, offset = 1, frames = 12, x = 33, y = -38 } }
 flags = ["is_military"]
@@ -1121,7 +1120,7 @@ id = 95
 key = "recruiter"
 size = 3
 labor = "military"
-figure = "tower_sentry"
+inputs = ["weapons"]
 image = { pack = "Pharaoh_General", group = 166, offset = 0, x = 0, y = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 166, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 166, offset = 1, frames = 11, x = 10, y = 10 } }
 flags = ["is_military"]

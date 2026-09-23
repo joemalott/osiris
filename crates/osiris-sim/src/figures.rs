@@ -68,6 +68,18 @@ pub struct Figure {
     pub cargo: u16,
     pub amount: i32,
     pub dead: bool,
+    /// Fighters: damage taken, the formation they belong to and their place in it,
+    /// the figure they are fighting, and how far their blow has come.
+    #[serde(default)]
+    pub damage: i32,
+    #[serde(default)]
+    pub formation: u16,
+    #[serde(default)]
+    pub slot: u8,
+    #[serde(default)]
+    pub foe: u32,
+    #[serde(default)]
+    pub attack_tick: u16,
 }
 
 impl Figure {
@@ -95,6 +107,11 @@ impl Figure {
             cargo: 0,
             amount: 0,
             dead: false,
+            damage: 0,
+            formation: 0,
+            slot: 0,
+            foe: 0,
+            attack_tick: 0,
         }
     }
 
@@ -295,6 +312,12 @@ impl Figures {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+}
+
+/// The direction (index into `NEIGHBOURS`) from one tile toward another, if they differ.
+pub fn direction_to(from: (i32, i32), to: (i32, i32)) -> Option<u8> {
+    let d = ((to.0 - from.0).signum(), (to.1 - from.1).signum());
+    NEIGHBOURS.iter().position(|&n| n == d).map(|i| i as u8)
 }
 
 #[cfg(test)]

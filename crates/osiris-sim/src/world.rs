@@ -106,6 +106,12 @@ pub struct World {
     /// Burial provisions the tombs need: (units required, units sent) by resource.
     #[serde(default)]
     pub burial: Vec<(i32, i32)>,
+    /// The city's forts and their companies.
+    #[serde(default)]
+    pub military: crate::military::Military,
+    /// Invasions planned, and armies in the field.
+    #[serde(default)]
+    pub invasions: crate::invasions::Invasions,
     /// The governor's salary, savings and gifts to the Kingdom.
     #[serde(default)]
     pub governor: crate::kingdom::Governor,
@@ -163,6 +169,7 @@ impl World {
         let map = Map::from_scenario(scenario);
         let (w, h) = (map.width, map.height);
         let water = crate::water::Water::from_scenario(scenario, &map);
+        let invasions = crate::invasions::Invasions::from_scenario(scenario, &defs);
         Self {
             map,
             time: GameTime::new(info.start_year as i32),
@@ -195,6 +202,8 @@ impl World {
             water,
             events: Default::default(),
             governor: Default::default(),
+            military: Default::default(),
+            invasions,
             scenario_monuments: info.monuments,
             burial: info.burial_provisions_required.iter().map(|&r| (r as i32 * 100, 0)).collect(),
             scenario_events: crate::scenario_events::ScenarioEvents::from_records(&scenario.events, info.start_year as i32),

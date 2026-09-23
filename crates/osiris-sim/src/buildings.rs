@@ -112,6 +112,9 @@ pub struct Building {
     /// A monument's construction.
     #[serde(default)]
     pub monument: Option<crate::monuments::Monument>,
+    /// Damage invaders have done it.
+    #[serde(default)]
+    pub enemy_damage: i32,
     /// A venue's days of shows left, per performer (juggler, musician, dancer).
     #[serde(default)]
     pub shows: [i32; 3],

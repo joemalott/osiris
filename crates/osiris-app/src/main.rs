@@ -1,5 +1,6 @@
 mod advisors;
 mod anims;
+mod army_view;
 mod city_view;
 mod empire_window;
 mod game;
@@ -573,6 +574,9 @@ fn load_assets(data: &Path, library: &ImageLibrary) -> Result<Assets> {
     let mut balance = Balance::from_model(&Model::parse(&String::from_utf8_lossy(&model_text))?);
     if let Ok(t) = std::fs::read(data.join("Tax_Sentiment_Model_Normal.txt")) {
         balance.tax_sentiment = osiris_formats::model::parse_tax_sentiment(&String::from_utf8_lossy(&t));
+    }
+    if let Ok(t) = std::fs::read(data.join("Figure_model_normal.txt")).or_else(|_| std::fs::read(data.join("Figure_model.txt"))) {
+        balance.set_units(&osiris_formats::model::parse_figures(&String::from_utf8_lossy(&t))?);
     }
     let balance = Arc::new(balance);
     let text = Arc::new(TextTable::parse(&std::fs::read(data.join("Pharaoh_Text.eng"))?)?);

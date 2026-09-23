@@ -145,6 +145,23 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let log: Vec<&str> = world.notices.log.iter().map(|n| n.key.as_str()).filter(|k| k.contains("plague") || k.contains("disease") || k.contains("malaria") || k.contains("crime")).collect();
                 eprintln!("  log {log:?}");
             }
+            ["invade", invader, n, point] => world.invade_now(invader.parse()?, n.parse()?, point.parse()?),
+            ["company", c, p] => {
+                let p = parse_point(p)?;
+                world.move_company(c.parse()?, p);
+            }
+            ["fortreturn", c] => world.return_company(c.parse()?),
+            ["army"] => {
+                for (i, c) in world.military.companies.iter().enumerate() {
+                    let alive: Vec<(i32, i32, u16, i32)> = c.soldiers.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.action, f.damage)).collect();
+                    eprintln!("  company {i} fort {} kind {} at_fort {} soldiers {} recruits {} {:?}", c.fort, c.kind, c.at_fort, c.soldiers.len(), c.recruits.len(), alive);
+                }
+                for (i, a) in world.invasions.armies.iter().enumerate() {
+                    let alive: Vec<(i32, i32, u16, u16, i32)> = a.figures.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.kind, f.action, f.damage)).collect();
+                    eprintln!("  army {i} invader {} nation {} target {} {:?}", a.invader, a.nation, a.target, alive);
+                }
+                eprintln!("  planned {:?} lost {}", world.invasions.planned.iter().map(|p| (p.invader, p.year, p.month, p.warning, p.done)).collect::<Vec<_>>(), world.invasions.lost);
+            }
             ["clearmessages"] => {
                 world.messages.clear();
                 world.message_texts.clear();

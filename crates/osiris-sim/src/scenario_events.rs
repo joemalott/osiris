@@ -108,6 +108,9 @@ pub struct EventText {
     pub template: u16,
     /// For reasons that describe the event before: its resource, amount and city.
     pub cause: Option<(u16, i32, Option<u8>)>,
+    /// An invading army's title (text group 37).
+    #[serde(default)]
+    pub army: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -597,6 +600,7 @@ impl World {
             months: this.months_left,
             template: 130,
             cause: None,
+            army: None,
         };
         let mut posts: Vec<EventText> = Vec::new();
         let mut comply_ready = false;
