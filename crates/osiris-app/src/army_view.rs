@@ -74,7 +74,10 @@ pub fn standard_sprites(r: &osiris_render::Renderer, world: &World, f: &Figure, 
     let (Some(pole), Some(flag), Some(sign)) = (def.anims.get("pole"), def.anims.get(flag_key), def.anims.get("sign")) else { return Vec::new() };
     let pole_image = pole.image + (20 - co.morale / 5).clamp(0, pole.frames as i32 - 1) as u32;
     let ball = def.anims.get("experience").map(|a| a.image + military::experience_ball(co.experience).min(a.frames.max(1) - 1));
-    let flag_image = flag.image + (ticks / flag.duration.max(1) as u64 % flag.frames.max(1) as u64) as u32;
+    // The flag waves while the standard moves and hangs still (the frame after the
+    // waving ones) once it is planted.
+    let flag_image = if f.moving { flag.image + (ticks / flag.duration.max(1) as u64 % flag.frames.max(1) as u64) as u32 } else { flag.image + flag.frames };
+    // The company's emblem tops the standard.
     let sign_image = sign.image + company as u32 % 10;
     // The pole (and the experience ball, drawn over it) stands on the bearer's foot;
     // the flag sits on top of the pole and the sign on top of the flag, all flush

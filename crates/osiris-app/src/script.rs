@@ -237,6 +237,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 world.move_company(c.parse()?, p);
             }
             ["fortreturn", c] => world.return_company(c.parse()?),
+            // The company window's switch that turns the next held line.
+            ["rotate", c] => world.rotate_line(c.parse()?),
             ["service", c] => world.toggle_kingdom_service(c.parse()?),
             // Lets the city raise a temple complex to god `g`.
             ["allowcomplex", g] => world.complex_gods[g.parse::<usize>()?.min(4)] = true,
@@ -273,7 +275,10 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["army"] => {
                 for (i, c) in world.military.companies.iter().enumerate() {
                     let alive: Vec<(i32, i32, u16, i32)> = c.soldiers.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.action, f.damage)).collect();
-                    eprintln!("  company {i} fort {} kind {} at_fort {} morale {} wind {} experience {} soldiers {} recruits {} {:?}", c.fort, c.kind, c.at_fort, c.morale, c.wind, c.experience, c.soldiers.len(), c.recruits.len(), alive);
+                    eprintln!("  company {i} fort {} kind {} at_fort {} morale {} wind {} experience {} order {:?} turned {} charged {} wounds {}% soldiers {} recruits {} {:?}", c.fort, c.kind, c.at_fort, c.morale, c.wind, c.experience, c.order, c.turned, c.charged, world.company_wounds(i), c.soldiers.len(), c.recruits.len(), alive);
+                }
+                for b in world.buildings.iter().filter(|b| b.kind == osiris_sim::military::RECRUITER) {
+                    eprintln!("  recruiter {} workers {} days {} weapons {} chariots {} wanted {}", b.id, b.workers, b.spawn_delay, b.stock[osiris_sim::military::WEAPONS as usize], b.stock[osiris_sim::military::CHARIOTS as usize], world.recruits_wanted(b.id));
                 }
                 for (i, a) in world.invasions.armies.iter().enumerate() {
                     let alive: Vec<(i32, i32, u16, u16, i32)> = a.figures.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.kind, f.action, f.damage)).collect();

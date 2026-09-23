@@ -723,7 +723,9 @@ impl Game {
                 n += 1;
             }
         }
-        if n > 0 {
+        if let Some(c) = walkers[..n].iter().find_map(|&w| self.world.company_of(w)) {
+            crate::info::Target::Company(c)
+        } else if n > 0 {
             crate::info::Target::Figures(walkers, n as u8, 0)
         } else if id != 0 {
             crate::info::Target::Building(id)
@@ -894,7 +896,11 @@ impl Game {
             && self.dialog.is_none()
         {
             if i.back() {
+                let command = i.company_on_close(&self.world);
                 self.info = None;
+                if let Some(c) = command {
+                    self.select_company(c);
+                }
             }
             return;
         }
@@ -913,27 +919,42 @@ impl Game {
     }
 
     /// A map click while commanding: with a company selected, sends it to the tile
-    /// (or home, when the tile is its fort); otherwise clicking one of the city's
-    /// soldiers selects his company. True when the click was used.
+    /// (or home, when the tile is its fort), warning when it can't get there or its
+    /// morale is too low, and ends the command as the original does; otherwise
+    /// clicking one of the city's soldiers or a standard opens his company's
+    /// window. True when the click was used.
     fn command_company(&mut self, x: i32, y: i32) -> bool {
-        if let Some(c) = self.selected_company {
-            let Some(company) = self.world.military.companies.get(c) else {
-                self.selected_company = None;
-                return false;
-            };
+        if let Some(c) = self.selected_company.take() {
+            let Some(company) = self.world.military.companies.get(c) else { return false };
             let clicked = self.world.map.building.at_or(x, y, 0);
+            let low_morale = company.morale < 21;
             if clicked != 0 && (clicked == company.fort || clicked == company.ground) {
                 self.world.return_company(c);
-            } else {
-                self.world.move_company(c, (x, y));
+            } else if !self.world.move_company(c, (x, y)) {
+                self.warn(209);
+            } else if low_morale {
+                self.warn(49);
             }
-            self.sound("BUTTON.WAV");
             return true;
         }
-        let soldier = self.world.figures.iter().find(|f| (f.x - x).abs() <= 1 && (f.y - y).abs() <= 1 && self.world.company_of(f.id).is_some()).map(|f| f.id);
-        let Some(c) = soldier.and_then(|s| self.world.company_of(s)) else { return false };
-        self.select_company(c);
+        let Some(c) = self.company_at(x, y) else { return false };
+        self.info = Some(InfoPanel::new(crate::info::Target::Company(c)));
+        self.sound("BUTTON.WAV");
         true
+    }
+
+    /// The company of a soldier or standard on or beside tile `(x, y)`, those on
+    /// the tile first.
+    pub fn company_at(&self, x: i32, y: i32) -> Option<usize> {
+        let near = |f: &&osiris_sim::figures::Figure, r: i32| !f.dead && f.action != osiris_sim::military::action::CORPSE && (f.x - x).abs() <= r && (f.y - y).abs() <= r;
+        let find = |r: i32| self.world.figures.iter().filter(|f| near(f, r)).find_map(|f| self.world.company_of(f.id));
+        find(0).or_else(|| find(1))
+    }
+
+    /// A city warning from text group 19.
+    fn warn(&mut self, id: usize) {
+        let text = self.text.get(19, id).unwrap_or("").to_owned();
+        self.say(&text);
     }
 
     pub fn select_company(&mut self, c: usize) {
