@@ -908,11 +908,15 @@ impl Game {
                 out.push(Sprite { x: f.x, y: f.y, offset: f.pixel_offset(), image: work.image + f.direction as u32 + 8 * frame });
                 continue;
             }
+            if let Some(s) = crate::water_view::figure_sprite(&self.world, f) {
+                out.push(s);
+                continue;
+            }
             let Some(walk) = defs.figure(f.kind).and_then(|d| d.anims.get("walk")) else { continue };
             let frame = if f.moving { f.frame(walk.frames.max(1)) } else { 0 };
             let offset = f.pixel_offset();
             let walker = Sprite { x: f.x, y: f.y, offset, image: walk.image + f.direction as u32 + 8 * frame };
-            if !matches!(f.kind, osiris_sim::economy::CART_PUSHER | osiris_sim::economy::STORAGEYARD_CART) {
+            if !matches!(f.kind, osiris_sim::economy::CART_PUSHER | osiris_sim::economy::STORAGEYARD_CART | osiris_sim::docks::DOCKER) {
                 out.push(walker);
                 continue;
             }
@@ -924,6 +928,9 @@ impl Game {
             } else {
                 out.extend([walker, cart]);
             }
+        }
+        if self.view_overlay.is_none() {
+            out.extend(crate::water_view::fishing_points(&self.world));
         }
         out
     }

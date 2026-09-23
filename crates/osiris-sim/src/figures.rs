@@ -16,6 +16,8 @@ pub enum Travel {
     Roads,
     /// Any passable land, preferring nothing (immigrants, animals, hunters).
     Land,
+    /// Open river water (boats); see `water::navigable`.
+    Water,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -122,17 +124,22 @@ pub fn passable(map: &Map, travel: Travel, x: i32, y: i32) -> bool {
         return false;
     }
     let t = map.terrain.at_or(x, y, 0);
+    // A working ferry's crossing counts as road for people on foot.
+    let ferry = t & terrain::FERRY_ROUTE != 0;
     match travel {
-        Travel::Roads => t & (terrain::ROAD | terrain::ACCESS_RAMP) != 0 && t & terrain::WATER == 0,
+        Travel::Roads => t & (terrain::ROAD | terrain::ACCESS_RAMP) != 0 && t & terrain::WATER == 0 || ferry,
         Travel::Land => {
             t & terrain::ROAD != 0 && t & terrain::WATER == 0
                 || t & (mask::IMPASSABLE | terrain::BUILDING) == 0
+                || ferry
         }
+        Travel::Water => crate::water::navigable(map, x, y),
     }
 }
 
-/// Shortest route from `from` to `to` as directions. Land figures move in 8 directions
-/// but never cut a corner between two blocked tiles; road figures move orthogonally.
+/// Shortest route from `from` to `to` as directions. Land figures and boats move in 8
+/// directions but never cut a corner between two blocked tiles; road figures move
+/// orthogonally.
 pub fn find_route(map: &Map, travel: Travel, from: (i32, i32), to: (i32, i32)) -> Option<VecDeque<u8>> {
     if from == to {
         return Some(VecDeque::new());
@@ -144,7 +151,7 @@ pub fn find_route(map: &Map, travel: Travel, from: (i32, i32), to: (i32, i32)) -
     came[idx(from.0, from.1)] = 8;
     let dirs: &[u8] = match travel {
         Travel::Roads => &[0, 2, 4, 6],
-        Travel::Land => &[0, 2, 4, 6, 1, 3, 5, 7],
+        Travel::Land | Travel::Water => &[0, 2, 4, 6, 1, 3, 5, 7],
     };
     // The destination may be a building entrance off the road network; allow it.
     let ok = |x: i32, y: i32| (x, y) == to || passable(map, travel, x, y);

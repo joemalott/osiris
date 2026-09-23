@@ -13,6 +13,7 @@ mod overlay;
 mod script;
 mod sidebar;
 mod top_menu;
+mod water_view;
 mod widgets;
 
 use anyhow::{Context, Result, bail};

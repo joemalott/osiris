@@ -96,6 +96,9 @@ pub struct World {
     pub religion: crate::religion::Religion,
     #[serde(default)]
     pub ratings: crate::ratings::Ratings,
+    /// The river's entry and exit, fishing grounds and water under buildings.
+    #[serde(default)]
+    pub water: crate::water::Water,
     pub events: crate::missions::CityEvents,
     /// What the scenario has planned: requests, gifts, changes in the empire.
     #[serde(default)]
@@ -150,6 +153,7 @@ impl World {
         let info = &scenario.info;
         let map = Map::from_scenario(scenario);
         let (w, h) = (map.width, map.height);
+        let water = crate::water::Water::from_scenario(scenario, &map);
         Self {
             map,
             time: GameTime::new(info.start_year as i32),
@@ -179,6 +183,7 @@ impl World {
             sentiment_state: Default::default(),
             religion: crate::religion::Religion::new(info.gods),
             ratings: crate::ratings::Ratings { last_year_worth: info.initial_funds, ..Default::default() },
+            water,
             events: Default::default(),
             scenario_events: crate::scenario_events::ScenarioEvents::from_records(&scenario.events, info.start_year as i32),
             message_texts: VecDeque::new(),

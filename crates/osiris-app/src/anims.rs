@@ -73,6 +73,10 @@ pub fn building_animations(cx: &AnimContext, out: &mut Vec<Overlay>) {
             monument(cx, b, out);
             continue;
         }
+        if osiris_sim::water::is_shore_building(b.kind) {
+            shore(cx, b, out);
+            continue;
+        }
         let active = if b.kind == kind::BURNING_RUIN { b.progress > 0 } else { b.kind == kind::WELL || b.workers > 0 };
         if active {
             working(cx, b, out);
@@ -110,6 +114,42 @@ fn working(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
     let tiles = if rec.kind == osiris_formats::ImageKind::Isometric { rec.isometric_tiles().max(1) } else { 1 };
     let y = p[1] + rec.sprite_offset_y as f32 - rec.height as f32 + city_view::TILE_H / 2.0 * (tiles + 1) as f32;
     out.push(Overlay { x: dx, y: dy, pos: [p[0] + rec.sprite_offset_x as f32, y], image: base + frame as u32 });
+}
+
+/// Buildings on the river. A fishing wharf shows its boat unloading while the boat is
+/// in, and its staff waiting otherwise; a dock shows its dockers while a ship is
+/// moored; the shipwright shows a boat on the stocks. Wharf and dock animations have a
+/// variant per facing (their frames step by four), picked from the facing the image is
+/// drawn with: n, w, s, e for the base image and the three after it.
+fn shore(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
+    use osiris_sim::water::{DOCK, FISHING_WHARF, SHIPWRIGHT};
+    if b.workers <= 0 {
+        return;
+    }
+    let (dx, dy) = (b.x, b.y + b.size - 1);
+    let phase = b.id as u64 * 7;
+    let facing = ["_n", "_w", "_s", "_e"][b.orientation as usize % 4];
+    let key = match b.kind {
+        FISHING_WHARF => {
+            let boat_in = cx.world.wharf_boat(b.id).and_then(|f| cx.world.figures.get(f)).is_some_and(|f| f.action == osiris_sim::fishing::action::AT_WHARF);
+            format!("{}{facing}", if boat_in { "work" } else { "wait" })
+        }
+        DOCK if cx.world.moored_ship(b.id).is_some() => format!("work{facing}"),
+        SHIPWRIGHT if b.progress > 0 => {
+            if let Some(a) = cx.anim(b, "work_fishing_boat")
+                && let Some(f) = cx.frame(a, a.frames, phase)
+            {
+                cx.sprite(out, dx, dy, (a.x, a.y), a.image + f);
+            }
+            return;
+        }
+        _ => return,
+    };
+    if let Some(a) = cx.anim(b, &key)
+        && let Some(f) = cx.frame(a, a.frames, phase)
+    {
+        cx.sprite(out, dx, dy, (a.x, a.y), a.image + 4 * f);
+    }
 }
 
 /// A pyramid's upper rings: each block's courses above the ground, raised by the
