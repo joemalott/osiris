@@ -96,7 +96,7 @@ impl World {
                 crate::economy::CART_PUSHER | crate::economy::STORAGEYARD_CART => self.update_cart(fid),
                 crate::economy::LUMBERJACK | crate::economy::REED_GATHERER => self.update_gatherer(fid),
                 crate::trade::TRADE_CARAVAN => self.update_caravan(fid),
-                crate::monuments::BRICKLAYER => self.update_craftsman(fid),
+                crate::monuments::BRICKLAYER | crate::monuments::STONEMASON | crate::monuments::CARPENTER => self.update_craftsman(fid),
                 crate::monuments::SLED => self.update_sled(fid),
                 crate::monuments::SLED_PULLER => self.update_sled_puller(fid),
                 crate::trade::CARAVAN_DONKEY => self.update_donkey(fid),

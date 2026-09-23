@@ -277,9 +277,14 @@ impl InfoPanel {
     /// The Construction Foreman's report on a monument.
     fn monument_window(&mut self, ui: &mut Ui, world: &World, b: &Building) -> Option<InfoAction> {
         const G: usize = 178;
+        use osiris_sim::monuments::{self as mon, Style};
+        let def = mon::monument_def(b.kind)?;
         let title_id = match b.kind {
             kind::MEDIUM_MASTABA => 19,
             kind::LARGE_MASTABA => 20,
+            mon::SMALL_STEPPED_PYRAMID => 8,
+            mon::MEDIUM_STEPPED_PYRAMID => 9,
+            mon::LARGE_STEPPED_PYRAMID => 10,
             _ => 18,
         };
         let title = ui.t(198, title_id);
@@ -290,26 +295,40 @@ impl InfoPanel {
         let m = b.monument.as_ref().expect("monument");
         let has = |k: u16| world.buildings.iter().any(|g| g.kind == k && g.workers > 0);
         let blocks = m.progress.len().max(1);
-        let pct = m.progress.iter().map(|&p| p as usize).sum::<usize>() * 100 / (blocks * osiris_sim::monuments::BLOCK_WORK as usize);
+        let pct = m.progress.iter().map(|&p| p as usize).sum::<usize>() * 100 / (blocks * mon::BLOCK_WORK as usize);
+        let brick = matches!(def.style, Style::Mastaba { .. });
+        // (finished, mason's guild missing, no mason, going well) lines.
+        let (done_line, no_guild, no_mason, fine) = if brick { (41, 15, 19, 40) } else { (38, 14, 18, 37) };
+        let (mason_guild, mason) = if brick { (kind::BRICKLAYERS_GUILD, mon::BRICKLAYER) } else { (kind::STONEMASONS_GUILD, mon::STONEMASON) };
+        let needs_carpenter = needs.iter().any(|n| n.0 == 20);
+        let short = needs.iter().find(|&&(r, got, want)| got < want && world.yards_stored(r) < osiris_sim::economy::LOAD).map(|n| n.0);
         let line = if finished {
-            ui.t(G, 41)
+            ui.t(G, done_line)
         } else if phase < 2 {
             let work = if !has(kind::WORK_CAMP) {
                 ui.t(G, 13)
             } else if !world.figures.iter().any(|f| f.kind == osiris_sim::farms::PEASANT && f.target == b.id) {
                 ui.t(G, 17)
             } else {
-                ui.t(G, 4)
+                ui.t(G, if brick { 4 } else { 3 })
             };
             format!("{} {} {}% {}", work, ui.t(G, 2), pct, ui.t(G, 0))
-        } else if !has(kind::BRICKLAYERS_GUILD) {
-            ui.t(G, 15)
-        } else if m.craftsman == 0 {
-            ui.t(G, 19)
-        } else if needs.iter().any(|&(r, got, want)| got < want && world.yards_stored(r) < osiris_sim::economy::LOAD) {
-            ui.t(G, 27)
+        } else if !has(mason_guild) {
+            ui.t(G, no_guild)
+        } else if needs_carpenter && !has(kind::CARPENTERS_GUILD) {
+            ui.t(G, 16)
+        } else if !m.has_craftsman(mason) {
+            ui.t(G, no_mason)
+        } else if needs_carpenter && !m.has_craftsman(mon::CARPENTER) {
+            ui.t(G, 20)
+        } else if let Some(r) = short {
+            ui.t(G, match r {
+                12 => 27,
+                20 => 28,
+                _ => 22,
+            })
         } else {
-            format!("{} {} {}% {}", ui.t(G, 40), ui.t(G, 2), pct, ui.t(G, 0))
+            format!("{} {} {}% {}", ui.t(G, fine), ui.t(G, 2), pct, ui.t(G, 0))
         };
         ui.wrapped(Font::NormalBlackOnLight, &line, x + 32.0, y + 66.0, 26.0 * 16.0);
         if !finished && !needs.is_empty() {

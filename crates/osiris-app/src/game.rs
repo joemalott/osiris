@@ -858,8 +858,9 @@ impl Game {
                 continue;
             }
             // Craftsmen at work on a monument.
-            if f.kind == osiris_sim::monuments::BRICKLAYER
+            if matches!(f.kind, osiris_sim::monuments::BRICKLAYER | osiris_sim::monuments::STONEMASON | osiris_sim::monuments::CARPENTER)
                 && f.action == 2
+                && f.moving
                 && let Some(work) = defs.figure(f.kind).and_then(|d| d.anims.get("work"))
             {
                 let frame = (self.world.time.total_ticks / work.duration.max(1) as u64 % work.frames.max(1) as u64) as u32;

@@ -1053,7 +1053,7 @@ fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Advis
                 ui.t(5, 32)
             } else {
                 let pct = needs.iter().map(|&(_, got, want)| got * 100 / want.max(1)).min().unwrap_or(100);
-                format!("{} / {}    {}%", phase, osiris_sim::monuments::monument_def(k).map_or(0, |d| d.phases.len() - 1), pct)
+                format!("{} / {}    {}%", phase, osiris_sim::monuments::monument_def(k).map_or(0, |d| d.phase_count as usize - 1), pct)
             };
             draw_text(ui.r, Font::NormalBlackOnDark, &status, px + 48.0, y + 18.0, font::BLACK);
         }

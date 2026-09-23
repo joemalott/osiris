@@ -36,7 +36,6 @@ pub const DENTIST: u16 = 49;
 pub const PHYSICIAN: u16 = 206;
 
 /// Monument worth by type, and the rating's scale and offset.
-const MONUMENT_WEIGHTS: [(u16, i32); 3] = [(kind::SMALL_MASTABA, 2), (kind::MEDIUM_MASTABA, 2), (kind::LARGE_MASTABA, 3)];
 const MONUMENT_MULT: f32 = 2.25;
 const MONUMENT_OFFSET: f32 = 4.5;
 
@@ -219,7 +218,7 @@ impl World {
             return 100;
         }
         let Some(def) = crate::monuments::monument_def(b.kind) else { return 0 };
-        let phases = def.phases.len() as i32 - 1;
+        let phases = def.phase_count as i32 - 1;
         let done = m.progress.iter().map(|&p| p as i32).sum::<i32>();
         let per_phase = (m.progress.len() as i32 * crate::monuments::BLOCK_WORK as i32).max(1);
         (m.phase as i32 * 100 + done * 100 / per_phase) / phases.max(1)
@@ -229,7 +228,7 @@ impl World {
         let sum: f32 = self
             .buildings
             .iter()
-            .filter_map(|b| MONUMENT_WEIGHTS.iter().find(|w| w.0 == b.kind).map(|w| w.1 as f32 * self.monument_progress(b.id) as f32 / 100.0))
+            .filter_map(|b| crate::monuments::monument_def(b.kind).map(|d| d.weight as f32 * self.monument_progress(b.id) as f32 / 100.0))
             .sum();
         self.ratings.monument = if sum <= 0.0 { 0 } else { (MONUMENT_MULT * sum + MONUMENT_OFFSET).clamp(0.0, 100.0) as i32 };
     }

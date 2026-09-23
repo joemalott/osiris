@@ -2387,7 +2387,7 @@ id = 250
 key = "large_stepped_pyramid"
 size = 2
 image = { pack = "stepped_pyramid", group = 2, offset = 7 }
-anims = { preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
+anims = { corner_bricks = { pack = "stepped_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "stepped_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "stepped_pyramid", group = 1, offset = 102 }, preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_building_stepped_pyramid"
@@ -2979,7 +2979,7 @@ id = 319
 key = "small_stepped_pyramid"
 size = 2
 image = { pack = "stepped_pyramid", group = 2, offset = 7 }
-anims = { preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
+anims = { corner_bricks = { pack = "stepped_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "stepped_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "stepped_pyramid", group = 1, offset = 102 }, preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_building_stepped_pyramid"
@@ -2999,7 +2999,7 @@ id = 324
 key = "medium_stepped_pyramid"
 size = 2
 image = { pack = "stepped_pyramid", group = 2, offset = 7 }
-anims = { preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
+anims = { corner_bricks = { pack = "stepped_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "stepped_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "stepped_pyramid", group = 1, offset = 102 }, preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_building_stepped_pyramid"

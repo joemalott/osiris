@@ -69,6 +69,10 @@ pub fn building_animations(cx: &AnimContext, out: &mut Vec<Overlay>) {
             storage_yard(cx, b, out);
             continue;
         }
+        if b.monument.is_some() {
+            monument(cx, b, out);
+            continue;
+        }
         let active = if b.kind == kind::BURNING_RUIN { b.progress > 0 } else { b.kind == kind::WELL || b.workers > 0 };
         if active {
             working(cx, b, out);
@@ -106,6 +110,22 @@ fn working(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
     let tiles = if rec.kind == osiris_formats::ImageKind::Isometric { rec.isometric_tiles().max(1) } else { 1 };
     let y = p[1] + rec.sprite_offset_y as f32 - rec.height as f32 + city_view::TILE_H / 2.0 * (tiles + 1) as f32;
     out.push(Overlay { x: dx, y: dy, pos: [p[0] + rec.sprite_offset_x as f32, y], image: base + frame as u32 });
+}
+
+/// A pyramid's upper rings: each block's courses above the ground, raised by the
+/// rings beneath.
+fn monument(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
+    for (bx, by, image, lift) in cx.world.monument_stacks(b.id) {
+        if lift == 0 {
+            continue;
+        }
+        let Some(rec) = cx.r.record(image) else { continue };
+        let (dx, dy) = (bx, by + 1);
+        let p = cx.point(dx, dy);
+        let tiles = rec.isometric_tiles().max(1);
+        let y = p[1] + rec.sprite_offset_y as f32 - rec.height as f32 + city_view::TILE_H / 2.0 * (tiles + 1) as f32 - lift as f32;
+        out.push(Overlay { x: dx, y: dy, pos: [p[0] + rec.sprite_offset_x as f32, y], image });
+    }
 }
 
 /// The granary: a heap of food per 400 units stored in its eight spots, and its

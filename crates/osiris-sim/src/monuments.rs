@@ -2,12 +2,14 @@
 //! The first two phases level the site: laborers from work camps each work a block
 //! until it is done. Every later phase adds a course of material: storage yards drag
 //! it over on sleds (at most 400 units a sled, never more than the course still
-//! needs), and a guild's craftsman, waiting on site, lays it block by block, as far
-//! as the delivered material allows. When every block of a phase is done, the next
-//! phase begins; after the last, the monument is complete.
+//! needs), and a guild's mason, waiting on site, lays it block by block, as far as the
+//! delivered material allows. Courses that use timber for ramps also need a carpenter
+//! on site. When every block of a phase is done, the next phase begins; after the
+//! last, the monument is complete.
 //!
 //! Mastabas are brick: a bricklayer lays six courses of bricks (with clay from the
-//! second course on).
+//! second course on). Stepped pyramids are stone: after five foundation courses the
+//! pyramid rises in rings, each ring a block in from the last, six courses to a ring.
 
 use crate::buildings::{BuildingId, kind};
 use crate::figures::{FigureId, Step, Travel};
@@ -19,13 +21,24 @@ pub const BLOCK_WORK: u16 = 200;
 pub const SLED_LOAD: i32 = 400;
 /// Men pulling each sled.
 const SLED_PULLERS: usize = 6;
+/// Height one ring of a stepped pyramid adds, in pixels (six courses of 15).
+pub const RING_LIFT: i32 = 90;
+const COURSES_PER_RING: i32 = 6;
 
+pub const CARPENTER: u16 = 79;
 pub const BRICKLAYER: u16 = 80;
+pub const STONEMASON: u16 = 81;
 pub const SLED: u16 = 86;
 pub const SLED_PULLER: u16 = 96;
 
-const BRICKS: u16 = 12;
 const CLAY: u16 = 11;
+const BRICKS: u16 = 12;
+const TIMBER: u16 = 20;
+const STONE: u16 = 24;
+
+pub const SMALL_STEPPED_PYRAMID: u16 = 319;
+pub const MEDIUM_STEPPED_PYRAMID: u16 = 324;
+pub const LARGE_STEPPED_PYRAMID: u16 = 250;
 
 /// What a 2x2 block of a mastaba is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,20 +49,28 @@ enum Block {
     Entrance,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Style {
+    /// Brick courses; the entrance in the last column of `entrance_row`, `side_rows`
+    /// rows of side blocks at the end, and the first row's last block a side block
+    /// when `first_row_side`.
+    Mastaba { entrance_row: i32, side_rows: i32, first_row_side: bool },
+    SteppedPyramid,
+}
+
 /// One monument type: its block grid when facing north, and its phases.
 pub struct MonumentDef {
     pub kind: u16,
     /// Blocks across and down.
     pub cols: i32,
     pub rows: i32,
-    /// Row holding the entrance (in the last column).
-    entrance_row: i32,
-    /// Rows of side blocks at the end.
-    side_rows: i32,
-    /// Whether the first row's last block is a side block.
-    first_row_side: bool,
-    /// Material per phase: (resource, units).
-    pub phases: &'static [&'static [(u16, i32)]],
+    pub style: Style,
+    /// Phases, the last being completion.
+    pub phase_count: u8,
+    /// Mastaba material per phase: (resource, units).
+    mastaba_phases: &'static [&'static [(u16, i32)]],
+    /// The monument's worth toward the monument rating.
+    pub weight: i32,
 }
 
 const SMALL_MASTABA_PHASES: [&[(u16, i32)]; 9] = [
@@ -86,10 +107,34 @@ const LARGE_MASTABA_PHASES: [&[(u16, i32)]; 9] = [
     &[],
 ];
 
-pub const MONUMENTS: [MonumentDef; 3] = [
-    MonumentDef { kind: kind::SMALL_MASTABA, cols: 2, rows: 5, entrance_row: 2, side_rows: 1, first_row_side: false, phases: &SMALL_MASTABA_PHASES },
-    MonumentDef { kind: kind::MEDIUM_MASTABA, cols: 3, rows: 7, entrance_row: 3, side_rows: 2, first_row_side: true, phases: &MEDIUM_MASTABA_PHASES },
-    MonumentDef { kind: kind::LARGE_MASTABA, cols: 4, rows: 9, entrance_row: 4, side_rows: 3, first_row_side: true, phases: &LARGE_MASTABA_PHASES },
+/// A stepped pyramid's foundation courses (phases 2-6); every later course is
+/// `PYRAMID_COURSE`.
+const PYRAMID_FOUNDATION: [&[(u16, i32)]; 5] = [
+    &[(STONE, 4800)],
+    &[(TIMBER, 2000), (STONE, 4000)],
+    &[(TIMBER, 1600), (STONE, 3200)],
+    &[(TIMBER, 1200), (STONE, 2400)],
+    &[(TIMBER, 800), (STONE, 1600)],
+];
+const PYRAMID_COURSE: &[(u16, i32)] = &[(TIMBER, 400), (STONE, 800)];
+/// Phases before a pyramid's courses start rising.
+const PYRAMID_BASE_PHASES: u8 = 7;
+
+const fn mastaba(kind: u16, (cols, rows): (i32, i32), style: Style, phases: &'static [&'static [(u16, i32)]], weight: i32) -> MonumentDef {
+    MonumentDef { kind, cols, rows, style, phase_count: phases.len() as u8, mastaba_phases: phases, weight }
+}
+
+const fn pyramid(kind: u16, blocks: i32, phase_count: u8, weight: i32) -> MonumentDef {
+    MonumentDef { kind, cols: blocks, rows: blocks, style: Style::SteppedPyramid, phase_count, mastaba_phases: &[], weight }
+}
+
+pub const MONUMENTS: [MonumentDef; 6] = [
+    mastaba(kind::SMALL_MASTABA, (2, 5), Style::Mastaba { entrance_row: 2, side_rows: 1, first_row_side: false }, &SMALL_MASTABA_PHASES, 2),
+    mastaba(kind::MEDIUM_MASTABA, (3, 7), Style::Mastaba { entrance_row: 3, side_rows: 2, first_row_side: true }, &MEDIUM_MASTABA_PHASES, 2),
+    mastaba(kind::LARGE_MASTABA, (4, 9), Style::Mastaba { entrance_row: 4, side_rows: 3, first_row_side: true }, &LARGE_MASTABA_PHASES, 3),
+    pyramid(SMALL_STEPPED_PYRAMID, 4, 25, 8),
+    pyramid(MEDIUM_STEPPED_PYRAMID, 6, 33, 16),
+    pyramid(LARGE_STEPPED_PYRAMID, 10, 37, 24),
 ];
 
 pub fn monument_def(k: u16) -> Option<&'static MonumentDef> {
@@ -112,8 +157,9 @@ pub struct Monument {
     pub in_flight: Vec<(u16, i32)>,
     /// Work done on each block this phase.
     pub progress: Vec<u16>,
-    /// The craftsman on site.
-    pub craftsman: FigureId,
+    /// Guild craftsmen on site: (figure type, figure).
+    #[serde(default)]
+    pub craftsmen: Vec<(u16, FigureId)>,
     pub finished: bool,
 }
 
@@ -129,17 +175,42 @@ impl Monument {
         }
         list.retain(|e| e.1 != 0);
     }
+
+    pub fn has_craftsman(&self, figure: u16) -> bool {
+        self.craftsmen.iter().any(|c| c.0 == figure)
+    }
 }
 
 impl MonumentDef {
-    fn block(&self, c: i32, r: i32) -> Block {
-        if r == 0 {
-            return if self.first_row_side && c == self.cols - 1 { Block::Side } else { Block::Main };
+    /// The material phase `p` needs.
+    pub fn phase(&self, p: u8) -> &'static [(u16, i32)] {
+        match self.style {
+            Style::Mastaba { .. } => self.mastaba_phases.get(p as usize).copied().unwrap_or(&[]),
+            Style::SteppedPyramid => match p {
+                p if p < LEVELING_PHASES || p + 1 >= self.phase_count => &[],
+                p if p < PYRAMID_BASE_PHASES => PYRAMID_FOUNDATION[(p - LEVELING_PHASES) as usize],
+                _ => PYRAMID_COURSE,
+            },
         }
-        if r >= self.rows - self.side_rows {
+    }
+
+    /// The craftsman who lays this monument's courses.
+    pub fn mason(&self) -> u16 {
+        match self.style {
+            Style::Mastaba { .. } => BRICKLAYER,
+            Style::SteppedPyramid => STONEMASON,
+        }
+    }
+
+    fn block(&self, c: i32, r: i32) -> Block {
+        let Style::Mastaba { entrance_row, side_rows, first_row_side } = self.style else { return Block::Wall };
+        if r == 0 {
+            return if first_row_side && c == self.cols - 1 { Block::Side } else { Block::Main };
+        }
+        if r >= self.rows - side_rows {
             return Block::Side;
         }
-        if r == self.entrance_row && c == self.cols - 1 {
+        if r == entrance_row && c == self.cols - 1 {
             return Block::Entrance;
         }
         Block::Wall
@@ -147,20 +218,24 @@ impl MonumentDef {
 
     /// What the current phase still needs of `r`, counting what is on its way.
     fn needs(&self, m: &Monument, r: u16) -> i32 {
-        let want = self.phases.get(m.phase as usize).map_or(0, |p| Monument::amount(p, r));
+        let want = Monument::amount(self.phase(m.phase), r);
         want - Monument::amount(&m.delivered, r) - Monument::amount(&m.in_flight, r)
     }
 
     /// How many of the phase's blocks the delivered material pays for.
     fn blocks_paid(&self, m: &Monument) -> usize {
         let blocks = (self.cols * self.rows) as usize;
-        let Some(phase) = self.phases.get(m.phase as usize) else { return blocks };
-        phase
+        self.phase(m.phase)
             .iter()
             .map(|&(r, want)| (Monument::amount(&m.delivered, r) as i64 * blocks as i64 / want.max(1) as i64) as usize)
             .min()
             .unwrap_or(blocks)
             .min(blocks)
+    }
+
+    /// Rings of a stepped pyramid.
+    fn rings(&self) -> i32 {
+        (self.cols.min(self.rows) + 1) / 2
     }
 }
 
@@ -178,26 +253,28 @@ impl World {
         self.refresh_monument_images(id);
     }
 
-    /// Redraws a monument's tiles for its phase and the blocks done so far.
+    fn levelled_ground(site: u32, x: i32, y: i32) -> u32 {
+        site + 41 + ((x * 3 + y) % 9) as u32
+    }
+
+    /// Redraws a monument's ground-level tiles for its phase and the blocks done so far.
     pub fn refresh_monument_images(&mut self, id: BuildingId) {
         let Some(b) = self.buildings.get(id) else { return };
         let Some(def) = monument_def(b.kind) else { return };
-        let Some(m) = b.monument.clone() else { return };
+        let Some(m) = b.monument.as_ref() else { return };
+        let (phase, finished) = (m.phase, m.finished);
         let (x0, y0) = (b.x, b.y);
         let (w, h) = b.footprint();
         let Some(bdef) = self.defs.building(b.kind) else { return };
         let site = bdef.image;
-        let bricks = bdef.anims.get("base_bricks").map_or(0, |a| a.image);
-        if m.phase < LEVELING_PHASES && !m.finished {
+        if phase < LEVELING_PHASES && !finished {
             // Staked-out ground, with the corners and edges marked.
             let (x1, y1) = (x0 + w - 1, y0 + h - 1);
             for y in y0..=y1 {
                 for x in x0..=x1 {
                     let inside = x > x0 && x < x1 || y > y0 && y < y1;
-                    let interior = site + 5 + ((x + y) % 7) as u32;
-                    let image = if m.phase == 1 {
-                        // Levelled ground.
-                        site + 41 + ((x * 3 + y) % 9) as u32
+                    let image = if phase == 1 {
+                        Self::levelled_ground(site, x, y)
                     } else if (x, y) == (x0, y0) {
                         site
                     } else if (x, y) == (x0, y1) {
@@ -215,43 +292,129 @@ impl World {
                     } else if y == y0 && inside {
                         site - 7
                     } else {
-                        interior
+                        site + 5 + ((x + y) % 7) as u32
                     };
                     self.map.set_single_image(x, y, image);
                 }
             }
             return;
         }
-        // Brick courses: each block shows the course it has reached.
-        let course = |phase: u8| phase as i32 - LEVELING_PHASES as i32 + 1;
+        // Each block shows the course it has reached; the rest is levelled ground.
+        let stacks = self.monument_stacks(id);
         for r in 0..def.rows {
             for c in 0..def.cols {
-                let i = (r * def.cols + c) as usize;
-                let done_now = m.finished || m.progress.get(i).copied().unwrap_or(0) >= BLOCK_WORK;
-                let layer = if m.finished {
-                    course(def.phases.len() as u8 - 2)
-                } else if done_now {
-                    course(m.phase)
-                } else {
-                    course(m.phase) - 1
-                };
                 let (bx, by) = (x0 + c * 2, y0 + r * 2);
-                if layer <= 0 {
-                    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                        self.map.set_single_image(bx + dx, by + dy, site + 41 + (((bx + dx) * 3 + by + dy) % 9) as u32);
+                match stacks.iter().find(|s| (s.0, s.1, s.3) == (bx, by, 0)) {
+                    Some(&(_, _, image, _)) => self.map.set_footprint(bx, by, 2, image),
+                    None => {
+                        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                            self.map.set_single_image(bx + dx, by + dy, Self::levelled_ground(site, bx + dx, by + dy));
+                        }
                     }
-                    continue;
                 }
-                let l = (layer - 1) as u32;
-                let image = match def.block(c, r) {
-                    Block::Entrance => bricks + 110,
-                    _ if r == 0 => bricks + l * 8 + 7,
-                    _ if r == def.rows - 1 => bricks + l * 8 + 5,
-                    _ => bricks + 96 + l,
-                };
-                self.map.set_footprint(bx, by, 2, image);
             }
         }
+    }
+
+    /// The images a monument's blocks show above the levelled site: (block x, block y,
+    /// image, lift in pixels). Lift 0 is the block's ground image; a pyramid's blocks
+    /// stack the finished rings under the ring being laid.
+    pub fn monument_stacks(&self, id: BuildingId) -> Vec<(i32, i32, u32, i32)> {
+        let mut out = Vec::new();
+        let Some(b) = self.buildings.get(id) else { return out };
+        let Some(def) = monument_def(b.kind) else { return out };
+        let Some(m) = &b.monument else { return out };
+        if m.phase < LEVELING_PHASES && !m.finished {
+            return out;
+        }
+        let Some(bdef) = self.defs.building(b.kind) else { return out };
+        let img = |key: &str| bdef.anims.get(key).map_or(0, |a| a.image);
+        let done = |i: usize| m.finished || m.progress.get(i).copied().unwrap_or(0) >= BLOCK_WORK;
+        match def.style {
+            Style::Mastaba { .. } => {
+                let bricks = img("base_bricks");
+                let course = |phase: u8| phase as i32 - LEVELING_PHASES as i32 + 1;
+                for r in 0..def.rows {
+                    for c in 0..def.cols {
+                        let i = (r * def.cols + c) as usize;
+                        let layer = if m.finished {
+                            course(def.phase_count - 2)
+                        } else if done(i) {
+                            course(m.phase)
+                        } else {
+                            course(m.phase) - 1
+                        };
+                        if layer <= 0 {
+                            continue;
+                        }
+                        let l = (layer - 1) as u32;
+                        let image = match def.block(c, r) {
+                            Block::Entrance => bricks + 110,
+                            _ if r == 0 => bricks + l * 8 + 7,
+                            _ if r == def.rows - 1 => bricks + l * 8 + 5,
+                            _ => bricks + 96 + l,
+                        };
+                        out.push((b.x + c * 2, b.y + r * 2, image, 0));
+                    }
+                }
+            }
+            Style::SteppedPyramid => {
+                let (corner, wall, cube) = (img("corner_bricks"), img("wall_bricks"), img("base_bricks"));
+                let courses = def.rings() * COURSES_PER_RING;
+                let rising = (def.phase_count - 1 - PYRAMID_BASE_PHASES) as i32;
+                // The last course laid once phase `p` is done, spreading the rising
+                // phases evenly over the courses.
+                let course_after = |p: u8| (p as i32 - PYRAMID_BASE_PHASES as i32 + 1) * courses / rising.max(1) - 1;
+                for r in 0..def.rows {
+                    for c in 0..def.cols {
+                        let i = (r * def.cols + c) as usize;
+                        let (bx, by) = (b.x + c * 2, b.y + r * 2);
+                        let reached = if m.finished {
+                            courses - 1
+                        } else if m.phase < PYRAMID_BASE_PHASES {
+                            // The foundation: a floor of stone once the block's first course is laid.
+                            if m.phase > LEVELING_PHASES || done(i) {
+                                out.push((bx, by, cube, 0));
+                            }
+                            continue;
+                        } else if done(i) {
+                            course_after(m.phase)
+                        } else {
+                            course_after(m.phase - 1)
+                        };
+                        if reached < 0 {
+                            out.push((bx, by, cube, 0));
+                            continue;
+                        }
+                        // Blocks further in rise with the higher rings.
+                        let d = c.min(r).min(def.cols - 1 - c).min(def.rows - 1 - r);
+                        let ring = (reached / COURSES_PER_RING).min(d);
+                        for below in 0..ring {
+                            out.push((bx, by, cube + (COURSES_PER_RING - 1) as u32, below * RING_LIFT));
+                        }
+                        let course = if ring < reached / COURSES_PER_RING { COURSES_PER_RING - 1 } else { reached % COURSES_PER_RING } as u32;
+                        let (lo, hi_c, hi_r) = (ring, def.cols - 1 - ring, def.rows - 1 - ring);
+                        let (west, east, north, south) = (c == lo, c == hi_c, r == lo, r == hi_r);
+                        let image = match (west || east, north || south) {
+                            (true, true) => {
+                                let v = match (west, north) {
+                                    (true, true) => 0,
+                                    (true, false) => 1,
+                                    (false, false) => 2,
+                                    (false, true) => 3,
+                                };
+                                corner + course * 8 + v
+                            }
+                            (true, false) => wall + course * 8 + if west { 0 } else { 2 },
+                            (false, true) => wall + course * 8 + if north { 3 } else { 1 },
+                            (false, false) => cube + course,
+                        };
+                        out.push((bx, by, image, ring * RING_LIFT));
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// The monument's blocks that still want laborers, craftsmen or material.
@@ -319,25 +482,51 @@ impl World {
         *p >= BLOCK_WORK
     }
 
+    /// Whether monument `id`'s current phase wants craftsman `figure` on site.
+    fn wants_craftsman(&self, id: BuildingId, figure: u16) -> bool {
+        let Some(b) = self.buildings.get(id) else { return false };
+        let Some(def) = monument_def(b.kind) else { return false };
+        let Some(m) = &b.monument else { return false };
+        if m.finished || m.phase < LEVELING_PHASES {
+            return false;
+        }
+        let phase = def.phase(m.phase);
+        if figure == CARPENTER {
+            phase.iter().any(|p| p.0 == TIMBER)
+        } else {
+            figure == def.mason() && !phase.is_empty()
+        }
+    }
+
     /// Tick 31: guilds send their craftsman to a monument that needs one.
     pub(crate) fn guild_walkers(&mut self) {
-        let guilds: Vec<BuildingId> = self.buildings.iter().filter(|b| b.kind == kind::BRICKLAYERS_GUILD).map(|b| b.id).collect();
-        for g in guilds {
+        let guilds: Vec<(BuildingId, u16)> = self
+            .buildings
+            .iter()
+            .filter_map(|b| match b.kind {
+                kind::BRICKLAYERS_GUILD => Some((b.id, BRICKLAYER)),
+                kind::STONEMASONS_GUILD => Some((b.id, STONEMASON)),
+                kind::CARPENTERS_GUILD => Some((b.id, CARPENTER)),
+                _ => None,
+            })
+            .collect();
+        for (g, figure) in guilds {
             let Some(gb) = self.buildings.get(g) else { continue };
             let Some(road) = gb.road else { continue };
-            // The guild keeps a load of bricks to work with.
-            if gb.workers <= 0 || gb.walkers[0] != 0 || gb.stock.get(BRICKS as usize).copied().unwrap_or(0) < crate::economy::LOAD {
+            if gb.workers <= 0 || gb.walkers[0] != 0 {
+                continue;
+            }
+            // The bricklayers keep a load of bricks to work with.
+            if figure == BRICKLAYER && gb.stock.get(BRICKS as usize).copied().unwrap_or(0) < crate::economy::LOAD {
                 continue;
             }
             let from = (gb.x, gb.y);
             let target = self.active_monuments().into_iter().find(|&id| {
-                let Some(b) = self.buildings.get(id) else { return false };
-                let Some(m) = b.monument.as_ref() else { return false };
-                m.craftsman == 0 && m.phase >= LEVELING_PHASES && monument_def(b.kind).is_some_and(|d| d.phases.get(m.phase as usize).is_some_and(|p| !p.is_empty()))
+                self.wants_craftsman(id, figure) && !self.buildings.get(id).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.has_craftsman(figure))
             });
             let Some(target) = target else { continue };
             let Some(spot) = self.monument_access(target, from) else { continue };
-            let fid = self.figures.spawn(BRICKLAYER, road.0, road.1, Travel::Land);
+            let fid = self.figures.spawn(figure, road.0, road.1, Travel::Land);
             let map = &self.map;
             if let Some(f) = self.figures.get_mut(fid) {
                 f.home = g;
@@ -350,18 +539,22 @@ impl World {
             }
             self.buildings.get_mut(g).expect("present").walkers[0] = fid;
             if let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()) {
-                m.craftsman = fid;
+                m.craftsmen.push((figure, fid));
             }
         }
     }
 
-    /// A craftsman walks to the monument, then lays each block of the course as far
-    /// as the delivered material allows.
+    /// A craftsman walks to the monument and stays while its course needs him. The
+    /// mason lays each block as far as the delivered material allows, and, when the
+    /// course uses timber, only while a carpenter is there.
     pub(crate) fn update_craftsman(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
-        let (act, target) = (f.action, f.target);
-        let working = self.buildings.get(target).and_then(|b| b.monument.as_ref()).is_some_and(|m| !m.finished && m.craftsman == fid);
-        if !working && act != 3 {
+        let (act, target, figure) = (f.action, f.target, f.kind);
+        let listed = self.buildings.get(target).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.craftsmen.contains(&(figure, fid)));
+        if act != 3 && !(listed && self.wants_craftsman(target, figure)) {
+            if let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()) {
+                m.craftsmen.retain(|c| c.1 != fid);
+            }
             self.send_home(fid);
             return;
         }
@@ -379,9 +572,17 @@ impl World {
                 let Some(b) = self.buildings.get(target) else { return };
                 let Some(def) = monument_def(b.kind) else { return };
                 let m = b.monument.as_ref().expect("working");
-                let paid = def.blocks_paid(m);
-                let next = m.progress.iter().enumerate().position(|(i, &p)| p < BLOCK_WORK && i < paid);
-                let moving = next.is_some();
+                let next = if figure != def.mason() {
+                    None
+                } else {
+                    let needs_carpenter = def.phase(m.phase).iter().any(|p| p.0 == TIMBER);
+                    let carpenter_here = m.craftsmen.iter().any(|&(k, c)| k == CARPENTER && self.figures.get(c).is_some_and(|f| f.action == 2));
+                    let paid = if needs_carpenter && !carpenter_here { 0 } else { def.blocks_paid(m) };
+                    m.progress.iter().enumerate().position(|(i, &p)| p < BLOCK_WORK && i < paid)
+                };
+                // The carpenter works while the mason does.
+                let moving = next.is_some()
+                    || figure == CARPENTER && m.craftsmen.iter().any(|&(k, c)| k == def.mason() && self.figures.get(c).is_some_and(|f| f.action == 2 && f.moving));
                 if let Some(f) = self.figures.get_mut(fid) {
                     f.moving = moving;
                 }
@@ -425,8 +626,7 @@ impl World {
             let Some(b) = self.buildings.get(id) else { continue };
             let Some(def) = monument_def(b.kind) else { continue };
             let m = b.monument.as_ref().expect("active");
-            let Some(phase) = def.phases.get(m.phase as usize) else { continue };
-            for &(r, _) in phase.iter() {
+            for &(r, _) in def.phase(m.phase) {
                 let need = def.needs(m, r);
                 let have = self.stored(yard, r);
                 let amount = need.min(have).min(SLED_LOAD);
@@ -513,25 +713,33 @@ impl World {
     /// Daily: monuments whose phase is complete move on to the next.
     pub(crate) fn update_monuments(&mut self) {
         for id in self.active_monuments() {
+            // Craftsmen who never arrived are forgotten.
+            let alive: Vec<(u16, FigureId)> = self.buildings.get(id).and_then(|b| b.monument.as_ref()).map_or_else(Vec::new, |m| m.craftsmen.clone());
+            let alive: Vec<(u16, FigureId)> = alive.into_iter().filter(|&(_, c)| self.figures.get(c).is_some_and(|f| !f.dead && f.target == id)).collect();
+            if let Some(m) = self.buildings.get_mut(id).and_then(|b| b.monument.as_mut()) {
+                m.craftsmen = alive;
+            }
             let Some(b) = self.buildings.get(id) else { continue };
             let Some(def) = monument_def(b.kind) else { continue };
             let m = b.monument.as_ref().expect("active");
             let all_done = m.progress.iter().all(|&p| p >= BLOCK_WORK);
-            let paid = def.phases.get(m.phase as usize).is_none_or(|p| p.iter().all(|&(r, want)| Monument::amount(&m.delivered, r) >= want));
+            let paid = def.phase(m.phase).iter().all(|&(r, want)| Monument::amount(&m.delivered, r) >= want);
             if !all_done || !paid {
                 continue;
             }
             let (x, y) = (b.x, b.y);
-            let last = def.phases.len() as u8 - 1;
+            let last = def.phase_count - 1;
             let m = self.buildings.get_mut(id).and_then(|b| b.monument.as_mut()).expect("active");
             m.phase += 1;
             m.delivered.clear();
             m.progress.iter_mut().for_each(|p| *p = 0);
-            let empty_phase = def.phases.get(m.phase as usize).is_some_and(|p| p.is_empty());
-            if m.phase >= last || (m.phase >= LEVELING_PHASES && empty_phase) {
+            if m.phase >= last || (m.phase >= LEVELING_PHASES && def.phase(m.phase).is_empty()) {
                 m.finished = true;
-                m.craftsman = 0;
-                self.post("message_history_mastaba", Some((x, y)), true);
+                let key = match def.style {
+                    Style::Mastaba { .. } => "message_history_mastaba",
+                    Style::SteppedPyramid => "message_history_pyramids",
+                };
+                self.post(key, Some((x, y)), true);
             }
             self.refresh_monument_images(id);
         }
@@ -543,7 +751,7 @@ impl World {
         let b = self.buildings.get(id)?;
         let def = monument_def(b.kind)?;
         let m = b.monument.as_ref()?;
-        let needs = def.phases.get(m.phase as usize).map_or_else(Vec::new, |p| p.iter().map(|&(r, want)| (r, Monument::amount(&m.delivered, r), want)).collect());
+        let needs = def.phase(m.phase).iter().map(|&(r, want)| (r, Monument::amount(&m.delivered, r), want)).collect();
         Some((m.phase, m.finished, needs))
     }
 }

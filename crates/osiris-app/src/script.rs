@@ -156,7 +156,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 for b in world.buildings.iter().filter(|b| b.monument.is_some()) {
                     let m = b.monument.as_ref().unwrap();
-                    eprintln!("  monument {} kind {} phase {} finished {} delivered {:?} in flight {:?} progress {:?} craftsman {}", b.id, b.kind, m.phase, m.finished, m.delivered, m.in_flight, m.progress, m.craftsman);
+                    eprintln!("  monument {} kind {} phase {} finished {} delivered {:?} in flight {:?} progress {:?} craftsmen {:?}", b.id, b.kind, m.phase, m.finished, m.delivered, m.in_flight, m.progress, m.craftsmen);
                 }
                 for f in world.figures.iter().take(40) {
                     eprintln!(
