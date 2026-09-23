@@ -32,6 +32,7 @@ pub const FORT_ARCHERS: u16 = 44;
 pub const FORT_INFANTRY: u16 = 45;
 pub const FORT_GROUND: u16 = 54;
 pub const RECRUITER: u16 = 95;
+const ACADEMIES: [u16; 3] = [94, 185, 186];
 const WEAPONS: u16 = 10;
 
 /// Soldiers a company holds.
@@ -57,9 +58,9 @@ pub fn morale_loss(share_pct: i32) -> i32 {
     }
 }
 
-/// The highest morale a company of `kind` reaches.
-fn morale_cap(kind: u16) -> i32 {
-    if kind == INFANTRY { 80 } else { 60 }
+/// The highest morale a company of `kind` reaches; training raises it by 20.
+fn morale_cap(kind: u16, trained: bool) -> i32 {
+    (if kind == INFANTRY { 80 } else { 60 }) + if trained { 20 } else { 0 }
 }
 
 /// Action states of fighters.
@@ -67,6 +68,7 @@ pub mod action {
     pub const AT_REST: u16 = 80;
     pub const GOING_TO_FORT: u16 = 81;
     pub const GOING_TO_STANDARD: u16 = 83;
+    pub const GOING_TO_ACADEMY: u16 = 85;
     pub const AT_STANDARD: u16 = 84;
     pub const ATTACK: u16 = 90;
     pub const CORPSE: u16 = 149;
@@ -90,6 +92,9 @@ pub struct Company {
     /// Months out of the fort.
     #[serde(default)]
     pub months_away: i32,
+    /// Its men have trained at a military academy, which steadies them.
+    #[serde(default)]
+    pub trained: bool,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -216,7 +221,27 @@ impl World {
                 f.home = self.military.companies[c].fort;
             }
             self.military.companies[c].recruits.push(fid);
-            self.send_to_post(fid);
+            // A recruit trains at a military academy on his way, if one is half staffed.
+            let academy = self
+                .buildings
+                .iter()
+                .filter(|a| ACADEMIES.contains(&a.kind) && a.road.is_some() && a.workers * 2 >= self.workers_needed(a.kind).max(1))
+                .min_by_key(|a| (a.x - rx).abs() + (a.y - ry).abs())
+                .and_then(|a| a.road);
+            let map = &self.map;
+            let training = match (academy, self.figures.get_mut(fid)) {
+                (Some(to), Some(f)) => {
+                    let ok = f.go_to(map, to);
+                    if ok {
+                        f.action = action::GOING_TO_ACADEMY;
+                    }
+                    ok
+                }
+                _ => false,
+            };
+            if !training {
+                self.send_to_post(fid);
+            }
         }
     }
 
@@ -327,6 +352,16 @@ impl World {
             }
             action::AT_REST => {}
             action::ATTACK => self.fight(fid),
+            action::GOING_TO_ACADEMY => {
+                let map = &self.map;
+                let f = self.figures.get_mut(fid).expect("present");
+                if f.walk(map) != Step::Moving {
+                    if let Some(c) = self.company_of(fid) {
+                        self.military.companies[c].trained = true;
+                    }
+                    self.send_to_post(fid);
+                }
+            }
             _ => self.send_to_post(fid),
         }
     }
@@ -418,7 +453,7 @@ impl World {
         for c in &mut self.military.companies {
             if c.at_fort {
                 c.months_away = 0;
-                c.morale = (c.morale + 5).min(morale_cap(c.kind));
+                c.morale = (c.morale + 5).min(morale_cap(c.kind, c.trained));
             } else {
                 c.months_away += 1;
                 if c.months_away > 3 {

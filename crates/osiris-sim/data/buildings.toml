@@ -1108,6 +1108,7 @@ unnecessary_range_check = 3
 id = 94
 key = "military_academy"
 size = 4
+labor = "military"
 image = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 173, offset = 1, frames = 12, x = 33, y = -38 } }
 flags = ["is_military"]
@@ -1724,6 +1725,7 @@ overlay = "couthouse"
 id = 185
 key = "military_academy_2"
 size = 4
+labor = "military"
 image = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 173, offset = 1, frames = 12, x = 33, y = -38 } }
 flags = ["is_military"]
@@ -1734,6 +1736,7 @@ help = "message_building_recruiter_academy"
 id = 186
 key = "military_academy_3"
 size = 4
+labor = "military"
 image = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 173, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 173, offset = 1, frames = 12, x = 33, y = -38 } }
 flags = ["is_military"]
