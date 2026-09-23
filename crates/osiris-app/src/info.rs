@@ -291,7 +291,14 @@ impl InfoPanel {
         let pct = m.progress.iter().map(|&p| p as usize).sum::<usize>() * 100 / (blocks * mon::BLOCK_WORK as usize);
         let brick = matches!(def.style, Style::Mastaba { .. });
         // (finished, going well) lines.
-        let (done_line, fine) = if brick { (41, 40) } else { (38, if matches!(def.style, Style::Pyramid(mon::Family::Stepped)) { 37 } else { 31 }) };
+        let obelisk = matches!(def.style, Style::Obelisk { .. });
+        let (done_line, fine) = if brick {
+            (41, 40)
+        } else if obelisk {
+            (44, if phase >= 4 { 43 } else { 42 })
+        } else {
+            (38, if matches!(def.style, Style::Pyramid(mon::Family::Stepped)) { 37 } else { 31 })
+        };
         let crew = def.crew(phase);
         // Each craftsman's guild, the foreman's line when there is none, and when none comes.
         let guild = |k: u16| match k {

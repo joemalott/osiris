@@ -36,6 +36,7 @@ const BRICKS: u16 = 12;
 const TIMBER: u16 = 20;
 const STONE: u16 = 24;
 const LIMESTONE: u16 = 25;
+const GRANITE: u16 = 26;
 
 pub const SMALL_BENT_PYRAMID: u16 = 241;
 pub const MEDIUM_BENT_PYRAMID: u16 = 242;
@@ -48,6 +49,8 @@ pub const MEDIUM_PYRAMID: u16 = 254;
 pub const LARGE_PYRAMID: u16 = 255;
 pub const SMALL_STEPPED_PYRAMID: u16 = 319;
 pub const MEDIUM_STEPPED_PYRAMID: u16 = 324;
+pub const SMALL_OBELISK: u16 = 262;
+pub const LARGE_OBELISK: u16 = 263;
 
 /// What a 2x2 block of a mastaba is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +68,9 @@ pub enum Style {
     /// when `first_row_side`.
     Mastaba { entrance_row: i32, side_rows: i32, first_row_side: bool },
     Pyramid(Family),
+    /// Granite paid for when placed, then scaffolding and carving; `size` tiles
+    /// square, drawn in `stages` images.
+    Obelisk { size: i32, stages: u8, granite: i32, timber: &'static [i32] },
 }
 
 /// Pyramids: stepped pyramids are plain stone; bent and true pyramids are stone and
@@ -151,7 +157,16 @@ const fn pyramid(kind: u16, family: Family, blocks: i32, last: u8, polish: u8, w
     MonumentDef { kind, cols: blocks, rows: blocks, style: Style::Pyramid(family), phase_count: last + 1, polish, mastaba_phases: &[], weight, title }
 }
 
-pub const MONUMENTS: [MonumentDef; 14] = [
+/// An obelisk: no leveling (it starts at the first building phase), timber for the
+/// scaffolding in its first phases, stonemasons carving from its third until the
+/// last art stage. Its work is counted per tile.
+const fn obelisk(kind: u16, size: i32, stages: u8, granite: i32, timber: &'static [i32], weight: i32, title: usize) -> MonumentDef {
+    MonumentDef { kind, cols: size, rows: size, style: Style::Obelisk { size, stages, granite, timber }, phase_count: LEVELING_PHASES + stages + 1, polish: 0, mastaba_phases: &[], weight, title }
+}
+
+pub const MONUMENTS: [MonumentDef; 16] = [
+    obelisk(SMALL_OBELISK, 3, 4, 100, &[200, 200, 200], 2, 22),
+    obelisk(LARGE_OBELISK, 5, 6, 200, &[400, 400, 400, 200], 4, 23),
     mastaba(kind::SMALL_MASTABA, (2, 5), Style::Mastaba { entrance_row: 2, side_rows: 1, first_row_side: false }, &SMALL_MASTABA_PHASES, 2, 18),
     mastaba(kind::MEDIUM_MASTABA, (3, 7), Style::Mastaba { entrance_row: 3, side_rows: 2, first_row_side: true }, &MEDIUM_MASTABA_PHASES, 2, 19),
     mastaba(kind::LARGE_MASTABA, (4, 9), Style::Mastaba { entrance_row: 4, side_rows: 3, first_row_side: true }, &LARGE_MASTABA_PHASES, 3, 20),
@@ -222,6 +237,10 @@ impl MonumentDef {
     pub fn phase(&self, p: u8) -> Vec<(u16, i32)> {
         let family = match self.style {
             Style::Mastaba { .. } => return self.mastaba_phases.get(p as usize).map_or_else(Vec::new, |m| m.to_vec()),
+            Style::Obelisk { timber, .. } => {
+                let own = p.saturating_sub(LEVELING_PHASES) as usize;
+                return timber.get(own).map_or_else(Vec::new, |&t| vec![(TIMBER, t)]);
+            }
             Style::Pyramid(f) => f,
         };
         if p < LEVELING_PHASES || p >= self.courses_end() {
@@ -255,7 +274,8 @@ impl MonumentDef {
             crew.push(BRICKLAYER);
         }
         let polishing = matches!(self.style, Style::Pyramid(_)) && p >= self.courses_end() && p + 1 < self.phase_count;
-        if has(STONE) || has(LIMESTONE) || polishing {
+        let carving = matches!(self.style, Style::Obelisk { .. }) && p >= LEVELING_PHASES + 2 && p + 1 < self.phase_count;
+        if has(STONE) || has(LIMESTONE) || polishing || carving {
             crew.push(STONEMASON);
         }
         if has(TIMBER) {
@@ -304,14 +324,47 @@ impl MonumentDef {
 impl World {
     /// The footprint of monument type `k` placed facing north.
     pub fn monument_footprint(&self, k: u16) -> Option<(i32, i32)> {
-        monument_def(k).map(|d| (d.cols * 2, d.rows * 2))
+        monument_def(k).map(|d| match d.style {
+            Style::Obelisk { size, .. } => (size, size),
+            _ => (d.cols * 2, d.rows * 2),
+        })
+    }
+
+    /// Monument-specific placement rules: an obelisk's granite must be in storage,
+    /// and only one obelisk may be under construction at a time.
+    pub(crate) fn can_place_monument(&self, k: u16) -> Result<(), &'static str> {
+        let Some(def) = monument_def(k) else { return Ok(()) };
+        if let Style::Obelisk { granite, .. } = def.style {
+            let building = self.buildings.iter().any(|b| matches!(b.kind, SMALL_OBELISK | LARGE_OBELISK) && b.monument.as_ref().is_some_and(|m| !m.finished));
+            if building {
+                return Err("Only one obelisk at a time");
+            }
+            if self.yards_stored(GRANITE) < granite {
+                return Err("Not enough granite in storage");
+            }
+        }
+        Ok(())
     }
 
     /// Lays out a new monument: its footprint and the staked-out site.
     pub(crate) fn place_monument(&mut self, id: BuildingId) {
         let Some(b) = self.buildings.get_mut(id) else { return };
         let Some(def) = monument_def(b.kind) else { return };
-        b.monument = Some(Monument { progress: vec![0; (def.cols * def.rows) as usize], ..Default::default() });
+        let mut m = Monument { progress: vec![0; (def.cols * def.rows) as usize], ..Default::default() };
+        if let Style::Obelisk { granite, .. } = def.style {
+            // The granite goes to the site at once, and there is no leveling.
+            m.phase = LEVELING_PHASES;
+            let mut left = granite;
+            let yards: Vec<BuildingId> = self.buildings.iter().filter(|y| y.kind == kind::STORAGE_YARD).map(|y| y.id).collect();
+            for y in yards {
+                if left > 0 {
+                    left -= self.take_stored(y, GRANITE, left);
+                }
+            }
+        }
+        if let Some(b) = self.buildings.get_mut(id) {
+            b.monument = Some(m);
+        }
         self.refresh_monument_images(id);
     }
 
@@ -329,6 +382,13 @@ impl World {
         let (w, h) = b.footprint();
         let Some(bdef) = self.defs.building(b.kind) else { return };
         let site = bdef.image;
+        if let Style::Obelisk { size, stages, .. } = def.style {
+            let stage = if finished { stages } else { phase.saturating_sub(LEVELING_PHASES).clamp(1, stages) };
+            let key = ["sa", "sb", "sc", "sd", "se", "sf"][(stage - 1) as usize];
+            let image = bdef.anims.get(key).map_or(site, |a| a.image);
+            self.map.set_footprint(x0, y0, size, image);
+            return;
+        }
         if phase < LEVELING_PHASES && !finished {
             // Staked-out ground, with the corners and edges marked.
             let (x1, y1) = (x0 + w - 1, y0 + h - 1);
@@ -420,6 +480,7 @@ impl World {
                     }
                 }
             }
+            Style::Obelisk { .. } => {}
             Style::Pyramid(family) => {
                 let (corner, wall, cube) = (img("corner_bricks"), img("wall_bricks"), img("base_bricks"));
                 let courses = def.rings() * COURSES_PER_RING;
@@ -816,6 +877,7 @@ impl World {
                     Style::Pyramid(Family::Bent) => "bent_pyramid",
                     Style::Pyramid(Family::True) => "pyramid",
                     Style::Pyramid(Family::Mudbrick) => "mudbrick_pyramid",
+                    Style::Obelisk { .. } => "obelisk",
                 };
                 self.post_event_text(crate::scenario_events::EventText {
                     title: format!("{name}_congratulations_title"),

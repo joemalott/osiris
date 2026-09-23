@@ -48,6 +48,7 @@ impl World {
                 }
             }
         }
+        self.can_place_monument(k)?;
         if def.needs("groundwater") && !self.map.terrain_is(x, y, terrain::GROUNDWATER) {
             return Err("Needs groundwater");
         }

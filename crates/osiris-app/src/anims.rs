@@ -115,6 +115,17 @@ fn working(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
 /// A pyramid's upper rings: each block's courses above the ground, raised by the
 /// rings beneath.
 fn monument(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
+    // An obelisk under carving stands in its scaffolding.
+    if let (Some(def), Some(m)) = (osiris_sim::monuments::monument_def(b.kind), &b.monument)
+        && let osiris_sim::monuments::Style::Obelisk { size, .. } = def.style
+    {
+        if !m.finished && m.phase >= 4
+            && let Some(ladder) = cx.anim(b, "ladder")
+        {
+            cx.sprite(out, b.x, b.y + size - 1, (20, -40), ladder.image);
+        }
+        return;
+    }
     for (bx, by, image, lift) in cx.world.monument_stacks(b.id) {
         if lift == 0 {
             continue;
