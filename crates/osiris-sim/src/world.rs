@@ -84,6 +84,9 @@ pub struct World {
     /// The message log shown in the messages window.
     #[serde(default)]
     pub notices: crate::notices::Notices,
+    /// Regrowth of cut trees and reeds (255 = grown); absent until something is cut.
+    #[serde(default)]
+    pub vegetation: Option<crate::grid::Grid<u8>>,
     pub events: crate::missions::CityEvents,
     pub won: bool,
     pub migration_params: crate::people::MigrationParams,
@@ -156,6 +159,7 @@ impl World {
             mission: None,
             messages: VecDeque::new(),
             notices: Default::default(),
+            vegetation: None,
             events: Default::default(),
             won: false,
             migration_params: Default::default(),

@@ -146,6 +146,8 @@ impl World {
         }
         if self.is_road_venue(k) {
             self.place_venue(id);
+        } else if k == kind::STORAGE_YARD {
+            self.place_storage_yard(id);
         } else {
             self.map.set_footprint(x, y, size, image);
         }

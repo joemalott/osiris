@@ -116,8 +116,9 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 );
                 eprintln!("  labor {:?} unemployment {}%", world.labor, world.unemployment);
                 for b in world.buildings.iter().filter(|b| !b.is_house()) {
-                    let stock: Vec<(usize, i32)> = b.stock.iter().copied().enumerate().filter(|&(_, v)| v > 0).collect();
-                    eprintln!("  bld {} kind {} at ({},{}) workers {} covered {} road {:?} walkers {:?} stock {:?} shows {:?}", b.id, b.kind, b.x, b.y, b.workers, b.houses_covered, b.road, b.walkers, stock, b.shows);
+                    let mut stock: Vec<(usize, i32)> = b.stock.iter().copied().enumerate().filter(|&(_, v)| v > 0).collect();
+                    stock.extend(b.spaces.iter().filter(|s| s.1 > 0).map(|s| (s.0 as usize, s.1)));
+                    eprintln!("  bld {} kind {} at ({},{}) workers {} covered {} road {:?} walkers {:?} progress {} stock {:?} shows {:?}", b.id, b.kind, b.x, b.y, b.workers, b.houses_covered, b.road, b.walkers, b.progress, stock, b.shows);
                 }
                 for f in world.figures.iter().take(5) {
                     eprintln!(

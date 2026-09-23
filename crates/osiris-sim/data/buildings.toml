@@ -894,7 +894,7 @@ size = 3
 labor = "industry_commerce"
 figure = "storageyard_cart"
 image = { pack = "Pharaoh_General", group = 82, offset = 0, x = 0, y = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 82, offset = 0, x = 0, y = 0 }, cover = { pack = "Pharaoh_General", group = 82, offset = 17, x = -5, y = -42 }, work = { pack = "SprAmbient", group = 51, offset = 1, frames = 14, x = 10, y = -10, duration = 3 } }
+anims = { preview = { pack = "Pharaoh_General", group = 82, offset = 0, x = 0, y = 0 }, cover = { pack = "Pharaoh_General", group = 82, offset = 17, x = -5, y = -42 }, space_empty = { pack = "Pharaoh_General", group = 83, offset = 0 }, space_filled = { pack = "Pharaoh_General", group = 84, offset = 0 }, work = { pack = "SprAmbient", group = 51, offset = 1, frames = 14, x = 10, y = -10, duration = 3 } }
 flags = ["is_industry"]
 text_id = 99
 help = "message_building_storage_yard"

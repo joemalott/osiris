@@ -148,6 +148,7 @@ impl World {
             for &id in &seen {
                 if self.buildings.get(id).is_some_and(|b| b.house.as_ref().is_some_and(|h| h.population > 0)) {
                     self.deliver_food(home, id);
+                    self.deliver_goods(home, id);
                     served += 1;
                 }
             }

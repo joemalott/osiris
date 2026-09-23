@@ -81,6 +81,12 @@ pub struct Building {
     /// Which way a venue faces over its roads (0..4).
     #[serde(default)]
     pub orientation: u8,
+    /// A storage yard's eight spaces: resource and units in each.
+    #[serde(default)]
+    pub spaces: Vec<(u16, i32)>,
+    /// A storage building's order per resource; missing entries take the defaults.
+    #[serde(default)]
+    pub orders: Vec<u8>,
     /// A venue's days of shows left, per performer (juggler, musician, dancer).
     #[serde(default)]
     pub shows: [i32; 3],

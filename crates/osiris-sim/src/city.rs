@@ -16,6 +16,7 @@ impl World {
         self.update_floods();
         match self.time.tick {
             1 => {
+                self.finish_production();
                 self.check_unlocks();
                 self.check_milestones();
             }
@@ -25,6 +26,7 @@ impl World {
                 }
             }
             10 => self.update_desirability(),
+            18 => self.grow_vegetation(),
             12 => self.decay_houses_covered(),
             20 => self.update_production(),
             22 => self.update_room(),
@@ -57,6 +59,7 @@ impl World {
         self.update_figures();
         if roll.week {
             self.consume_food();
+            self.consume_goods();
         }
         if roll.month {
             self.migration.newcomers_this_month = 0;
@@ -81,7 +84,8 @@ impl World {
                 | crate::people::figure_kind::HOMELESS => self.update_migrant(fid),
                 k if crate::entertainment::performer_slot(k).is_some() => self.update_entertainer(fid),
                 k if crate::services::is_roamer(k) => self.update_roamer(fid),
-                crate::economy::CART_PUSHER => self.update_cart(fid),
+                crate::economy::CART_PUSHER | crate::economy::STORAGEYARD_CART => self.update_cart(fid),
+                crate::economy::LUMBERJACK | crate::economy::REED_GATHERER => self.update_gatherer(fid),
                 crate::food::MARKET_BUYER => self.update_buyer(fid),
                 k if crate::animals::is_animal(k) => self.update_animal(fid),
                 k if crate::animals::is_hunter(k) => self.update_hunter(fid),

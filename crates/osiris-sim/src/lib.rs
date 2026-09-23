@@ -28,6 +28,7 @@ pub mod people;
 pub mod rng;
 pub mod rules;
 pub mod services;
+pub mod storage;
 pub mod tiles;
 pub mod venues;
 pub mod time;

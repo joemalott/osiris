@@ -89,6 +89,7 @@ pub struct Game {
     pub speed: u32,
     pub paused: bool,
     pub sidebar: Sidebar,
+    cart_images: Option<crate::anims::CartImages>,
     images: SidebarImages,
     text: Arc<TextTable>,
     entries: Vec<Entry>,
@@ -145,6 +146,7 @@ impl Game {
             speed: 70,
             paused: false,
             sidebar: Sidebar::default(),
+            cart_images: None,
             images,
             text,
             entries: Vec::new(),
@@ -745,23 +747,29 @@ impl Game {
         (tiles.into_iter().map(|(x, y)| Highlight { x, y, color }).collect(), cost)
     }
 
-    fn sprites(&self) -> Vec<Sprite> {
+    fn sprites(&mut self, r: &Renderer) -> Vec<Sprite> {
+        let carts = *self.cart_images.get_or_insert_with(|| crate::anims::CartImages::load(&r.library).expect("cart images"));
         let defs = &self.world.defs;
-        self.world
-            .figures
-            .iter()
-            .filter(|f| self.view_overlay.is_none_or(|v| v.shows_figure(&self.world, f.kind)))
-            .filter_map(|f| {
-                let walk = defs.figure(f.kind)?.anims.get("walk")?;
-                let frame = if f.moving { f.frame(walk.frames.max(1)) } else { 0 };
-                Some(Sprite {
-                    x: f.x,
-                    y: f.y,
-                    offset: f.pixel_offset(),
-                    image: walk.image + f.direction as u32 + 8 * frame,
-                })
-            })
-            .collect()
+        let mut out = Vec::new();
+        for f in self.world.figures.iter().filter(|f| self.view_overlay.is_none_or(|v| v.shows_figure(&self.world, f.kind))) {
+            let Some(walk) = defs.figure(f.kind).and_then(|d| d.anims.get("walk")) else { continue };
+            let frame = if f.moving { f.frame(walk.frames.max(1)) } else { 0 };
+            let offset = f.pixel_offset();
+            let walker = Sprite { x: f.x, y: f.y, offset, image: walk.image + f.direction as u32 + 8 * frame };
+            if !matches!(f.kind, osiris_sim::economy::CART_PUSHER | osiris_sim::economy::STORAGEYARD_CART) {
+                out.push(walker);
+                continue;
+            }
+            // The cart, drawn behind its pusher when it is on the far side.
+            let (image, (cx, cy)) = carts.cart(f.cargo, f.amount, f.direction);
+            let cart = Sprite { x: f.x, y: f.y, offset: (offset.0 + cx, offset.1 + cy - 7), image };
+            if cy < 0 {
+                out.extend([cart, walker]);
+            } else {
+                out.extend([walker, cart]);
+            }
+        }
+        out
     }
 
     /// Images drawn over buildings: growing crops on farms.
@@ -801,7 +809,7 @@ impl Game {
         self.next_dialog(r);
         let (marks, cost) = self.highlights();
         let marker = self.world.defs.terrain.empty_land;
-        let sprites = self.sprites();
+        let sprites = self.sprites(r);
         let overlays = if self.view_overlay.is_some() { Vec::new() } else { self.overlays(r) };
         self.view.clamp_camera(r, &self.world.map, sidebar::panel_left(r.screen[0]), sidebar::TOP);
         let images = *self.overlay_images.get_or_insert_with(|| OverlayImages::load(&r.library).expect("overlay images"));

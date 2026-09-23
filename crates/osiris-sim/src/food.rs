@@ -9,9 +9,14 @@ use crate::world::World;
 pub const MARKET_TRADER: u16 = 26;
 pub const MARKET_BUYER: u16 = 39;
 
-/// Bazaar stock caps: grain holds a little more than other foods.
-const CAP_GRAIN: i32 = 700;
-const CAP_OTHER: i32 = 600;
+/// How far a bazaar sends its buyer, in tiles.
+const MAX_SEARCH: i32 = 40;
+/// A bazaar restocks a food below these amounts, by the food's place in its list.
+const PICK_FOOD_BELOW: [i32; 4] = [600, 400, 200, 100];
+/// ...and pottery, luxury goods, linen and beer below these.
+const PICK_GOOD_BELOW: [i32; 4] = [150, 100, 50, 25];
+/// A trader leaves a house enough of each good for this many residents per ten.
+const GOODS_PER_TEN: i32 = 8;
 
 /// Per house level: food each resident may keep (x population) and the weekly food
 /// consumption percentage before the difficulty adjustment.
@@ -26,17 +31,37 @@ mod action {
 }
 
 impl World {
-    fn bazaar_cap(r: u16) -> i32 {
-        if r == resource::GRAIN { CAP_GRAIN } else { CAP_OTHER }
+    /// Where a bazaar looks for stock: storage buildings within 40 tiles holding at least
+    /// a load of `r`, nearest first.
+    fn bazaar_source(&self, bazaar: BuildingId, r: u16) -> Option<BuildingId> {
+        let b = self.buildings.get(bazaar)?;
+        let from = (b.x, b.y);
+        self.buildings
+            .iter()
+            .filter(|s| crate::storage::is_storage(s.kind) && s.road.is_some() && self.stored(s.id, r) >= LOAD)
+            .filter(|s| (s.x - from.0).abs().max((s.y - from.1).abs()) <= MAX_SEARCH)
+            .min_by_key(|s| ((s.x - from.0).abs().max((s.y - from.1).abs()), s.id))
+            .map(|s| s.id)
     }
 
-    /// The food a bazaar most needs, if any: the one it holds least of, below its cap.
-    fn bazaar_wants(&self, id: BuildingId) -> Option<u16> {
+    /// What a bazaar's buyer should fetch next, in the original's order: a food it has
+    /// none of, a good it has none of, then whatever is furthest below its restock level.
+    fn bazaar_wants(&self, id: BuildingId) -> Option<(u16, BuildingId)> {
         let b = self.buildings.get(id)?;
-        (resource::GRAIN..=resource::GAMEMEAT)
-            .filter(|&r| b.stock[r as usize] < Self::bazaar_cap(r) - LOAD)
-            .filter(|&r| self.buildings.iter().any(|g| g.kind == kind::GRANARY && g.stock[r as usize] > 0))
-            .min_by_key(|&r| b.stock[r as usize])
+        let foods: Vec<u16> = (resource::GRAIN..=resource::GAMEMEAT).filter(|&r| self.bazaar_source(id, r).is_some() || b.stock[r as usize] > 0).collect();
+        let mut wanted: Vec<(u16, i32)> = foods.iter().enumerate().take(4).map(|(i, &r)| (r, PICK_FOOD_BELOW[i])).collect();
+        wanted.extend(resource::HOUSE_GOODS.iter().zip(PICK_GOOD_BELOW).map(|(&r, t)| (r, t)));
+        let have = |r: u16| b.stock[r as usize];
+        let with_source = |r: u16| self.bazaar_source(id, r).map(|s| (r, s));
+        let empty_food = wanted.iter().filter(|w| resource::is_food(w.0) && have(w.0) == 0).find_map(|w| with_source(w.0));
+        if empty_food.is_some() {
+            return empty_food;
+        }
+        let empty_good = wanted.iter().filter(|w| !resource::is_food(w.0) && have(w.0) == 0).find_map(|w| with_source(w.0));
+        if empty_good.is_some() {
+            return empty_good;
+        }
+        wanted.iter().filter(|w| have(w.0) < w.1).filter_map(|w| with_source(w.0).map(|s| (have(w.0), s))).min_by_key(|(n, _)| *n).map(|(_, s)| s)
     }
 
     /// Tick 31: bazaars send a trader when stocked and a buyer when short.
@@ -47,38 +72,30 @@ impl World {
             if b.workers <= 0 || b.road.is_none() {
                 continue;
             }
-            let has_food = (resource::GRAIN..=resource::GAMEMEAT).any(|r| b.stock[r as usize] > 0);
+            let stocked = (resource::GRAIN..=resource::GAMEMEAT).chain(resource::HOUSE_GOODS).any(|r| b.stock[r as usize] > 0);
             let (trader, buyer) = (b.walkers[0], b.walkers[2]);
-            if trader == 0 && has_food {
+            if trader == 0 && stocked {
                 self.spawn_roamer(id, MARKET_TRADER, 0);
             }
             if buyer == 0
-                && let Some(r) = self.bazaar_wants(id)
+                && let Some((r, source)) = self.bazaar_wants(id)
             {
-                self.spawn_buyer(id, r);
+                self.spawn_buyer(id, r, source);
             }
         }
     }
 
-    fn spawn_buyer(&mut self, bazaar: BuildingId, r: u16) {
-        let Some(b) = self.buildings.get(bazaar) else { return };
-        let Some(road) = b.road else { return };
-        let from = (b.x, b.y);
-        let granary = self
-            .buildings
-            .iter()
-            .filter(|g| g.kind == kind::GRANARY && g.stock[r as usize] > 0 && g.road.is_some())
-            .min_by_key(|g| (g.x - from.0).abs() + (g.y - from.1).abs())
-            .map(|g| (g.id, g.road.unwrap()));
-        let Some((gid, groad)) = granary else { return };
+    fn spawn_buyer(&mut self, bazaar: BuildingId, r: u16, source: BuildingId) {
+        let Some(road) = self.buildings.get(bazaar).and_then(|b| b.road) else { return };
+        let Some(sroad) = self.buildings.get(source).and_then(|s| s.road) else { return };
         let fid = self.figures.spawn(MARKET_BUYER, road.0, road.1, Travel::Roads);
         let map = &self.map;
         if let Some(f) = self.figures.get_mut(fid) {
             f.home = bazaar;
-            f.target = gid;
+            f.target = source;
             f.cargo = r;
             f.action = action::TO_GRANARY;
-            if !f.go_to(map, groad) {
+            if !f.go_to(map, sroad) {
                 f.dead = true;
             }
         }
@@ -95,15 +112,9 @@ impl World {
         match (act, step) {
             (_, Step::Moving) => {}
             (action::TO_GRANARY, Step::Arrived) => {
-                let want = self
-                    .buildings
-                    .get(home)
-                    .map_or(0, |b| Self::bazaar_cap(r) - b.stock[r as usize])
-                    .max(0);
-                let take = self.buildings.get(target).map_or(0, |g| g.stock[r as usize]).min(want).min(4 * LOAD);
-                if let Some(g) = self.buildings.get_mut(target) {
-                    g.stock[r as usize] -= take;
-                }
+                // Food comes back in up to four loads, goods in up to two.
+                let most = if resource::is_food(r) { 4 * LOAD } else { 2 * LOAD };
+                let take = self.take_stored(target, r, most);
                 let home_road = self.buildings.get(home).and_then(|b| b.road);
                 let map = &self.map;
                 let Some(f) = self.figures.get_mut(fid) else { return };
@@ -153,6 +164,44 @@ impl World {
         }
         if let Some(h) = self.buildings.get_mut(house).and_then(|b| b.house.as_mut()) {
             h.foods[slot] += n;
+        }
+    }
+
+    /// A bazaar trader tops up the goods a house needs now or for its next level.
+    pub(crate) fn deliver_goods(&mut self, bazaar: BuildingId, house: BuildingId) {
+        let Some(h) = self.buildings.get(house).and_then(|b| b.house.clone()) else { return };
+        let level = h.level as usize;
+        let next = (level + 1).min(self.balance.houses.len() - 1);
+        let (cur, nxt) = (&self.balance.houses[level], &self.balance.houses[next]);
+        let needs = [cur.pottery.max(nxt.pottery), cur.jewelry.max(nxt.jewelry), cur.linen.max(nxt.linen), cur.beer.max(nxt.beer)];
+        for (slot, &r) in resource::HOUSE_GOODS.iter().enumerate() {
+            if needs[slot] <= 0 {
+                continue;
+            }
+            let target = GOODS_PER_TEN * (h.population / 10).max(1) * needs[slot];
+            let have = self.buildings.get(house).and_then(|b| b.house.as_ref()).map_or(0, |h| h.goods[slot]);
+            let n = (target - have).min(self.buildings.get(bazaar).map_or(0, |m| m.stock[r as usize]));
+            if n <= 0 {
+                continue;
+            }
+            if let Some(m) = self.buildings.get_mut(bazaar) {
+                m.stock[r as usize] -= n;
+            }
+            if let Some(h) = self.buildings.get_mut(house).and_then(|b| b.house.as_mut()) {
+                h.goods[slot] += n;
+            }
+        }
+    }
+
+    /// Weekly: each house uses up as much of each good as its level requires.
+    pub(crate) fn consume_goods(&mut self) {
+        let houses = self.balance.houses.clone();
+        for b in self.buildings.iter_mut() {
+            let Some(h) = b.house.as_mut() else { continue };
+            let Some(m) = houses.get(h.level as usize) else { continue };
+            for (slot, need) in [m.pottery, m.jewelry, m.linen, m.beer].into_iter().enumerate() {
+                h.goods[slot] -= need.max(0).min(h.goods[slot]);
+            }
         }
     }
 
