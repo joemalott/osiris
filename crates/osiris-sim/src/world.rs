@@ -144,6 +144,9 @@ pub struct World {
     /// half-tile units, (x - y, x + y) of the map, or `None` when the map has none.
     #[serde(default)]
     pub start_corner: Option<(i32, i32)>,
+    /// For scripted tests only: every building gets all the workers it wants.
+    #[serde(skip)]
+    pub test_full_staff: bool,
     #[serde(skip)]
     counters: ContextCounters,
 }
@@ -233,6 +236,7 @@ impl World {
             climate: info.climate,
             entry_point: (info.entry_point.x, info.entry_point.y),
             start_corner: start_corner(scenario),
+            test_full_staff: false,
             exit_point: (info.exit_point.x, info.exit_point.y),
             counters: ContextCounters::default(),
         }

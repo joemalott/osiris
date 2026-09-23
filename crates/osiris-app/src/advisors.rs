@@ -1330,6 +1330,7 @@ fn monument_lines(k: u16) -> Option<([usize; 2], usize, usize, usize)> {
         Style::Mastaba { .. } => ([34, 35], 36, 37, 38),
         Style::Obelisk { .. } => ([43, 44], 45, 46, 46),
         Style::Sphinx => ([39, 40], 41, 42, 42),
+        Style::Mausoleum => ([51, 52], 53, 54, 55),
     })
 }
 
@@ -1346,18 +1347,25 @@ fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
         let y = py + 70.0 + 66.0 * i as f32;
         let name = ui.t(198, code as usize);
         ui.label(Font::NormalWhiteOnDark, &name, px + 48.0, y);
-        let def = osiris_sim::monuments::MONUMENTS.iter().find(|d| d.title == code as usize);
+        let def = osiris_sim::monuments::monument_for_title(code as usize);
         let Some((begin, under_way, done, rests)) = def.and_then(|d| monument_lines(d.kind)) else { continue };
         // The same monument may be listed twice: the second slot is the second one built.
         let nth = slots[..i].iter().filter(|&&c| c == code).count();
         let built = def.and_then(|d| world.buildings.iter().filter(|b| b.kind == d.kind).nth(nth));
         let lines: Vec<String> = match built.and_then(|b| b.monument.as_ref()) {
-            None => vec![ui.t(G, begin[0]), ui.t(G, begin[1])],
+            // Monuments paid for in stone when placed say how much is needed and stored.
+            None => match def.and_then(|d| osiris_sim::monuments::placement_cost(d.kind)) {
+                Some((r, units)) => {
+                    let have = world.city_stored(r) / 100;
+                    vec![format!("{} {} {} {} {}", ui.t(G, begin[0]).trim_end(), units / 100, ui.t(G, begin[1]).trim(), have, ui.t(G, if have == 1 { 57 } else { 58 }))]
+                }
+                None => vec![ui.t(G, begin[0]), ui.t(G, begin[1])],
+            },
             Some(m) if m.finished => vec![ui.t(G, if m.funeral_done { rests } else { done })],
             Some(m) => {
                 let def = def.expect("found");
                 let blocks = m.progress.len().max(1) as i32;
-                let within = m.progress.iter().map(|&p| p as i32).sum::<i32>() * 100 / (blocks * osiris_sim::monuments::BLOCK_WORK as i32);
+                let within = m.progress.iter().map(|&p| p as i32).sum::<i32>() * 100 / (blocks * def.unit_work(m.phase) as i32);
                 let pct = (m.phase as i32 * 100 + within) / (def.phase_count as i32 - 1).max(1);
                 vec![format!("{} {}% {}", ui.t(G, under_way), pct.min(99), ui.t(178, 0))]
             }

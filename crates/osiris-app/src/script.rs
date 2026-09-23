@@ -92,8 +92,11 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let (a, b): (i32, i32) = (a.parse()?, b.parse()?);
                 let ids: Vec<_> = world.buildings.iter().filter(|b| b.monument.is_some()).map(|b| b.id).collect();
                 for id in ids {
-                    if let Some(m) = world.buildings.get_mut(id).and_then(|b| b.monument.as_mut()) {
+                    let def = world.buildings.get(id).and_then(|b| osiris_sim::monuments::monument_def(b.kind));
+                    if let (Some(def), Some(m)) = (def, world.buildings.get_mut(id).and_then(|b| b.monument.as_mut())) {
                         m.phase = phase.parse()?;
+                        m.finished = m.phase + 1 >= def.phase_count;
+                        m.progress = vec![0; def.units(m.phase)];
                         let n = m.progress.len().max(2) as i32;
                         for (i, p) in m.progress.iter_mut().enumerate() {
                             *p = (a + (b - a) * i as i32 / (n - 1)) as u16;
@@ -212,6 +215,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 eprintln!("{step}: {ok}");
             }
             ["globallabor"] => world.rules.global_labor_pool = true,
+            ["fullstaff"] => world.test_full_staff = true,
             ["nodisease"] => world.rules.disease = false,
             ["safe"] => {
                 world.rules.fire = false;

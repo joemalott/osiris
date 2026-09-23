@@ -39,6 +39,7 @@ const STONE: u16 = 24;
 const LIMESTONE: u16 = 25;
 const GRANITE: u16 = 26;
 const PAINT: u16 = 33;
+const SANDSTONE: u16 = 30;
 
 pub const SMALL_BENT_PYRAMID: u16 = 241;
 pub const MEDIUM_BENT_PYRAMID: u16 = 242;
@@ -54,6 +55,7 @@ pub const MEDIUM_STEPPED_PYRAMID: u16 = 324;
 pub const SPHINX: u16 = 210;
 pub const SMALL_OBELISK: u16 = 262;
 pub const LARGE_OBELISK: u16 = 263;
+pub const MAUSOLEUM: u16 = 222;
 
 /// What a 2x2 block of a mastaba is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +79,59 @@ pub enum Style {
     /// Three 6x6 parts in a line (head, body, tail), carved from a buried outcrop in
     /// six stages: carpenters' scaffolding, then stonemasons carving, then painting.
     Sphinx,
+    /// Four 4x4 buildings in a row (tower, colonnade, hall, pylon) in a 22x8
+    /// courtyard of paving, statues, planters and sphinxes. Laborers level the
+    /// courtyard; stonemasons raise the first storey a block (one sled of sandstone) at
+    /// a time; carpenters build each part a wooden ramp; the masons raise the second
+    /// storey; and laborers lay out the courtyard.
+    Mausoleum,
+}
+
+/// A mausoleum: 22x8 tiles, the parts at these columns of rows 2-5, the phases'
+/// work (laborers' tiles, first-storey blocks, ramps, second-storey blocks, the
+/// courtyard) and the ticks each takes.
+const MAUSOLEUM_SIZE: (i32, i32) = (22, 8);
+const MAUSOLEUM_PARTS: [i32; 4] = [2, 6, 10, 14];
+const MAUSOLEUM_BLOCKS: usize = 8;
+const MAUSOLEUM_WORK: u16 = 50;
+/// Sandstone taken from storage when a mausoleum is placed, and on each sled.
+const MAUSOLEUM_PLACEMENT: i32 = 24000;
+/// Timber for the ramps. The manual says a mausoleum needs wood; how much is not
+/// known, so this is a placeholder.
+const MAUSOLEUM_TIMBER: i32 = 400;
+
+/// What a courtyard tile of a mausoleum becomes, at column `x` and row `y`: an image
+/// offset in the skin's extras pack (paving, patterned paving, flowers, palm, the
+/// statues and the sphinx halves), or `None` for the parts' own tiles.
+fn mausoleum_decor(x: i32, y: i32) -> Option<u32> {
+    let edge = y == 0 || y == 7;
+    Some(match (x, y) {
+        (0..=1, _) => 0,
+        (2..=17, 2..=5) => return None,
+        (2..=17, _) => {
+            let first = (x - 2) % 4 < 2;
+            match (first, y) {
+                (true, 0) => 4,
+                (true, 7) => 6,
+                (true, _) => 0,
+                (false, _) => 1,
+            }
+        }
+        (18, _) if edge => 2,
+        (19..=21, _) if edge => if x % 2 == 0 { 2 } else { 3 },
+        (18, 1 | 2 | 5 | 6) => 0,
+        (_, 3 | 4) => 1,
+        (_, 1) => 13,
+        (_, 2) => 12,
+        (_, 5) => 8,
+        (_, _) => 9,
+    })
+}
+
+/// The courtyard tiles of a mausoleum, in the order its laborers work them.
+fn mausoleum_tiles() -> Vec<(i32, i32)> {
+    let (w, h) = MAUSOLEUM_SIZE;
+    (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| mausoleum_decor(x, y).is_some()).collect()
 }
 
 /// The sphinx's phases after placing it: (timber, paint, clay). These are the
@@ -175,8 +230,10 @@ const fn obelisk(kind: u16, size: i32, stages: u8, granite: i32, timber: &'stati
     MonumentDef { kind, cols: size, rows: size, style: Style::Obelisk { size, stages, granite, timber }, phase_count: LEVELING_PHASES + stages + 1, polish: 0, mastaba_phases: &[], weight, title }
 }
 
-pub const MONUMENTS: [MonumentDef; 17] = [
+pub const MONUMENTS: [MonumentDef; 18] = [
     MonumentDef { kind: SPHINX, cols: 3, rows: 6, style: Style::Sphinx, phase_count: LEVELING_PHASES + SPHINX_PHASES.len() as u8 + 1, polish: 0, mastaba_phases: &[], weight: 1, title: 21 },
+    // The rating weight is a placeholder.
+    MonumentDef { kind: MAUSOLEUM, cols: 11, rows: 4, style: Style::Mausoleum, phase_count: 6, polish: 0, mastaba_phases: &[], weight: 4, title: 25 },
     obelisk(SMALL_OBELISK, 3, 4, 100, &[200, 200, 200], 2, 22),
     obelisk(LARGE_OBELISK, 5, 6, 200, &[400, 400, 400, 200], 4, 23),
     mastaba(kind::SMALL_MASTABA, (2, 5), Style::Mastaba { entrance_row: 2, side_rows: 1, first_row_side: false }, &SMALL_MASTABA_PHASES, 2, 18),
@@ -197,6 +254,22 @@ pub const MONUMENTS: [MonumentDef; 17] = [
 
 pub fn monument_def(k: u16) -> Option<&'static MonumentDef> {
     MONUMENTS.iter().find(|m| m.kind == k)
+}
+
+/// The monument a scenario names by its title (text group 198); the three
+/// mausoleum titles are one building in different looks.
+pub fn monument_for_title(t: usize) -> Option<&'static MonumentDef> {
+    let t = if (26..=27).contains(&t) { 25 } else { t };
+    MONUMENTS.iter().find(|m| m.title == t)
+}
+
+/// What a monument takes from storage when it is placed: (resource, units).
+pub fn placement_cost(k: u16) -> Option<(u16, i32)> {
+    match monument_def(k)?.style {
+        Style::Obelisk { granite, .. } => Some((GRANITE, granite)),
+        Style::Mausoleum => Some((SANDSTONE, MAUSOLEUM_PLACEMENT)),
+        _ => None,
+    }
 }
 
 /// Phase, finished, and (resource, delivered, needed) for the phase's materials.
@@ -230,6 +303,9 @@ pub struct Monument {
     /// laborers have levelled it.
     #[serde(default)]
     pub ground: Vec<u32>,
+    /// Which of a mausoleum's three looks it has.
+    #[serde(default)]
+    pub skin: u8,
 }
 
 impl Monument {
@@ -269,6 +345,14 @@ impl MonumentDef {
                 let Some(&(timber, paint, clay)) = SPHINX_PHASES.get(own) else { return Vec::new() };
                 return [(TIMBER, timber), (PAINT, paint), (CLAY, clay)].into_iter().filter(|m| m.1 > 0).collect();
             }
+            Style::Mausoleum => {
+                let blocks = (MAUSOLEUM_BLOCKS * MAUSOLEUM_PARTS.len()) as i32 * SLED_LOAD;
+                return match p {
+                    1 | 3 => vec![(SANDSTONE, blocks)],
+                    2 => vec![(TIMBER, MAUSOLEUM_TIMBER)],
+                    _ => Vec::new(),
+                };
+            }
             Style::Pyramid(f) => f,
         };
         if p < LEVELING_PHASES || p >= self.courses_end() {
@@ -304,13 +388,44 @@ impl MonumentDef {
         }
         let polishing = matches!(self.style, Style::Pyramid(_)) && p >= self.courses_end() && p + 1 < self.phase_count;
         let carving = matches!(self.style, Style::Obelisk { .. } | Style::Sphinx) && p >= LEVELING_PHASES + 2 && p + 1 < self.phase_count;
-        if has(STONE) || has(LIMESTONE) || polishing || carving {
+        if has(STONE) || has(LIMESTONE) || has(SANDSTONE) || polishing || carving {
             crew.push(STONEMASON);
         }
         if has(TIMBER) {
             crew.push(CARPENTER);
         }
         crew
+    }
+
+    /// Pieces of work in phase `p`: a block of the site for most monuments; for a
+    /// mausoleum its courtyard tiles, storey blocks or ramps.
+    pub fn units(&self, p: u8) -> usize {
+        match self.style {
+            Style::Mausoleum => match p {
+                0 | 4 => mausoleum_tiles().len(),
+                1 | 3 => MAUSOLEUM_BLOCKS * MAUSOLEUM_PARTS.len(),
+                2 => MAUSOLEUM_PARTS.len(),
+                _ => 0,
+            },
+            _ => (self.cols * self.rows) as usize,
+        }
+    }
+
+    /// Ticks of work each piece of phase `p` takes.
+    pub fn unit_work(&self, _p: u8) -> u16 {
+        match self.style {
+            Style::Mausoleum => MAUSOLEUM_WORK,
+            _ => BLOCK_WORK,
+        }
+    }
+
+    /// Whether phase `p` is laborers' work: the levelling, and a mausoleum's
+    /// courtyard.
+    pub fn laborers(&self, p: u8) -> bool {
+        match self.style {
+            Style::Mausoleum => p == 0 || p == 4,
+            _ => p < LEVELING_PHASES,
+        }
     }
 
     fn block(&self, c: i32, r: i32) -> Block {
@@ -335,7 +450,7 @@ impl MonumentDef {
 
     /// How many of the phase's blocks the delivered material pays for.
     fn blocks_paid(&self, m: &Monument) -> usize {
-        let blocks = (self.cols * self.rows) as usize;
+        let blocks = self.units(m.phase);
         self.phase(m.phase)
             .iter()
             .map(|&(r, want)| (Monument::amount(&m.delivered, r) as i64 * blocks as i64 / want.max(1) as i64) as usize)
@@ -346,7 +461,7 @@ impl MonumentDef {
 
     /// Whether the monument is a tomb, which takes burial provisions.
     pub fn is_tomb(&self) -> bool {
-        matches!(self.style, Style::Mastaba { .. } | Style::Pyramid(_))
+        matches!(self.style, Style::Mastaba { .. } | Style::Pyramid(_) | Style::Mausoleum)
     }
 
     /// Rings of a stepped pyramid.
@@ -361,6 +476,7 @@ impl World {
         monument_def(k).map(|d| match d.style {
             Style::Obelisk { size, .. } => (size, size),
             Style::Sphinx => (6, 18),
+            Style::Mausoleum => MAUSOLEUM_SIZE,
             _ => (d.cols * 2, d.rows * 2),
         })
     }
@@ -378,6 +494,9 @@ impl World {
                 return Err("Not enough granite in storage");
             }
         }
+        if def.style == Style::Mausoleum && self.yards_stored(SANDSTONE) < MAUSOLEUM_PLACEMENT {
+            return Err("You need 240 blocks of sandstone to build a mausoleum");
+        }
         Ok(())
     }
 
@@ -388,19 +507,30 @@ impl World {
         let (w, h) = b.footprint();
         let (x0, y0) = (b.x, b.y);
         let ground = (y0..y0 + h).flat_map(|y| (x0..x0 + w).map(move |x| (x, y))).map(|(x, y)| self.map.images.at_or(x, y, 0)).collect();
-        let mut m = Monument { progress: vec![0; (def.cols * def.rows) as usize], ground, ..Default::default() };
+        let mut m = Monument { progress: vec![0; def.units(0)], ground, ..Default::default() };
         if def.style == Style::Sphinx {
             // Carved from the rock where it stands: no leveling.
             m.phase = LEVELING_PHASES;
         }
-        if let Style::Obelisk { granite, .. } = def.style {
+        if def.style == Style::Mausoleum {
+            // Its look is the mausoleum the scenario names (text 198: 25, 26 or 27).
+            m.skin = self.scenario_monuments.iter().find_map(|&t| (25..=27).contains(&t).then(|| (t - 25) as u8)).unwrap_or(0);
+        }
+        let paid = match def.style {
             // The granite goes to the site at once, and there is no leveling.
-            m.phase = LEVELING_PHASES;
-            let mut left = granite;
+            Style::Obelisk { granite, .. } => {
+                m.phase = LEVELING_PHASES;
+                Some((GRANITE, granite))
+            }
+            Style::Mausoleum => Some((SANDSTONE, MAUSOLEUM_PLACEMENT)),
+            _ => None,
+        };
+        if let Some((r, amount)) = paid {
+            let mut left = amount;
             let yards: Vec<BuildingId> = self.buildings.iter().filter(|y| y.kind == kind::STORAGE_YARD).map(|y| y.id).collect();
             for y in yards {
                 if left > 0 {
-                    left -= self.take_stored(y, GRANITE, left);
+                    left -= self.take_stored(y, r, left);
                 }
             }
         }
@@ -543,7 +673,21 @@ impl World {
     pub fn monument_stakes(&self, id: BuildingId) -> Vec<(i32, i32, u32)> {
         let Some(b) = self.buildings.get(id) else { return Vec::new() };
         let (Some(def), Some(m)) = (monument_def(b.kind), b.monument.as_ref()) else { return Vec::new() };
-        if m.phase != 0 || m.finished || !matches!(def.style, Style::Mastaba { .. } | Style::Pyramid(_)) {
+        if m.phase != 0 || m.finished {
+            return Vec::new();
+        }
+        if def.style == Style::Mausoleum {
+            // The courtyard's four corners, until their tiles are levelled.
+            let Some(stake) = self.defs.building(b.kind).and_then(|d| d.anims.get("stake")).map(|a| a.image) else { return Vec::new() };
+            let tiles = mausoleum_tiles();
+            let (w, h) = MAUSOLEUM_SIZE;
+            return [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]
+                .into_iter()
+                .filter(|c| tiles.iter().position(|t| t == c).and_then(|i| m.progress.get(i)).is_some_and(|&p| p < MAUSOLEUM_WORK))
+                .map(|(x, y)| (b.x + x, b.y + y, stake))
+                .collect();
+        }
+        if !matches!(def.style, Style::Mastaba { .. } | Style::Pyramid(_)) {
             return Vec::new();
         }
         let Some(site) = self.defs.building(b.kind).map(|d| d.image) else { return Vec::new() };
@@ -554,6 +698,53 @@ impl World {
             .filter(|&(x, y)| m.progress.get(((y - b.y) / 2 * def.cols + (x - b.x) / 2) as usize).is_some_and(|&p| p == 0))
             .map(|(x, y)| (x, y, Self::stake_image(site)))
             .collect()
+    }
+
+    /// A mausoleum's tiles: the courtyard bare, then levelled, then laid out; each part
+    /// its foundation blocks, then its columns in scaffolding once its ramp is built,
+    /// then finished. (The part images face the default view.)
+    fn refresh_mausoleum(&mut self, id: BuildingId) {
+        let Some(b) = self.buildings.get(id) else { return };
+        let (Some(bdef), Some(m)) = (self.defs.building(b.kind), b.monument.as_ref()) else { return };
+        let (x0, y0) = (b.x, b.y);
+        let img = |key: &str| bdef.anims.get(key).map(|a| a.image);
+        let skin = m.skin.min(2);
+        let (Some(extras), Some(ground)) = (img(&format!("extra_v{skin}")), img("ground")) else { return };
+        let (phase, finished) = (m.phase, m.finished);
+        let done = |i: usize| m.progress.get(i).is_some_and(|&p| p >= MAUSOLEUM_WORK);
+        let mut tiles = Vec::new();
+        for (i, (x, y)) in mausoleum_tiles().into_iter().enumerate() {
+            let levelled = ground + (((x * 7 + y * 3) & 7) as u32);
+            let image = match phase {
+                _ if finished => extras + mausoleum_decor(x, y).unwrap_or(0),
+                0 if !done(i) => m.ground.get((y * MAUSOLEUM_SIZE.0 + x) as usize).copied().filter(|&g| g != 0).unwrap_or(levelled),
+                4 if done(i) => extras + mausoleum_decor(x, y).unwrap_or(0),
+                _ => levelled,
+            };
+            tiles.push((x0 + x, y0 + y, image));
+        }
+        let parts: Vec<(i32, u32)> = MAUSOLEUM_PARTS
+            .iter()
+            .enumerate()
+            .filter_map(|(k, &px)| {
+                let own = |i: usize| (k * MAUSOLEUM_BLOCKS..(k + 1) * MAUSOLEUM_BLOCKS).contains(&i);
+                let stage = match phase {
+                    _ if finished => 3,
+                    0 | 1 => 1,
+                    2 => if done(k) { 2 } else { 1 },
+                    3 => if (0..m.progress.len()).filter(|&i| own(i)).all(done) { 3 } else { 2 },
+                    _ => 3,
+                };
+                let part = ["a", "b", "c", "d"][k];
+                img(&format!("{stage}{part}_v{skin}")).map(|image| (px, image))
+            })
+            .collect();
+        for (x, y, image) in tiles {
+            self.map.set_single_image(x, y, image);
+        }
+        for (px, image) in parts {
+            self.map.set_footprint(x0 + px, y0 + 2, 4, image);
+        }
     }
 
     /// Redraws a monument's ground-level tiles for its phase and the blocks done so far.
@@ -575,6 +766,10 @@ impl World {
                 let image = bdef.anims.get(&format!("s{stage}{letter}1")).map_or(site, |a| a.image);
                 self.map.set_footprint(x0, y0 + 6 * part as i32, 6, image);
             }
+            return;
+        }
+        if def.style == Style::Mausoleum {
+            self.refresh_mausoleum(id);
             return;
         }
         if let Style::Obelisk { size, stages, .. } = def.style {
@@ -650,7 +845,7 @@ impl World {
                     }
                 }
             }
-            Style::Obelisk { .. } | Style::Sphinx => {}
+            Style::Obelisk { .. } | Style::Sphinx | Style::Mausoleum => {}
             Style::Pyramid(family) => {
                 let (corner, wall, cube) = (img("corner_bricks"), img("wall_bricks"), img("base_bricks"));
                 let courses = def.rings() * COURSES_PER_RING;
@@ -759,10 +954,12 @@ impl World {
             .filter_map(|id| {
                 let b = self.buildings.get(id)?;
                 let m = b.monument.as_ref()?;
-                if m.phase >= LEVELING_PHASES || busy.iter().filter(|b| b.0 == id).count() >= MAX_LABORERS {
+                let def = monument_def(b.kind)?;
+                if !def.laborers(m.phase) || busy.iter().filter(|b| b.0 == id).count() >= MAX_LABORERS {
                     return None;
                 }
-                let block = m.progress.iter().enumerate().position(|(i, &p)| p < BLOCK_WORK && !busy.contains(&(id, i as i32)))?;
+                let work = def.unit_work(m.phase);
+                let block = m.progress.iter().enumerate().position(|(i, &p)| p < work && !busy.contains(&(id, i as i32)))?;
                 Some(((b.x - from.0).abs() + (b.y - from.1).abs(), id, block))
             })
             .min()
@@ -771,25 +968,29 @@ impl World {
 
     /// The next block of monument `id` that no other laborer is levelling.
     pub(crate) fn next_leveling_block(&self, id: BuildingId, me: FigureId) -> Option<usize> {
-        let m = self.buildings.get(id)?.monument.as_ref()?;
-        if m.phase >= LEVELING_PHASES {
+        let b = self.buildings.get(id)?;
+        let (def, m) = (monument_def(b.kind)?, b.monument.as_ref()?);
+        if !def.laborers(m.phase) {
             return None;
         }
+        let work = def.unit_work(m.phase);
         let busy: Vec<i32> = self.figures.iter().filter(|f| f.kind == crate::farms::PEASANT && f.action == 4 && f.target == id && f.id != me).map(|f| f.amount).collect();
-        m.progress.iter().enumerate().position(|(i, &p)| p < BLOCK_WORK && !busy.contains(&(i as i32)))
+        m.progress.iter().enumerate().position(|(i, &p)| p < work && !busy.contains(&(i as i32)))
     }
 
     /// A laborer at a monument works its block; true when the block is done.
     pub(crate) fn level_block(&mut self, id: BuildingId, block: usize) -> bool {
+        let Some(def) = self.buildings.get(id).and_then(|b| monument_def(b.kind)) else { return true };
         let Some(m) = self.buildings.get_mut(id).and_then(|b| b.monument.as_mut()) else { return true };
-        if m.phase >= LEVELING_PHASES {
+        if !def.laborers(m.phase) {
             return true;
         }
+        let work = def.unit_work(m.phase);
         let Some(p) = m.progress.get_mut(block) else { return true };
         let was = *p;
-        *p = (*p + 1).min(BLOCK_WORK);
-        let done = *p >= BLOCK_WORK;
-        if done && was < BLOCK_WORK {
+        *p = (*p + 1).min(work);
+        let done = *p >= work;
+        if done && was < work {
             // The block's tiles now show the finished stage.
             self.refresh_monument_images(id);
         }
@@ -801,7 +1002,7 @@ impl World {
         let Some(b) = self.buildings.get(id) else { return false };
         let Some(def) = monument_def(b.kind) else { return false };
         let Some(m) = &b.monument else { return false };
-        if m.finished || m.phase < LEVELING_PHASES {
+        if m.finished || def.laborers(m.phase) {
             return false;
         }
         def.crew(m.phase).contains(&figure)
@@ -888,7 +1089,8 @@ impl World {
                     None
                 } else {
                     let paid = def.blocks_paid(m);
-                    m.progress.iter().enumerate().position(|(i, &p)| p < BLOCK_WORK && i < paid)
+                    let work = def.unit_work(m.phase);
+                    m.progress.iter().enumerate().position(|(i, &p)| p < work && i < paid)
                 };
                 // The rest of the crew works while the one laying blocks does.
                 let moving = next.is_some() || figure != lead && m.craftsmen.iter().any(|&(k, c)| k == lead && self.figures.get(c).is_some_and(|f| f.action == 2 && f.moving));
@@ -896,9 +1098,10 @@ impl World {
                     f.moving = moving;
                 }
                 if let Some(i) = next {
+                    let work = def.unit_work(m.phase);
                     let m = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()).expect("working");
                     m.progress[i] += 1;
-                    if m.progress[i] >= BLOCK_WORK {
+                    if m.progress[i] >= work {
                         self.refresh_monument_images(target);
                     }
                 }
@@ -1031,7 +1234,7 @@ impl World {
             let Some(b) = self.buildings.get(id) else { continue };
             let Some(def) = monument_def(b.kind) else { continue };
             let m = b.monument.as_ref().expect("active");
-            let all_done = m.progress.iter().all(|&p| p >= BLOCK_WORK);
+            let all_done = m.progress.iter().all(|&p| p >= def.unit_work(m.phase));
             let paid = def.phase(m.phase).iter().all(|&(r, want)| Monument::amount(&m.delivered, r) >= want);
             if !all_done || !paid {
                 continue;
@@ -1041,7 +1244,7 @@ impl World {
             let m = self.buildings.get_mut(id).and_then(|b| b.monument.as_mut()).expect("active");
             m.phase += 1;
             m.delivered.clear();
-            m.progress.iter_mut().for_each(|p| *p = 0);
+            m.progress = vec![0; def.units(m.phase)];
             if m.phase >= last {
                 m.finished = true;
                 let name = match def.style {
@@ -1052,6 +1255,7 @@ impl World {
                     Style::Pyramid(Family::Mudbrick) => "mudbrick_pyramid",
                     Style::Obelisk { .. } => "obelisk",
                     Style::Sphinx => "sphinx",
+                    Style::Mausoleum => "mausoleum",
                 };
                 self.post_event_text(crate::scenario_events::EventText {
                     title: format!("{name}_congratulations_title"),

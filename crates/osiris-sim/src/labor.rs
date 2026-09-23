@@ -72,7 +72,8 @@ impl World {
 
     /// Tick 25: recompute the workforce and staff buildings.
     pub(crate) fn update_labor(&mut self) {
-        let available = self.census.working_age() * 60 / 100;
+        // Test runs can staff everything, to try out one system in isolation.
+        let available = if self.test_full_staff { i32::MAX / 2 } else { self.census.working_age() * 60 / 100 };
         // Buildings that want workers, grouped by category, in building order.
         let mut groups: Vec<(usize, Vec<(BuildingId, i32)>)> = Vec::new();
         let mut needed = 0;

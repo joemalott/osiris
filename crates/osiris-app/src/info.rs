@@ -395,7 +395,7 @@ impl InfoPanel {
         let m = b.monument.as_ref().expect("monument");
         let has = |k: u16| world.buildings.iter().any(|g| g.kind == k && g.workers > 0);
         let blocks = m.progress.len().max(1);
-        let pct = m.progress.iter().map(|&p| p as usize).sum::<usize>() * 100 / (blocks * mon::BLOCK_WORK as usize);
+        let pct = m.progress.iter().map(|&p| p as usize).sum::<usize>() * 100 / (blocks * def.unit_work(m.phase) as usize);
         let brick = matches!(def.style, Style::Mastaba { .. });
         // (finished, going well) lines.
         let obelisk = matches!(def.style, Style::Obelisk { .. });
