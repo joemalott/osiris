@@ -786,6 +786,9 @@ fn main() -> Result<()> {
             }
             game.info = Some(panel);
         }
+        if let Some((k, tile)) = view.hold {
+            game.hold_tool(k, tile);
+        }
         let zoom = view.zoom;
         return gfx::screenshot(library, args.size, out, |r| {
             if let Some(z) = zoom {

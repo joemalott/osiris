@@ -41,6 +41,7 @@ impl World {
         if def.needs("shoreline") {
             return self.can_place_on_shore(k, x, y);
         }
+        debug_assert_eq!(self.uses_common_rules(k), !self.is_road_venue(k));
         if self.is_road_venue(k) {
             if self.venue_orientation(k, x, y).is_none() {
                 return Err("Must be built where roads meet");
@@ -53,27 +54,15 @@ impl World {
             }
             return Ok(());
         }
-        let floodplain_ok =
-            def.needs("floodplain") || (kind::FARM_FIRST..=kind::FARM_LAST).contains(&k) || def.has_flag("is_farm");
-        let mut blocked = mask::NOT_CLEAR;
-        if floodplain_ok {
-            blocked &= !terrain::FLOODPLAIN;
-        }
         for yy in y..y + fh {
             for xx in x..x + fw {
-                if !self.map.contains(xx, yy) {
-                    return Err("Outside the map");
-                }
-                if self.map.terrain_is(xx, yy, blocked) || self.map.building.at_or(xx, yy, 0) != 0 {
-                    return Err("Can't build there");
-                }
-                if self.figures.iter().any(|f| (f.x, f.y) == (xx, yy)) {
-                    return Err("People are in the way");
+                if let Some(why) = self.footprint_tile_problem(k, xx, yy) {
+                    return Err(why);
                 }
             }
         }
         self.can_place_monument(k, (x, y))?;
-        if crate::military::fort_soldier(k).is_some() && !self.fort_ground_clear(x, y) {
+        if crate::military::fort_soldier(k).is_some() && crate::military::fort_ground(x, y).any(|(xx, yy)| !self.fort_ground_tile_clear(xx, yy)) {
             return Err("No room for the parade ground");
         }
         if def.needs("groundwater") && !self.map.terrain_is(x, y, terrain::GROUNDWATER) {
@@ -105,6 +94,54 @@ impl World {
             }
         }
         Ok(())
+    }
+
+    /// Whether building type `k` is placed by the common rules, tile by tile (with any
+    /// monument or fort rules after), rather than by rules of its own: defences,
+    /// bridges, royal tombs, shore buildings and venues where roads meet.
+    pub(crate) fn uses_common_rules(&self, k: u16) -> bool {
+        let Some(def) = self.defs.building(k) else { return false };
+        let own = crate::defenses::is_gatehouse(k)
+            || k == crate::defenses::ROADBLOCK
+            || crate::defenses::is_tower(k)
+            || k == crate::bridges::LOW_BRIDGE
+            || crate::royal_tombs::layout(k).is_some()
+            || def.needs("shoreline")
+            || self.is_road_venue(k);
+        !own
+    }
+
+    /// Why tile `(xx, yy)` of a building of type `k` (placed through the common rules)
+    /// can't be built on, if it can't: off the map, the ground not clear, or someone
+    /// standing there.
+    pub(crate) fn footprint_tile_problem(&self, k: u16, xx: i32, yy: i32) -> Option<&'static str> {
+        let def = self.defs.building(k)?;
+        if !self.map.contains(xx, yy) {
+            return Some("Outside the map");
+        }
+        use crate::monuments::Style;
+        let style = crate::monuments::monument_def(k).map(|d| d.style);
+        let floodplain_ok =
+            def.needs("floodplain") || (kind::FARM_FIRST..=kind::FARM_LAST).contains(&k) || def.has_flag("is_farm");
+        // The original lets pyramids, mastabas, sun temples and mausoleums take ground
+        // with trees and shrubs (its mask 0xfeffd76e); the laborers clear it.
+        let big = matches!(style, Some(Style::Pyramid(_) | Style::Mastaba | Style::SunTemple | Style::Mausoleum));
+        let mut blocked = if big { crate::pyramids::TOMB_BLOCKED } else { mask::NOT_CLEAR };
+        if floodplain_ok {
+            blocked &= !terrain::FLOODPLAIN;
+        }
+        if self.map.terrain_is(xx, yy, blocked) || self.map.building.at_or(xx, yy, 0) != 0 {
+            // The original's warnings: 19:211 for tombs, 19:0 for other monuments.
+            return Some(match style {
+                Some(Style::Pyramid(_) | Style::Mastaba) => crate::pyramids::FREE_OF_OBSTRUCTIONS,
+                Some(_) => "Must build on cleared land",
+                None => "Can't build there",
+            });
+        }
+        if self.figures.iter().any(|f| (f.x, f.y) == (xx, yy)) {
+            return Some("People are in the way");
+        }
+        None
     }
 
     /// Tiles a build command covers, one entry per building placed.
@@ -187,7 +224,7 @@ impl World {
         let id = self.buildings.insert(b);
         for yy in y..y + fh {
             for xx in x..x + fw {
-                self.map.terrain.update(xx, yy, |t| (t & !(terrain::MEADOW | terrain::SHRUB)) | terrain::BUILDING);
+                self.map.terrain.update(xx, yy, |t| (t & !(terrain::MEADOW | terrain::SHRUB | terrain::TREE)) | terrain::BUILDING);
                 self.map.building.set(xx, yy, id);
             }
         }

@@ -17,6 +17,7 @@
 //! casing, top down.
 
 use crate::buildings::BuildingId;
+use crate::map::{mask, terrain};
 use crate::monuments::{Family, Monument, Style, monument_def};
 use crate::world::World;
 
@@ -95,6 +96,58 @@ pub struct Part {
 pub const PART_WORK: u16 = 200;
 /// Most causeway blocks before the shore.
 const MAX_CAUSEWAY: usize = 20;
+
+/// The original's placement messages for tombs (text group 19, 211 and 212).
+pub const FREE_OF_OBSTRUCTIONS: &str = "Must be built on land free of obstructions";
+pub const CAUSEWAY_TO_WATER: &str = "Monument's causeway must lead to water";
+
+/// What a tomb's own tiles may not hold (the original's 0xfeffd76e): trees, shrubs and
+/// meadow are fine, the laborers clear them.
+pub(crate) const TOMB_BLOCKED: u32 = mask::NOT_CLEAR & !(terrain::TREE | terrain::SHRUB) | terrain::FERRY_ROUTE;
+/// The row past its south edge may also carry a road (0xfeffd72e).
+const ROW_BLOCKED: u32 = TOMB_BLOCKED & !terrain::ROAD;
+/// A complex's part tiles (0xeeffd76e), the same as the tomb's.
+const PART_BLOCKED: u32 = TOMB_BLOCKED;
+/// A part's unchecked top-left tile: only nothing built there.
+const PART_CORNER_BLOCKED: u32 = terrain::BUILDING | terrain::ROAD | terrain::CANAL | terrain::WALL | terrain::GATEHOUSE | terrain::DIKE;
+/// Open water the valley temple looks onto (the original's 0xfbffff7b clear bits).
+const OPEN_WATER: u32 = terrain::WATER | terrain::GROUNDWATER | terrain::DEEPWATER;
+
+/// A pyramid complex's parts as far as they could be laid out, and where and why
+/// they could go no further.
+#[derive(Debug, Clone, Default)]
+pub struct ComplexWalk {
+    pub parts: Vec<Part>,
+    /// The top-left tile of the block that is neither clear nor the shore (or is one
+    /// block too many), and the message.
+    pub fail: Option<((i32, i32), &'static str)>,
+}
+
+/// The footprint tile under the cursor while placing a tomb: the original's anchor,
+/// the first block of its layout table.
+pub fn anchor(style: Style, variant: usize) -> (i32, i32) {
+    match style {
+        Style::Mastaba => {
+            let (x0, y0) = MASTABAS[variant.min(2)].iter().fold((0, 0), |(mx, my), b| (mx.min(b.0 as i32), my.min(b.1 as i32)));
+            (-x0, -y0)
+        }
+        _ => {
+            let shift = 2 * (variant as i32 + 1);
+            (shift, shift)
+        }
+    }
+}
+
+/// Where a complex's mortuary temple stands, from the pyramid's anchor: the block
+/// just past the middle of its east face (the original's table at 0x5f5d08). Only
+/// the complex and grand pyramids have one.
+fn complex_start(style: Style, variant: usize) -> Option<(i32, i32)> {
+    match (style, variant) {
+        (Style::Pyramid(_), 3) => Some((12, 1)),
+        (Style::Pyramid(_), 4) => Some((14, 1)),
+        _ => None,
+    }
+}
 
 /// Ramps of each size of pyramid: (block, progress it is needed at, partner block).
 const RAMPS: [&[(u8, u8, u8)]; 5] = [
@@ -302,35 +355,60 @@ pub enum Job {
 }
 
 impl World {
-    /// A pyramid complex's parts for a pyramid placed at `(x0, y0)`: the causeway runs
-    /// east, two tiles at a time, from the middle of the pyramid's east face, until a
-    /// block is no longer clear; that block must be on the shore (land, with water
-    /// just east of it) for the valley temple, with at least one causeway block
-    /// before it. Smaller pyramids have none.
-    pub(crate) fn complex_parts(&self, style: Style, variant: usize, (x0, y0): (i32, i32)) -> Result<Vec<Part>, &'static str> {
-        if variant < 3 || !matches!(style, Style::Pyramid(_)) {
-            return Ok(Vec::new());
-        }
-        let shift = 2 * (variant as i32 + 1);
-        let (sx, sy) = (x0 + shift + if variant == 3 { 12 } else { 14 }, y0 + shift + 1);
-        let land = crate::map::mask::NOT_CLEAR & !(crate::map::terrain::TREE | crate::map::terrain::SHRUB);
-        let clear = |x: i32, y: i32| self.map.contains(x, y) && !self.map.terrain_is(x, y, land) && self.map.building.at_or(x, y, 0) == 0;
-        let water = |x: i32, y: i32| self.map.terrain_is(x, y, crate::map::terrain::WATER);
-        let mut parts = Vec::new();
+    /// Walks a pyramid complex's parts for a pyramid placed at `(x0, y0)`, as the
+    /// original does (its `FUN_004ed360` mode 0, which also draws the placement
+    /// preview): the mortuary temple is the 2x2 block just past the middle of the
+    /// pyramid's east face, and the causeway runs east from it, a block (two tiles) at
+    /// a time, whatever the view, until a block is no longer clear. That block must be
+    /// on the shore, a straight north-south shoreline: its west column land, its east
+    /// column open water. At least one causeway block must lead there, and at most
+    /// [`MAX_CAUSEWAY`]. Smaller pyramids and mastabas have no complex.
+    ///
+    /// The original never looks at a block's top-left tile; Osiris only asks that no
+    /// building or road stands there, so a part can't be built over one.
+    pub(crate) fn complex_walk(&self, style: Style, variant: usize, (x0, y0): (i32, i32)) -> ComplexWalk {
+        let mut walk = ComplexWalk::default();
+        let Some((dx, dy)) = complex_start(style, variant) else { return walk };
+        let (ax, ay) = anchor(style, variant);
+        let (sx, sy) = (x0 + ax + dx, y0 + ay + dy);
+        let map = &self.map;
+        let tile = |x: i32, y: i32| map.terrain.at_or(x, y, 0);
+        let clear = |x: i32, y: i32| map.contains(x, y) && tile(x, y) & PART_BLOCKED == 0 && map.building.at_or(x, y, 0) == 0;
+        let corner = |x: i32, y: i32| map.contains(x, y) && tile(x, y) & PART_CORNER_BLOCKED == 0 && map.building.at_or(x, y, 0) == 0;
+        let block_clear = |x: i32, y: i32| corner(x, y) && clear(x + 1, y) && clear(x, y + 1) && clear(x + 1, y + 1);
+        let water = |x: i32, y: i32| map.contains(x, y) && tile(x, y) & terrain::WATER != 0 && tile(x, y) & !OPEN_WATER == 0;
         let mut bx = sx;
-        while (0..2).all(|dy| (0..2).all(|dx| clear(bx + dx, sy + dy))) {
-            if parts.len() > MAX_CAUSEWAY {
-                return Err("Monument's causeway must lead to water");
+        while block_clear(bx, sy) {
+            if walk.parts.len() > MAX_CAUSEWAY {
+                walk.fail = Some(((bx, sy), CAUSEWAY_TO_WATER));
+                return walk;
             }
-            parts.push(Part { x: bx - x0, y: sy - y0, kind: if parts.is_empty() { 0 } else { 1 }, built: false });
+            walk.parts.push(Part { x: bx - x0, y: sy - y0, kind: if walk.parts.is_empty() { 0 } else { 1 }, built: false });
             bx += 2;
         }
-        let shore = clear(bx, sy) && clear(bx, sy + 1) && water(bx + 1, sy) && water(bx + 1, sy + 1);
-        if parts.len() < 2 || !shore {
-            return Err("Monument's causeway must lead to water");
+        let shore = corner(bx, sy) && clear(bx, sy + 1) && water(bx + 1, sy) && water(bx + 1, sy + 1);
+        if walk.parts.len() < 2 || !shore {
+            walk.fail = Some(((bx, sy), CAUSEWAY_TO_WATER));
+            return walk;
         }
-        parts.push(Part { x: bx - x0, y: sy - y0, kind: 2, built: false });
-        Ok(parts)
+        walk.parts.push(Part { x: bx - x0, y: sy - y0, kind: 2, built: false });
+        walk
+    }
+
+    /// A pyramid complex's parts for a pyramid placed at `(x0, y0)`, or why there can
+    /// be none: see [`World::complex_walk`].
+    pub(crate) fn complex_parts(&self, style: Style, variant: usize, at: (i32, i32)) -> Result<Vec<Part>, &'static str> {
+        let walk = self.complex_walk(style, variant, at);
+        match walk.fail {
+            Some((_, why)) => Err(why),
+            None => Ok(walk.parts),
+        }
+    }
+
+    /// Why tile `(x, y)` of the row just past a tomb's south edge keeps it from being
+    /// placed, if it does: the original wants that row free (roads may cross it).
+    pub(crate) fn tomb_row_problem(&self, x: i32, y: i32) -> Option<&'static str> {
+        self.map.terrain_is(x, y, ROW_BLOCKED).then_some(FREE_OF_OBSTRUCTIONS)
     }
 
     /// The tiles a complex's parts stand on, from the pyramid's top-left.
@@ -822,5 +900,31 @@ impl World {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn placement_tables_match_the_original() {
+        let pyramid = Style::Pyramid(Family::True);
+        // The anchor block sits so that the footprint spans -a .. size-a (0x56fe30).
+        assert_eq!((0..5).map(|v| anchor(pyramid, v)).collect::<Vec<_>>(), [(2, 2), (4, 4), (6, 6), (8, 8), (10, 10)]);
+        assert_eq!((0..3).map(|v| anchor(Style::Mastaba, v)).collect::<Vec<_>>(), [(2, 4), (4, 6), (6, 8)]);
+        // The row past the south edge starts at (-2,6) .. (-10,14) for pyramids and
+        // (-2,6) .. (-6,10) for mastabas (0x5700b4, 0x5700c8): one past the footprint.
+        for (v, size) in [8, 12, 16, 20, 24].into_iter().enumerate() {
+            let (ax, ay) = anchor(pyramid, v);
+            assert_eq!((-ax, size - ay), (-2 - 2 * v as i32, 6 + 2 * v as i32));
+        }
+        for (v, (w, h)) in [(4, 10), (6, 14), (8, 18)].into_iter().enumerate() {
+            let (ax, ay) = anchor(Style::Mastaba, v);
+            assert_eq!((-ax, h - ay, w), (-2 - 2 * v as i32, 6 + 2 * v as i32, 4 + 2 * v as i32));
+        }
+        // The mortuary temple is just past the east face, on its middle rows.
+        assert_eq!((complex_start(pyramid, 2), complex_start(pyramid, 3), complex_start(pyramid, 4)), (None, Some((12, 1)), Some((14, 1))));
+        assert_eq!(complex_start(Style::Mastaba, 2), None);
     }
 }

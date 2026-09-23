@@ -29,6 +29,8 @@ pub struct ScriptView {
     /// A popup to open over the overseer: salary, gift or donate.
     pub advisor_popup: Option<String>,
     pub orders: bool,
+    /// A building tool held with the cursor on a tile, to show its placement preview.
+    pub hold: Option<(u16, (i32, i32))>,
 }
 
 /// Runs `--script` steps against the world.
@@ -88,6 +90,26 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
             }
             ["orders"] => view.orders = true,
+            // Holds building tool K with the cursor on tile x,y for the screenshot.
+            ["hold", k, p] => view.hold = Some((k.parse()?, parse_point(p)?)),
+            ["treasury", n] => world.treasury = n.parse()?,
+            // The placement preview of building K with the cursor on x,y: each tile's verdict.
+            ["preview", k, p] => {
+                let k: u16 = k.parse()?;
+                let (cx, cy) = parse_point(p)?;
+                let (ax, ay) = world.cursor_tile(k);
+                let pv = world.placement_preview(k, cx - ax, cy - ay);
+                let blocked: Vec<String> = pv.tiles.iter().filter_map(|t| t.blocked.map(|why| format!("{},{} {why}", t.x, t.y))).collect();
+                let red = pv.tiles.iter().filter(|t| t.red).count();
+                eprintln!("preview {k} at {},{}: {:?}, {} tiles, {red} red, blocking {blocked:?}", cx - ax, cy - ay, pv.result, pv.tiles.len());
+            }
+            // Where building K could first be placed with its cursor tile, scanning rows, or "none".
+            ["site", k] => {
+                let k: u16 = k.parse()?;
+                let (ax, ay) = world.cursor_tile(k);
+                let site = (0..world.map.height).flat_map(|y| (0..world.map.width).map(move |x| (x, y))).find(|&(x, y)| world.can_place(k, x, y).is_ok());
+                eprintln!("site {k}: {:?}", site.map(|(x, y)| (x + ax, y + ay)));
+            }
             // Lets building type K be built, as a tutorial unlock would.
             ["allow", k] => {
                 if let Some(m) = world.mission.as_mut() {

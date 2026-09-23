@@ -109,6 +109,12 @@ const CHARGE_RUN: std::ops::Range<i32> = 6..20;
 const CORPSE_TICKS: i32 = 200;
 /// Where the parade ground sits beside its fort.
 const GROUND_OFFSET: (i32, i32) = (3, -1);
+/// The 4x4 tiles of the parade ground beside a fort placed at `(x, y)`.
+pub fn fort_ground(x: i32, y: i32) -> impl Iterator<Item = (i32, i32)> {
+    let (gx, gy) = (x + GROUND_OFFSET.0, y + GROUND_OFFSET.1);
+    (gy..gy + 4).flat_map(move |yy| (gx..gx + 4).map(move |xx| (xx, yy)))
+}
+
 /// Morale at or below which a side breaks and runs.
 pub const BROKEN_MORALE: i32 = 20;
 
@@ -469,9 +475,9 @@ impl World {
     }
 
     /// Whether a fort's parade ground fits beside it.
-    pub(crate) fn fort_ground_clear(&self, x: i32, y: i32) -> bool {
-        let (gx, gy) = (x + GROUND_OFFSET.0, y + GROUND_OFFSET.1);
-        (gy..gy + 4).all(|yy| (gx..gx + 4).all(|xx| self.map.contains(xx, yy) && !self.map.terrain_is(xx, yy, crate::map::mask::NOT_CLEAR)))
+    /// Whether a tile of a fort's parade ground is free.
+    pub(crate) fn fort_ground_tile_clear(&self, xx: i32, yy: i32) -> bool {
+        self.map.contains(xx, yy) && !self.map.terrain_is(xx, yy, crate::map::mask::NOT_CLEAR)
     }
 
     /// When a fort goes, its ground goes with it and its company disbands.
