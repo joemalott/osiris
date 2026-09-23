@@ -77,7 +77,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 view.advisor_popup = Some(popup.to_string());
             }
             ["savings", n] => world.governor.savings = n.parse()?,
-            ["burial", r, n] => world.burial[r.parse::<usize>()?].0 = n.parse()?,
+            ["burial", r, n] => world.burial.get_mut(r.parse::<usize>()?).context("no such burial rank")?.0 = n.parse()?,
             ["sendburial", r, n] => {
                 let sent = world.dispatch_burial(r.parse()?, n.parse()?);
                 eprintln!("{step}: sent {sent}");
@@ -178,7 +178,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             ["opentrade", c] => {
                 let c: usize = c.parse()?;
-                world.trade.cities[c].open = true;
+                world.trade.cities.get_mut(c).context("no such trade city")?.open = true;
             }
             ["trade", r, st, n] => {
                 let st = match *st {
@@ -344,7 +344,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 eprintln!("     x from {}", cx - 8);
             }
             // Lets the city raise a temple complex to god g (0 Osiris .. 4 Bast).
-            ["complexgod", g] => world.complex_gods[g.parse::<usize>()?] = true,
+            ["complexgod", g] => world.complex_gods[g.parse::<usize>()?.min(4)] = true,
             ["monlist"] => eprintln!("monuments {:?} complex gods {:?} debt rate {}", world.scenario_monuments, world.complex_gods, world.debt_rate),
             ["report"] => {
                 let houses: Vec<String> = world

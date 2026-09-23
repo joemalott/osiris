@@ -26,6 +26,12 @@ const HEADER_INTS: usize = 20;
 const GROUP_COUNT: usize = 300;
 const BITMAP_NAME_LEN: usize = 200;
 const BITMAP_NAME_SLOTS: usize = 200;
+/// Generous ceiling on one sprite's pixel count (`width * height`): real Pharaoh
+/// sprites (the biggest monuments included) are nowhere close to this. Guards
+/// against a corrupt or hand-edited record whose declared width/height would
+/// otherwise drive a multi-gigabyte allocation in `Sprite::blank` before any of the
+/// actual (possibly tiny, compressed) pixel data is even looked at.
+const MAX_SPRITE_PIXELS: u32 = 4096 * 4096;
 const RECORDS_START: usize =
     HEADER_INTS * 4 + GROUP_COUNT * 2 + BITMAP_NAME_SLOTS * BITMAP_NAME_LEN;
 
@@ -194,6 +200,13 @@ impl Sg3 {
 
         r.seek(RECORDS_START)?;
         let record_size = if version >= 214 { 72 } else { 64 };
+        // `num_records` is a raw count from the file (unlike `num_bitmaps`, it has no
+        // fixed maximum): bound it by what the file could actually hold before
+        // allocating for it, so a corrupt count (near `u32::MAX`) can't force a
+        // multi-gigabyte allocation that aborts the process instead of erroring out.
+        if num_records > r.remaining() / record_size {
+            return Err(Error::Invalid(format!("{name}.sg3: {num_records} image records (too many for the data)")));
+        }
         let mut records = Vec::with_capacity(num_records);
         for _ in 0..num_records {
             let start = r.pos();
@@ -288,6 +301,12 @@ impl Sg3 {
             let mut sprite = self.decode(src as usize)?;
             sprite.flip_horizontal();
             return Ok(sprite);
+        }
+        if (rec.width as u32).saturating_mul(rec.height as u32) > MAX_SPRITE_PIXELS {
+            return Err(Error::Invalid(format!(
+                "{}#{index}: implausible sprite size {}x{}",
+                self.name, rec.width, rec.height
+            )));
         }
         if rec.width == 0 || rec.height == 0 || rec.data_length == 0 {
             return Ok(Sprite::blank(rec.width as u32, rec.height as u32));

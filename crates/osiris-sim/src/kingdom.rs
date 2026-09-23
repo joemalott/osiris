@@ -73,6 +73,7 @@ impl World {
 
     /// What a gift of size 0-2 costs from the governor's savings.
     pub fn gift_cost(&self, size: usize) -> i32 {
+        let size = size.min(GIFT_RATE.len() - 1);
         self.governor.savings / GIFT_RATE[size] + GIFT_MIN[size]
     }
 

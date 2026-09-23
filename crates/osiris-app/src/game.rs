@@ -772,7 +772,7 @@ impl Game {
     }
 
     pub fn open_top_menu(&mut self, n: usize) {
-        self.top_menu.open = Some(n);
+        self.top_menu.open = (n < self.top_menu.headers.len()).then_some(n);
     }
 
     pub fn open_rules(&mut self) {

@@ -63,7 +63,8 @@ impl World {
         if rank > 0 {
             p.iter_mut().filter(|r| **r == rank).for_each(|r| *r = 0);
         }
-        p[ci] = rank.min(MAX_PRIORITY);
+        let Some(slot) = p.get_mut(ci) else { return };
+        *slot = rank.min(MAX_PRIORITY);
     }
 
     pub fn workers_needed(&self, kind: u16) -> i32 {

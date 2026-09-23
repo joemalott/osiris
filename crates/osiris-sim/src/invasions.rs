@@ -37,6 +37,15 @@ const CHASE_RANGE: i32 = 5;
 /// Months before arrival when reminders come.
 const REMINDERS: [i32; 4] = [24, 12, 6, 1];
 const TRIGGER_BY_FAVOUR: u8 = 16;
+
+/// How long an invader waits before retrying a failed pathfind, given how many times
+/// in a row it has already failed: backs off so a permanently unreachable target (an
+/// island across water, say, with no wall in reach to batter instead) isn't searched
+/// for again (a full-map scan) every 50 ticks for the rest of the game.
+fn stuck_backoff(consecutive_failures: u8) -> i32 {
+    50i32 << consecutive_failures.min(5)
+}
+
 /// Action of a routed invader.
 const FLEEING: u16 = action::FLEEING;
 
@@ -498,16 +507,6 @@ impl World {
             }
             return;
         }
-        // Attackers spread around the building rather than crowd one tile.
-        let slot = self.figures.get(fid).map_or(0, |f| f.slot) as usize;
-        let mut ring: Vec<(i32, i32)> = (by - 1..=by + h)
-            .flat_map(|yy| (bx - 1..=bx + w).map(move |xx| (xx, yy)))
-            .filter(|&(xx, yy)| (xx == bx - 1 || yy == by - 1 || xx == bx + w || yy == by + h) && crate::figures::passable(&self.map, Travel::Land, xx, yy))
-            .collect();
-        ring.sort_by_key(|&(xx, yy)| (xx - x).abs() + (yy - y).abs());
-        // A wall is attacked from the near side.
-        let pick = if battering { 0 } else { slot % ring.len().max(1) };
-        let spot = ring.get(pick).copied().unwrap_or((bx, by));
         // After a failed search for a way, wait a while before searching again.
         if let Some(f) = self.figures.get_mut(fid)
             && f.counter > 0
@@ -515,20 +514,49 @@ impl World {
             f.counter -= 1;
             return;
         }
+        // A figure already headed for a spot keeps going rather than repicking one
+        // every tick: the ring below is sorted by distance from the figure's current
+        // position, so as it walks the "nearest" slot keeps changing, which would
+        // otherwise force an expensive pathfind almost every tick instead of only
+        // when the figure actually needs a new route.
+        let f = self.figures.get(fid).expect("present");
+        let need_route = f.destination.is_none() || (!f.moving && f.route.is_empty());
+        if need_route {
+            // Attackers spread around the building rather than crowd one tile.
+            let slot = f.slot as usize;
+            let mut ring: Vec<(i32, i32)> = (by - 1..=by + h)
+                .flat_map(|yy| (bx - 1..=bx + w).map(move |xx| (xx, yy)))
+                .filter(|&(xx, yy)| (xx == bx - 1 || yy == by - 1 || xx == bx + w || yy == by + h) && crate::figures::passable(&self.map, Travel::Land, xx, yy))
+                .collect();
+            ring.sort_by_key(|&(xx, yy)| (xx - x).abs() + (yy - y).abs());
+            // A wall is attacked from the near side.
+            let pick = if battering { 0 } else { slot % ring.len().max(1) };
+            let spot = ring.get(pick).copied().unwrap_or((bx, by));
+            let map = &self.map;
+            let f = self.figures.get_mut(fid).expect("present");
+            if !f.go_to(map, spot) {
+                // Walled off: batter the nearest part of the wall instead. If there is
+                // none, the target is unreachable for some other reason (an island
+                // across water, say): back off further each consecutive failure so a
+                // permanently unreachable target isn't searched for (a full-map scan)
+                // again every 50 ticks forever.
+                f.destination = Some(spot);
+                f.counter = stuck_backoff(f.stuck);
+                f.stuck = f.stuck.saturating_add(1);
+                let wall = self.nearest_defense((x, y), i32::MAX);
+                if let (Some(w), Some(a)) = (wall, self.invasions.armies.get_mut(army))
+                    && a.target != w
+                {
+                    a.target = w;
+                }
+                return;
+            }
+            if let Some(f) = self.figures.get_mut(fid) {
+                f.stuck = 0;
+            }
+        }
         let map = &self.map;
         let f = self.figures.get_mut(fid).expect("present");
-        if (f.destination != Some(spot) || (!f.moving && f.route.is_empty())) && !f.go_to(map, spot) {
-            // Walled off: batter the nearest part of the wall instead.
-            f.destination = Some(spot);
-            f.counter = 50;
-            let wall = self.nearest_defense((x, y), i32::MAX);
-            if let (Some(w), Some(a)) = (wall, self.invasions.armies.get_mut(army))
-                && a.target != w
-            {
-                a.target = w;
-            }
-            return;
-        }
         if f.walk(map) == Step::Lost {
             f.route.clear();
         }
@@ -571,5 +599,21 @@ impl World {
             self.lost = true;
             self.messages.push_back("message_mission_defeat".to_owned());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stuck_backoff_grows_then_caps() {
+        // A single failure keeps the original 50-tick retry (temporary blockages,
+        // like a wall going up, should still be noticed quickly).
+        assert_eq!(stuck_backoff(0), 50);
+        // Repeated failures back off exponentially...
+        assert_eq!((stuck_backoff(1), stuck_backoff(2), stuck_backoff(3), stuck_backoff(4)), (100, 200, 400, 800));
+        // ...capped so it never stalls forever.
+        assert_eq!((stuck_backoff(5), stuck_backoff(6), stuck_backoff(255)), (1600, 1600, 1600));
     }
 }

@@ -107,8 +107,20 @@ impl World {
         Ok(())
     }
 
-    /// Tiles a build command covers, one entry per building placed.
+    /// Tiles a build command covers, one entry per building placed. `x1`/`y1` come
+    /// straight from the player's drag (or a script/save command): reined in to a
+    /// generous distance from `(x, y)` so an absurd value can't build a tile list with
+    /// billions of entries. Any span that could occur on a real map (however far
+    /// off-map) is left untouched, so `can_place`'s own bounds check still decides
+    /// what's valid exactly as before.
     pub fn build_sites(&self, k: u16, x: i32, y: i32, x1: i32, y1: i32) -> Vec<(i32, i32)> {
+        const MAX_SPAN: i32 = 1024;
+        let bound = |a: i32, b: i32| {
+            let too_far = b.checked_sub(a).is_none_or(|d| d.unsigned_abs() > MAX_SPAN as u32);
+            if too_far { a.saturating_add(if b >= a { MAX_SPAN } else { -MAX_SPAN }) } else { b }
+        };
+        let x1 = bound(x, x1);
+        let y1 = bound(y, y1);
         if crate::defenses::is_wall(k) {
             return self.wall_sites(x, y, x1, y1);
         }
