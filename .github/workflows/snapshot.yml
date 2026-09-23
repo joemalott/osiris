@@ -12,7 +12,8 @@ permissions:
 
 concurrency:
   group: snapshot
-  cancel-in-progress: true
+  # A running build finishes; of those waiting, only the newest runs.
+  cancel-in-progress: false
 
 jobs:
   build:
