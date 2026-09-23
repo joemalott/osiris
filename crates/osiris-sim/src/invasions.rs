@@ -91,6 +91,9 @@ pub struct Invasions {
     pub armies: Vec<Army>,
     pub land_points: Vec<(i32, i32)>,
     pub sea_points: Vec<(i32, i32)>,
+    /// Where invaders from the sea come ashore.
+    #[serde(default)]
+    pub landings: Vec<(i32, i32)>,
     /// The scenario's foreign enemy (nation index).
     pub nation: u16,
     pub peak_population: i32,
@@ -123,6 +126,7 @@ impl Invasions {
             planned,
             land_points: points(&info.invasion_points_land),
             sea_points: points(&info.invasion_points_sea),
+            landings: points(&info.disembark_points),
             nation: defs.armies.iter().position(|a| a.enemy_ids.contains(&(info.enemy_id as i64))).unwrap_or(0) as u16,
             ..Default::default()
         }
@@ -251,23 +255,41 @@ impl World {
                 p.done = true;
             }
         }
-        let spot = if (9..=16).contains(&point) {
+        let by_sea = (9..=16).contains(&point) && !self.invasions.sea_points.is_empty();
+        let spot = if by_sea {
             self.invasions.sea_points.get(point as usize - 9).copied()
         } else {
             self.invasions.land_points.get((point.max(1) - 1) as usize).copied()
         }
         .or_else(|| self.invasions.land_points.first().copied())
         .unwrap_or(self.entry_point);
-        let spot = self.nearest_land(spot).unwrap_or(spot);
         let nation = match inv.invader {
             invader::BEDOUIN => self.defs.army("bedouin"),
             invader::EGYPT | invader::PHARAOH => self.defs.army("egyptian"),
             _ => None,
         }
         .map_or(self.invasions.nation, |n| n as u16);
-        // The army's make-up follows each arm's frequency in the figure model, among
-        // the arms it has art for.
-        let arms: Vec<(u16, i32)> = if inv.invader == invader::BEDOUIN {
+        let army = self.invasions.armies.len();
+        self.invasions.armies.push(Army { figures: Vec::new(), invader: inv.invader, nation, target: 0, priority: inv.target, morale: 100, fleeing: false, entry: spot });
+        if by_sea {
+            self.launch_sea_invasion(army, nation, amount, spot);
+        } else {
+            let spot = self.nearest_land(spot).unwrap_or(spot);
+            self.invasions.armies[army].entry = spot;
+            self.put_ashore(army, nation, amount, spot);
+        }
+        let group = phrases(inv.invader);
+        self.post_invasion_text(inv.invader, &format!("{group}_city_attacked_alert"), 0);
+        if let Some(n) = self.notices.log.last_mut() {
+            n.tile = Some(spot);
+        }
+    }
+
+    /// Puts `men` of army `army` on the field at `spot`: its arms in proportion to their
+    /// frequency in the figure model, among the arms its nation has art for.
+    pub(crate) fn put_ashore(&mut self, army: usize, nation: u16, men: i32, spot: (i32, i32)) {
+        let invader = self.invasions.armies.get(army).map_or(invader::ENEMY, |a| a.invader);
+        let arms: Vec<(u16, i32)> = if invader == invader::BEDOUIN {
             vec![(BEDOUIN, 1)]
         } else {
             [ENEMY_INFANTRY, ENEMY_ARCHER, ENEMY_CHARIOT]
@@ -282,9 +304,8 @@ impl World {
                 .collect()
         };
         let total: i32 = arms.iter().map(|a| a.1).sum::<i32>().max(1);
-        let army = self.invasions.armies.len() as u16;
-        let mut figures = Vec::new();
-        for n in 0..amount {
+        let first = self.invasions.armies.get(army).map_or(0, |a| a.figures.len() as i32);
+        for n in first..first + men {
             let mut pick = (n * 37 + self.rng.below(total)) % total;
             let k = arms.iter().find(|a| {
                 pick -= a.1;
@@ -294,17 +315,13 @@ impl World {
             let fid = self.figures.spawn(k, spot.0, spot.1, Travel::Hostile);
             if let Some(f) = self.figures.get_mut(fid) {
                 f.cargo = nation;
-                f.formation = 1000 + army;
+                f.formation = 1000 + army as u16;
                 f.slot = (n % 16) as u8;
                 f.action = 1;
             }
-            figures.push(fid);
-        }
-        self.invasions.armies.push(Army { figures, invader: inv.invader, nation, target: 0, priority: inv.target, morale: 100, fleeing: false, entry: spot });
-        let group = phrases(inv.invader);
-        self.post_invasion_text(inv.invader, &format!("{group}_city_attacked_alert"), 0);
-        if let Some(n) = self.notices.log.last_mut() {
-            n.tile = Some(spot);
+            if let Some(a) = self.invasions.armies.get_mut(army) {
+                a.figures.push(fid);
+            }
         }
     }
 

@@ -152,6 +152,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             ["fortreturn", c] => world.return_company(c.parse()?),
             ["service", c] => world.toggle_kingdom_service(c.parse()?),
+            ["seapoint", p] => world.invasions.sea_points.push(parse_point(p)?),
             ["troops", n] => {
                 let i = world.scenario_events.request_troops_now(n.parse()?);
                 let ok = world.dispatch_request(i);
@@ -168,6 +169,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     eprintln!("  army {i} invader {} nation {} target {} {:?} morale {} fleeing {} {:?}", a.invader, a.nation, a.target, t, a.morale, a.fleeing, alive);
                 }
                 eprintln!("  battle {:?} kingdom {}", world.military.battle, world.ratings.kingdom);
+                eprintln!("  points land {:?} sea {:?} landings {:?}", world.invasions.land_points, world.invasions.sea_points, world.invasions.landings);
                 eprintln!("  planned {:?} lost {}", world.invasions.planned.iter().map(|p| (p.invader, p.year, p.month, p.warning, p.done)).collect::<Vec<_>>(), world.invasions.lost);
             }
             ["clearmessages"] => {

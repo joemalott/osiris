@@ -14,6 +14,10 @@ const DEATH_FRAME_TICKS: i32 = 4;
 /// A fighter's marching, striking and falling animations: an invader's from his
 /// army's art, anyone else's from the figure list.
 fn fighter_anims(world: &World, f: &Figure) -> Option<(Anim, Option<Anim>, Option<Anim>)> {
+    if f.kind == osiris_sim::navy::ENEMY_TRANSPORT {
+        let s = world.defs.armies.get(f.cargo as usize)?.transport?;
+        return Some((s.walk, None, Some(s.death)));
+    }
     if invasions::is_invader_kind(f.kind) {
         let arm = match f.kind {
             ENEMY_ARCHER => 1,
@@ -30,7 +34,7 @@ fn fighter_anims(world: &World, f: &Figure) -> Option<(Anim, Option<Anim>, Optio
 
 /// The sprite for a fighter or missile, or `None` for other figures.
 pub fn fighter_sprite(world: &World, f: &Figure) -> Option<Sprite> {
-    let fighter = military::is_soldier(f.kind) || invasions::is_invader_kind(f.kind);
+    let fighter = military::is_soldier(f.kind) || invasions::is_invader_kind(f.kind) || f.kind == osiris_sim::navy::ENEMY_TRANSPORT;
     let missile = matches!(f.kind, military::ARROW | military::JAVELIN);
     if !fighter && !missile {
         return None;

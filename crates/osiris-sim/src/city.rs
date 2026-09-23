@@ -45,6 +45,7 @@ impl World {
                 self.update_venues();
             }
             34 => {
+                self.update_navy_yards();
                 self.update_shipwrights();
                 self.update_ferries();
             }
@@ -127,6 +128,9 @@ impl World {
                 k if crate::military::is_soldier(k) => self.update_soldier(fid),
                 crate::military::STANDARD_BEARER => self.update_standard_bearer(fid),
                 crate::military::ARROW | crate::military::JAVELIN => self.update_missile(fid),
+                crate::navy::ENEMY_TRANSPORT => self.update_enemy_transport(fid),
+                crate::navy::WARSHIP => self.update_warship(fid),
+                crate::navy::TRANSPORT => self.update_warship(fid),
                 k if crate::invasions::is_invader_kind(k) => self.update_invader(fid),
                 crate::defenses::TOWER_SENTRY => self.update_sentry(fid),
                 crate::fishing::FISHING_BOAT => self.update_fishing_boat(fid),

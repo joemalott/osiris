@@ -247,6 +247,8 @@ pub struct ArmyDef {
     pub stats_row: Option<usize>,
     /// Infantry, archers, chariots.
     pub arms: [Option<ArmSprites>; 3],
+    /// Its transport ships: sailing, at rest, sinking.
+    pub transport: Option<ArmSprites>,
 }
 
 fn load_armies(lib: &osiris_formats::ImageLibrary) -> Result<Vec<ArmyDef>, String> {
@@ -263,12 +265,17 @@ fn load_armies(lib: &osiris_formats::ImageLibrary) -> Result<Vec<ArmyDef>, Strin
             let a = v.get(key)?;
             Some(ArmSprites { walk: anim(a, "walk")?, attack: anim(a, "attack")?, death: anim(a, "death")? })
         };
+        let ship = |key: &str| -> Option<ArmSprites> {
+            let a = v.get(key)?;
+            Some(ArmSprites { walk: anim(a, "swim")?, attack: anim(a, "idle")?, death: anim(a, "death")? })
+        };
         Some(ArmyDef {
             key: v.get("key")?.as_str()?.to_owned(),
             name: v.get("name_text").and_then(|n| n.as_array()).and_then(|a| a.get(1)).and_then(|i| i.as_integer()).map(|i| i as usize),
             enemy_ids: v.get("enemy_ids").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|i| i.as_integer()).collect()).unwrap_or_default(),
             stats_row: v.get("stats_row").and_then(|r| r.as_integer()).filter(|&r| r >= 0).map(|r| r as usize),
             arms: [arm("infantry"), arm("archer"), arm("chariot")],
+            transport: ship("transport"),
         })
     };
     let mut out: Vec<ArmyDef> = t.get("nation").and_then(|n| n.as_array()).map(|a| a.iter().filter_map(army).collect()).unwrap_or_default();

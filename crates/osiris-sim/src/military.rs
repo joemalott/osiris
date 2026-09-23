@@ -484,7 +484,7 @@ impl World {
         f.foe = 0;
         f.route.clear();
         f.moving = false;
-        let formation = f.formation;
+        let formation = if f.kind == crate::navy::ENEMY_TRANSPORT { 0 } else { f.formation };
         if let Some(c) = self.company_of(fid).and_then(|c| self.military.companies.get_mut(c)) {
             let size = (c.soldiers.len() + c.recruits.len()).max(1) as i32;
             c.morale = (c.morale - morale_loss(100 / size)).max(0);

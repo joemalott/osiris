@@ -85,10 +85,14 @@ impl World {
         let mut wanted = self.wharves_wanting_boats().len() as i32;
         // Boats already launched or on the stocks cover some of that.
         wanted -= self.figures.iter().filter(|f| f.kind == FISHING_BOAT && f.action == action::CREATED).count() as i32;
-        wanted -= yards.iter().filter(|&&y| self.buildings.get(y).is_some_and(|b| b.progress > 0)).count() as i32;
+        wanted -= yards.iter().filter(|&&y| self.buildings.get(y).is_some_and(|b| b.progress > 0 && b.boat_kind == 0)).count() as i32;
         for id in yards {
             let pct = self.staffing(id);
             let Some(b) = self.buildings.get_mut(id) else { continue };
+            // Busy with a warship or transport.
+            if b.boat_kind != 0 {
+                continue;
+            }
             if b.progress == 0 {
                 // A new boat is laid down; work starts the next day.
                 if wanted > 0 && b.workers > 0 {
