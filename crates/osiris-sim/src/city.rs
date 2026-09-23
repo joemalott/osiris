@@ -48,6 +48,7 @@ impl World {
                 self.venue_walkers();
             }
             9 => self.decay_house_services(),
+            32 => self.update_trade(),
             36 => self.update_culture(),
             38 => self.update_building_desirability(),
             39 => self.evolve_houses(),
@@ -72,6 +73,7 @@ impl World {
         }
         if roll.year {
             self.advance_year_finance();
+            self.reset_trade_year();
         }
     }
 
@@ -86,6 +88,8 @@ impl World {
                 k if crate::services::is_roamer(k) => self.update_roamer(fid),
                 crate::economy::CART_PUSHER | crate::economy::STORAGEYARD_CART => self.update_cart(fid),
                 crate::economy::LUMBERJACK | crate::economy::REED_GATHERER => self.update_gatherer(fid),
+                crate::trade::TRADE_CARAVAN => self.update_caravan(fid),
+                crate::trade::CARAVAN_DONKEY => self.update_donkey(fid),
                 crate::food::MARKET_BUYER => self.update_buyer(fid),
                 k if crate::animals::is_animal(k) => self.update_animal(fid),
                 k if crate::animals::is_hunter(k) => self.update_hunter(fid),

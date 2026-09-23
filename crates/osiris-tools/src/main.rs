@@ -13,7 +13,8 @@ const USAGE: &str = "usage:
   osiris-tools text <game dir> <group>               print all strings of a text group
   osiris-tools message <game dir> <id>               print one Pharaoh_MM.eng entry
   osiris-tools model <game dir> <difficulty>         print buildings/houses/figures for a difficulty
-  osiris-tools campaign <game dir>                   print the campaign.txt structure";
+  osiris-tools campaign <game dir>                   print the campaign.txt structure
+  osiris-tools empire <game dir> <mission|map path>  print the empire's cities and routes";
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -34,6 +35,7 @@ fn main() -> Result<()> {
         ["message", dir, id] => message_cmd(Path::new(dir), id),
         ["model", dir, difficulty] => model_cmd(Path::new(dir), difficulty),
         ["campaign", dir] => campaign_cmd(Path::new(dir)),
+        ["empire", dir, what] => empire_cmd(Path::new(dir), what),
         _ => bail!("{USAGE}"),
     }
 }
@@ -365,5 +367,28 @@ fn campaign_cmd(game: &Path) -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+fn empire_cmd(game: &Path, what: &str) -> Result<()> {
+    let s = match what.parse::<usize>() {
+        Ok(n) => MissionPak::open(&game.join("mission1.pak"))?.scenario(n)?,
+        Err(_) => Scenario::load_map(Path::new(what))?,
+    };
+    let text = TextTable::parse(&std::fs::read(game.join("Pharaoh_Text.eng"))?)?;
+    let e = &s.info;
+    println!("empire id {} ", e.empire_id);
+    for (i, o) in s.empire.objects.iter().enumerate().filter(|(_, o)| o.in_use && o.kind == osiris_formats::empire::object::CITY) {
+        let name = text.get(195, o.city_name_id as usize).unwrap_or("?");
+        let demand: Vec<String> = o.demand.iter().enumerate().filter(|(_, d)| **d > 0).map(|(r, d)| format!("{r}:{d}")).collect();
+        println!(
+            "obj {i:3} city {:2} {name:14} type {} route {} open {} cost {} at ({},{}) sells {:?} buys {:?} demand {:?}",
+            o.city_name_id, o.city_type, o.trade_route_id, o.trade_route_open, o.trade_route_cost, o.x, o.y, o.sells, o.buys, demand
+        );
+    }
+    for (i, r) in s.empire.routes.iter().enumerate().filter(|(_, r)| r.in_use) {
+        println!("route {i}: type {} {} points {:?}", r.route_type, r.points.len(), r.points.first());
+    }
+    println!("prices {:?}", s.empire.prices.iter().take(12).collect::<Vec<_>>());
     Ok(())
 }

@@ -20,6 +20,10 @@ pub struct YearTotals {
     pub wages: i32,
     pub interest: i32,
     pub construction: i32,
+    #[serde(default)]
+    pub imports: i32,
+    #[serde(default)]
+    pub exports: i32,
 }
 
 impl Default for Finance {

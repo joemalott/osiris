@@ -1,5 +1,6 @@
 mod anims;
 mod city_view;
+mod empire_window;
 mod game;
 mod gfx;
 mod info;
@@ -462,6 +463,7 @@ impl App {
             }
             Some(Screen::Playing(game, mission)) => {
                 let pan = 900.0 * dt / gfx.renderer.camera.zoom;
+                let screen = gfx.renderer.screen;
                 let cam = &mut gfx.renderer.camera;
                 for (k, dx, dy) in [
                     (KeyCode::ArrowLeft, -1.0, 0.0),
@@ -470,8 +472,13 @@ impl App {
                     (KeyCode::ArrowDown, 0.0, 1.0),
                 ] {
                     if self.keys.contains(&k) {
-                        cam.x += dx * pan;
-                        cam.y += dy * pan;
+                        match &mut game.empire {
+                            Some(e) => e.scroll_by(screen, dx * 900.0 * dt, dy * 900.0 * dt),
+                            None => {
+                                cam.x += dx * pan;
+                                cam.y += dy * pan;
+                            }
+                        }
                     }
                 }
                 game.update(dt);
@@ -604,6 +611,11 @@ fn main() -> Result<()> {
             && let Some(c) = sidebar::Category::ALL.iter().find(|c| format!("{c:?}").eq_ignore_ascii_case(name))
         {
             game.choose_category(*c);
+        }
+        if let Some(city) = view.empire {
+            let mut e = empire_window::EmpireWindow::default();
+            e.select(city);
+            game.empire = Some(e);
         }
         if view.rules {
             game.rules_panel = Some(rules_panel::RulesPanel::default());

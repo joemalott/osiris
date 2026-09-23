@@ -109,6 +109,8 @@ pub struct Game {
     /// The world as it was before the last build action, and when that was.
     undo: Option<(Vec<u8>, u64)>,
     pub message_list: Option<MessageList>,
+    pub empire: Option<crate::empire_window::EmpireWindow>,
+    empire_images: Option<crate::empire_window::EmpireImages>,
     custom_dialog: Option<Message>,
     pub rules_panel: Option<RulesPanel>,
     /// Set when the player changes the rules, so the caller can store them.
@@ -164,6 +166,8 @@ impl Game {
             map_changed: true,
             undo: None,
             message_list: None,
+            empire: None,
+            empire_images: None,
             custom_dialog: None,
             rules_panel: None,
             rules_changed: false,
@@ -218,7 +222,7 @@ impl Game {
 
     /// Nothing modal is open and no tool is in hand.
     pub fn idle(&self) -> bool {
-        self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.rules_panel.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
+        self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.empire.is_none() && self.rules_panel.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
     }
 
     pub fn close_dialog(&mut self) {
@@ -358,6 +362,11 @@ impl Game {
             self.hover = None;
             return;
         }
+        if let Some(e) = &mut self.empire {
+            e.hover(r.screen, screen);
+            self.hover = None;
+            return;
+        }
         self.top_menu.hover(screen);
         if self.top_menu.contains(screen) {
             self.hover = None;
@@ -463,6 +472,20 @@ impl Game {
 
     /// Handles a left click. Returns a tile to centre the view on (minimap clicks).
     pub fn press_at(&mut self, r: &Renderer) -> Option<(i32, i32)> {
+        if self.dialog.is_none()
+            && let Some(e) = &mut self.empire
+        {
+            let images = *self.empire_images.get_or_insert_with(|| crate::empire_window::EmpireImages::load(&r.library).expect("empire images"));
+            match e.click(r, &self.world, &images, self.cursor) {
+                crate::empire_window::EmpireClick::Close => self.empire = None,
+                crate::empire_window::EmpireClick::OpenRoute(c) => match self.world.open_trade_route(c) {
+                    Ok(()) => self.sound("BUTTON.WAV"),
+                    Err(why) => self.say(why),
+                },
+                crate::empire_window::EmpireClick::Nothing => {}
+            }
+            return None;
+        }
         if let Some(i) = &self.info
             && !i.contains(r, self.cursor)
         {
@@ -561,7 +584,8 @@ impl Game {
             Button::Problem => self.world.problems().next().is_some(),
             Button::Briefing => self.briefing().is_some(),
             Button::SpeedDown | Button::SpeedUp => true,
-            Button::Advisors | Button::Empire | Button::Collapse => false,
+            Button::Empire => !self.world.trade.cities.is_empty(),
+            Button::Advisors | Button::Collapse => false,
         };
         if !enabled {
             return None;
@@ -588,7 +612,12 @@ impl Game {
             }
             Button::SpeedDown => self.slower(),
             Button::SpeedUp => self.faster(),
-            Button::Advisors | Button::Empire | Button::Collapse => {}
+            Button::Empire => {
+                self.sidebar.open = None;
+                self.tool = Tool::None;
+                self.empire = Some(Default::default());
+            }
+            Button::Advisors | Button::Collapse => {}
         }
         None
     }
@@ -673,6 +702,9 @@ impl Game {
 
     pub fn release(&mut self) {
         self.sidebar.release();
+        if let Some(e) = &mut self.empire {
+            e.release();
+        }
         if self.drag_start.is_none() {
             return;
         }
@@ -695,7 +727,7 @@ impl Game {
     }
 
     pub fn cancel(&mut self) {
-        if self.dialog.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() {
+        if self.dialog.take().is_some() || self.empire.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() {
             return;
         }
         if self.sidebar.open.take().is_some() {
@@ -807,6 +839,14 @@ impl Game {
 
     pub fn draw(&mut self, r: &mut Renderer) {
         self.next_dialog(r);
+        if let Some(e) = &mut self.empire {
+            let images = *self.empire_images.get_or_insert_with(|| crate::empire_window::EmpireImages::load(&r.library).expect("empire images"));
+            e.draw(r, &self.images.panels, &self.world, &self.text, &images);
+            if let Some(d) = &self.dialog {
+                d.draw(r);
+            }
+            return;
+        }
         let (marks, cost) = self.highlights();
         let marker = self.world.defs.terrain.empty_land;
         let sprites = self.sprites(r);

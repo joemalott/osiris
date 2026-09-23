@@ -6,6 +6,7 @@
 pub mod bytes;
 pub mod campaign;
 pub mod chunks;
+pub mod empire;
 pub mod images;
 pub mod messages;
 pub mod model;
@@ -16,6 +17,7 @@ pub mod text;
 
 pub use campaign::Campaign;
 pub use chunks::{ChunkFile, Layout, MissionPak};
+pub use empire::Empire;
 pub use images::{ImageLibrary, PackImage};
 pub use messages::{Message, MessageTable};
 pub use model::{BuildingModel, FigureModel, HouseModel, Model};

@@ -87,6 +87,9 @@ pub struct World {
     /// Regrowth of cut trees and reeds (255 = grown); absent until something is cut.
     #[serde(default)]
     pub vegetation: Option<crate::grid::Grid<u8>>,
+    /// The empire's cities and trade routes.
+    #[serde(default)]
+    pub trade: crate::trade::Trade,
     pub events: crate::missions::CityEvents,
     pub won: bool,
     pub migration_params: crate::people::MigrationParams,
@@ -160,6 +163,7 @@ impl World {
             messages: VecDeque::new(),
             notices: Default::default(),
             vegetation: None,
+            trade: crate::trade::Trade::from_scenario(scenario),
             events: Default::default(),
             won: false,
             migration_params: Default::default(),

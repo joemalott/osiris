@@ -30,6 +30,7 @@ pub mod rules;
 pub mod services;
 pub mod storage;
 pub mod tiles;
+pub mod trade;
 pub mod venues;
 pub mod time;
 pub mod world;

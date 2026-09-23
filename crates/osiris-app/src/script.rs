@@ -22,6 +22,7 @@ pub struct ScriptView {
     pub overlay: Option<String>,
     pub top_menu: Option<usize>,
     pub build_menu: Option<String>,
+    pub empire: Option<Option<usize>>,
 }
 
 /// Runs `--script` steps against the world.
@@ -63,6 +64,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["topmenu", n] => view.top_menu = Some(n.parse()?),
             ["messages"] => view.messages = true,
             ["buildmenu", name] => view.build_menu = Some(name.to_string()),
+            ["empire"] => view.empire = Some(None),
+            ["empire", c] => view.empire = Some(Some(c.parse()?)),
             ["burn", p] => {
                 let (x, y) = parse_point(p)?;
                 let id = world.map.building.at_or(x, y, 0);
@@ -71,13 +74,36 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["stock", p, r, n] => {
                 let (x, y) = parse_point(p)?;
                 let id = world.map.building.at_or(x, y, 0);
-                let b = world.buildings.get_mut(id).context("no building there")?;
-                let r: usize = r.parse()?;
-                if b.stock.len() <= r {
-                    b.stock.resize(r + 1, 0);
-                }
-                b.stock[r] = n.parse()?;
+                world.buildings.get(id).context("no building there")?;
+                let (r, n): (u16, i32) = (r.parse()?, n.parse()?);
+                let have = world.stored(id, r);
+                world.take_stored(id, r, have);
+                world.add_stored(id, r, n);
             }
+            ["opentrade", c] => {
+                let c: usize = c.parse()?;
+                world.trade.cities[c].open = true;
+            }
+            ["trade", r, st, n] => {
+                let st = match *st {
+                    "import" => osiris_sim::trade::status::IMPORT,
+                    "export" => osiris_sim::trade::status::EXPORT,
+                    _ => osiris_sim::trade::status::NONE,
+                };
+                world.set_trade(r.parse()?, st, n.parse()?);
+            }
+            ["tradereport"] => {
+                for (i, c) in world.trade.cities.iter().enumerate() {
+                    let route = &world.trade.routes[c.route as usize];
+                    let traded: Vec<(usize, i32)> = route.traded.iter().copied().enumerate().filter(|t| t.1 > 0).collect();
+                    eprintln!("  city {i} name {} type {} open {} sea {} traded {:?}", c.name_id, c.city_type, c.open, c.sea, traded);
+                }
+                for t in &world.trade.traders {
+                    eprintln!("  trader {:?} at {:?}", t, world.trader_position(t));
+                }
+                eprintln!("  finance {:?} entry {:?} exit {:?}", world.finance.this_year, world.entry_point, world.exit_point);
+            }
+            ["globallabor"] => world.rules.global_labor_pool = true,
             ["safe"] => {
                 world.rules.fire = false;
                 world.rules.collapse = false;
@@ -120,7 +146,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     stock.extend(b.spaces.iter().filter(|s| s.1 > 0).map(|s| (s.0 as usize, s.1)));
                     eprintln!("  bld {} kind {} at ({},{}) workers {} covered {} road {:?} walkers {:?} progress {} stock {:?} shows {:?}", b.id, b.kind, b.x, b.y, b.workers, b.houses_covered, b.road, b.walkers, b.progress, stock, b.shows);
                 }
-                for f in world.figures.iter().take(5) {
+                for f in world.figures.iter().take(40) {
                     eprintln!(
                         "  fig {} kind {} at ({},{}) dest {:?} route {} moving {} counter {} progress {} dir {}",
                         f.id, f.kind, f.x, f.y, f.destination, f.route.len(), f.moving, f.counter, f.progress, f.direction
