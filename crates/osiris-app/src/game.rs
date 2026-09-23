@@ -628,6 +628,7 @@ impl Game {
                         9 => Tool::Clear,
                         k => Tool::Build(k),
                     };
+                    self.pick_statue_look(k);
                     self.sidebar.open = None;
                     self.sound("BUTTON.WAV");
                 }
@@ -789,10 +790,38 @@ impl Game {
         self.show_overlay(last);
     }
 
+    /// Taking up a statue tool picks one of its looks at random, facing the viewer.
+    fn pick_statue_look(&mut self, k: u16) {
+        let Some(d) = self.world.defs.building(k).filter(|d| d.has_flag("is_statue")) else { return };
+        let n = d.variants.len().max(1) as u128;
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |t| t.as_nanos());
+        self.world.statue_variant = (nanos / 1000 % n) as u8;
+        self.world.statue_facing = 1;
+    }
+
+    fn holding_statue(&self) -> bool {
+        matches!(self.tool, Tool::Build(k) if self.world.defs.building(k).is_some_and(|d| d.has_flag("is_statue")))
+    }
+
+    /// R while holding a statue: turn it a quarter.
+    pub fn rotate_statue(&mut self) {
+        if self.holding_statue() {
+            self.world.statue_facing = (self.world.statue_facing + 1) % 4;
+        }
+    }
+
+    /// Ctrl+R while holding a statue: its next look.
+    pub fn next_statue_look(&mut self) {
+        let Tool::Build(k) = self.tool else { return };
+        let Some(n) = self.world.defs.building(k).filter(|d| d.has_flag("is_statue")).map(|d| d.variants.len().max(1)) else { return };
+        self.world.statue_variant = ((self.world.statue_variant as usize + 1) % n) as u8;
+    }
+
     /// Picks up building `k` as the tool, if this mission allows it.
     pub fn try_tool(&mut self, k: u16) {
         if self.world.is_allowed(k) {
             self.tool = Tool::Build(k);
+            self.pick_statue_look(k);
             self.sidebar.open = None;
         } else {
             self.say("Not available yet");

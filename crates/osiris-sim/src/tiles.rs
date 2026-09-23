@@ -9,7 +9,7 @@ use crate::map::{Map, NEIGHBOURS, mask, terrain};
 
 /// Rotating variant counters, one per context-table row. The original keeps these as
 /// global state, so repeated edge tiles cycle through their variants.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ContextCounters {
     dirt_road: Vec<u32>,
     paved_road: Vec<u32>,
@@ -81,8 +81,8 @@ pub fn grass_level(map: &Map, x: i32, y: i32) -> u32 {
 pub struct TileRules<'a> {
     pub defs: &'a Defs,
     pub counters: &'a mut ContextCounters,
-    /// Desirability at a tile; roads pave themselves in desirable areas.
-    pub desirability: &'a dyn Fn(i32, i32) -> i32,
+    /// The city's desirability grid; roads pave themselves in desirable areas.
+    pub desirability: &'a crate::grid::Grid<i8>,
 }
 
 impl TileRules<'_> {
@@ -100,7 +100,7 @@ impl TileRules<'_> {
         }
         let base = self.defs.terrain.road;
         let tiles = road_tiles(map, x, y);
-        let d = (self.desirability)(x, y);
+        let d = self.desirability.at_or(x, y, 0) as i32;
         let paved = d > 4 || (d > 0 && t & terrain::FOUNTAIN_RANGE != 0);
         let image = if paved {
             let c = match_context(&self.defs.contexts.paved_road, &mut self.counters.paved_road, tiles);

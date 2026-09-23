@@ -347,6 +347,28 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     eprintln!("{name}: {:?}", &v[..v.len().min(6)]);
                 }
             }
+            // The build tool's statue look (0..) and facing (0-3) for later builds.
+            ["statue", v, f] => {
+                world.statue_variant = v.parse()?;
+                world.statue_facing = f.parse()?;
+            }
+            ["roadimages"] => {
+                // Road tiles by image id: count, terrain bits and one example tile.
+                use osiris_sim::map::terrain;
+                let mut counts: std::collections::BTreeMap<u32, (u32, u32, (i32, i32))> = Default::default();
+                for y in 0..world.map.height {
+                    for x in 0..world.map.width {
+                        let t = world.map.terrain.at_or(x, y, 0);
+                        if t & terrain::ROAD != 0 {
+                            let e = counts.entry(world.map.images.at_or(x, y, 0)).or_insert((0, t, (x, y)));
+                            e.0 += 1;
+                        }
+                    }
+                }
+                for (image, (n, t, p)) in counts {
+                    eprintln!("road image {image}: {n} tiles, terrain {t:#x}, e.g. {p:?}");
+                }
+            }
             ["asciimap"] => {
                 // The whole map: ~ water, p floodplain, C cliff, B building, x blocked, . clear land.
                 use osiris_sim::map::{mask, terrain};
