@@ -113,6 +113,9 @@ pub struct EventText {
     /// An invading army's title (text group 37).
     #[serde(default)]
     pub army: Option<usize>,
+    /// The god a festival is for.
+    #[serde(default)]
+    pub god: Option<u8>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -138,6 +141,8 @@ pub struct ScenarioEvent {
     pub on_too_late: i16,
     #[serde(default)]
     pub on_defeat: i16,
+    #[serde(default)]
+    pub god: i8,
     pub months_initial: i32,
     /// What this occurrence is about.
     pub resource: u16,
@@ -185,6 +190,7 @@ impl ScenarioEvents {
                 on_refusal: e.on_refusal,
                 on_too_late: e.on_too_late,
                 on_defeat: e.on_defeat,
+                god: e.god,
                 months_initial: e.months as i32,
                 ..Default::default()
             })
@@ -629,6 +635,7 @@ impl World {
             template: 130,
             cause: None,
             army: None,
+            god: (0..5).contains(&this.god).then_some(this.god as u8),
         };
         let mut posts: Vec<EventText> = Vec::new();
         let mut comply_ready = false;

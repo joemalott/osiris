@@ -46,6 +46,8 @@ pub struct EventRecord {
     pub state: i8,
     pub overdue: bool,
     pub active: bool,
+    /// The god a festival request honours (0 Osiris .. 4 Bast).
+    pub god: i8,
     /// An invasion's primary target.
     pub attack_target: i8,
     /// 0 the city asks or gives, 1 Pharaoh.
@@ -87,7 +89,9 @@ fn parse_event(data: &[u8]) -> Result<(i16, EventRecord)> {
     e.state = r.i8()?;
     e.overdue = r.u8()? != 0;
     e.active = r.u8()? != 0;
-    r.skip(1 + 2 + 1 + 1)?;
+    r.skip(1 + 2)?;
+    e.god = r.i8()?;
+    r.skip(1)?;
     e.attack_target = r.i8()?;
     r.skip(1 + 20 + 4)?;
     e.on_too_late = r.i16()?;
