@@ -187,6 +187,7 @@ impl World {
         world.defs = defs;
         world.balance = balance;
         world.upgrade_monuments();
+        world.upgrade_companies();
         Ok(world)
     }
 }

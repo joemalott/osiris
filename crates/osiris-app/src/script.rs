@@ -172,6 +172,10 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             ["fortreturn", c] => world.return_company(c.parse()?),
             ["service", c] => world.toggle_kingdom_service(c.parse()?),
+            // Lets the city raise a temple complex to god `g`.
+            ["allowcomplex", g] => world.complex_gods[g.parse::<usize>()?.min(4)] = true,
+            // A god blesses or curses the city now: god index, bless|curse, major|minor.
+            ["god", g, what, size] => world.god_acts_now(g.parse()?, *what == "bless", *size == "major"),
             // Starts the scenario's earthquake now, or one at a tile with a severity.
             ["quake"] => eprintln!("{step}: started {}", world.quake_now(None, None)),
             ["quake", p, n] => eprintln!("{step}: started {}", world.quake_now(Some(parse_point(p)?), Some(n.parse()?))),
@@ -203,7 +207,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["army"] => {
                 for (i, c) in world.military.companies.iter().enumerate() {
                     let alive: Vec<(i32, i32, u16, i32)> = c.soldiers.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.action, f.damage)).collect();
-                    eprintln!("  company {i} fort {} kind {} at_fort {} morale {} wind {} trained {} soldiers {} recruits {} {:?}", c.fort, c.kind, c.at_fort, c.morale, c.wind, c.trained, c.soldiers.len(), c.recruits.len(), alive);
+                    eprintln!("  company {i} fort {} kind {} at_fort {} morale {} wind {} experience {} soldiers {} recruits {} {:?}", c.fort, c.kind, c.at_fort, c.morale, c.wind, c.experience, c.soldiers.len(), c.recruits.len(), alive);
                 }
                 for (i, a) in world.invasions.armies.iter().enumerate() {
                     let alive: Vec<(i32, i32, u16, u16, i32)> = a.figures.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.kind, f.action, f.damage)).collect();

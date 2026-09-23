@@ -59,7 +59,8 @@ pub fn fighter_sprite(world: &World, f: &Figure) -> Option<Sprite> {
     Some(Sprite { x: f.x, y: f.y, offset, image })
 }
 
-/// A company's standard: its pole (lower the lower the company's morale), its flag
+/// A company's standard: its pole with the morale ball (lower the lower the
+/// company's morale) and the experience ball (higher the more experienced), its flag
 /// waving above, and the company's sign on top.
 pub fn standard_sprites(r: &osiris_render::Renderer, world: &World, f: &Figure, ticks: u64) -> Vec<Sprite> {
     let Some(def) = world.defs.figure(f.kind) else { return Vec::new() };
@@ -71,16 +72,25 @@ pub fn standard_sprites(r: &osiris_render::Renderer, world: &World, f: &Figure, 
         _ => "flag_infantry",
     };
     let (Some(pole), Some(flag), Some(sign)) = (def.anims.get("pole"), def.anims.get(flag_key), def.anims.get("sign")) else { return Vec::new() };
-    let pole_image = pole.image + (pole.frames as i32 * (21 - co.morale / 5) / 21).clamp(0, pole.frames as i32 - 1) as u32;
+    let pole_image = pole.image + (20 - co.morale / 5).clamp(0, pole.frames as i32 - 1) as u32;
+    let ball = def.anims.get("experience").map(|a| a.image + military::experience_ball(co.experience).min(a.frames.max(1) - 1));
     let flag_image = flag.image + (ticks / flag.duration.max(1) as u64 % flag.frames.max(1) as u64) as u32;
     let sign_image = sign.image + company as u32 % 10;
-    let height = |i: u32| r.record(i).map_or(0, |rec| rec.height as i32);
+    // The pole (and the experience ball, drawn over it) stands on the bearer's foot;
+    // the flag sits on top of the pole and the sign on top of the flag, all flush
+    // with the pole's left edge, as in the original.
+    let rec = |i: u32| r.record(i).map_or((0, 0, 0), |rec| (rec.height as i32, rec.sprite_offset_x as i32, rec.sprite_offset_y as i32));
     let (fx, fy) = f.pixel_offset();
-    let mut y = fy - height(pole_image);
-    let mut out = vec![Sprite { x: f.x, y: f.y, offset: (fx, y), image: pole_image }];
-    y -= height(flag_image);
-    out.push(Sprite { x: f.x, y: f.y, offset: (fx, y), image: flag_image });
-    y -= height(sign_image);
-    out.push(Sprite { x: f.x, y: f.y, offset: (fx, y), image: sign_image });
+    let (_, pole_x, pole_y) = rec(pole_image);
+    let (left, mut top) = (fx - pole_x, fy - pole_y);
+    let mut out = vec![Sprite { x: f.x, y: f.y, offset: (fx, fy), image: pole_image }];
+    if let Some(image) = ball {
+        out.push(Sprite { x: f.x, y: f.y, offset: (fx, fy), image });
+    }
+    for image in [flag_image, sign_image] {
+        let (h, ox, oy) = rec(image);
+        top -= h;
+        out.push(Sprite { x: f.x, y: f.y, offset: (left + ox, top + oy), image });
+    }
     out
 }

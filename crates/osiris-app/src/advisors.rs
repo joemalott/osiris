@@ -1280,6 +1280,11 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
         ui.label(Font::NormalWhiteOnDark, &count, px + 44.0, ry + 22.0);
         let morale = ui.t(138, 37 + (co.morale / 5).clamp(0, 20) as usize);
         ui.label(Font::NormalWhiteOnDark, &morale, px + 200.0, ry + 22.0);
+        // Experience: its rank's icon and name.
+        let rank = osiris_sim::military::experience_rank(co.experience);
+        ui.image(ui.img.experience_icons + rank as u32, px + 172.0, ry + 1.0);
+        let rank = ui.t(138, 60 + rank);
+        ui.label(Font::NormalWhiteOnDark, &rank, px + 200.0, ry + 4.0);
         let go = format!("{} {}", ui.t(G, 1), ui.t(G, 2));
         if !co.soldiers.is_empty() && ui.button([px + 330.0, ry + 4.0, 110.0, 22.0], &go, Font::NormalWhiteOnDark) {
             action = Some(AdvisorAction::GoToCompany(*c));

@@ -150,9 +150,16 @@ impl InfoPanel {
         ui.label(Font::NormalWhiteOnDark, &count, x + 32.0, y + 56.0);
         let morale = format!("{} {}", ui.t(G, 36), ui.t(G, 37 + (co.morale / 5).clamp(0, 20) as usize));
         ui.label(Font::NormalWhiteOnDark, &morale, x + 32.0, y + 78.0);
+        // Experience: its rank's icon and name.
+        let rank = osiris_sim::military::experience_rank(co.experience);
+        let experience = ui.t(G, 25);
+        ui.label(Font::NormalWhiteOnDark, &experience, x + 32.0, y + 100.0);
+        ui.image(ui.img.experience_icons + rank as u32, x + 200.0, y + 96.0);
+        let rank = ui.t(G, 60 + rank);
+        ui.label(Font::NormalWhiteOnDark, &rank, x + 232.0, y + 100.0);
         if co.soldiers.is_empty() {
             let none = ui.t(G, 10);
-            ui.wrapped(Font::NormalWhiteOnDark, &none, x + 32.0, y + 104.0, 24.0 * 16.0);
+            ui.wrapped(Font::NormalWhiteOnDark, &none, x + 32.0, y + 126.0, 24.0 * 16.0);
         }
         let mut action = closed.then_some(InfoAction::Close);
         // Standing orders, each with its name and what it means (text 138).

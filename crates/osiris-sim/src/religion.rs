@@ -80,6 +80,10 @@ pub struct Religion {
     /// Days of Osiris's doubled harvests.
     pub osiris_double_harvest_days: i32,
     pub wrath_message_delay: i32,
+    /// Seth's minor blessing: the next troops sent to a distant battle win it
+    /// without loss.
+    #[serde(default)]
+    pub seth_protects: bool,
 }
 
 impl Religion {
@@ -237,6 +241,15 @@ impl World {
         self.rng.byte() & 1 == 0
     }
 
+    /// Makes god `god` bless or curse the city now (for testing).
+    pub fn god_acts_now(&mut self, god: usize, blessing: bool, major: bool) {
+        if blessing {
+            self.bless(god, major);
+        } else {
+            self.curse(god, major);
+        }
+    }
+
     fn bless(&mut self, god: usize, major: bool) {
         let key = match (god, major) {
             (OSIRIS, true) => {
@@ -289,7 +302,10 @@ impl World {
                 "message_minor_blessing_from_ptah"
             }
             (SETH, true) => "message_the_spirit_of_seth",
-            (SETH, false) => "message_minor_blessing_from_seth",
+            (SETH, false) => {
+                self.religion.seth_protects = true;
+                "message_minor_blessing_from_seth"
+            }
             (_, true) => "message_blessing_from_bast",
             _ => {
                 // A festival in the gods' honour.
@@ -358,7 +374,22 @@ impl World {
                     None => "message_wrath_of_ptah_4",
                 }
             }
-            (SETH, _) => "message_wrath_of_seth_noeffect",
+            (SETH, false) => {
+                // Seth takes the most experienced company (the last of the equals) and
+                // razes its fort.
+                let best = self.military.companies.iter().filter(|c| c.fort != 0).fold(None, |best: Option<&crate::military::Company>, c| match best {
+                    Some(b) if b.experience > c.experience => Some(b),
+                    _ => Some(c),
+                });
+                match best.map(|c| c.fort) {
+                    Some(fort) => {
+                        self.wreck(fort, false);
+                        "message_seth_is_upset"
+                    }
+                    None => "message_wrath_of_seth_noeffect",
+                }
+            }
+            (SETH, true) => "message_wrath_of_seth_noeffect",
             (_, true) => {
                 // Fire takes the finest houses.
                 let mut houses: Vec<(u8, u32)> = self.buildings.iter().filter_map(|b| b.house.as_ref().filter(|h| h.population > 0 && h.level >= 4).map(|h| (h.level, b.id))).collect();
