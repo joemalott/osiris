@@ -342,6 +342,7 @@ mod tests {
             moisture: Grid::new(w, h),
             vegetation: Grid::new(w, h),
             building: Grid::new(w, h),
+            border: Vec::new(),
         }
     }
 

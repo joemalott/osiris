@@ -36,6 +36,7 @@ pub mod missions;
 pub mod monuments;
 pub mod pyramids;
 pub mod temple_complex;
+pub mod terrain_images;
 pub mod navy;
 pub mod notices;
 pub mod people;

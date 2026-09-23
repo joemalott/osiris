@@ -5,11 +5,14 @@ use osiris_formats::{
 };
 use std::path::{Path, PathBuf};
 
+mod terrain_check;
+
 const USAGE: &str = "usage:
   osiris-tools check-sg3 <Data dir>                  decode every image in every .sg3
   osiris-tools dump-sprites <Data dir> <pak> <out>   write each image of <pak> as PNG
   osiris-tools info <Data dir> <pak>                 list groups and records
   osiris-tools check-images <game dir>              check every map's tile images
+  osiris-tools check-terrain-images <game dir> [-v] redraw every map's terrain and compare
   osiris-tools check-maps <game dir>                 parse every .map and campaign mission
   osiris-tools text <game dir> <group>               print all strings of a text group
   osiris-tools message <game dir> <id>               print one Pharaoh_MM.eng entry
@@ -31,6 +34,8 @@ fn main() -> Result<()> {
         ["check-maps", dir] => check_maps(Path::new(dir)),
         ["check-images", dir] => check_images(Path::new(dir)),
         ["holes", dir, what] => holes(Path::new(dir), what),
+        ["check-terrain-images", dir] => terrain_check::check_terrain_images(Path::new(dir), false),
+        ["check-terrain-images", dir, "-v"] => terrain_check::check_terrain_images(Path::new(dir), true),
         ["goals", dir, what] => goals(Path::new(dir), what),
         ["image-histogram", dir, what] => image_histogram(Path::new(dir), what),
         ["dump-grids", dir, what, out] => dump_grids(Path::new(dir), what, Path::new(out)),
@@ -233,36 +238,25 @@ fn image_histogram(game: &Path, what: &str) -> Result<()> {
     Ok(())
 }
 
-/// Checks every map's and campaign mission's tile images: each drawn tile must
-/// resolve to an image outside the walker and interface packs. Prints the maps whose
-/// tiles don't, with an example, and fails if any do.
+/// Checks every map's and campaign mission's tile images, as a new city draws them
+/// (see `osiris_sim::terrain_images::redraw_on_load`): each drawn tile must resolve to
+/// an image outside the walker and interface packs. Prints the maps whose tiles don't,
+/// with an example, and fails if any do.
 fn check_images(game: &Path) -> Result<()> {
     let lib = osiris_formats::ImageLibrary::open(&game.join("Data"))?;
+    let defs = osiris_sim::Defs::load(&lib).map_err(anyhow::Error::msg)?;
     let not_ground = ["SprMain", "SprMain2", "SprAmbient", "Pharaoh_Fonts", "Empire", "Pharaoh_Unloaded"];
-    let mut sources: Vec<(String, Scenario)> = Vec::new();
-    let mut maps: Vec<PathBuf> = std::fs::read_dir(game.join("Maps"))?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("map")))
-        .collect();
-    maps.sort();
-    for p in maps {
-        sources.push((p.file_name().unwrap().to_string_lossy().into_owned(), Scenario::load_map(&p)?));
-    }
-    let pak = MissionPak::open(&game.join("mission1.pak"))?;
-    for i in 0..pak.slots() {
-        if pak.entry(i).is_some() {
-            sources.push((format!("mission1.pak #{i}"), pak.scenario(i)?));
-        }
-    }
+    let sources = terrain_check::sources(game)?;
     let mut bad_sources = 0;
     for (name, s) in &sources {
         let (mut drawn, mut unknown, mut wrong) = (0, 0, 0);
         let mut example = None;
-        for y in 0..s.info.height {
-            for x in 0..s.info.width {
-                let off = s.offset(x, y).unwrap();
-                let id = s.images[off];
-                if s.edges[off] & 0x40 == 0 || id == 0 {
+        let mut map = osiris_sim::map::Map::from_scenario(s);
+        osiris_sim::terrain_images::redraw_on_load(&mut map, &defs, s.version);
+        for y in 0..map.height {
+            for x in 0..map.width {
+                let id = map.images.at_or(x, y, 0);
+                if map.edges.at_or(x, y, 0) & 0x40 == 0 || id == 0 {
                     continue;
                 }
                 drawn += 1;

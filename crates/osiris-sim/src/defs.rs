@@ -24,6 +24,8 @@ pub struct ContextTables {
     pub deepwater: Vec<ContextRow>,
     pub floodsystem: Vec<ContextRow>,
     pub grass_corners: Vec<ContextRow>,
+    #[serde(default)]
+    pub shore: Vec<ContextRow>,
 }
 
 /// First image id of each terrain image group used by the tile rules.
@@ -50,6 +52,22 @@ pub struct TerrainImages {
     pub deepwater: u32,
     pub grass_edges: u32,
     pub meadow_outer: u32,
+    /// Dunes (`Pharaoh_Terrain` group 13): 8 single tiles, 4 2x2 and 2 3x3, like rocks.
+    pub dune: u32,
+    /// Trees still growing (`Pharaoh_Terrain` group 12, running on through 14 and 25).
+    pub young_tree: u32,
+    /// Water beside the floodplain and open water (`Pharaoh_Terrain` group 19).
+    pub flood_water: u32,
+    /// Dirt roads (`Pharaoh_Terrain` group 43).
+    pub dirt_road: u32,
+    /// Dirt road on the floodplain (`Pharaoh_Terrain` group 51).
+    pub floodplain_road: u32,
+    /// Cleopatra's cliffs (`Expansion` group 33, CliffTiles.bmp).
+    pub cliff: u32,
+    /// Plaza tiles (`Pharaoh_General` group 168).
+    pub plaza: u32,
+    /// Garden tiles (`Pharaoh_General` group 59).
+    pub garden: u32,
 }
 
 /// A sprite reference as written in the data files.
@@ -354,6 +372,14 @@ impl Defs {
             deepwater: t(61)?,
             grass_edges: t(64)?,
             meadow_outer: t(66)?,
+            dune: t(13)?,
+            young_tree: t(12)?,
+            flood_water: t(19)?,
+            dirt_road: t(43)?,
+            floodplain_road: t(51)?,
+            cliff: lib.group_id("Expansion", 33, 0).map_err(|e| e.to_string())?,
+            plaza: lib.group_id("Pharaoh_General", 168, 0).map_err(|e| e.to_string())?,
+            garden: lib.group_id("Pharaoh_General", 59, 0).map_err(|e| e.to_string())?,
         };
         let figures_raw: FiguresFile = toml::from_str(include_str!("../data/figures.toml"))
             .map_err(|e| format!("figures.toml: {e}"))?;

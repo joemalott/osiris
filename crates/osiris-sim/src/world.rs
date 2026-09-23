@@ -203,7 +203,8 @@ impl World {
 impl World {
     pub fn new(scenario: &Scenario, defs: Arc<Defs>, balance: Arc<Balance>) -> Self {
         let info = &scenario.info;
-        let map = Map::from_scenario(scenario);
+        let mut map = Map::from_scenario(scenario);
+        crate::terrain_images::redraw_on_load(&mut map, &defs, scenario.version);
         let (w, h) = (map.width, map.height);
         let water = crate::water::Water::from_scenario(scenario, &map);
         let invasions = crate::invasions::Invasions::from_scenario(scenario, &defs);

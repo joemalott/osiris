@@ -282,10 +282,14 @@ impl MissionPak {
     }
 
     /// Campaign scenario `index`, with image ids moved into the current id space.
+    /// Entries older than version 149 use the older ids, unless the top byte of their
+    /// first word is set to something other than 0xff: entries 6, 7, 17 and 28 were saved
+    /// again by a later build and already hold current ids.
     pub fn scenario(&self, index: usize) -> Result<crate::Scenario> {
         let file = self.chunks(index)?;
         let mut s = crate::Scenario::from_chunks(&file)?;
-        s.fix_image_ids(if file.version < 149 { 539 } else { 0 });
+        let resaved = self.entry(index).is_some_and(|e| e.get(3).is_some_and(|&b| b != 0xff));
+        s.fix_image_ids(if file.version < 149 && !resaved { 539 } else { 0 });
         Ok(s)
     }
 }
