@@ -237,18 +237,21 @@ impl CityView {
         columns.sort_by_key(|c| (c.x + c.y, c.x));
         let mut next_column = 0;
         // Flat ground first, then everything that stands up, back to front: a tall
-        // building must not be painted over by the flat tiles behind it.
+        // building must not be painted over by the flat tiles behind it. Within a
+        // diagonal, screen x runs the other way from map x, so the tile with the
+        // smaller map x sits in front on screen and is drawn last: a tall sprite's
+        // west edge (map x - 1, same diagonal) must be painted over it, not under it.
         for d in 0..(w + h - 1) {
             let x_min = (d - (h - 1)).max(0);
             let x_max = d.min(w - 1);
-            for x in x_min..=x_max {
+            for x in (x_min..=x_max).rev() {
                 self.draw_tile(r, map, x, d - x, overlay, true, [vx0, vy0, vx1, vy1]);
             }
         }
         for d in 0..(w + h - 1) {
             let x_min = (d - (h - 1)).max(0);
             let x_max = d.min(w - 1);
-            for x in x_min..=x_max {
+            for x in (x_min..=x_max).rev() {
                 self.draw_tile(r, map, x, d - x, overlay, false, [vx0, vy0, vx1, vy1]);
             }
             while next_column < columns.len() && columns[next_column].x + columns[next_column].y <= d {
