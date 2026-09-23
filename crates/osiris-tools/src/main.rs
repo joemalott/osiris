@@ -9,6 +9,7 @@ const USAGE: &str = "usage:
   osiris-tools check-sg3 <Data dir>                  decode every image in every .sg3
   osiris-tools dump-sprites <Data dir> <pak> <out>   write each image of <pak> as PNG
   osiris-tools info <Data dir> <pak>                 list groups and records
+  osiris-tools check-images <game dir>              check every map's tile images
   osiris-tools check-maps <game dir>                 parse every .map and campaign mission
   osiris-tools text <game dir> <group>               print all strings of a text group
   osiris-tools message <game dir> <id>               print one Pharaoh_MM.eng entry
@@ -28,6 +29,7 @@ fn main() -> Result<()> {
         ["dump-sprites", dir, pak, out] => dump_sprites(Path::new(dir), pak, Path::new(out)),
         ["info", dir, pak] => info(Path::new(dir), pak),
         ["check-maps", dir] => check_maps(Path::new(dir)),
+        ["check-images", dir] => check_images(Path::new(dir)),
         ["goals", dir, what] => goals(Path::new(dir), what),
         ["image-histogram", dir, what] => image_histogram(Path::new(dir), what),
         ["dump-grids", dir, what, out] => dump_grids(Path::new(dir), what, Path::new(out)),
@@ -226,6 +228,64 @@ fn image_histogram(game: &Path, what: &str) -> Result<()> {
     println!("{draw} draw tiles, {unresolved} unresolved");
     for (k, v) in per_pack {
         println!("{k:20} {:6} ids {}..{}", v.0, v.1, v.2);
+    }
+    Ok(())
+}
+
+/// Checks every map's and campaign mission's tile images: each drawn tile must
+/// resolve to an image outside the walker and interface packs. Prints the maps whose
+/// tiles don't, with an example, and fails if any do.
+fn check_images(game: &Path) -> Result<()> {
+    let lib = osiris_formats::ImageLibrary::open(&game.join("Data"))?;
+    let not_ground = ["SprMain", "SprMain2", "SprAmbient", "Pharaoh_Fonts", "Empire", "Pharaoh_Unloaded"];
+    let mut sources: Vec<(String, Scenario)> = Vec::new();
+    let mut maps: Vec<PathBuf> = std::fs::read_dir(game.join("Maps"))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("map")))
+        .collect();
+    maps.sort();
+    for p in maps {
+        sources.push((p.file_name().unwrap().to_string_lossy().into_owned(), Scenario::load_map(&p)?));
+    }
+    let pak = MissionPak::open(&game.join("mission1.pak"))?;
+    for i in 0..pak.slots() {
+        if pak.entry(i).is_some() {
+            sources.push((format!("mission1.pak #{i}"), pak.scenario(i)?));
+        }
+    }
+    let mut bad_sources = 0;
+    for (name, s) in &sources {
+        let (mut drawn, mut unknown, mut wrong) = (0, 0, 0);
+        let mut example = None;
+        for y in 0..s.info.height {
+            for x in 0..s.info.width {
+                let off = s.offset(x, y).unwrap();
+                let id = s.images[off];
+                if s.edges[off] & 0x40 == 0 || id == 0 {
+                    continue;
+                }
+                drawn += 1;
+                match lib.resolve(id) {
+                    None => {
+                        unknown += 1;
+                        example.get_or_insert(format!("{x},{y} id {id} unknown"));
+                    }
+                    Some(img) if not_ground.contains(&lib.pack(img.pack).name.as_str()) => {
+                        wrong += 1;
+                        example.get_or_insert(format!("{x},{y} id {id} from {}", lib.pack(img.pack).name));
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+        if unknown + wrong > 0 {
+            bad_sources += 1;
+            println!("{name:24} v{:3} {:6} of {drawn} tiles wrong ({unknown} unknown, {wrong} from walker or interface packs), e.g. {}", s.version, unknown + wrong, example.unwrap_or_default());
+        }
+    }
+    println!("{} maps and missions checked, {bad_sources} with wrong tiles", sources.len());
+    if bad_sources > 0 {
+        bail!("{bad_sources} maps or missions have tiles drawn with the wrong images");
     }
     Ok(())
 }
