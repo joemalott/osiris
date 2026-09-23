@@ -14,6 +14,7 @@ impl World {
         self.rng.next();
         let roll = self.time.advance();
         self.update_floods();
+        self.update_earthquakes();
         match self.time.tick {
             1 => {
                 self.finish_production();

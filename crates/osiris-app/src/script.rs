@@ -172,6 +172,15 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             ["fortreturn", c] => world.return_company(c.parse()?),
             ["service", c] => world.toggle_kingdom_service(c.parse()?),
+            // Starts the scenario's earthquake now, or one at a tile with a severity.
+            ["quake"] => eprintln!("{step}: started {}", world.quake_now(None, None)),
+            ["quake", p, n] => eprintln!("{step}: started {}", world.quake_now(Some(parse_point(p)?), Some(n.parse()?))),
+            ["quakes"] => {
+                for q in &world.earthquakes.list {
+                    eprintln!("  quake y{} m{} severity {} state {} steps {} fronts {:?}", q.year, q.month, q.severity, q.state, q.steps, q.fronts);
+                }
+                eprintln!("  epicentre {:?}", world.earthquakes.epicentre);
+            }
             ["noinvasions"] => world.invasions.planned.clear(),
             ["order", c, o] => {
                 use osiris_sim::military::Order;
@@ -217,6 +226,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["globallabor"] => world.rules.global_labor_pool = true,
             ["fullstaff"] => world.test_full_staff = true,
             ["nodisease"] => world.rules.disease = false,
+            ["nodisasters"] => world.rules.disasters = false,
             ["safe"] => {
                 world.rules.fire = false;
                 world.rules.collapse = false;

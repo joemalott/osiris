@@ -13,6 +13,7 @@ use crate::map::{Map, NEIGHBOURS, mask, terrain};
 pub struct ContextCounters {
     dirt_road: Vec<u32>,
     paved_road: Vec<u32>,
+    earthquake: Vec<u32>,
 }
 
 /// A resolved image offset from a context-table match. `pub(crate)` so other tile-image
@@ -133,6 +134,20 @@ impl TileRules<'_> {
                 self.road_image(map, x, y);
             }
         }
+    }
+
+    /// Earthquake cracks: rock tiles with the earthquake mark (`0x80` in the bitfields)
+    /// join up with the marked rock around them. Tiles no row matches get the first
+    /// crack image.
+    pub fn crack_image(&mut self, map: &mut Map, x: i32, y: i32) {
+        let marked = |x: i32, y: i32| map.terrain_is(x, y, terrain::ROCK) && map.bitfields.at_or(x, y, 0) & 0x80 != 0;
+        if !marked(x, y) {
+            return;
+        }
+        let tiles = NEIGHBOURS.map(|(dx, dy)| marked(x + dx, y + dy) as u8);
+        let base = self.defs.terrain.earthquake;
+        let image = match_context(&self.defs.contexts.earthquake, &mut self.counters.earthquake, tiles).map_or(base, |c| base + c.group_offset + c.item_offset);
+        map.set_single_image(x, y, image);
     }
 
     pub fn rubble_image(&mut self, map: &mut Map, x: i32, y: i32) {
