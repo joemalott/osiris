@@ -106,6 +106,15 @@ pub fn phrase(k: u16) -> &'static str {
     }
 }
 
+/// A tile a tomb would take, and the placement rule it breaks, if any.
+pub(crate) type TileRule = ((i32, i32), Option<&'static str>);
+
+/// Placement messages, worst first.
+const OUTSIDE: &str = "Outside the map";
+const INTO_CLIFFS: &str = "A royal tomb must be cut into the cliffs";
+const ENTRANCE: &str = "The tomb's entrance must open onto clear land";
+const IN_THE_WAY: &str = "People are in the way";
+
 impl World {
     /// A tomb's entrance tile.
     pub fn royal_tomb_entrance(&self, id: BuildingId) -> Option<(i32, i32)> {
@@ -118,29 +127,53 @@ impl World {
     /// clear land with clear land on at least one side, and no other tomb of the same
     /// size may be under way.
     pub(crate) fn can_place_royal_tomb(&self, k: u16, x: i32, y: i32) -> Option<Result<(), &'static str>> {
-        let l = layout(k)?;
-        let t = |xx: i32, yy: i32| self.map.terrain.at_or(xx, yy, 0) & !IGNORED;
-        let (w, h) = l.size;
-        let (ex, ey) = (x + l.entrance.0, y + l.entrance.1);
-        let inside = |xx: i32, yy: i32| xx >= 1 && yy >= 1 && xx < self.map.width - 1 && yy < self.map.height - 1;
-        if !(y..y + h).all(|yy| (x..x + w).all(|xx| inside(xx, yy))) || !inside(ex, ey) {
-            return Some(Err("Outside the map"));
-        }
-        let cliff = terrain::CLIFF | terrain::ROCK;
-        if !(y..y + h).all(|yy| (x..x + w).all(|xx| t(xx, yy) == cliff)) {
-            return Some(Err("A royal tomb must be cut into the cliffs"));
-        }
-        let clear = |xx: i32, yy: i32| self.map.contains(xx, yy) && t(xx, yy) == 0;
-        if !clear(ex, ey) || ![(0, -1), (1, 0), (0, 1), (-1, 0)].iter().any(|&(dx, dy)| clear(ex + dx, ey + dy)) {
-            return Some(Err("The tomb's entrance must open onto clear land"));
-        }
-        if self.figures.iter().any(|f| (f.x, f.y) == (ex, ey)) {
-            return Some(Err("People are in the way"));
+        let tiles = self.royal_tomb_tiles(k, x, y)?;
+        // The worst problem first, whichever tile has it.
+        for why in [OUTSIDE, INTO_CLIFFS, ENTRANCE, IN_THE_WAY] {
+            if tiles.iter().any(|&(_, p)| p == Some(why)) {
+                return Some(Err(why));
+            }
         }
         if self.buildings.iter().any(|b| b.kind == k && b.monument.is_some() && self.royal_tomb_percent(b.id) < 100) {
             return Some(Err("Only one tomb of this size may be cut at a time"));
         }
         Some(Ok(()))
+    }
+
+    /// Each tile a royal tomb of type `k` at `(x, y)` would take, its bulk and then its
+    /// entrance, with the placement rule it breaks, if any.
+    pub(crate) fn royal_tomb_tiles(&self, k: u16, x: i32, y: i32) -> Option<Vec<TileRule>> {
+        let l = layout(k)?;
+        let t = |xx: i32, yy: i32| self.map.terrain.at_or(xx, yy, 0) & !IGNORED;
+        let (w, h) = l.size;
+        let inside = |xx: i32, yy: i32| xx >= 1 && yy >= 1 && xx < self.map.width - 1 && yy < self.map.height - 1;
+        let cliff = terrain::CLIFF | terrain::ROCK;
+        let mut tiles: Vec<TileRule> = (y..y + h)
+            .flat_map(|yy| (x..x + w).map(move |xx| (xx, yy)))
+            .map(|(xx, yy)| {
+                let why = if !inside(xx, yy) {
+                    Some(OUTSIDE)
+                } else if t(xx, yy) != cliff {
+                    Some(INTO_CLIFFS)
+                } else {
+                    None
+                };
+                ((xx, yy), why)
+            })
+            .collect();
+        let (ex, ey) = (x + l.entrance.0, y + l.entrance.1);
+        let clear = |xx: i32, yy: i32| self.map.contains(xx, yy) && t(xx, yy) == 0;
+        let entrance = if !inside(ex, ey) {
+            Some(OUTSIDE)
+        } else if !clear(ex, ey) || ![(0, -1), (1, 0), (0, 1), (-1, 0)].iter().any(|&(dx, dy)| clear(ex + dx, ey + dy)) {
+            Some(ENTRANCE)
+        } else if self.figures.iter().any(|f| (f.x, f.y) == (ex, ey)) {
+            Some(IN_THE_WAY)
+        } else {
+            None
+        };
+        tiles.push(((ex, ey), entrance));
+        Some(tiles)
     }
 
     /// A new tomb: its entrance tile taken, the first chamber open for digging.

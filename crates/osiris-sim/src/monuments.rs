@@ -581,16 +581,25 @@ impl World {
         })
     }
 
+    /// The row of tiles just past a pyramid's or mastaba's south edge, for one placed
+    /// at `(x, y)` (the original's tables at 0x570094 and 0x5700a8); none for others.
+    pub fn tomb_row(&self, k: u16, (x, y): (i32, i32)) -> Vec<(i32, i32)> {
+        if !monument_def(k).is_some_and(|d| crate::pyramids::blockwise(d.style)) {
+            return Vec::new();
+        }
+        let (w, h) = self.monument_footprint(k).unwrap_or((0, 0));
+        (x..x + w).map(|xx| (xx, y + h)).collect()
+    }
+
     /// Monument-specific placement rules: an obelisk's granite must be in storage,
     /// and only one obelisk may be under construction at a time.
     pub(crate) fn can_place_monument(&self, k: u16, (x, y): (i32, i32)) -> Result<(), &'static str> {
         let Some(def) = monument_def(k) else { return Ok(()) };
-        if let Style::Pyramid(_) = def.style {
-            // The row past the pyramid's south edge must be free (roads may cross it).
-            let (w, h) = self.monument_footprint(k).unwrap_or((0, 0));
-            let blocked = crate::map::mask::NOT_CLEAR & !(crate::map::terrain::ROAD | crate::map::terrain::TREE | crate::map::terrain::SHRUB);
-            if (x..x + w).any(|xx| self.map.terrain_is(xx, y + h, blocked)) {
-                return Err("Must be built on land free of obstructions");
+        if crate::pyramids::blockwise(def.style) {
+            // The row past a pyramid's or mastaba's south edge must be free (roads may
+            // cross it), and a complex's causeway must reach the water.
+            if let Some(why) = self.tomb_row(k, (x, y)).into_iter().find_map(|(xx, yy)| self.tomb_row_problem(xx, yy)) {
+                return Err(why);
             }
             self.complex_parts(def.style, crate::pyramids::variant(def.cols, def.style), (x, y))?;
         }
@@ -633,7 +642,8 @@ impl World {
             // A complex's temples and causeway take their ground now.
             m.parts = self.complex_parts(def.style, variant, (x0, y0)).unwrap_or_default();
             for (px, py) in Self::part_tiles(&m.parts) {
-                self.map.terrain.update(x0 + px, y0 + py, |t| t | crate::map::terrain::BUILDING);
+                use crate::map::terrain::{BUILDING, MEADOW, SHRUB, TREE};
+                self.map.terrain.update(x0 + px, y0 + py, |t| (t & !(TREE | SHRUB | MEADOW)) | BUILDING);
                 self.map.building.set(x0 + px, y0 + py, id);
             }
         }

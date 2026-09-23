@@ -40,6 +40,7 @@ pub mod terrain_images;
 pub mod navy;
 pub mod notices;
 pub mod people;
+pub mod placement;
 pub mod ratings;
 pub mod religion;
 pub mod rng;

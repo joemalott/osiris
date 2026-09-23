@@ -452,13 +452,20 @@ impl Game {
         self.hover = city_view::world_to_tile(&self.world.map, world);
     }
 
+    /// Holds building tool `k` with the cursor on `tile` (for scripted screenshots).
+    pub fn hold_tool(&mut self, k: u16, tile: (i32, i32)) {
+        self.tool = Tool::Build(k);
+        self.hover = Some(tile);
+    }
+
     fn footprint_origin(&self, k: u16, tile: (i32, i32)) -> (i32, i32) {
-        // The cursor sits on the footprint's middle tile; an upgrade goes where it points.
+        // The cursor sits on the footprint's middle tile (a tomb's anchor block); an
+        // upgrade goes where it points.
         if osiris_sim::temple_complex::is_upgrade(k) {
             return tile;
         }
-        let (w, h) = self.world.footprint_of(k);
-        (tile.0 - (w - 1) / 2, tile.1 - (h - 1) / 2)
+        let (cx, cy) = self.world.cursor_tile(k);
+        (tile.0 - cx, tile.1 - cy)
     }
 
     fn pending_command(&self) -> Option<Command> {
@@ -949,7 +956,11 @@ impl Game {
         self.message = Some((text.to_owned(), 3.0));
     }
 
-    fn highlights(&mut self) -> (Vec<Highlight>, Option<i32>) {
+    /// The tiles to mark under the cursor, what the held tool would cost, and (for a
+    /// building that can't go there) why not. A building's tiles come from the
+    /// simulation's placement preview, each green where it may go and red where it
+    /// blocks, so what shows green is what builds.
+    fn highlights(&mut self) -> (Vec<Highlight>, Option<i32>, Option<&'static str>) {
         let ok = [0.3, 1.0, 0.3, 0.45];
         let bad = [1.0, 0.2, 0.2, 0.45];
         let Some(cmd) = self.pending_command() else {
@@ -960,7 +971,7 @@ impl Game {
                     tiles.push(Highlight { x: f.x, y: f.y, color: [1.0, 0.85, 0.2, 0.35] });
                 }
             }
-            return (tiles, None);
+            return (tiles, None, None);
         };
         let est = self.world.estimate(&cmd);
         let cost = match est {
@@ -982,21 +993,24 @@ impl Game {
             Command::Road { start, end } => self.world.road_path(start, end).unwrap_or_else(|| vec![end]),
             Command::Clear { x0, y0, x1, y1 } => rect(x0, y0, x1, y1),
             Command::Build { kind: k, x, y, x1, y1 } if k == kind::VACANT_LOT => rect(x, y, x1, y1),
+            Command::Build { kind: k, x, y, .. } if osiris_sim::temple_complex::is_upgrade(k) => vec![(x, y)],
             Command::Build { kind: k, x, y, .. } => {
-                let (w, h) = if osiris_sim::temple_complex::is_upgrade(k) { (1, 1) } else { self.world.footprint_of(k) };
-                let mut tiles = rect(x, y, x + w - 1, y + h - 1);
-                // A fort brings its parade ground, three tiles along and one up.
-                if osiris_sim::military::fort_soldier(k).is_some() {
-                    tiles.extend(rect(x + 3, y - 1, x + 6, y + 2));
-                }
-                // A royal tomb's entrance lies just outside its bulk.
-                if let Some(l) = osiris_sim::royal_tombs::layout(k) {
-                    tiles.push((x + l.entrance.0, y + l.entrance.1));
-                }
-                tiles
+                let preview = self.world.placement_preview(k, x, y);
+                // Money only matters once the ground will do.
+                let poor = preview.result.is_ok() && !affordable;
+                let why = preview.result.err().or(poor.then_some("Not enough money"));
+                // The tiles that themselves break a rule are the deepest red.
+                let culprit = [1.0, 0.0, 0.0, 0.6];
+                let color = |t: &osiris_sim::placement::PreviewTile| match (t.blocked, t.red || poor) {
+                    (Some(_), _) => culprit,
+                    (None, true) => bad,
+                    (None, false) => ok,
+                };
+                let marks = preview.tiles.iter().map(|t| Highlight { x: t.x, y: t.y, color: color(t) }).collect();
+                return (marks, cost, why);
             }
         };
-        (tiles.into_iter().map(|(x, y)| Highlight { x, y, color }).collect(), cost)
+        (tiles.into_iter().map(|(x, y)| Highlight { x, y, color }).collect(), cost, None)
     }
 
     fn sprites(&mut self, r: &Renderer) -> Vec<Sprite> {
@@ -1130,7 +1144,7 @@ impl Game {
             }
             return;
         }
-        let (marks, cost) = self.highlights();
+        let (marks, cost, why) = self.highlights();
         let marker = self.world.defs.terrain.empty_land;
         let sprites = self.sprites(r);
         let overlays = if self.view_overlay.is_some() { Vec::new() } else { self.overlays(r) };
@@ -1152,10 +1166,10 @@ impl Game {
                 .collect(),
         });
         self.view.draw(r, &self.world.map, &marks, marker, &sprites, &overlays, draw.as_ref());
-        self.draw_overlay(r, cost);
+        self.draw_overlay(r, cost, why);
     }
 
-    fn draw_overlay(&mut self, r: &mut Renderer, cost: Option<i32>) {
+    fn draw_overlay(&mut self, r: &mut Renderer, cost: Option<i32>, why: Option<&str>) {
         let t = &self.world.time;
         let month = self.text.get(TEXT_MONTHS, t.month as usize).unwrap_or("?");
         let year = if t.year < 0 { format!("{} BC", -t.year) } else { format!("{} AD", t.year) };
@@ -1224,9 +1238,11 @@ impl Game {
             Tool::Clear => self.building_name(9),
             Tool::Build(k) => self.building_name(k),
         };
-        let line = match cost.filter(|&c| c > 0) {
-            Some(c) => format!("{tool}: {c} Db"),
-            None => tool,
+        // Where the held building can't go, say why, as the original's warning would.
+        let line = match (why, cost.filter(|&c| c > 0)) {
+            (Some(why), _) => format!("{tool}: {why}"),
+            (None, Some(c)) => format!("{tool}: {c} Db"),
+            (None, None) => tool,
         };
         if !line.is_empty() {
             draw_text(r, Font::SmallOutlined, &line, 10.0, 38.0, font::WHITE);

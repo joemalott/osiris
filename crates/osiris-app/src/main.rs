@@ -952,6 +952,9 @@ fn main() -> Result<()> {
         if let Some((collapsing, step)) = view.slide {
             game.sidebar.show_slide(collapsing, step);
         }
+        if let Some((k, tile)) = view.hold {
+            game.hold_tool(k, tile);
+        }
         let zoom = view.zoom;
         let hover = view.hover;
         return gfx::screenshot(library, args.size, out, |r| {
