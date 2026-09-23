@@ -59,15 +59,19 @@ impl World {
             48 => self.decay_tax_coverage(),
             _ => {}
         }
+        self.update_gods_tick();
         self.update_figures();
         if roll.week {
             self.consume_food();
             self.consume_goods();
+            self.update_sentiment();
         }
         if roll.month {
             self.migration.newcomers_this_month = 0;
             self.advance_month_finance();
             self.regrow_herds();
+            self.update_gods_month();
+            self.update_ratings_month();
             if !self.won && self.goals_met() {
                 self.won = true;
                 self.messages.push_back("victory".to_owned());
@@ -76,6 +80,7 @@ impl World {
         if roll.year {
             self.advance_year_finance();
             self.reset_trade_year();
+            self.update_ratings_year();
         }
     }
 

@@ -85,6 +85,12 @@ pub struct House {
     /// The house fails its own level's needs and will devolve soon.
     #[serde(default)]
     pub decaying: bool,
+    /// How happy the household is with the governor, 0-100.
+    #[serde(default)]
+    pub happiness: i32,
+    /// Sentiment updates in a row without food (up to 3).
+    #[serde(default)]
+    pub days_without_food: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

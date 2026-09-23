@@ -90,6 +90,12 @@ pub struct World {
     /// The empire's cities and trade routes.
     #[serde(default)]
     pub trade: crate::trade::Trade,
+    #[serde(default)]
+    pub sentiment_state: crate::sentiment::Sentiment,
+    #[serde(default)]
+    pub religion: crate::religion::Religion,
+    #[serde(default)]
+    pub ratings: crate::ratings::Ratings,
     pub events: crate::missions::CityEvents,
     pub won: bool,
     pub migration_params: crate::people::MigrationParams,
@@ -164,6 +170,9 @@ impl World {
             notices: Default::default(),
             vegetation: None,
             trade: crate::trade::Trade::from_scenario(scenario),
+            sentiment_state: Default::default(),
+            religion: crate::religion::Religion::new(info.gods),
+            ratings: crate::ratings::Ratings { last_year_worth: info.initial_funds, ..Default::default() },
             events: Default::default(),
             won: false,
             migration_params: Default::default(),

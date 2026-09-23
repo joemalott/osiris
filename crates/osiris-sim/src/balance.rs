@@ -15,6 +15,8 @@ pub struct Balance {
     pub stats: Vec<BuildingStats>,
     /// The 20 house levels, crude hut first.
     pub houses: Vec<HouseModel>,
+    /// Sentiment from the tax rate (row, 0-25%) at the city's tax coverage (11 columns).
+    pub tax_sentiment: Vec<Vec<i32>>,
 }
 
 impl Balance {
@@ -64,7 +66,7 @@ impl Balance {
                 disease_increment: h.disease_increment as i32,
             })
             .collect();
-        Self { stats, houses }
+        Self { stats, houses, tax_sentiment: Vec::new() }
     }
 
     pub fn stats(&self, kind: u16) -> BuildingStats {

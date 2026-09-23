@@ -46,6 +46,8 @@ pub struct ScenarioInfo {
     pub start_year: i16,
     pub empire_id: i16,
     pub gods_known: [bool; 5],
+    /// Each god's status: 0 unknown, 1 known (local), 2 patron.
+    pub gods: [u8; 5],
     pub initial_funds: i32,
     pub enemy_id: i16,
     pub width: i32,
@@ -125,8 +127,9 @@ impl ScenarioInfo {
         r.skip(2)?;
         s.empire_id = r.i16()?;
         r.skip(4)?;
-        for g in &mut s.gods_known {
-            *g = r.u8()? != 0;
+        for i in 0..5 {
+            s.gods[i] = r.u8()?;
+            s.gods_known[i] = s.gods[i] != 0;
             r.skip(1)?;
         }
         r.skip(12)?;

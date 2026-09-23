@@ -358,3 +358,27 @@ End of model data.
         assert_eq!(figures[1].hit_points, 150.0);
     }
 }
+
+/// `Tax_Sentiment_Model_<Difficulty>.txt`: how each tax rate (rows 0-25%) affects city
+/// sentiment, by city-wide tax coverage (11 columns: 0%, under 10%, ... up to 100%).
+pub fn parse_tax_sentiment(text: &str) -> Vec<Vec<i32>> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with(';') && l.contains('{'))
+        .map(|l| {
+            let inner = l.split_once('{').map_or("", |(_, r)| r.split('}').next().unwrap_or(""));
+            inner.split(',').filter_map(|v| v.trim().parse().ok()).collect()
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tax_tests {
+    #[test]
+    fn parses_rows() {
+        let t = super::parse_tax_sentiment(";x\n0%,{,3,3,3,3,3,3,3,3,3,3,3,}\n25%,{,3,1,-2,-5,-8,-9,-8,-7,-7,-7,-7,}\n");
+        assert_eq!(t.len(), 2);
+        assert_eq!(t[1][5], -9);
+        assert_eq!(t[0].len(), 11);
+    }
+}

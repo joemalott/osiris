@@ -233,9 +233,15 @@ impl World {
     pub fn goals_met(&self) -> bool {
         let Some(m) = &self.mission else { return false };
         let g = &m.goals;
-        let any = [g.population, g.housing_count, g.housing_level].iter().any(|g| g.enabled);
+        let any = [g.population, g.housing_count, g.housing_level, g.culture, g.prosperity, g.monuments, g.kingdom].iter().any(|g| g.enabled);
         if !any {
             return false;
+        }
+        let r = &self.ratings;
+        for (goal, value) in [(g.culture, r.culture), (g.prosperity, r.prosperity), (g.monuments, r.monument), (g.kingdom, r.kingdom)] {
+            if goal.enabled && value < goal.value {
+                return false;
+            }
         }
         if g.population.enabled && self.population < g.population.value {
             return false;

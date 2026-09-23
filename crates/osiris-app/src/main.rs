@@ -567,7 +567,11 @@ fn load_assets(data: &Path, library: &ImageLibrary) -> Result<Assets> {
     let defs = Arc::new(Defs::load(library).map_err(anyhow::Error::msg)?);
     let model_path = data.join("Pharaoh_Model_Normal.txt");
     let model_text = std::fs::read(&model_path).with_context(|| model_path.display().to_string())?;
-    let balance = Arc::new(Balance::from_model(&Model::parse(&String::from_utf8_lossy(&model_text))?));
+    let mut balance = Balance::from_model(&Model::parse(&String::from_utf8_lossy(&model_text))?);
+    if let Ok(t) = std::fs::read(data.join("Tax_Sentiment_Model_Normal.txt")) {
+        balance.tax_sentiment = osiris_formats::model::parse_tax_sentiment(&String::from_utf8_lossy(&t));
+    }
+    let balance = Arc::new(balance);
     let text = Arc::new(TextTable::parse(&std::fs::read(data.join("Pharaoh_Text.eng"))?)?);
     let messages = Arc::new(MessageTable::parse(&std::fs::read(data.join("Pharaoh_MM.eng"))?)?);
     let campaign = std::fs::read(data.join("campaign.txt"))

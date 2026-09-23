@@ -339,6 +339,11 @@ impl World {
     }
 
     /// Whether this map has a floodplain for the Nile to flood.
+    /// Changes the quality of the next flood (Osiris's blessings and curses).
+    pub fn adjust_next_flood_quality(&mut self, delta: i32) {
+        self.floods.quality_next = (self.floods.quality_next + delta).clamp(0, 100);
+    }
+
     pub fn has_floodplain(&self) -> bool {
         self.floods.floodplain_width > 0
     }

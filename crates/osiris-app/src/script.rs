@@ -145,6 +145,10 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     world.time, world.population, world.treasury, world.figures.len(), houses
                 );
                 eprintln!("  labor {:?} unemployment {}%", world.labor, world.unemployment);
+                let r = &world.ratings;
+                eprintln!("  sentiment {} culture {} prosperity {}/{} monument {} kingdom {} coverage {:?}", world.sentiment, r.culture, r.prosperity, r.prosperity_max, r.monument, r.kingdom, r.coverage);
+                let gods: Vec<(u8, i32, i32, i32, i32)> = world.religion.gods.iter().map(|g| (g.status, g.mood, g.target, g.wrath, g.coverage)).collect();
+                eprintln!("  gods {:?} common {}", gods, world.religion.coverage_common);
                 for b in world.buildings.iter().filter(|b| !b.is_house()) {
                     let mut stock: Vec<(usize, i32)> = b.stock.iter().copied().enumerate().filter(|&(_, v)| v > 0).collect();
                     stock.extend(b.spaces.iter().filter(|s| s.1 > 0).map(|s| (s.0 as usize, s.1)));

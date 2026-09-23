@@ -81,7 +81,11 @@ impl World {
             progress = progress * fertility / 100;
         }
         // The original counts progress in steps of 20.
-        let produce = ((progress / 20 * 20) as f32 / 2.5) as i32;
+        let mut produce = ((progress / 20 * 20) as f32 / 2.5) as i32;
+        // Osiris's blessing doubles the harvest.
+        if self.religion.osiris_double_harvest_days > 0 {
+            produce *= 2;
+        }
         let Some(b) = self.buildings.get_mut(id) else { return };
         b.progress = 0;
         if produce <= 0 {

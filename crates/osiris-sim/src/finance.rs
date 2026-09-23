@@ -33,6 +33,8 @@ pub struct YearTotals {
     /// Gold mined and delivered to the palace.
     #[serde(default)]
     pub gold: i32,
+    #[serde(default)]
+    pub tribute: i32,
 }
 
 impl Default for Finance {

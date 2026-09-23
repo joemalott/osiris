@@ -219,8 +219,10 @@ impl Trade {
 }
 
 impl World {
+    /// What the city earns for a load it exports; Ra's great blessing adds half again.
     pub fn sell_price(&self, r: u16) -> i32 {
-        self.trade.prices.get(r as usize).map_or(0, |p| p.1)
+        let price = self.trade.prices.get(r as usize).map_or(0, |p| p.1);
+        if self.religion.ra_trade_boost >= 2 { price * 3 / 2 } else { price }
     }
 
     pub fn buy_price(&self, r: u16) -> i32 {
@@ -232,9 +234,26 @@ impl World {
         self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD).map(|b| self.stored(b.id, r)).sum()
     }
 
+    /// A route's yearly allowance of `r`, moved up or down a step by Ra's favour.
+    pub fn trade_limit(&self, city: usize, r: u16) -> i32 {
+        let Some(c) = self.trade.cities.get(city) else { return 0 };
+        let base = self.trade.routes.get(c.route as usize).map_or(0, |rt| rt.limit[r as usize]);
+        if base <= 0 {
+            return 0;
+        }
+        const TIERS: [i32; 4] = [0, 1500, 2500, 4000];
+        let tier = TIERS.iter().position(|&t| t >= base).unwrap_or(3) as i32;
+        let bonus = match self.religion.ra_trade_boost {
+            b if b >= 2 => 0,
+            b => b,
+        };
+        let t = (tier + bonus).clamp(0, 3) as usize;
+        if bonus == 0 { base } else { TIERS[t] }
+    }
+
     fn limit_reached(&self, city: usize, r: u16) -> bool {
         let Some(c) = self.trade.cities.get(city) else { return true };
-        self.trade.routes.get(c.route as usize).is_none_or(|rt| rt.traded[r as usize] >= rt.limit[r as usize])
+        self.trade.routes.get(c.route as usize).is_none_or(|rt| rt.traded[r as usize] >= self.trade_limit(city, r))
     }
 
     pub fn is_stockpiled(&self, r: u16) -> bool {
@@ -401,8 +420,8 @@ impl World {
         }
         for city in 0..self.trade.cities.len() {
             let c = &self.trade.cities[city];
-            // Ships need docks; only land routes trade for now.
-            if !c.open || !c.trades() || c.sea {
+            // Ships need docks; only land routes trade for now. Ra's wrath keeps traders away.
+            if !c.open || !c.trades() || c.sea || self.religion.ra_no_traders_months > 0 {
                 continue;
             }
             let route = &self.trade.routes[c.route as usize];
@@ -553,6 +572,9 @@ impl World {
             let price = self.sell_price(r);
             self.treasury += price;
             self.finance.this_year.exports += price;
+            if r == crate::economy::resource::LUXURY_GOODS {
+                self.ratings.luxury_exported += LOAD;
+            }
             self.trade.routes[route].traded[r as usize] += LOAD;
             self.figures.get_mut(fid).expect("present").amount += LOAD;
             dealt = true;

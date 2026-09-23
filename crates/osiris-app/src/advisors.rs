@@ -8,6 +8,7 @@
 use osiris_formats::{ImageLibrary, TextTable};
 use osiris_render::{Renderer, Space};
 use osiris_sim::World;
+use osiris_sim::buildings::kind;
 use osiris_sim::trade::status;
 use crate::widgets::{Ui, UiImages, inside};
 use osiris_ui::{Font, PanelImages, draw_text, draw_text_tinted, font, panel};
@@ -73,7 +74,7 @@ impl Advisor {
 
     /// Whether Osiris has this screen yet.
     pub fn available(self) -> bool {
-        matches!(self, Advisor::Labor | Advisor::Trade | Advisor::Financial | Advisor::Chief)
+        true
     }
 }
 
@@ -112,6 +113,8 @@ enum Popup {
     Priority(usize),
     /// The price list.
     Prices,
+    /// Choosing a festival: its god, then its size.
+    Festival(Option<usize>),
 }
 
 pub struct Advisors {
@@ -199,7 +202,15 @@ impl Advisors {
             Advisor::Trade => trade(&mut ui, world, [px, py], &mut self.popup, &mut self.scroll),
             Advisor::Financial => financial(&mut ui, world, [px, py]),
             Advisor::Chief => chief(&mut ui, world, [px, py]),
-            _ => None,
+            Advisor::Ratings => ratings(&mut ui, world, [px, py], &mut self.scroll),
+            Advisor::Religion => religion(&mut ui, world, [px, py], &mut self.popup),
+            Advisor::Entertainment => entertainment(&mut ui, world, [px, py]),
+            Advisor::Education => education(&mut ui, world, [px, py]),
+            Advisor::Health => health(&mut ui, world, [px, py]),
+            Advisor::Population => population(&mut ui, world, [px, py], &mut self.scroll),
+            Advisor::Political => political(&mut ui, world, [px, py]),
+            Advisor::Military => military(&mut ui, [px, py]),
+            Advisor::Monuments => monuments(&mut ui, world, [px, py]),
         };
         action = action.or(from_screen);
         if popup_open {
@@ -208,6 +219,14 @@ impl Advisors {
                 Some(Popup::Resource(r)) => resource_popup(&mut ui, world, r),
                 Some(Popup::Priority(c)) => priority_popup(&mut ui, world, c),
                 Some(Popup::Prices) => prices_popup(&mut ui, world),
+                Some(Popup::Festival(god)) => match festival_popup(&mut ui, world, god) {
+                    FestivalChoice::Close => true,
+                    FestivalChoice::God(g) => {
+                        self.popup = Some(Popup::Festival(Some(g)));
+                        false
+                    }
+                    FestivalChoice::Stay => false,
+                },
                 None => false,
             };
             if closed {
@@ -615,6 +634,429 @@ fn chief(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAc
         draw_text(ui.r, Font::NormalWhiteOnDark, head, px + 40.0, y, font::WHITE);
         let f = if *warn { Font::NormalYellow } else { Font::NormalWhiteOnDark };
         draw_text(ui.r, f, body, px + 60.0, y + 18.0, font::WHITE);
+    }
+    None
+}
+
+/// The four ratings as columns, with the goal each must reach; clicking one explains it.
+fn ratings(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], selected: &mut usize) -> Option<AdvisorAction> {
+    const G: usize = 53;
+    let title = ui.t(G, 0);
+    ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 17.0);
+    let goals = world.mission.as_ref().map(|m| m.goals.clone()).unwrap_or_default();
+    let pop_line = if goals.population.enabled { format!("{} {}", ui.t(G, 6), goals.population.value) } else { ui.t(G, 7) };
+    ui.label(Font::NormalBlackOnLight, &pop_line, px + 300.0, py + 20.0);
+    if let Ok(bg) = ui.r.library.group_id("Pharaoh_Unloaded", 2, 0) {
+        ui.image(bg, px + 60.0, py + 38.0);
+    }
+    let column = ui.r.library.group_id("Pharaoh_General", 189, 0).unwrap_or(0);
+    let r = &world.ratings;
+    let values = [(r.culture, goals.culture), (r.prosperity, goals.prosperity), (r.monument, goals.monuments), (r.kingdom, goals.kingdom)];
+    for (i, (value, goal)) in values.iter().enumerate() {
+        let x = px + 80.0 + 120.0 * i as f32;
+        let base_y = py + 256.0;
+        // The column rises one step per point and a half.
+        let steps = 2 * (*value as f32 * 0.75) as i32;
+        ui.image(column, x + 45.0, base_y);
+        for k in 0..steps {
+            ui.image(column + 1, x + 45.0, base_y - 1.0 - k as f32);
+        }
+        if goal.enabled && *value >= goal.value {
+            ui.image(column + 2, x + 45.0, base_y - steps as f32 - 12.0);
+        }
+        let rect = [x, py + 276.0, 120.0, 60.0];
+        let hot = ui.hot(rect) || *selected == i + 1;
+        panel::button_border(ui.r, ui.panels, rect[0], rect[1], 120, 60, hot);
+        ui.centred(Font::LargeBlackOnLight, &value.to_string(), x, py + 284.0, 120.0);
+        let needed = format!("{} {}", if goal.enabled { goal.value } else { 0 }, ui.t(G, 5));
+        ui.centred(Font::NormalBlackOnLight, &needed, x, py + 310.0, 120.0);
+        if ui.clicked(rect) {
+            *selected = i + 1;
+        }
+    }
+    panel::inner_panel(ui.r, ui.panels, px + 40.0, py + 340.0, 35, 5);
+    let (head, body) = match *selected {
+        0 => (String::new(), ui.t(G, 8)),
+        n => {
+            let value = values[n - 1].0;
+            let best = [65, 66, 67, 68][n - 1];
+            let body = if value > 90 {
+                ui.t(G, best)
+            } else {
+                match n {
+                    1 => ui.t(G, culture_reason(world)),
+                    2 => ui.t(G, if value <= 0 { 23 } else if value >= world.ratings.prosperity_max { 24 } else { 31 }),
+                    3 => ui.t(G, 55),
+                    _ => ui.t(52, (value / 5) as usize + 22),
+                }
+            };
+            (ui.t(G, n), body)
+        }
+    };
+    if !head.is_empty() {
+        ui.label(Font::NormalWhiteOnDark, &head, px + 68.0, py + 344.0);
+    }
+    ui.wrapped(Font::NormalWhiteOnDark, &body, px + 68.0, py + 364.0, 520.0);
+    None
+}
+
+/// Which gap in culture to point out: the least-covered of religion, entertainment,
+/// schools and libraries (group 53 ids 9-19).
+fn culture_reason(world: &World) -> usize {
+    let c = &world.ratings.coverage;
+    let options = [(world.religion.coverage_common, 14), (c.booth, 9), (c.school, 15), (c.library, 16)];
+    options.iter().min_by_key(|o| o.0).map_or(9, |o| o.1)
+}
+
+/// The coverage word for a percentage (group 57: 7 None ... 18 Perfect).
+fn coverage_word(ui: &Ui, pct: i32) -> String {
+    let id = if pct <= 0 {
+        7
+    } else if pct >= 100 {
+        18
+    } else {
+        8 + (pct / 10) as usize
+    };
+    ui.t(57, id)
+}
+
+fn staffed(world: &World, k: u16) -> (usize, usize) {
+    let total = world.buildings.iter().filter(|b| b.kind == k).count();
+    let active = world.buildings.iter().filter(|b| b.kind == k && b.workers > 0).count();
+    (total, active)
+}
+
+fn religion(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<Popup>) -> Option<AdvisorAction> {
+    const G: usize = 59;
+    let title = ui.t(G, 0);
+    ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
+    for (x, y, g, id) in [(180.0, 32.0, G, 5), (170.0, 46.0, G, 2), (250.0, 46.0, G, 1), (320.0, 46.0, 28, 150), (390.0, 18.0, G, 6), (400.0, 32.0, G, 8), (390.0, 46.0, G, 7), (460.0, 46.0, G, 3)] {
+        let s = ui.t(g, id);
+        ui.label(Font::SmallPlain, &s, px + x, py + y);
+    }
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 60.0, 36, 13);
+    let icons = ui.r.library.group_id("Pharaoh_General", 129, 0).unwrap_or(0);
+    for (i, god) in world.religion.gods.iter().enumerate() {
+        let y = py + 68.0 + 40.0 * i as f32;
+        let x = px + 40.0;
+        let name = ui.t(157, i);
+        let st = ui.t(187, god.status as usize);
+        if god.status == 0 {
+            draw_text(ui.r, Font::NormalYellow, &name, x, y, font::WHITE);
+            draw_text(ui.r, Font::NormalYellow, &st, x + 62.0, y, font::WHITE);
+        } else {
+            draw_text(ui.r, Font::NormalWhiteOnDark, &name, x, y, font::WHITE);
+            draw_text(ui.r, Font::NormalWhiteOnDark, &st, x + 62.0, y, font::WHITE);
+            let (complexes, _) = staffed(world, 65 + i as u16);
+            let (temples, active) = staffed(world, 60 + i as u16);
+            let (shrines, _) = staffed(world, 140 + i as u16);
+            for (dx, v) in [(162.0, complexes.to_string()), (227.0, format!("{active} ({temples})")), (292.0, shrines.to_string()), (352.0, god.months_since_festival.to_string())] {
+                draw_text(ui.r, Font::NormalWhiteOnDark, &v, x + dx, y, font::WHITE);
+            }
+            let mood = ui.t(G, 20 + (god.mood / 10).clamp(0, 10) as usize);
+            draw_text(ui.r, Font::NormalWhiteOnDark, &mood, x + 422.0, y, font::WHITE);
+            for k in 0..(god.wrath / 20).min(5) {
+                ui.image(icons + 34, x + 500.0 + 12.0 * k as f32, y);
+            }
+            for k in 0..(god.favour / 20).min(5) {
+                ui.image(icons + 33, x + 500.0 + 12.0 * k as f32, y);
+            }
+        }
+        let epithet = ui.t(158, i);
+        draw_text(ui.r, Font::NormalBlackOnDark, &epithet, x, y + 18.0, font::BLACK);
+    }
+    let advice = if !world.rules.gods_enabled {
+        ui.t(G, 43)
+    } else {
+        let least = world.religion.known().min_by_key(|(_, g)| g.mood).map(|(i, g)| (i, g.wrath));
+        match least {
+            Some((i, wrath)) if wrath > 4 => ui.t(G, 15 + i),
+            _ if world.religion.coverage_common >= 100 => ui.t(G, 14),
+            _ if world.population < 150 => ui.t(G, 13),
+            _ => ui.t(G, 9),
+        }
+    };
+    ui.wrapped(Font::NormalBlackOnLight, &advice, px + 60.0, py + 273.0, 512.0);
+    // Festivals.
+    panel::inner_panel(ui.r, ui.panels, px + 48.0, py + 330.0, 34, 5);
+    let since = world.religion.known().map(|(_, g)| g.months_since_festival).min().unwrap_or(0);
+    let last = format!("{} {} {}", since, ui.t(8, 5), ui.t(58, 15));
+    draw_text(ui.r, Font::NormalWhiteOnDark, &last, px + 112.0, py + 336.0, font::WHITE);
+    match &world.religion.festival {
+        Some(f) => {
+            let s = format!("{}{} ({} {})", ui.t(58, 34), ui.t(157, f.god), f.months_left, ui.t(8, 5));
+            draw_text(ui.r, Font::NormalWhiteOnDark, &s, px + 112.0, py + 360.0, font::WHITE);
+        }
+        None => {
+            let hold = ui.t(58, 16);
+            if ui.button([px + 102.0, py + 354.0, 300.0, 24.0], &hold, Font::NormalBlackOnLight)
+                && world.buildings.iter().any(|b| b.kind == osiris_sim::religion::FESTIVAL_SQUARE)
+            {
+                *popup = Some(Popup::Festival(None));
+            }
+            let advice = ui.t(58, 18 + (since / 4).clamp(0, 6) as usize);
+            ui.wrapped(Font::NormalWhiteOnDark, &advice, px + 60.0, py + 384.0, 400.0);
+        }
+    }
+    None
+}
+
+enum FestivalChoice {
+    Stay,
+    Close,
+    God(usize),
+}
+
+/// Choosing a festival: first the god, then the size, with each size's cost.
+fn festival_popup(ui: &mut Ui, world: &mut World, god: Option<usize>) -> FestivalChoice {
+    let screen = ui.r.screen;
+    let (w, h) = (416.0, 256.0);
+    let (x, y) = (((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor());
+    panel::outer_panel(ui.r, ui.panels, x, y, 26, 16);
+    let title = ui.t(58, 52);
+    ui.centred(Font::LargeBlackOnLight, &title, x, y + 14.0, w);
+    match god {
+        None => {
+            for g in 0..5 {
+                if world.religion.gods.get(g).is_none_or(|g| g.status == 0) {
+                    continue;
+                }
+                let label = ui.t(58, 25 + g);
+                if ui.button([x + 58.0, y + 50.0 + 34.0 * g as f32, 300.0, 26.0], &label, Font::NormalBlackOnLight) {
+                    return FestivalChoice::God(g);
+                }
+            }
+        }
+        Some(g) => {
+            let name = ui.t(157, g);
+            ui.centred(Font::NormalBlackOnLight, &name, x, y + 44.0, w);
+            for (i, size) in [osiris_sim::religion::festival::SMALL, osiris_sim::religion::festival::LARGE, osiris_sim::religion::festival::GRAND].into_iter().enumerate() {
+                let label = format!("{} - {} {} Deben", ui.t(58, 31 + i), ui.t(58, 30), world.festival_cost(size));
+                if ui.button([x + 38.0, y + 76.0 + 40.0 * i as f32, 340.0, 28.0], &label, Font::NormalBlackOnLight) {
+                    let _ = world.plan_festival(g, size);
+                    return FestivalChoice::Close;
+                }
+            }
+        }
+    }
+    if ui.click.take().is_some_and(|c| !inside([x, y, w, h], c)) {
+        return FestivalChoice::Close;
+    }
+    FestivalChoice::Stay
+}
+
+fn entertainment(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
+    const G: usize = 58;
+    let title = ui.t(G, 0);
+    ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
+    for (x, y, id) in [(180.0, 42.0, 1), (180.0, 56.0, 55), (280.0, 56.0, 2), (340.0, 56.0, 3), (470.0, 56.0, 4)] {
+        let s = ui.t(G, id);
+        ui.label(Font::SmallPlain, &s, px + x, py + y);
+    }
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 70.0, 36, 9);
+    let c = world.ratings.coverage.clone();
+    let rows = [
+        (47, kind::BOOTH, 400, c.booth, 0usize),
+        (48, kind::BANDSTAND, 700, c.bandstand, 1),
+        (49, kind::PAVILION, 1200, c.pavilion, 2),
+        (50, 32, 0, c.senet, 3),
+    ];
+    for (i, &(label, k, serves, cov, slot)) in rows.iter().enumerate() {
+        let y = py + 80.0 + 25.0 * i as f32;
+        let x = px + 40.0;
+        let name = ui.t(G, label);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &name, x, y, font::WHITE);
+        let (total, active) = staffed(world, k);
+        let shows = world.buildings.iter().filter(|b| b.kind == k && b.shows.get(slot).copied().unwrap_or(0) > 0).count();
+        for (dx, v) in [(140.0, format!("{active} ({total})")), (240.0, shows.to_string()), (310.0, format!("{} {}", serves * active as i32, ui.t(G, 5)))] {
+            draw_text(ui.r, Font::NormalWhiteOnDark, &v, x + dx, y, font::WHITE);
+        }
+        let word = coverage_word(ui, cov);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &word, x + 430.0, y, font::WHITE);
+    }
+    let avg: i32 = {
+        let houses: Vec<i32> = world.buildings.iter().filter_map(|b| b.house.as_ref()).filter(|h| h.population > 0).map(|h| h.entertainment).collect();
+        if houses.is_empty() { 0 } else { houses.iter().sum::<i32>() / houses.len() as i32 }
+    };
+    let advice = ui.t(G, if avg > 0 { 8 } else { 7 });
+    ui.wrapped(Font::NormalBlackOnLight, &advice, px + 30.0, py + 230.0, 512.0);
+    None
+}
+
+fn education(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
+    const G: usize = 57;
+    let title = ui.t(G, 0);
+    ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 17.0);
+    let kids: i32 = world.census.at_age[0..14].iter().sum();
+    let young: i32 = world.census.at_age[14..21].iter().sum();
+    for (x, v) in [(20.0, format!("{} {}", world.population, ui.t(G, 6))), (220.0, format!("{} {}", kids, ui.t(G, 4))), (420.0, format!("{} {}", young, ui.t(G, 5)))] {
+        ui.centred(Font::NormalBlackOnLight, &v, px + x, py + 50.0, 200.0);
+    }
+    for (x, id) in [(180.0, 1), (290.0, 2), (440.0, 3)] {
+        let s = ui.t(G, id);
+        ui.label(Font::SmallPlain, &s, px + x, py + 86.0);
+    }
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 108.0, 36, 6);
+    let c = world.ratings.coverage.clone();
+    let rows = [(18, osiris_sim::ratings::SCHOOL, 75, c.school, 4), (20, osiris_sim::ratings::ACADEMY, 100, c.academy, 5), (22, osiris_sim::ratings::LIBRARY, 800, c.library, 6)];
+    for (i, &(name_id, k, serves, cov, who)) in rows.iter().enumerate() {
+        let y = py + 118.0 + 25.0 * i as f32;
+        let x = px + 40.0;
+        let (total, active) = staffed(world, k);
+        let name = format!("{} {}", total, ui.t(8, name_id));
+        draw_text(ui.r, Font::NormalWhiteOnDark, &name, x, y, font::WHITE);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &active.to_string(), x + 140.0, y, font::WHITE);
+        let care = format!("{} {}", serves * active as i32, ui.t(G, who));
+        draw_text(ui.r, Font::NormalWhiteOnDark, &care, x + 250.0, y, font::WHITE);
+        let word = coverage_word(ui, cov);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &word, x + 400.0, y, font::WHITE);
+    }
+    let advice = ui.t(G, if c.school <= 0 && world.population < 300 { 23 } else if c.school >= 100 && c.library >= 100 { 25 } else { 19 });
+    ui.wrapped(Font::NormalBlackOnLight, &advice, px + 30.0, py + 250.0, 37.0 * 16.0);
+    None
+}
+
+fn health(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
+    const G: usize = 56;
+    let title = ui.t(G, 0);
+    ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 17.0);
+    let h = world.ratings.health;
+    let state = if world.population >= 200 { ui.t(G, (h / 10).clamp(0, 10) as usize + 16) } else { ui.t(G, 15) };
+    ui.wrapped(Font::NormalBlackOnLight, &state, px + 60.0, py + 46.0, 500.0);
+    for (x, id) in [(180.0, 3), (290.0, 4), (440.0, 5)] {
+        let s = ui.t(G, id);
+        ui.label(Font::SmallPlain, &s, px + x, py + 94.0);
+    }
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 108.0, 36, 6);
+    let c = world.ratings.coverage.clone();
+    let rows = [(25, osiris_sim::ratings::PHYSICIAN, 1000, c.physician), (27, osiris_sim::ratings::DENTIST, 1000, c.dentist), (29, kind::APOTHECARY, 100, c.apothecary), (31, osiris_sim::ratings::MORTUARY, 1000, c.mortuary)];
+    for (i, &(name_id, k, serves, cov)) in rows.iter().enumerate() {
+        let y = py + 116.0 + 20.0 * i as f32;
+        let x = px + 40.0;
+        let (total, active) = staffed(world, k);
+        let name = format!("{} {}", total, ui.t(8, name_id));
+        draw_text(ui.r, Font::NormalWhiteOnDark, &name, x, y, font::WHITE);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &active.to_string(), x + 145.0, y, font::WHITE);
+        let care = format!("{} {}", serves * active as i32, ui.t(G, 6));
+        draw_text(ui.r, Font::NormalWhiteOnDark, &care, x + 250.0, y, font::WHITE);
+        let word = ui.t(G, (cov / 10).clamp(0, 10) as usize + 43);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &word, x + 400.0, y, font::WHITE);
+    }
+    let advice = ui.t(G, if world.population < 200 { 14 } else if c.physician < 100 { 9 } else { 14 });
+    ui.wrapped(Font::NormalBlackOnLight, &advice, px + 60.0, py + 218.0, 500.0);
+    None
+}
+
+/// Population: the history of the city's size, its ages, or its housing, as a bar graph.
+fn population(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], graph: &mut usize) -> Option<AdvisorAction> {
+    const G: usize = 55;
+    *graph %= 3;
+    let title = ui.t(G, *graph);
+    ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 17.0);
+    ui.label(Font::NormalBlackOnLight, &format!("Population {}", world.population), px + 450.0, py + 25.0);
+    let data: Vec<i32> = match *graph {
+        0 => world.ratings.population_history.clone(),
+        1 => world.census.at_age.clone(),
+        _ => {
+            let mut levels = vec![0; 20];
+            for h in world.buildings.iter().filter_map(|b| b.house.as_ref()) {
+                levels[(h.level as usize).min(19)] += h.population;
+            }
+            levels
+        }
+    };
+    let (gx, gy, gw, gh) = (px + 65.0, py + 65.0, 395.0, 195.0);
+    panel::inner_panel(ui.r, ui.panels, gx - 8.0, gy - 8.0, 26, 14);
+    let steps = [100, 200, 400, 800, 1500, 3000, 6000, 12000, 25000, 50000];
+    let max = data.iter().copied().max().unwrap_or(0);
+    let top = steps.iter().copied().find(|&s| s >= max).unwrap_or(50000) as f32;
+    let n = data.len().max(1);
+    let bar = (gw / n as f32).clamp(1.0, 20.0);
+    for (i, &v) in data.iter().enumerate() {
+        let hgt = (v as f32 / top * gh).max(0.0);
+        ui.r.rect([gx + bar * i as f32, gy + gh - hgt], [(bar - 1.0).max(1.0), hgt], [0.72, 0.12, 0.08, 1.0], Space::Screen);
+    }
+    ui.label(Font::SmallPlain, &(top as i32).to_string(), gx - 4.0, gy - 22.0);
+    // The other two graphs, to switch to.
+    for (k, dy) in [(1usize, 61.0), (2, 161.0)] {
+        let other = (*graph + k) % 3;
+        let rect = [px + 503.0, py + dy, 104.0, 55.0];
+        let label = ui.t(G, other);
+        if ui.button(rect, &label, Font::SmallPlain) {
+            *graph = other;
+        }
+    }
+    let lines: Vec<String> = match *graph {
+        1 => {
+            let avg = if world.population > 0 { (0..100).map(|a| a as i32 * world.census.at_age[a]).sum::<i32>() / world.population } else { 0 };
+            vec![format!("Average age {avg}"), format!("{}% of the people can work", if world.population > 0 { world.labor.available * 100 / world.population } else { 0 })]
+        }
+        2 => vec![format!("Housing prosperity {}", world.ratings.prosperity_max)],
+        _ => vec![format!("{} {}", world.food_supply_months(), ui.t(8, 5))],
+    };
+    for (i, l) in lines.iter().enumerate() {
+        ui.label(Font::NormalBlackOnLight, l, px + 60.0, py + 340.0 + 18.0 * i as f32);
+    }
+    None
+}
+
+fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
+    const G: usize = 52;
+    ui.label(Font::LargeBlackOnLight, "Political Overseer", px + 60.0, py + 17.0);
+    let rating = format!("{} {}", ui.t(G, 0), world.ratings.kingdom);
+    ui.label(Font::NormalBlackOnLight, &rating, px + 60.0, py + 42.0);
+    let advice = ui.t(G, (world.ratings.kingdom / 5).clamp(0, 20) as usize + 22);
+    ui.wrapped(Font::NormalBlackOnLight, &advice, px + 60.0, py + 64.0, 35.0 * 16.0);
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 110.0, 36, 13);
+    let none = "There are no requests from Pharaoh or other cities.";
+    ui.centred(Font::NormalWhiteOnDark, none, px + 32.0, py + 200.0, 36.0 * 16.0);
+    panel::inner_panel(ui.r, ui.panels, px + 64.0, py + 324.0, 32, 6);
+    let rank = ui.t(32, 0);
+    ui.label(Font::NormalWhiteOnDark, &rank, px + 72.0, py + 332.0);
+    None
+}
+
+fn military(ui: &mut Ui, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
+    const G: usize = 51;
+    let title = ui.t(G, 0);
+    ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 70.0, 36, 17);
+    let none = ui.t(G, 16);
+    ui.wrapped(Font::NormalWhiteOnDark, &none, px + 42.0, py + 70.0 + 128.0, 34.0 * 16.0);
+    let threats = ui.t(G, 8);
+    ui.label(Font::NormalBlackOnLight, &threats, px + 50.0, py + 432.0 - 90.0);
+    let abroad = ui.t(G, 12);
+    ui.label(Font::NormalBlackOnLight, &abroad, px + 50.0, py + 432.0 - 70.0);
+    None
+}
+
+fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
+    let title = ui.t(4, 13);
+    ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
+    let rating = format!("Monument rating {}", world.ratings.monument);
+    ui.label(Font::NormalBlackOnLight, &rating, px + 60.0, py + 42.0);
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 60.0, 36, 8);
+    let list: Vec<(u32, u16)> = world.buildings.iter().filter(|b| b.monument.is_some()).map(|b| (b.id, b.kind)).collect();
+    if list.is_empty() {
+        ui.label(Font::NormalWhiteOnDark, "No monuments are being built.", px + 120.0, py + 110.0);
+    }
+    for (i, &(id, k)) in list.iter().take(3).enumerate() {
+        let y = py + 70.0 + 40.0 * i as f32;
+        let name = ui.t(198, match k {
+            kind::MEDIUM_MASTABA => 19,
+            kind::LARGE_MASTABA => 20,
+            _ => 18,
+        });
+        draw_text(ui.r, Font::NormalWhiteOnDark, &name, px + 48.0, y, font::WHITE);
+        if let Some((phase, finished, needs)) = world.monument_status(id) {
+            let status = if finished {
+                ui.t(5, 32)
+            } else {
+                let pct = needs.iter().map(|&(_, got, want)| got * 100 / want.max(1)).min().unwrap_or(100);
+                format!("{} / {}    {}%", phase, osiris_sim::monuments::monument_def(k).map_or(0, |d| d.phases.len() - 1), pct)
+            };
+            draw_text(ui.r, Font::NormalBlackOnDark, &status, px + 48.0, y + 18.0, font::BLACK);
+        }
     }
     None
 }
