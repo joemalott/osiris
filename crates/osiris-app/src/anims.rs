@@ -75,11 +75,12 @@ pub fn building_animations(cx: &AnimContext, out: &mut Vec<Overlay>) {
         }
         if osiris_sim::military::fort_soldier(b.kind).is_some() {
             // The fort's emblem: which kind of company it holds.
-            // Placed across from the image's left edge and down from its top tile.
+            // A patch of the south-east wall carrying the relief, placed from the
+            // fort's leftmost (draw) tile, as the original places it; it lands at
+            // (93, 50) inside the fort's image.
             if let Some(a) = cx.anim(b, "picture") {
-                let left = cx.point(b.x, b.y + b.size - 1)[0];
-                let top = cx.point(b.x, b.y)[1];
-                out.push(Overlay { x: b.x, y: b.y + b.size - 1, pos: [left + a.x as f32, top + a.y as f32], image: a.image });
+                let p = cx.point(b.x, b.y + b.size - 1);
+                out.push(Overlay { x: b.x, y: b.y + b.size - 1, pos: [p[0] + a.x as f32, p[1] + a.y as f32], image: a.image });
             }
             continue;
         }
