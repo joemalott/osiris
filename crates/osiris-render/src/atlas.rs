@@ -186,7 +186,7 @@ impl Atlas {
         layout: &wgpu::BindGroupLayout,
         sampler: &wgpu::Sampler,
     ) -> Option<AtlasEntry> {
-        let sprite = match lib.pack(img.pack).sg3.decode(img.index as usize) {
+        let sprite = match lib.sg3(img.pack).ok_or_else(|| osiris_formats::Error::Invalid("pack missing".into())).and_then(|s| s.decode(img.index as usize)) {
             Ok(s) => s,
             Err(e) => {
                 log::warn!("image {img:?}: {e}");

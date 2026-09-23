@@ -40,6 +40,12 @@ pub mod kind {
     pub const FIREHOUSE: u16 = 167;
     pub const WATER_SUPPLY: u16 = 180;
     pub const WORK_CAMP: u16 = 199;
+    pub const CARPENTERS_GUILD: u16 = 177;
+    pub const BRICKLAYERS_GUILD: u16 = 178;
+    pub const STONEMASONS_GUILD: u16 = 179;
+    pub const SMALL_MASTABA: u16 = 258;
+    pub const MEDIUM_MASTABA: u16 = 259;
+    pub const LARGE_MASTABA: u16 = 260;
 
     pub fn is_house(k: u16) -> bool {
         (HOUSE_FIRST..=HOUSE_LAST).contains(&k)
@@ -98,6 +104,12 @@ pub struct Building {
     pub empty_all: bool,
     #[serde(default)]
     pub saved_orders: Vec<u8>,
+    /// A monument's footprint (width, height) when it isn't square.
+    #[serde(default)]
+    pub dims: Option<(i32, i32)>,
+    /// A monument's construction.
+    #[serde(default)]
+    pub monument: Option<crate::monuments::Monument>,
     /// A venue's days of shows left, per performer (juggler, musician, dancer).
     #[serde(default)]
     pub shows: [i32; 3],
@@ -109,8 +121,14 @@ pub struct Building {
 }
 
 impl Building {
+    /// Width and height of the footprint.
+    pub fn footprint(&self) -> (i32, i32) {
+        self.dims.unwrap_or((self.size, self.size))
+    }
+
     pub fn tiles(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
-        (0..self.size).flat_map(move |dy| (0..self.size).map(move |dx| (self.x + dx, self.y + dy)))
+        let (w, h) = self.footprint();
+        (0..h).flat_map(move |dy| (0..w).map(move |dx| (self.x + dx, self.y + dy)))
     }
 
     pub fn center(&self) -> (i32, i32) {

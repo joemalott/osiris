@@ -170,6 +170,9 @@ impl InfoPanel {
         if b.house.is_some() {
             return self.house_window(ui, world, b);
         }
+        if b.monument.is_some() {
+            return self.monument_window(ui, world, b);
+        }
         if world.is_farm(b.kind) {
             return self.farm_window(ui, world, b, g, &name);
         }
@@ -268,6 +271,56 @@ impl InfoPanel {
         let line = if status.is_empty() || status == desc { desc } else { format!("{desc} {status}") };
         ui.wrapped(Font::NormalBlackOnLight, &line, x + 20.0, y + 46.0, 27.0 * 16.0);
         Self::workers(ui, world, b, x + 16.0, y + 136.0, "");
+        closed.then_some(InfoAction::Close)
+    }
+
+    /// The Construction Foreman's report on a monument.
+    fn monument_window(&mut self, ui: &mut Ui, world: &World, b: &Building) -> Option<InfoAction> {
+        const G: usize = 178;
+        let title_id = match b.kind {
+            kind::MEDIUM_MASTABA => 19,
+            kind::LARGE_MASTABA => 20,
+            _ => 18,
+        };
+        let title = ui.t(198, title_id);
+        let ([x, y], closed) = self.frame(ui, 29, 20, &title);
+        let foreman = ui.t(G, 12);
+        ui.centred(Font::NormalBlackOnLight, &foreman, x, y + 40.0, 29.0 * 16.0);
+        let Some((phase, finished, needs)) = world.monument_status(b.id) else { return closed.then_some(InfoAction::Close) };
+        let m = b.monument.as_ref().expect("monument");
+        let has = |k: u16| world.buildings.iter().any(|g| g.kind == k && g.workers > 0);
+        let blocks = m.progress.len().max(1);
+        let pct = m.progress.iter().map(|&p| p as usize).sum::<usize>() * 100 / (blocks * osiris_sim::monuments::BLOCK_WORK as usize);
+        let line = if finished {
+            ui.t(G, 41)
+        } else if phase < 2 {
+            let work = if !has(kind::WORK_CAMP) {
+                ui.t(G, 13)
+            } else if !world.figures.iter().any(|f| f.kind == osiris_sim::farms::PEASANT && f.target == b.id) {
+                ui.t(G, 17)
+            } else {
+                ui.t(G, 4)
+            };
+            format!("{} {} {}% {}", work, ui.t(G, 2), pct, ui.t(G, 0))
+        } else if !has(kind::BRICKLAYERS_GUILD) {
+            ui.t(G, 15)
+        } else if m.craftsman == 0 {
+            ui.t(G, 19)
+        } else if needs.iter().any(|&(r, got, want)| got < want && world.yards_stored(r) < osiris_sim::economy::LOAD) {
+            ui.t(G, 27)
+        } else {
+            format!("{} {} {}% {}", ui.t(G, 40), ui.t(G, 2), pct, ui.t(G, 0))
+        };
+        ui.wrapped(Font::NormalBlackOnLight, &line, x + 32.0, y + 66.0, 26.0 * 16.0);
+        if !finished && !needs.is_empty() {
+            panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 180.0, 27, 5);
+            for (i, &(r, got, want)) in needs.iter().enumerate() {
+                let ry = y + 192.0 + 24.0 * i as f32;
+                ui.icon(r, x + 32.0, ry);
+                let s = format!("{} / {} {}", got, want, ui.t(TEXT_RESOURCES, r as usize));
+                ui.label(Font::NormalWhiteOnDark, &s, x + 60.0, ry + 2.0);
+            }
+        }
         closed.then_some(InfoAction::Close)
     }
 

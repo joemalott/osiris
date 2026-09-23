@@ -121,9 +121,7 @@ impl World {
 
     /// Tick 31: work camps send peasants to floodplain farms that need tending.
     pub(crate) fn work_camp_walkers(&mut self) {
-        if self.flood_state() != FloodState::Farmable {
-            return;
-        }
+        let farmable = self.flood_state() == FloodState::Farmable;
         let camps: Vec<BuildingId> = self.buildings.iter().filter(|b| b.kind == kind::WORK_CAMP).map(|b| b.id).collect();
         for camp in camps {
             let Some(c) = self.buildings.get(camp) else { continue };
@@ -133,14 +131,33 @@ impl World {
             }
             let (cx, cy) = (c.x, c.y);
             let busy: Vec<u32> = self.figures.iter().filter(|f| f.kind == PEASANT).map(|f| f.target).collect();
+            // Floodplain farms come first; spare laborers level monument sites.
             let farm = self
                 .buildings
                 .iter()
-                .filter(|b| self.is_farm(b.kind) && b.labor_days <= RELABOR_BELOW && !busy.contains(&b.id))
+                .filter(|b| farmable && self.is_farm(b.kind) && b.labor_days <= RELABOR_BELOW && !busy.contains(&b.id))
                 .filter(|b| self.map.terrain_is(b.x, b.y, terrain::FLOODPLAIN))
                 .min_by_key(|b| (b.x - cx).pow(2) + (b.y - cy).pow(2))
                 .map(|b| b.id);
-            let Some(farm) = farm else { continue };
+            let Some(farm) = farm else {
+                if let Some((monument, block)) = self.leveling_job((cx, cy))
+                    && let Some(spot) = self.monument_access(monument, (cx, cy))
+                {
+                    let fid = self.figures.spawn(PEASANT, road.0, road.1, Travel::Land);
+                    let map = &self.map;
+                    if let Some(f) = self.figures.get_mut(fid) {
+                        f.home = camp;
+                        f.target = monument;
+                        f.amount = block as i32;
+                        f.action = 3;
+                        if !f.go_to(map, spot) {
+                            f.dead = true;
+                        }
+                    }
+                    self.buildings.get_mut(camp).expect("present").walkers[0] = fid;
+                }
+                continue;
+            };
             let Some(dest) = self.buildings.get(farm).map(|b| b.road.unwrap_or((b.x, b.y))) else { continue };
             let fid = self.figures.spawn(PEASANT, road.0, road.1, Travel::Land);
             let map = &self.map;
@@ -162,8 +179,31 @@ impl World {
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return };
         let (act, home, farm) = (f.action, f.home, f.target);
+        if act == 4 {
+            // Levelling a monument block.
+            let block = f.amount as usize;
+            if self.level_block(farm, block) {
+                // On to the next block nobody is working, while the site needs levelling.
+                if let Some(next) = self.next_leveling_block(farm, fid) {
+                    self.figures.get_mut(fid).expect("present").amount = next as i32;
+                    return;
+                }
+                let back = self.buildings.get(home).and_then(|b| b.road);
+                let map = &self.map;
+                let f = self.figures.get_mut(fid).expect("present");
+                f.action = 2;
+                match back {
+                    Some(r) if f.go_to(map, r) => {}
+                    _ => f.dead = true,
+                }
+            }
+            return;
+        }
         match (act, f.walk(map)) {
             (_, Step::Moving) => {}
+            (3, Step::Arrived) => {
+                self.figures.get_mut(fid).expect("present").action = 4;
+            }
             (1, Step::Arrived) => {
                 let camp = self.buildings.get(home).map(|b| (b.x, b.y));
                 let Some((cx, cy)) = camp else {

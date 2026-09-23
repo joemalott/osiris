@@ -852,6 +852,20 @@ impl Game {
         let defs = &self.world.defs;
         let mut out = Vec::new();
         for f in self.world.figures.iter().filter(|f| self.view_overlay.is_none_or(|v| v.shows_figure(&self.world, f.kind))) {
+            if f.kind == osiris_sim::monuments::SLED {
+                let (image, _) = carts.cart(f.cargo, f.amount, f.direction);
+                out.push(Sprite { x: f.x, y: f.y, offset: f.pixel_offset(), image });
+                continue;
+            }
+            // Craftsmen at work on a monument.
+            if f.kind == osiris_sim::monuments::BRICKLAYER
+                && f.action == 2
+                && let Some(work) = defs.figure(f.kind).and_then(|d| d.anims.get("work"))
+            {
+                let frame = (self.world.time.total_ticks / work.duration.max(1) as u64 % work.frames.max(1) as u64) as u32;
+                out.push(Sprite { x: f.x, y: f.y, offset: f.pixel_offset(), image: work.image + f.direction as u32 + 8 * frame });
+                continue;
+            }
             let Some(walk) = defs.figure(f.kind).and_then(|d| d.anims.get("walk")) else { continue };
             let frame = if f.moving { f.frame(walk.frames.max(1)) } else { 0 };
             let offset = f.pixel_offset();

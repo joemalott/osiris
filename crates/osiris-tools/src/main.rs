@@ -151,6 +151,9 @@ fn describe(name: &str, s: &Scenario) {
         i.exit_point.y,
         i.subtitle
     );
+    if i.monuments.iter().any(|&m| m != 0) || i.win.monuments.enabled {
+        println!("    monuments {:?} goal {:?}", i.monuments, i.win.monuments);
+    }
 }
 
 fn check_maps(game: &Path) -> Result<()> {
@@ -203,7 +206,7 @@ fn image_histogram(game: &Path, what: &str) -> Result<()> {
             match lib.resolve(id) {
                 Some(p) => {
                     let e = per_pack
-                        .entry(lib.pack(p.pack).sg3.name.clone())
+                        .entry(lib.pack(p.pack).name.clone())
                         .or_insert((0, u32::MAX, 0));
                     e.0 += 1;
                     e.1 = e.1.min(id);

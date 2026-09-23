@@ -62,7 +62,7 @@ struct Colors {
 fn group_color(lib: &ImageLibrary, group: usize, fallback: [f32; 4]) -> [f32; 4] {
     let Ok(id) = lib.group_id("Pharaoh_General", group, 0) else { return fallback };
     let Some(pack_img) = lib.resolve(id) else { return fallback };
-    let Ok(sprite) = lib.pack(pack_img.pack).sg3.decode(pack_img.index as usize) else {
+    let Ok(sprite) = lib.sg3(pack_img.pack).ok_or(()).and_then(|s| s.decode(pack_img.index as usize).map_err(|_| ())) else {
         return fallback;
     };
     let (mut r, mut g, mut b, mut n) = (0u64, 0u64, 0u64, 0u64);

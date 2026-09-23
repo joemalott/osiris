@@ -16,6 +16,7 @@ impl World {
             return Err("Not available yet");
         }
         let size = def.size.max(1);
+        let (fw, fh) = self.monument_footprint(k).unwrap_or((size, size));
         if self.is_road_venue(k) {
             if self.venue_orientation(k, x, y).is_none() {
                 return Err("Must be built where roads meet");
@@ -34,8 +35,8 @@ impl World {
         if floodplain_ok {
             blocked &= !terrain::FLOODPLAIN;
         }
-        for yy in y..y + size {
-            for xx in x..x + size {
+        for yy in y..y + fh {
+            for xx in x..x + fw {
                 if !self.map.contains(xx, yy) {
                     return Err("Outside the map");
                 }
@@ -122,8 +123,11 @@ impl World {
     /// Adds a building without charging for it.
     pub fn create_building(&mut self, k: u16, x: i32, y: i32) -> BuildingId {
         let size = self.size_of(k);
+        let dims = self.monument_footprint(k);
+        let (fw, fh) = dims.unwrap_or((size, size));
         let image = self.defs.building(k).map_or(0, |d| d.image);
         let mut b = Building {
+            dims,
             kind: k,
             x,
             y,
@@ -138,8 +142,8 @@ impl World {
             b.house = Some(crate::houses::House { level: (k - kind::HOUSE_FIRST) as u8, ..Default::default() });
         }
         let id = self.buildings.insert(b);
-        for yy in y..y + size {
-            for xx in x..x + size {
+        for yy in y..y + fh {
+            for xx in x..x + fw {
                 self.map.terrain.update(xx, yy, |t| (t & !(terrain::MEADOW | terrain::SHRUB)) | terrain::BUILDING);
                 self.map.building.set(xx, yy, id);
             }
@@ -148,6 +152,8 @@ impl World {
             self.place_venue(id);
         } else if k == kind::STORAGE_YARD {
             self.place_storage_yard(id);
+        } else if dims.is_some() {
+            self.place_monument(id);
         } else {
             self.map.set_footprint(x, y, size, image);
         }

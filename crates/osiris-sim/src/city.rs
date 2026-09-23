@@ -46,6 +46,7 @@ impl World {
                 self.work_camp_walkers();
                 self.school_walkers();
                 self.venue_walkers();
+                self.guild_walkers();
             }
             9 => self.decay_house_services(),
             32 => self.update_trade(),
@@ -53,6 +54,7 @@ impl World {
             38 => self.update_building_desirability(),
             39 => self.evolve_houses(),
             43 => self.update_burning_ruins(),
+            45 => self.update_monuments(),
             44 => self.check_fire_and_collapse(),
             48 => self.decay_tax_coverage(),
             _ => {}
@@ -89,6 +91,9 @@ impl World {
                 crate::economy::CART_PUSHER | crate::economy::STORAGEYARD_CART => self.update_cart(fid),
                 crate::economy::LUMBERJACK | crate::economy::REED_GATHERER => self.update_gatherer(fid),
                 crate::trade::TRADE_CARAVAN => self.update_caravan(fid),
+                crate::monuments::BRICKLAYER => self.update_craftsman(fid),
+                crate::monuments::SLED => self.update_sled(fid),
+                crate::monuments::SLED_PULLER => self.update_sled_puller(fid),
                 crate::trade::CARAVAN_DONKEY => self.update_donkey(fid),
                 crate::food::MARKET_BUYER => self.update_buyer(fid),
                 k if crate::animals::is_animal(k) => self.update_animal(fid),
