@@ -1327,7 +1327,7 @@ fn monument_lines(k: u16) -> Option<([usize; 2], usize, usize, usize)> {
         Style::Pyramid(Family::Mudbrick) => ([19, 20], 21, 22, 23),
         Style::Pyramid(Family::Stepped) => ([24, 25], 26, 27, 28),
         Style::Pyramid(Family::Bent) => ([29, 30], 31, 32, 33),
-        Style::Mastaba { .. } => ([34, 35], 36, 37, 38),
+        Style::Mastaba => ([34, 35], 36, 37, 38),
         Style::Obelisk { .. } => ([43, 44], 45, 46, 46),
         Style::Sphinx => ([39, 40], 41, 42, 42),
         Style::Mausoleum => ([51, 52], 53, 54, 55),
@@ -1363,11 +1363,8 @@ fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
                 None => vec![ui.t(G, begin[0]), ui.t(G, begin[1])],
             },
             Some(m) if m.finished => vec![ui.t(G, if m.funeral_done { rests } else { done })],
-            Some(m) => {
-                let def = def.expect("found");
-                let blocks = m.progress.len().max(1) as i32;
-                let within = m.progress.iter().map(|&p| p as i32).sum::<i32>() * 100 / (blocks * def.unit_work(m.phase) as i32);
-                let pct = (m.phase as i32 * 100 + within) / (def.phase_count as i32 - 1).max(1);
+            Some(_) => {
+                let pct = built.map_or(0, |b| world.monument_percent(b.id));
                 vec![format!("{} {}% {}", ui.t(G, under_way), pct.min(99), ui.t(178, 0))]
             }
         };

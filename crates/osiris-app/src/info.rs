@@ -394,9 +394,8 @@ impl InfoPanel {
         let Some((phase, finished, needs)) = world.monument_status(b.id) else { return closed.then_some(InfoAction::Close) };
         let m = b.monument.as_ref().expect("monument");
         let has = |k: u16| world.buildings.iter().any(|g| g.kind == k && g.workers > 0);
-        let blocks = m.progress.len().max(1);
-        let pct = m.progress.iter().map(|&p| p as usize).sum::<usize>() * 100 / (blocks * def.unit_work(m.phase) as usize);
-        let brick = matches!(def.style, Style::Mastaba { .. });
+        let pct = world.monument_percent(b.id);
+        let brick = matches!(def.style, Style::Mastaba);
         // (finished, going well) lines.
         let obelisk = matches!(def.style, Style::Obelisk { .. });
         let (done_line, fine) = if brick {
@@ -413,7 +412,7 @@ impl InfoPanel {
         } else {
             (38, if matches!(def.style, Style::Pyramid(mon::Family::Stepped)) { 37 } else { 31 })
         };
-        let crew = def.crew(phase);
+        let crew = world.monument_crew(b.id);
         // Each craftsman's guild, the foreman's line when there is none, and when none comes.
         let guild = |k: u16| match k {
             mon::BRICKLAYER => (kind::BRICKLAYERS_GUILD, 15, 19),
@@ -425,7 +424,7 @@ impl InfoPanel {
         let short = needs.iter().find(|&&(r, got, want)| got < want && world.yards_stored(r) < osiris_sim::economy::LOAD).map(|n| n.0);
         let line = if finished {
             ui.t(G, done_line)
-        } else if phase < 2 {
+        } else if def.laborers(phase) {
             let work = if !has(kind::WORK_CAMP) {
                 ui.t(G, 13)
             } else if !world.figures.iter().any(|f| f.kind == osiris_sim::farms::PEASANT && f.target == b.id) {

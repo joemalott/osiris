@@ -177,6 +177,7 @@ impl World {
         let mut world: World = rmp_serde::from_slice(&data[12..]).map_err(|e| e.to_string())?;
         world.defs = defs;
         world.balance = balance;
+        world.upgrade_monuments();
         Ok(world)
     }
 }

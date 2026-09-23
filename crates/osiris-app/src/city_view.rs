@@ -17,9 +17,6 @@ pub struct CityView {
     pub last_sprites: usize,
     /// World-pixel bounds of the playable area, found on first use.
     bounds: Option<[f32; 4]>,
-    /// Ground images fading in over tiles (a monument site being worked), with
-    /// their opacity.
-    pub fades: std::collections::HashMap<(i32, i32), (u32, f32)>,
 }
 
 /// World-pixel bounding box of the tiles that are part of the map (tiles outside the
@@ -236,11 +233,6 @@ impl CityView {
                     continue;
                 }
                 r.image(id, pos, WHITE, Space::World);
-                if let Some(&(fade, a)) = self.fades.get(&(x, y))
-                    && let Some(fh) = r.record(fade).map(|rec| rec.height as f32)
-                {
-                    r.image(fade, [p[0], p[1] + TILE_H - fh], [1.0, 1.0, 1.0, a], Space::World);
-                }
             }
             while next_column < columns.len() && columns[next_column].x + columns[next_column].y <= d {
                 let c = columns[next_column];

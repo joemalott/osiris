@@ -2237,7 +2237,7 @@ id = 241
 key = "small_bent_pyramid"
 size = 2
 image = { pack = "bent_pyramid", group = 2, offset = 7 }
-anims = { corner_bricks = { pack = "bent_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "bent_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "bent_pyramid", group = 1, offset = 102 }, preview = { pack = "bent_pyramid", group = 2, offset = 7 }, clear_land = { pack = "bent_pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "bent_pyramid", group = 1, offset = 0 }, half = { pack = "bent_pyramid", group = 12, offset = 0 }, corner_bricks = { pack = "bent_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "bent_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "bent_pyramid", group = 1, offset = 102 }, preview = { pack = "bent_pyramid", group = 2, offset = 7 }, clear_land = { pack = "bent_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_bent_pyramid"
@@ -2263,7 +2263,7 @@ id = 242
 key = "medium_bent_pyramid"
 size = 2
 image = { pack = "bent_pyramid", group = 2, offset = 7 }
-anims = { corner_bricks = { pack = "bent_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "bent_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "bent_pyramid", group = 1, offset = 102 }, preview = { pack = "bent_pyramid", group = 2, offset = 7 }, clear_land = { pack = "bent_pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "bent_pyramid", group = 1, offset = 0 }, half = { pack = "bent_pyramid", group = 12, offset = 0 }, corner_bricks = { pack = "bent_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "bent_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "bent_pyramid", group = 1, offset = 102 }, preview = { pack = "bent_pyramid", group = 2, offset = 7 }, clear_land = { pack = "bent_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_bent_pyramid"
@@ -2283,7 +2283,7 @@ id = 243
 key = "small_mudbrick_pyramid"
 size = 2
 image = { pack = "mudbrick_pyramid", group = 2, offset = 7 }
-anims = { corner_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 102 }, preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "mudbrick_pyramid", group = 1, offset = 0 }, corner_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 102 }, preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_brick_core_pyramid"
@@ -2309,7 +2309,7 @@ id = 244
 key = "medium_mudbrick_pyramid"
 size = 2
 image = { pack = "mudbrick_pyramid", group = 2, offset = 7 }
-anims = { corner_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 102 }, preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "mudbrick_pyramid", group = 1, offset = 0 }, corner_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 102 }, preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_brick_core_pyramid"
@@ -2329,7 +2329,7 @@ id = 245
 key = "large_mudbrick_pyramid"
 size = 2
 image = { pack = "mudbrick_pyramid", group = 2, offset = 7 }
-anims = { corner_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 102 }, preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "mudbrick_pyramid", group = 1, offset = 0 }, corner_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "mudbrick_pyramid", group = 1, offset = 102 }, preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_brick_core_pyramid"
@@ -2389,7 +2389,7 @@ id = 250
 key = "large_stepped_pyramid"
 size = 2
 image = { pack = "stepped_pyramid", group = 2, offset = 7 }
-anims = { corner_bricks = { pack = "stepped_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "stepped_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "stepped_pyramid", group = 1, offset = 102 }, preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "stepped_pyramid", group = 1, offset = 0 }, corner_bricks = { pack = "stepped_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "stepped_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "stepped_pyramid", group = 1, offset = 102 }, preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_building_stepped_pyramid"
@@ -2449,7 +2449,7 @@ id = 253
 key = "small_pyramid"
 size = 2
 image = { pack = "Pyramid", group = 2, offset = 7 }
-anims = { corner_bricks = { pack = "Pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "Pyramid", group = 1, offset = 4 }, base_bricks = { pack = "Pyramid", group = 1, offset = 102 }, preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "Pyramid", group = 1, offset = 0 }, corner_bricks = { pack = "Pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "Pyramid", group = 1, offset = 4 }, base_bricks = { pack = "Pyramid", group = 1, offset = 102 }, preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_true_pyramid"
@@ -2475,7 +2475,7 @@ id = 254
 key = "medium_pyramid"
 size = 2
 image = { pack = "Pyramid", group = 2, offset = 7 }
-anims = { corner_bricks = { pack = "Pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "Pyramid", group = 1, offset = 4 }, base_bricks = { pack = "Pyramid", group = 1, offset = 102 }, preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "Pyramid", group = 1, offset = 0 }, corner_bricks = { pack = "Pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "Pyramid", group = 1, offset = 4 }, base_bricks = { pack = "Pyramid", group = 1, offset = 102 }, preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_true_pyramid"
@@ -2495,7 +2495,7 @@ id = 255
 key = "large_pyramid"
 size = 2
 image = { pack = "Pyramid", group = 2, offset = 7 }
-anims = { corner_bricks = { pack = "Pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "Pyramid", group = 1, offset = 4 }, base_bricks = { pack = "Pyramid", group = 1, offset = 102 }, preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "Pyramid", group = 1, offset = 0 }, corner_bricks = { pack = "Pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "Pyramid", group = 1, offset = 4 }, base_bricks = { pack = "Pyramid", group = 1, offset = 102 }, preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_true_pyramid"
@@ -2555,7 +2555,7 @@ id = 258
 key = "small_mastaba"
 size = 2
 image = { pack = "mastaba", group = 2, offset = 7 }
-anims = { preview = { pack = "mastaba", group = 2, offset = 7 }, base_bricks = { pack = "mastaba", group = 1, offset = 0 }, clear_land = { pack = "mastaba", group = 2, offset = 12 } }
+anims = { blocks = { pack = "mastaba", group = 1, offset = 0 }, preview = { pack = "mastaba", group = 2, offset = 7 }, base_bricks = { pack = "mastaba", group = 1, offset = 0 }, clear_land = { pack = "mastaba", group = 2, offset = 12 } }
 flags = ["is_monument", "allow_rotate"]
 text_id = 178
 help = "message_building_mastaba"
@@ -2570,7 +2570,7 @@ id = 259
 key = "medium_mastaba"
 size = 2
 image = { pack = "mastaba", group = 2, offset = 7 }
-anims = { preview = { pack = "mastaba", group = 2, offset = 7 }, base_bricks = { pack = "mastaba", group = 1, offset = 0 }, clear_land = { pack = "mastaba", group = 2, offset = 12 } }
+anims = { blocks = { pack = "mastaba", group = 1, offset = 0 }, preview = { pack = "mastaba", group = 2, offset = 7 }, base_bricks = { pack = "mastaba", group = 1, offset = 0 }, clear_land = { pack = "mastaba", group = 2, offset = 12 } }
 flags = ["is_monument", "allow_rotate"]
 text_id = 178
 help = "message_building_mastaba"
@@ -2585,7 +2585,7 @@ id = 260
 key = "large_mastaba"
 size = 2
 image = { pack = "mastaba", group = 2, offset = 7 }
-anims = { preview = { pack = "mastaba", group = 2, offset = 7 }, base_bricks = { pack = "mastaba", group = 1, offset = 0 }, clear_land = { pack = "mastaba", group = 2, offset = 12 } }
+anims = { blocks = { pack = "mastaba", group = 1, offset = 0 }, preview = { pack = "mastaba", group = 2, offset = 7 }, base_bricks = { pack = "mastaba", group = 1, offset = 0 }, clear_land = { pack = "mastaba", group = 2, offset = 12 } }
 flags = ["is_monument", "allow_rotate"]
 text_id = 178
 help = "message_building_mastaba"
@@ -2981,7 +2981,7 @@ id = 319
 key = "small_stepped_pyramid"
 size = 2
 image = { pack = "stepped_pyramid", group = 2, offset = 7 }
-anims = { corner_bricks = { pack = "stepped_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "stepped_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "stepped_pyramid", group = 1, offset = 102 }, preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "stepped_pyramid", group = 1, offset = 0 }, corner_bricks = { pack = "stepped_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "stepped_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "stepped_pyramid", group = 1, offset = 102 }, preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_building_stepped_pyramid"
@@ -3001,7 +3001,7 @@ id = 324
 key = "medium_stepped_pyramid"
 size = 2
 image = { pack = "stepped_pyramid", group = 2, offset = 7 }
-anims = { corner_bricks = { pack = "stepped_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "stepped_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "stepped_pyramid", group = 1, offset = 102 }, preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "stepped_pyramid", group = 1, offset = 0 }, corner_bricks = { pack = "stepped_pyramid", group = 1, offset = 0 }, wall_bricks = { pack = "stepped_pyramid", group = 1, offset = 4 }, base_bricks = { pack = "stepped_pyramid", group = 1, offset = 102 }, preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_building_stepped_pyramid"

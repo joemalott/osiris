@@ -33,6 +33,7 @@ pub mod map;
 pub mod military;
 pub mod missions;
 pub mod monuments;
+pub mod pyramids;
 pub mod navy;
 pub mod notices;
 pub mod people;
