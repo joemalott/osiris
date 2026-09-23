@@ -21,6 +21,9 @@ pub mod kind {
     pub const DANCE_SCHOOL: u16 = 35;
     pub const JUGGLER_SCHOOL: u16 = 36;
     pub const APOTHECARY: u16 = 46;
+    pub const MORTUARY: u16 = 47;
+    pub const SCRIBAL_SCHOOL: u16 = 51;
+    pub const LIBRARY: u16 = 53;
     pub const TEMPLE_OSIRIS: u16 = 60;
     pub const TEMPLE_BAST: u16 = 64;
     pub const BAZAAR: u16 = 70;

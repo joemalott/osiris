@@ -25,6 +25,14 @@ pub struct BuildingStats {
     pub employees: i32,
     pub fire_risk: i32,
     pub damage_risk: i32,
+    /// The row's two unnamed columns, i and j. Column i is what a mortuary, scribal
+    /// school or library uses up per walker, and on the Ptah and Seth complexes the
+    /// percentage of that the Oracle of Thoth or Altar of Anubis leaves; column j is
+    /// the crime a priest of Ra or Seth takes away.
+    #[serde(default)]
+    pub i: i32,
+    #[serde(default)]
+    pub j: i32,
 }
 
 pub const TYPE_ROAD: usize = 5;
