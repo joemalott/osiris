@@ -22,7 +22,7 @@ impl MessageList {
     fn origin(screen: [f32; 2]) -> (f32, f32) {
         let w = W_BLOCKS as f32 * 16.0;
         let h = H_BLOCKS as f32 * 16.0;
-        let area = screen[0] - crate::sidebar::WIDTH;
+        let area = screen[0] - crate::sidebar::width();
         (((area - w) / 2.0).max(0.0), ((screen[1] - h) / 2.0).max(40.0))
     }
 

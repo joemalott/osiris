@@ -121,7 +121,7 @@ impl InfoPanel {
     fn frame(&mut self, ui: &mut Ui, wb: i32, hb: i32, title: &str) -> ([f32; 2], bool) {
         let screen = ui.r.screen;
         let (w, h) = ((wb * 16) as f32, (hb * 16) as f32);
-        let x = ((screen[0] - crate::sidebar::WIDTH - w) / 2.0).max(0.0).floor();
+        let x = ((screen[0] - crate::sidebar::width() - w) / 2.0).max(0.0).floor();
         let y = ((screen[1] - h) / 2.0).max(40.0).floor();
         self.rect = [x, y, w, h];
         panel::outer_panel(ui.r, ui.panels, x, y, wb, hb);
@@ -844,7 +844,7 @@ impl InfoPanel {
         let list_blocks = (rows as i32 * 25 + 8 + 15) / 16;
         let hb = (42 + list_blocks * 16 + if bazaar { 50 } else { 76 } + 15) / 16;
         let (w, h) = (29.0 * 16.0, hb as f32 * 16.0);
-        let (x, y) = (((screen[0] - crate::sidebar::WIDTH - w) / 2.0).max(0.0).floor(), ((screen[1] - h) / 2.0).max(40.0).floor());
+        let (x, y) = (((screen[0] - crate::sidebar::width() - w) / 2.0).max(0.0).floor(), ((screen[1] - h) / 2.0).max(40.0).floor());
         panel::outer_panel(ui.r, ui.panels, x, y, 29, hb);
         let title = if bazaar { ui.t(TEXT_BAZAAR, 7) } else if granary { ui.t(TEXT_GRANARY, 6) } else { ui.t(TEXT_YARD, 3) };
         ui.centred(Font::LargeBlackOnLight, &title, x, y + 12.0, w);

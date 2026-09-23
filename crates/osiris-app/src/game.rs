@@ -369,6 +369,7 @@ impl Game {
     }
 
     pub fn update(&mut self, dt: f32) {
+        self.sidebar.update(dt);
         if !self.paused {
             self.anim_clock += dt;
         }
@@ -604,8 +605,9 @@ impl Game {
             }
             return None;
         }
-        let panel_left = sidebar::panel_left(screen_w);
         if let Some(m) = &self.minimap
+            && !self.sidebar.sliding()
+            && let Some(panel_left) = self.sidebar.minimap_left(screen_w)
             && m.contains(panel_left, self.cursor)
         {
             return m.pixel_to_tile(&self.world.map, panel_left, self.cursor);
@@ -660,8 +662,7 @@ impl Game {
             Button::Briefing => self.briefing().is_some(),
             Button::SpeedDown | Button::SpeedUp => true,
             Button::Empire => !self.world.trade.cities.is_empty(),
-            Button::Advisors => true,
-            Button::Collapse => false,
+            Button::Advisors | Button::Collapse => true,
         };
         if !enabled {
             return None;
@@ -694,7 +695,10 @@ impl Game {
                 self.empire = Some(Default::default());
             }
             Button::Advisors => self.open_advisor(crate::advisors::Advisor::Chief),
-            Button::Collapse => {}
+            Button::Collapse => {
+                self.sidebar.open = None;
+                self.sidebar.toggle();
+            }
         }
         None
     }
@@ -1207,7 +1211,13 @@ impl Game {
         }
         let buildings = &self.world.buildings;
         let is_house = |id: u32| buildings.get(id).is_some_and(|b| b.house.is_some());
-        minimap.draw(r, &self.world.map, is_house, sidebar::panel_left(r.screen[0]));
+        if let Some(left) = self.sidebar.minimap_left(r.screen[0]) {
+            let clip = self.sidebar.sliding().then_some([0.0, 0.0, r.screen[0] - 24.0, r.screen[1]]);
+            r.set_clip(clip);
+            minimap.draw(r, &self.world.map, is_house, left);
+            r.set_clip(None);
+        }
+        self.sidebar.draw_tooltip(r, &state);
         let tool = match self.tool {
             Tool::None => String::new(),
             Tool::Road => self.building_name(5),
@@ -1222,7 +1232,7 @@ impl Game {
             draw_text(r, Font::SmallOutlined, &line, 10.0, 38.0, font::WHITE);
         }
         if let Some((m, _)) = &self.message {
-            let w = r.screen[0] - crate::sidebar::WIDTH;
+            let w = r.screen[0] - crate::sidebar::width();
             let mw = osiris_ui::text_width(r, Font::LargeBlackOnDark, m) as f32;
             draw_text(r, Font::LargeBlackOnDark, m, (w - mw) / 2.0, 70.0, font::WHITE);
         }
