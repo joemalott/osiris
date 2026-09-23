@@ -1,6 +1,6 @@
 # Invading enemy army data for Osiris, cross-referenced from three sources:
 #
-#   1. Akhenaten (github pharaoh/Akhenaten, AGPL) -- used here as a source of FACTS ONLY
+#   1. Akhenaten (github dalerank/Akhenaten, AGPL) -- used here as a source of FACTS ONLY
 #      (pack constants, group ids, frame counts, enemy-id enum, event-type enum). No code
 #      copied.
 #        - crates: src/scripts/enemies.js            (per-nation figure_* / enemy_* blocks)

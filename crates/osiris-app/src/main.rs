@@ -1,3 +1,6 @@
+// Release builds on Windows run without a console window.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod advisors;
 mod anims;
 mod army_view;
@@ -69,10 +72,18 @@ fn parse_args() -> Result<Args> {
     Ok(args)
 }
 
-/// Where Osiris keeps saves and campaign progress.
+/// Where Osiris keeps saves and campaign progress: the platform's usual place for
+/// application data.
 fn user_dir() -> PathBuf {
-    let base = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-    let dir = base.join("Library/Application Support/Osiris");
+    let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let home = || env("HOME").unwrap_or_else(|| PathBuf::from("."));
+    let dir = if cfg!(target_os = "macos") {
+        home().join("Library/Application Support/Osiris")
+    } else if cfg!(windows) {
+        env("APPDATA").unwrap_or_else(|| PathBuf::from(".")).join("Osiris")
+    } else {
+        env("XDG_DATA_HOME").unwrap_or_else(|| home().join(".local/share")).join("osiris")
+    };
     let _ = std::fs::create_dir_all(dir.join("saves"));
     dir
 }

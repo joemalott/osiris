@@ -3,7 +3,7 @@
 `missions.toml` in this directory holds per-scenario campaign rules (buildings available,
 funds, environment, win conditions, mission variables, tutorial/progressive unlocks, and
 scripted messages) for Osiris, extracted as **facts** from the Akhenaten reimplementation of
-Pharaoh (AGPL; `/Users/jmalott/Desktop/Projects/pharaoh/Akhenaten`). Nothing in Akhenaten's code
+Pharaoh (AGPL; github.com/dalerank/Akhenaten). Nothing in Akhenaten's code
 was copied or adapted — only game-design facts (numbers, building rosters, trigger conditions)
 were read out of its JS mission scripts and re-expressed as TOML data.
 

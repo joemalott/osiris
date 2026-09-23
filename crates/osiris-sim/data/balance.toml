@@ -1,8 +1,7 @@
 # Gameplay balance constants for Osiris, extracted from the Akhenaten reference
-# reimplementation of Pharaoh (github: pharaoh/Akhenaten, AGPL, used here as a source
-# of FACTS only — no code copied) and cross-checked where feasible against a private
-# Ghidra decompilation of the original Pharaoh.exe
-# (/Users/jmalott/Desktop/Projects/pharaoh/re/out).
+# reimplementation of Pharaoh (github: dalerank/Akhenaten, AGPL, used here as a source
+# of FACTS only — no code copied) and cross-checked where feasible against a
+# decompilation of the original Pharaoh.exe.
 #
 # Per-building cost/desirability/labor/fire-risk/damage-risk and per-house-level
 # evolve/devolve desirability thresholds, service point requirements (EVO_ENT,

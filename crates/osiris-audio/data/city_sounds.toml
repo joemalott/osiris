@@ -2,9 +2,9 @@
 # each building type that is currently on screen.
 #
 # Facts sourced from the Akhenaten reimplementation (read-only, facts only):
-#   - crates/pharaoh/Akhenaten/src/scripts/city/sounds.js: the explicit channel -> file table
+#   - Akhenaten src/scripts/city/sounds.js: the explicit channel -> file table
 #     (`city_sounds` array), the ground truth for which asset backs each ambience channel.
-#   - crates/pharaoh/Akhenaten/src/sound/sound_city.cpp (`building_type_to_channel`): which
+#   - Akhenaten src/sound/sound_city.cpp (`building_type_to_channel`): which
 #     building types share a channel, most notably the five house-tier channels
 #     (SOUND_CHANNEL_CITY_HOUSE_SLUM/POOR/MEDIUM/GOOD/POSH).
 #   - `id` below is osiris-sim's `crates/osiris-sim/data/buildings.toml` building id; `key` is

@@ -1,5 +1,5 @@
 # Walker/figure type data for Osiris, extracted from the Akhenaten reference reimplementation
-# (github reference: pharaoh/Akhenaten, AGPL, used here as a source of facts only).
+# (github reference: dalerank/Akhenaten, AGPL, used here as a source of facts only).
 # Schema: id = original e_figure_type id; key = snake_case name;
 # anims = { <name> = { pack, group, offset, frames?, duration?, loop? }, ... } (walk/death/etc,
 # offset resolved from FIGURE_x self-reference constants where used, e.g. big_image);
