@@ -405,8 +405,9 @@ impl Menu {
         let (x, y) = self.list_box(screen);
         let rows = self.items.len().clamp(1, LIST_ROWS) as f32;
         let by = y + 44.0 + rows * ROW_H + 12.0;
-        let w = (BOX_W - 24.0) / 3.0;
-        [[x + 8.0, by, w, BUTTON_H], [x + 12.0 + w, by, w, BUTTON_H], [x + 16.0 + 2.0 * w, by, w, BUTTON_H]]
+        // Buttons are drawn in whole 16-pixel pieces.
+        let w = 128.0;
+        [[x + 4.0, by, w, BUTTON_H], [x + 8.0 + w, by, w, BUTTON_H], [x + 12.0 + 2.0 * w, by, w, BUTTON_H]]
     }
 
     /// The "create a family" page's commit button (its Back button reuses the generic
