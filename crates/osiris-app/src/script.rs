@@ -29,6 +29,10 @@ pub struct ScriptView {
     /// A popup to open over the overseer: salary, gift or donate.
     pub advisor_popup: Option<String>,
     pub orders: bool,
+    /// Screen point the mouse rests on, for tooltips.
+    pub hover: Option<[f32; 2]>,
+    /// A sidebar slide frozen part-way: collapsing or not, and the step (0-47).
+    pub slide: Option<(bool, f32)>,
 }
 
 /// Runs `--script` steps against the world.
@@ -61,6 +65,13 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["info", p] => view.info = Some(parse_point(p)?),
             ["dialogs"] => view.keep_dialogs = true,
             ["zoom", z] => view.zoom = Some(z.parse()?),
+            ["sidebar", "collapse"] => crate::sidebar::set_collapsed(true),
+            ["sidebar", "expand"] => crate::sidebar::set_collapsed(false),
+            ["sidebar", "slide", dir, step] => view.slide = Some((*dir == "collapse", step.parse()?)),
+            ["hover", p] => {
+                let (x, y) = parse_point(p)?;
+                view.hover = Some([x as f32, y as f32]);
+            }
             ["menu"] => view.menu = true,
             ["menu", page] => {
                 view.menu = true;

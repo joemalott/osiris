@@ -949,7 +949,11 @@ fn main() -> Result<()> {
             }
             game.info = Some(panel);
         }
+        if let Some((collapsing, step)) = view.slide {
+            game.sidebar.show_slide(collapsing, step);
+        }
         let zoom = view.zoom;
+        let hover = view.hover;
         return gfx::screenshot(library, args.size, out, |r| {
             if let Some(z) = zoom {
                 r.camera.zoom = z;
@@ -957,6 +961,11 @@ fn main() -> Result<()> {
             match at {
                 Some((cx, cy)) => game.view.center_on(r, &game.world.map, cx, cy),
                 None => start_camera(r, &mut game),
+            }
+            if let Some(p) = hover {
+                // Negative coordinates count from the right or bottom edge.
+                let p = [if p[0] < 0.0 { r.screen[0] + p[0] } else { p[0] }, if p[1] < 0.0 { r.screen[1] + p[1] } else { p[1] }];
+                game.set_cursor(r, p);
             }
             game.draw(r);
         });
