@@ -4,6 +4,9 @@
 //! cannot reach their target batter the wall in their way until it falls, so a
 //! double wall holds them twice as long. A tower is built into a wall two tiles thick;
 //! the recruiter sends it a sentry, who throws javelins at invaders in range.
+//!
+//! A roadblock also stands on a road: walkers bound somewhere pass it, but roaming
+//! walkers turn back.
 
 use crate::buildings::BuildingId;
 use crate::figures::{FigureId, Step, Travel};
@@ -19,6 +22,7 @@ pub const MUD_TOWER: u16 = 59;
 pub const BRICK_TOWER: u16 = 172;
 pub const CLAY_TOWER: u16 = 173;
 pub const TOWER_SENTRY: u16 = 42;
+pub const ROADBLOCK: u16 = 138;
 
 pub fn is_wall(k: u16) -> bool {
     matches!(k, MUD_WALL | BRICK_WALL)
@@ -48,9 +52,10 @@ impl World {
     /// Placement rules of the defences: gatehouses go on a road, towers into a wall
     /// two tiles thick.
     pub(crate) fn can_place_defense(&self, k: u16, x: i32, y: i32) -> Option<Result<(), &'static str>> {
-        if is_gatehouse(k) {
+        if is_gatehouse(k) || k == ROADBLOCK {
             let t = self.map.terrain.at_or(x, y, 0);
-            return Some(if t & terrain::ROAD == 0 || self.map.building.at_or(x, y, 0) != 0 { Err("Gatehouses go on a road") } else { Ok(()) });
+            let why = if k == ROADBLOCK { "Roadblocks go on a road" } else { "Gatehouses go on a road" };
+            return Some(if t & terrain::ROAD == 0 || self.map.building.at_or(x, y, 0) != 0 { Err(why) } else { Ok(()) });
         }
         if is_tower(k) {
             let all_wall = (y..y + 2).all(|yy| (x..x + 2).all(|xx| self.map.building.get(xx, yy).and_then(|id| self.buildings.get(id)).is_some_and(|b| is_wall(b.kind))));
@@ -66,6 +71,10 @@ impl World {
         let (k, x, y) = (b.kind, b.x, b.y);
         if is_wall(k) {
             self.map.terrain.update(x, y, |t| t | terrain::WALL);
+        } else if k == ROADBLOCK {
+            // The road stays a road for walkers going somewhere.
+            self.map.terrain.update(x, y, |t| (t & !terrain::BUILDING) | terrain::ROAD);
+            return;
         } else if is_gatehouse(k) {
             // People walk the road through the gate.
             self.map.terrain.update(x, y, |t| (t & !terrain::BUILDING) | terrain::GATEHOUSE | terrain::ROAD);
@@ -110,11 +119,17 @@ impl World {
         }
     }
 
+    /// Whether a roaming walker may step onto `(x, y)`: not past a roadblock.
+    pub fn roamer_may_enter(&self, x: i32, y: i32) -> bool {
+        let id = self.map.building.at_or(x, y, 0);
+        id == 0 || !self.buildings.get(id).is_some_and(|b| b.kind == ROADBLOCK)
+    }
+
     /// When a wall or gatehouse goes, its terrain goes with it.
     pub(crate) fn remove_defense(&mut self, k: u16, x: i32, y: i32) {
         if is_wall(k) {
             self.map.terrain.update(x, y, |t| t & !terrain::WALL);
-        } else if is_gatehouse(k) {
+        } else if is_gatehouse(k) || k == ROADBLOCK {
             self.map.terrain.update(x, y, |t| t & !terrain::GATEHOUSE);
             let (mut rules, map) = self.tile_rules();
             rules.roads_in(map, x - 1, y - 1, x + 1, y + 1);

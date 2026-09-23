@@ -87,7 +87,11 @@ pub struct TileRules<'a> {
 impl TileRules<'_> {
     pub fn road_image(&mut self, map: &mut Map, x: i32, y: i32) {
         let t = map.terrain.at_or(x, y, 0);
-        if t & terrain::ROAD == 0 || t & (terrain::WATER | terrain::BUILDING | terrain::CANAL) != 0 {
+        if t & terrain::ROAD == 0 || t & (terrain::WATER | terrain::BUILDING | terrain::CANAL | terrain::GATEHOUSE) != 0 {
+            return;
+        }
+        // A roadblock (or anything else standing on the road) keeps its own image.
+        if map.building.at_or(x, y, 0) != 0 {
             return;
         }
         if map.bitfields.at_or(x, y, 0) & 0x80 != 0 {

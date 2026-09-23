@@ -223,7 +223,7 @@ impl World {
             .step_by(2)
             .filter(|&d| {
                 let (dx, dy) = NEIGHBOURS[d as usize];
-                self.map.terrain_is(x + dx, y + dy, terrain::ROAD) && !self.map.terrain_is(x + dx, y + dy, terrain::WATER)
+                self.map.terrain_is(x + dx, y + dy, terrain::ROAD) && !self.map.terrain_is(x + dx, y + dy, terrain::WATER) && self.roamer_may_enter(x + dx, y + dy)
             })
             .collect();
         match roads.len() {

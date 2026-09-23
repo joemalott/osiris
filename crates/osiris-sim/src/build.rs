@@ -175,7 +175,8 @@ impl World {
         } else if crate::military::fort_soldier(k).is_some() {
             self.map.set_footprint(x, y, size, image);
             self.place_fort(id);
-        } else if crate::defenses::is_wall(k) || crate::defenses::is_gatehouse(k) {
+        } else if crate::defenses::is_wall(k) || crate::defenses::is_gatehouse(k) || k == crate::defenses::ROADBLOCK {
+            self.map.set_footprint(x, y, size, image);
             self.place_defense(id);
         } else {
             self.map.set_footprint(x, y, size, image);
@@ -205,7 +206,7 @@ impl World {
             self.remove_fort(id);
         }
         let Some(b) = self.buildings.remove(id) else { return };
-        let defense = (crate::defenses::is_wall(b.kind) || crate::defenses::is_gatehouse(b.kind)).then_some((b.kind, b.x, b.y));
+        let defense = (crate::defenses::is_wall(b.kind) || crate::defenses::is_gatehouse(b.kind) || b.kind == crate::defenses::ROADBLOCK).then_some((b.kind, b.x, b.y));
         for (xx, yy) in b.tiles().collect::<Vec<_>>() {
             self.map.terrain.update(xx, yy, |t| t & !terrain::BUILDING);
             self.map.building.set(xx, yy, 0);
