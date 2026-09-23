@@ -559,7 +559,7 @@ impl World {
         c.wind_tick = now;
         if running {
             c.wind = (c.wind - 1).max(0);
-        } else if now % REST_PER_WIND == 0 {
+        } else if now.is_multiple_of(REST_PER_WIND) {
             c.wind = (c.wind + 1).min(WIND);
         }
     }
