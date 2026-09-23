@@ -19,6 +19,7 @@ impl World {
                 self.finish_production();
                 self.check_unlocks();
                 self.check_milestones();
+                self.update_trade_problems();
             }
             7 => {
                 for id in self.buildings.ids() {
@@ -72,6 +73,8 @@ impl World {
             self.regrow_herds();
             self.update_gods_month();
             self.update_ratings_month();
+            self.process_scenario_events();
+            self.update_sieges();
             if !self.won && self.goals_met() {
                 self.won = true;
                 self.messages.push_back("victory".to_owned());

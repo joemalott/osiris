@@ -393,5 +393,11 @@ fn empire_cmd(game: &Path, what: &str) -> Result<()> {
         println!("route {i}: type {} {} points {:?}", r.route_type, r.points.len(), r.points.first());
     }
     println!("prices {:?}", s.empire.prices.iter().take(12).collect::<Vec<_>>());
+    for (i, e) in s.events.iter().enumerate() {
+        println!(
+            "event {i:3} type {:2} trig {:2} y{} m{} time {:?} item {:?} amount {:?} loc {:?} months {} sender {} sub {} city {} tag {} chain c{} r{} l{} d{} reasons {:?}",
+            e.kind, e.trigger, e.year, e.month, (e.time.min, e.time.max), e.item, e.amount, e.location, e.months, e.sender, e.subtype, e.city, e.tag, e.on_completed, e.on_refusal, e.on_too_late, e.on_defeat, e.reasons
+        );
+    }
     Ok(())
 }

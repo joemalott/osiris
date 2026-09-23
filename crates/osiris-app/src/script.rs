@@ -107,6 +107,26 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 eprintln!("  finance {:?} entry {:?} exit {:?}", world.finance.this_year, world.entry_point, world.exit_point);
             }
+            ["events"] => {
+                for (i, e) in world.scenario_events.list.iter().enumerate() {
+                    eprintln!(
+                        "  event {i} kind {} trigger {} at y{} m{} res {} amount {} city {:?} state {} left {} active {} wait {}",
+                        e.kind, e.trigger, e.year, e.month, e.resource, e.amount, e.city, e.state, e.months_left, e.active, e.wait
+                    );
+                }
+                for n in world.notices.log.iter().filter(|n| n.text.is_some()) {
+                    eprintln!("  posted {}/{} {:?}", n.month, n.year, n.text);
+                }
+                eprintln!("  kingdom {} wages {}", world.ratings.kingdom, world.finance.kingdom_wages);
+            }
+            ["clearmessages"] => {
+                world.messages.clear();
+                world.message_texts.clear();
+            }
+            ["dispatch", i] => {
+                let ok = world.dispatch_request(i.parse()?);
+                eprintln!("{step}: {ok}");
+            }
             ["globallabor"] => world.rules.global_labor_pool = true,
             ["safe"] => {
                 world.rules.fire = false;

@@ -36,6 +36,9 @@ pub struct Notice {
     /// Where it happened, for "go to problem".
     pub tile: Option<(i32, i32)>,
     pub read: bool,
+    /// For messages written from event phrases, what to write.
+    #[serde(default)]
+    pub text: Option<crate::scenario_events::EventText>,
 }
 
 impl Notice {
@@ -65,6 +68,7 @@ impl World {
             year: self.time.year,
             tile,
             read: popup,
+            text: None,
         });
         if self.notices.log.len() > MAX_NOTICES {
             self.notices.log.remove(0);

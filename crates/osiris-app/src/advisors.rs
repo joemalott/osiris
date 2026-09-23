@@ -115,6 +115,8 @@ enum Popup {
     Prices,
     /// Choosing a festival: its god, then its size.
     Festival(Option<usize>),
+    /// Asking before sending what a request wants, or saying there is not enough.
+    Request(usize, bool),
 }
 
 pub struct Advisors {
@@ -208,7 +210,7 @@ impl Advisors {
             Advisor::Education => education(&mut ui, world, [px, py]),
             Advisor::Health => health(&mut ui, world, [px, py]),
             Advisor::Population => population(&mut ui, world, [px, py], &mut self.scroll),
-            Advisor::Political => political(&mut ui, world, [px, py]),
+            Advisor::Political => political(&mut ui, world, [px, py], &mut self.popup),
             Advisor::Military => military(&mut ui, [px, py]),
             Advisor::Monuments => monuments(&mut ui, world, [px, py]),
         };
@@ -227,6 +229,7 @@ impl Advisors {
                     }
                     FestivalChoice::Stay => false,
                 },
+                Some(Popup::Request(i, ok)) => request_popup(&mut ui, world, i, ok),
                 None => false,
             };
             if closed {
@@ -298,7 +301,7 @@ fn labor(ui: &mut Ui, lock: u32, world: &mut World, [px, py]: [f32; 2], popup: &
     if ui.arrow(px + 182.0, py + 354.0, true) {
         world.finance.wages = (world.finance.wages + 1).min(100);
     }
-    let wages = format!("{} {} {} {})", world.finance.wages, ui.t(G, 15), ui.t(G, 18), osiris_sim::finance::KINGDOM_WAGES);
+    let wages = format!("{} {} {} {})", world.finance.wages, ui.t(G, 15), ui.t(G, 18), world.finance.kingdom_wages);
     draw_text(ui.r, Font::NormalWhiteOnDark, &wages, px + 230.0, py + 359.0, font::WHITE);
     None
 }
@@ -1000,7 +1003,7 @@ fn population(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], graph: &mut us
     None
 }
 
-fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
+fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<Popup>) -> Option<AdvisorAction> {
     const G: usize = 52;
     ui.label(Font::LargeBlackOnLight, "Political Overseer", px + 60.0, py + 17.0);
     let rating = format!("{} {}", ui.t(G, 0), world.ratings.kingdom);
@@ -1008,12 +1011,64 @@ fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Advis
     let advice = ui.t(G, (world.ratings.kingdom / 5).clamp(0, 20) as usize + 22);
     ui.wrapped(Font::NormalBlackOnLight, &advice, px + 60.0, py + 64.0, 35.0 * 16.0);
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 110.0, 36, 13);
-    let none = "There are no requests from Pharaoh or other cities.";
-    ui.centred(Font::NormalWhiteOnDark, none, px + 32.0, py + 200.0, 36.0 * 16.0);
+    // Open requests, five to a screen: what and how much, the months left, what the
+    // city holds, and whether it can be sent.
+    let requests: Vec<(usize, u16, i32, i32)> = world.scenario_events.open_requests().map(|(i, e)| (i, e.resource, e.units(), e.months_left)).collect();
+    if requests.is_empty() {
+        let none = ui.t(G, 21);
+        ui.centred(Font::NormalWhiteOnDark, &none, px + 32.0, py + 200.0, 36.0 * 16.0);
+    }
+    for (row, &(i, r, units, months)) in requests.iter().take(5).enumerate() {
+        let (rx, ry) = (px + 38.0, py + 116.0 + 45.0 * row as f32);
+        let rect = [rx, ry, 35.0 * 16.0, 45.0];
+        ui.icon(r, rx + 7.0, ry + 7.0);
+        let shown = if r == osiris_sim::scenario_events::DEBEN || r == osiris_sim::scenario_events::TROOPS { units } else { units / 100 };
+        let what = format!("{} {}", shown, ui.t(RESOURCE_NAMES, r as usize));
+        ui.label(Font::NormalWhiteOnDark, &what, rx + 30.0, ry + 7.0);
+        let when = format!("{} {} {}", months, ui.t(8, if months == 1 { 4 } else { 5 }), ui.t(12, 2));
+        ui.label(Font::NormalWhiteOnDark, &when, rx + 310.0, ry + 7.0);
+        let can = world.can_send_request(i);
+        let held = if r == osiris_sim::scenario_events::DEBEN {
+            format!("{} {}", world.treasury, ui.t(G, 44))
+        } else {
+            format!("{} {}", world.city_stored(r) / 100, ui.t(G, 43))
+        };
+        ui.label(Font::NormalWhiteOnDark, &held, rx + 30.0, ry + 25.0);
+        let status = ui.t(G, if can { 47 } else { 48 });
+        ui.label(if can { Font::NormalYellow } else { Font::NormalWhiteOnDark }, &status, rx + 310.0, ry + 25.0);
+        if ui.hot(rect) {
+            panel::button_border(ui.r, ui.panels, rx + 2.0, ry + 2.0, rect[2] as i32 - 4, rect[3] as i32 - 4, false);
+        }
+        if ui.clicked(rect) {
+            *popup = Some(Popup::Request(i, can));
+        }
+    }
     panel::inner_panel(ui.r, ui.panels, px + 64.0, py + 324.0, 32, 6);
     let rank = ui.t(32, 0);
     ui.label(Font::NormalWhiteOnDark, &rank, px + 72.0, py + 332.0);
     None
+}
+
+/// "Dispatch goods?" with Yes and No, or "You do not have enough" with OK. True when
+/// it closes.
+fn request_popup(ui: &mut Ui, world: &mut World, i: usize, can: bool) -> bool {
+    let screen = ui.r.screen;
+    let (w, h) = (400.0, 160.0);
+    let (x, y) = (((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor());
+    panel::outer_panel(ui.r, ui.panels, x, y, 25, 10);
+    let title = ui.t(5, 6);
+    ui.centred(Font::LargeBlackOnLight, &title, x, y + 16.0, w);
+    let line = ui.t(5, if can { 7 } else { 9 });
+    ui.centred(Font::NormalBlackOnLight, &line, x, y + 60.0, w);
+    if can {
+        if ui.button([x + 80.0, y + 110.0, 100.0, 24.0], "Yes", Font::NormalBlackOnLight) {
+            world.dispatch_request(i);
+            return true;
+        }
+        ui.button([x + 220.0, y + 110.0, 100.0, 24.0], "No", Font::NormalBlackOnLight)
+    } else {
+        ui.button([x + 150.0, y + 110.0, 100.0, 24.0], "OK", Font::NormalBlackOnLight)
+    }
 }
 
 fn military(ui: &mut Ui, [px, py]: [f32; 2]) -> Option<AdvisorAction> {

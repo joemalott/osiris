@@ -278,7 +278,7 @@ impl World {
         if food_kinds >= 2 {
             change += 1;
         }
-        let kingdom_wage = crate::finance::KINGDOM_WAGES;
+        let kingdom_wage = self.finance.kingdom_wages;
         if self.finance.wages >= kingdom_wage + 2 {
             change += 1;
         } else if self.finance.wages < kingdom_wage {

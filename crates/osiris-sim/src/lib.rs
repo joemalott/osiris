@@ -30,6 +30,7 @@ pub mod ratings;
 pub mod religion;
 pub mod rng;
 pub mod rules;
+pub mod scenario_events;
 pub mod sentiment;
 pub mod services;
 pub mod storage;

@@ -100,6 +100,9 @@ pub struct TradeCity {
     pub pos: (i32, i32),
     /// Days until the next trader sets out.
     pub entry_delay: i32,
+    /// Months left of a siege, which keeps its traders home.
+    #[serde(default)]
+    pub siege_months: i32,
 }
 
 impl TradeCity {
@@ -421,7 +424,8 @@ impl World {
         for city in 0..self.trade.cities.len() {
             let c = &self.trade.cities[city];
             // Ships need docks; only land routes trade for now. Ra's wrath keeps traders away.
-            if !c.open || !c.trades() || c.sea || self.religion.ra_no_traders_months > 0 {
+            let troubled = c.siege_months > 0 || if c.sea { self.scenario_events.sea_problem_days > 0 } else { self.scenario_events.land_problem_days > 0 };
+            if !c.open || !c.trades() || c.sea || troubled || self.religion.ra_no_traders_months > 0 {
                 continue;
             }
             let route = &self.trade.routes[c.route as usize];

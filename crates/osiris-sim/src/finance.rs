@@ -2,8 +2,13 @@
 
 use crate::world::World;
 
-/// The wage the Kingdom pays per ten workers, which cities are measured against.
+/// The wage the Kingdom pays per ten workers at the start, which cities are measured
+/// against; scenario events raise and lower it.
 pub const KINGDOM_WAGES: i32 = 30;
+
+fn kingdom_wages() -> i32 {
+    KINGDOM_WAGES
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Finance {
@@ -18,6 +23,8 @@ pub struct Finance {
     /// The treasury at the end of last year.
     #[serde(default)]
     pub last_year_balance: i32,
+    #[serde(default = "kingdom_wages")]
+    pub kingdom_wages: i32,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -46,6 +53,7 @@ impl Default for Finance {
             this_year: YearTotals::default(),
             last_year: YearTotals::default(),
             last_year_balance: 0,
+            kingdom_wages: KINGDOM_WAGES,
         }
     }
 }

@@ -268,6 +268,7 @@ pub struct Scenario {
     /// Raw `floodplain_settings` chunk (season, duration, quality, ...).
     pub floodplain_settings: Vec<u8>,
     pub empire: crate::Empire,
+    pub events: Vec<crate::EventRecord>,
 }
 
 fn u32_grid(bytes: &[u8]) -> Vec<u32> {
@@ -299,6 +300,7 @@ impl Scenario {
             camera: [cam[0] as i32, cam[1] as i32],
             floodplain_settings: file.get("floodplain_settings").map(<[u8]>::to_vec).unwrap_or_default(),
             empire: crate::Empire::from_chunks(file)?,
+            events: crate::events::events_from_chunks(file)?,
         };
         debug_assert_eq!(s.images.len(), GRID_TILES);
         Ok(s)

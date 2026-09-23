@@ -99,6 +99,7 @@ struct Assets {
     balance: Arc<Balance>,
     text: Arc<TextTable>,
     messages: Arc<MessageTable>,
+    phrases: Arc<osiris_formats::Phrases>,
     mission_names: Vec<String>,
 }
 
@@ -200,6 +201,7 @@ impl App {
         let (Some(gfx), Some(images)) = (self.gfx.as_mut(), self.images.clone()) else { return };
         world.rules = load_rules();
         let mut game = game::Game::new(world, images, self.assets.text.clone(), self.assets.messages.clone(), self.audio.clone());
+        game.phrases = self.assets.phrases.clone();
         let (cx, cy) = start_view(&game.world);
         game.view.center_on(&mut gfx.renderer, &game.world.map, cx, cy);
         self.screen = Some(Screen::Playing(Box::new(game), mission));
@@ -583,7 +585,8 @@ fn load_assets(data: &Path, library: &ImageLibrary) -> Result<Assets> {
     let mission_names = (0..count)
         .map(|i| names.get(i).cloned().unwrap_or_else(|| format!("Mission {}", i + 1)))
         .collect();
-    Ok(Assets { data: data.to_owned(), defs, balance, text, messages, mission_names })
+    let phrases = Arc::new(osiris_formats::Phrases::parse(&String::from_utf8_lossy(&std::fs::read(data.join("eventmsg.txt")).unwrap_or_default())));
+    Ok(Assets { data: data.to_owned(), defs, balance, text, messages, phrases, mission_names })
 }
 
 fn main() -> Result<()> {
@@ -617,6 +620,7 @@ fn main() -> Result<()> {
             return gfx::screenshot(library, args.size, out, |r| menu.draw(r, &images.panels));
         }
         let mut game = game::Game::new(world, images, assets.text.clone(), assets.messages.clone(), None);
+        game.phrases = assets.phrases.clone();
         let (cx, cy) = view.centre.or(view.info).unwrap_or_else(|| start_view(&game.world));
         if !view.keep_dialogs {
             game.close_dialog();

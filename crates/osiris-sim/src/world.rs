@@ -97,6 +97,12 @@ pub struct World {
     #[serde(default)]
     pub ratings: crate::ratings::Ratings,
     pub events: crate::missions::CityEvents,
+    /// What the scenario has planned: requests, gifts, changes in the empire.
+    #[serde(default)]
+    pub scenario_events: crate::scenario_events::ScenarioEvents,
+    /// Texts of the event messages in `messages`, in the same order.
+    #[serde(default)]
+    pub message_texts: VecDeque<crate::scenario_events::EventText>,
     pub won: bool,
     pub migration_params: crate::people::MigrationParams,
     pub scenario_name: String,
@@ -174,6 +180,8 @@ impl World {
             religion: crate::religion::Religion::new(info.gods),
             ratings: crate::ratings::Ratings { last_year_worth: info.initial_funds, ..Default::default() },
             events: Default::default(),
+            scenario_events: crate::scenario_events::ScenarioEvents::from_records(&scenario.events, info.start_year as i32),
+            message_texts: VecDeque::new(),
             won: false,
             migration_params: Default::default(),
             scenario_name: info.subtitle.clone(),

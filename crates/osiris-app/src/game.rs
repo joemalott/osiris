@@ -99,6 +99,8 @@ pub struct Game {
     accumulator: f32,
     message: Option<(String, f32)>,
     messages: Arc<MessageTable>,
+    /// The phrases of eventmsg.txt, for scenario event messages.
+    pub phrases: Arc<osiris_formats::Phrases>,
     dialog: Option<MessageDialog>,
     pub info: Option<InfoPanel>,
     minimap: Option<Minimap>,
@@ -145,6 +147,7 @@ impl Game {
     ) -> Self {
         let top_menu = TopMenu::new(&text);
         Self {
+            phrases: Arc::default(),
             world,
             view: CityView::default(),
             tool: Tool::None,
@@ -215,6 +218,9 @@ impl Game {
                 size: (30, 16),
                 ..Default::default()
             }
+        } else if matches!(key.as_str(), "message_template_request" | "message_template_general") {
+            let Some(t) = self.world.message_texts.pop_front() else { return };
+            self.event_message(&t)
         } else {
             let Some(m) = osiris_sim::missions::message_id(&key).and_then(|id| self.messages.get(id as usize)) else {
                 return;
@@ -742,11 +748,46 @@ impl Game {
         self.world.mission.as_ref()?.start_message.clone()
     }
 
+    /// A scenario event's message: the template's frame, written from its phrases with
+    /// the blanks filled in.
+    fn event_message(&self, t: &osiris_sim::scenario_events::EventText) -> Message {
+        let phrase = |name: &str| self.phrases.get(&format!("PHRASE_{name}")).unwrap_or("").to_owned();
+        let item = |r: u16| self.text.get(23, 54 + r as usize).unwrap_or("").to_owned();
+        let city = |c: Option<u8>| c.and_then(|c| self.text.get(195, c as usize)).unwrap_or("").to_owned();
+        let shown = |r: u16, units: i32| if r == osiris_sim::scenario_events::DEBEN || r == osiris_sim::scenario_events::TROOPS || units < 100 { units } else { units / 100 };
+        let player = std::env::var("USER").map(|u| {
+            let mut c = u.chars();
+            c.next().map(|f| f.to_uppercase().chain(c).collect::<String>()).unwrap_or_default()
+        });
+        let fill = |s: &str, (r, amount, c): (u16, i32, Option<u8>), reason: &str| {
+            s.replace("[greeting]", self.text.get(32, 11).unwrap_or(""))
+                .replace("[player_name]", player.as_deref().unwrap_or("Governor"))
+                .replace("[reason_phrase]", reason)
+                .replace("[city_name]", &city(c))
+                .replace("[amount]", &shown(r, amount).to_string())
+                .replace("[amount_granted]", &shown(r, amount).to_string())
+                .replace("[item]", &item(r))
+                .replace("[time_allotted]", &t.months.to_string())
+                .replace("[time_until_attack]", &t.months.to_string())
+        };
+        let own = (t.resource, t.amount, t.city_name);
+        let reason = fill(&phrase(&t.reason), t.cause.unwrap_or(own), "");
+        let title = fill(&phrase(&t.title), own, "");
+        let body = fill(&phrase(&t.body), own, &reason);
+        let mut m = self.messages.get(t.template as usize).cloned().unwrap_or_default();
+        m.title = title;
+        m.content = format!("@P{}", body.split_whitespace().collect::<Vec<_>>().join(" "));
+        m
+    }
+
     /// Opens entry `i` of the message log.
     fn open_notice(&mut self, i: usize) {
         let Some(n) = self.world.notices.log.get_mut(i) else { return };
         n.read = true;
         let key = n.key.clone();
+        if let Some(t) = n.text.clone() {
+            self.world.message_texts.push_front(t);
+        }
         self.message_list = None;
         self.world.messages.push_front(key);
         self.sound("BUTTON.WAV");

@@ -64,6 +64,12 @@ impl World {
             self.post_trouble("message_collapsed_building", (b.x, b.y), Condition::Collapse);
             self.events.collapse = true;
         }
+        self.wreck(id, by_fire);
+    }
+
+    /// Replaces a building with rubble or burning ruins, without a message.
+    pub(crate) fn wreck(&mut self, id: BuildingId, by_fire: bool) {
+        let Some(b) = self.buildings.get(id).cloned() else { return };
         let tiles: Vec<(i32, i32)> = b.tiles().collect();
         if let Some(h) = &b.house
             && h.population > 0

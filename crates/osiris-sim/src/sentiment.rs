@@ -38,7 +38,7 @@ impl World {
     }
 
     fn wage_sentiment(&self) -> i32 {
-        let diff = self.finance.wages - crate::finance::KINGDOM_WAGES;
+        let diff = self.finance.wages - self.finance.kingdom_wages;
         match diff {
             d if d < 0 => (d / 2).min(-1),
             d if d > 7 => 4,
