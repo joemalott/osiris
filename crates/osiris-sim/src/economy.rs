@@ -555,7 +555,7 @@ impl World {
                 }
                 let t = self.map.terrain.at_or(x, y, 0);
                 let (lo, hi) = if t & crate::map::terrain::MARSHLAND != 0 { (5, 14) } else { (1, 2) };
-                let r = (lo + (self.rng.byte() % (hi - lo + 1))) as i32;
+                let r = lo + (self.rng.byte() % (hi - lo + 1));
                 // Min's oracle speeds the regrowth by a quarter.
                 let r = if fast { r * 125 / 100 } else { r };
                 grid.set(x, y, (g as i32 + r).min(255) as u8);
