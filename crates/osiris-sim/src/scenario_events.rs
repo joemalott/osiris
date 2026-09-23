@@ -565,7 +565,7 @@ impl World {
         Some((p.resource, p.units(), p.city.map(|c| self.trade.cities[c].name_id)))
     }
 
-    fn post_event_text(&mut self, text: EventText) {
+    pub(crate) fn post_event_text(&mut self, text: EventText) {
         let key = if text.template == 130 { "message_template_request" } else { "message_template_general" };
         self.post(key, None, true);
         if let Some(n) = self.notices.log.last_mut() {

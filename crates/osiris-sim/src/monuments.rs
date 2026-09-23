@@ -35,10 +35,19 @@ const CLAY: u16 = 11;
 const BRICKS: u16 = 12;
 const TIMBER: u16 = 20;
 const STONE: u16 = 24;
+const LIMESTONE: u16 = 25;
 
+pub const SMALL_BENT_PYRAMID: u16 = 241;
+pub const MEDIUM_BENT_PYRAMID: u16 = 242;
+pub const SMALL_MUDBRICK_PYRAMID: u16 = 243;
+pub const MEDIUM_MUDBRICK_PYRAMID: u16 = 244;
+pub const LARGE_MUDBRICK_PYRAMID: u16 = 245;
+pub const LARGE_STEPPED_PYRAMID: u16 = 250;
+pub const SMALL_PYRAMID: u16 = 253;
+pub const MEDIUM_PYRAMID: u16 = 254;
+pub const LARGE_PYRAMID: u16 = 255;
 pub const SMALL_STEPPED_PYRAMID: u16 = 319;
 pub const MEDIUM_STEPPED_PYRAMID: u16 = 324;
-pub const LARGE_STEPPED_PYRAMID: u16 = 250;
 
 /// What a 2x2 block of a mastaba is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,7 +64,17 @@ pub enum Style {
     /// rows of side blocks at the end, and the first row's last block a side block
     /// when `first_row_side`.
     Mastaba { entrance_row: i32, side_rows: i32, first_row_side: bool },
-    SteppedPyramid,
+    Pyramid(Family),
+}
+
+/// Pyramids: stepped pyramids are plain stone; bent and true pyramids are stone and
+/// mudbrick pyramids brick, all three cased in limestone and polished at the end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Family {
+    Stepped,
+    Bent,
+    True,
+    Mudbrick,
 }
 
 /// One monument type: its block grid when facing north, and its phases.
@@ -67,10 +86,14 @@ pub struct MonumentDef {
     pub style: Style,
     /// Phases, the last being completion.
     pub phase_count: u8,
+    /// Final phases that only polish the casing.
+    pub polish: u8,
     /// Mastaba material per phase: (resource, units).
     mastaba_phases: &'static [&'static [(u16, i32)]],
     /// The monument's worth toward the monument rating.
     pub weight: i32,
+    /// Its name (text group 198).
+    pub title: usize,
 }
 
 const SMALL_MASTABA_PHASES: [&[(u16, i32)]; 9] = [
@@ -107,34 +130,42 @@ const LARGE_MASTABA_PHASES: [&[(u16, i32)]; 9] = [
     &[],
 ];
 
-/// A stepped pyramid's foundation courses (phases 2-6); every later course is
-/// `PYRAMID_COURSE`.
-const PYRAMID_FOUNDATION: [&[(u16, i32)]; 5] = [
-    &[(STONE, 4800)],
-    &[(TIMBER, 2000), (STONE, 4000)],
-    &[(TIMBER, 1600), (STONE, 3200)],
-    &[(TIMBER, 1200), (STONE, 2400)],
-    &[(TIMBER, 800), (STONE, 1600)],
-];
-const PYRAMID_COURSE: &[(u16, i32)] = &[(TIMBER, 400), (STONE, 800)];
+/// A pyramid's foundation courses (phases 2-6), in its core material; timber builds
+/// the ramps from the second.
+const PYRAMID_FOUNDATION: [(i32, i32); 5] = [(0, 4800), (2000, 4000), (1600, 3200), (1200, 2400), (800, 1600)];
+/// Every later course: timber and core material.
+const PYRAMID_COURSE: (i32, i32) = (400, 800);
+/// Limestone casing on a rising course, from the first course to the last.
+const CASING: (i32, i32) = (1200, 200);
 /// Phases before a pyramid's courses start rising.
 const PYRAMID_BASE_PHASES: u8 = 7;
 
-const fn mastaba(kind: u16, (cols, rows): (i32, i32), style: Style, phases: &'static [&'static [(u16, i32)]], weight: i32) -> MonumentDef {
-    MonumentDef { kind, cols, rows, style, phase_count: phases.len() as u8, mastaba_phases: phases, weight }
+const fn mastaba(kind: u16, (cols, rows): (i32, i32), style: Style, phases: &'static [&'static [(u16, i32)]], weight: i32, title: usize) -> MonumentDef {
+    MonumentDef { kind, cols, rows, style, phase_count: phases.len() as u8, polish: 0, mastaba_phases: phases, weight, title }
 }
 
-const fn pyramid(kind: u16, blocks: i32, phase_count: u8, weight: i32) -> MonumentDef {
-    MonumentDef { kind, cols: blocks, rows: blocks, style: Style::SteppedPyramid, phase_count, mastaba_phases: &[], weight }
+/// A pyramid `blocks` across whose last phase is `last`, the final `polish` of them
+/// polishing. (Phase counts from Akhenaten's reconstruction; the rating weights of
+/// pyramids other than stepped ones are estimates.)
+const fn pyramid(kind: u16, family: Family, blocks: i32, last: u8, polish: u8, weight: i32, title: usize) -> MonumentDef {
+    MonumentDef { kind, cols: blocks, rows: blocks, style: Style::Pyramid(family), phase_count: last + 1, polish, mastaba_phases: &[], weight, title }
 }
 
-pub const MONUMENTS: [MonumentDef; 6] = [
-    mastaba(kind::SMALL_MASTABA, (2, 5), Style::Mastaba { entrance_row: 2, side_rows: 1, first_row_side: false }, &SMALL_MASTABA_PHASES, 2),
-    mastaba(kind::MEDIUM_MASTABA, (3, 7), Style::Mastaba { entrance_row: 3, side_rows: 2, first_row_side: true }, &MEDIUM_MASTABA_PHASES, 2),
-    mastaba(kind::LARGE_MASTABA, (4, 9), Style::Mastaba { entrance_row: 4, side_rows: 3, first_row_side: true }, &LARGE_MASTABA_PHASES, 3),
-    pyramid(SMALL_STEPPED_PYRAMID, 4, 25, 8),
-    pyramid(MEDIUM_STEPPED_PYRAMID, 6, 33, 16),
-    pyramid(LARGE_STEPPED_PYRAMID, 10, 37, 24),
+pub const MONUMENTS: [MonumentDef; 14] = [
+    mastaba(kind::SMALL_MASTABA, (2, 5), Style::Mastaba { entrance_row: 2, side_rows: 1, first_row_side: false }, &SMALL_MASTABA_PHASES, 2, 18),
+    mastaba(kind::MEDIUM_MASTABA, (3, 7), Style::Mastaba { entrance_row: 3, side_rows: 2, first_row_side: true }, &MEDIUM_MASTABA_PHASES, 2, 19),
+    mastaba(kind::LARGE_MASTABA, (4, 9), Style::Mastaba { entrance_row: 4, side_rows: 3, first_row_side: true }, &LARGE_MASTABA_PHASES, 3, 20),
+    pyramid(SMALL_STEPPED_PYRAMID, Family::Stepped, 4, 24, 0, 8, 8),
+    pyramid(MEDIUM_STEPPED_PYRAMID, Family::Stepped, 6, 32, 0, 16, 9),
+    pyramid(LARGE_STEPPED_PYRAMID, Family::Stepped, 10, 36, 0, 24, 10),
+    pyramid(SMALL_BENT_PYRAMID, Family::Bent, 4, 24, 2, 12, 1),
+    pyramid(MEDIUM_BENT_PYRAMID, Family::Bent, 6, 32, 3, 20, 2),
+    pyramid(SMALL_MUDBRICK_PYRAMID, Family::Mudbrick, 4, 26, 2, 12, 3),
+    pyramid(MEDIUM_MUDBRICK_PYRAMID, Family::Mudbrick, 6, 35, 3, 20, 4),
+    pyramid(LARGE_MUDBRICK_PYRAMID, Family::Mudbrick, 8, 41, 4, 28, 5),
+    pyramid(SMALL_PYRAMID, Family::True, 4, 27, 2, 16, 13),
+    pyramid(MEDIUM_PYRAMID, Family::True, 6, 36, 3, 28, 14),
+    pyramid(LARGE_PYRAMID, Family::True, 10, 42, 5, 40, 15),
 ];
 
 pub fn monument_def(k: u16) -> Option<&'static MonumentDef> {
@@ -182,24 +213,55 @@ impl Monument {
 }
 
 impl MonumentDef {
-    /// The material phase `p` needs.
-    pub fn phase(&self, p: u8) -> &'static [(u16, i32)] {
-        match self.style {
-            Style::Mastaba { .. } => self.mastaba_phases.get(p as usize).copied().unwrap_or(&[]),
-            Style::SteppedPyramid => match p {
-                p if p < LEVELING_PHASES || p + 1 >= self.phase_count => &[],
-                p if p < PYRAMID_BASE_PHASES => PYRAMID_FOUNDATION[(p - LEVELING_PHASES) as usize],
-                _ => PYRAMID_COURSE,
-            },
-        }
+    /// The phase after the last rising course: polishing, or completion.
+    fn courses_end(&self) -> u8 {
+        self.phase_count - 1 - self.polish
     }
 
-    /// The craftsman who lays this monument's courses.
-    pub fn mason(&self) -> u16 {
-        match self.style {
-            Style::Mastaba { .. } => BRICKLAYER,
-            Style::SteppedPyramid => STONEMASON,
+    /// The material phase `p` needs.
+    pub fn phase(&self, p: u8) -> Vec<(u16, i32)> {
+        let family = match self.style {
+            Style::Mastaba { .. } => return self.mastaba_phases.get(p as usize).map_or_else(Vec::new, |m| m.to_vec()),
+            Style::Pyramid(f) => f,
+        };
+        if p < LEVELING_PHASES || p >= self.courses_end() {
+            return Vec::new();
         }
+        let core = if family == Family::Mudbrick { BRICKS } else { STONE };
+        let (timber, amount) = if p < PYRAMID_BASE_PHASES { PYRAMID_FOUNDATION[(p - LEVELING_PHASES) as usize] } else { PYRAMID_COURSE };
+        let mut out = Vec::new();
+        if timber > 0 {
+            out.push((TIMBER, timber));
+        }
+        out.push((core, amount));
+        if p >= PYRAMID_BASE_PHASES && family != Family::Stepped {
+            // The casing thins as the pyramid narrows.
+            let courses = (self.courses_end() - PYRAMID_BASE_PHASES).max(1) as i32;
+            let k = (p - PYRAMID_BASE_PHASES) as i32;
+            let casing = CASING.0 - (CASING.0 - CASING.1) * k / (courses - 1).max(1);
+            out.push((LIMESTONE, casing / 100 * 100));
+        }
+        out
+    }
+
+    /// The craftsmen phase `p` needs on site, the one who lays the blocks first:
+    /// bricklayers for bricks (and the clay that binds them), stonemasons for stone
+    /// and limestone and for polishing, carpenters for the timber ramps.
+    pub fn crew(&self, p: u8) -> Vec<u16> {
+        let phase = self.phase(p);
+        let has = |r: u16| phase.iter().any(|e| e.0 == r);
+        let mut crew = Vec::new();
+        if has(BRICKS) || has(CLAY) {
+            crew.push(BRICKLAYER);
+        }
+        let polishing = matches!(self.style, Style::Pyramid(_)) && p >= self.courses_end() && p + 1 < self.phase_count;
+        if has(STONE) || has(LIMESTONE) || polishing {
+            crew.push(STONEMASON);
+        }
+        if has(TIMBER) {
+            crew.push(CARPENTER);
+        }
+        crew
     }
 
     fn block(&self, c: i32, r: i32) -> Block {
@@ -218,7 +280,7 @@ impl MonumentDef {
 
     /// What the current phase still needs of `r`, counting what is on its way.
     fn needs(&self, m: &Monument, r: u16) -> i32 {
-        let want = Monument::amount(self.phase(m.phase), r);
+        let want = Monument::amount(&self.phase(m.phase), r);
         want - Monument::amount(&m.delivered, r) - Monument::amount(&m.in_flight, r)
     }
 
@@ -358,10 +420,23 @@ impl World {
                     }
                 }
             }
-            Style::SteppedPyramid => {
+            Style::Pyramid(family) => {
                 let (corner, wall, cube) = (img("corner_bricks"), img("wall_bricks"), img("base_bricks"));
                 let courses = def.rings() * COURSES_PER_RING;
-                let rising = (def.phase_count - 1 - PYRAMID_BASE_PHASES) as i32;
+                let rising = (def.courses_end() - PYRAMID_BASE_PHASES) as i32;
+                let topped = m.finished || m.phase >= def.courses_end();
+                // Casing goes on in the polishing phases: six stages of white limestone.
+                let cased = family != Family::Stepped;
+                let casing = |i: usize| -> u32 {
+                    if !cased || !topped {
+                        return 0;
+                    }
+                    if m.finished {
+                        return COURSES_PER_RING as u32;
+                    }
+                    let k = (m.phase - def.courses_end()) as i32 + done(i) as i32;
+                    (k * COURSES_PER_RING / def.polish.max(1) as i32) as u32
+                };
                 // The last course laid once phase `p` is done, spreading the rising
                 // phases evenly over the courses.
                 let course_after = |p: u8| (p as i32 - PYRAMID_BASE_PHASES as i32 + 1) * courses / rising.max(1) - 1;
@@ -369,7 +444,7 @@ impl World {
                     for c in 0..def.cols {
                         let i = (r * def.cols + c) as usize;
                         let (bx, by) = (b.x + c * 2, b.y + r * 2);
-                        let reached = if m.finished {
+                        let reached = if topped {
                             courses - 1
                         } else if m.phase < PYRAMID_BASE_PHASES {
                             // The foundation: a floor of stone once the block's first course is laid.
@@ -393,6 +468,11 @@ impl World {
                             out.push((bx, by, cube + (COURSES_PER_RING - 1) as u32, below * RING_LIFT));
                         }
                         let course = if ring < reached / COURSES_PER_RING { COURSES_PER_RING - 1 } else { reached % COURSES_PER_RING } as u32;
+                        // A cased edge shows its casing stage instead (courses 6-11).
+                        let edge = match casing(i) {
+                            0 => course,
+                            stage => COURSES_PER_RING as u32 - 1 + stage,
+                        };
                         let (lo, hi_c, hi_r) = (ring, def.cols - 1 - ring, def.rows - 1 - ring);
                         let (west, east, north, south) = (c == lo, c == hi_c, r == lo, r == hi_r);
                         let image = match (west || east, north || south) {
@@ -403,10 +483,10 @@ impl World {
                                     (false, false) => 2,
                                     (false, true) => 3,
                                 };
-                                corner + course * 8 + v
+                                corner + edge * 8 + v
                             }
-                            (true, false) => wall + course * 8 + if west { 0 } else { 2 },
-                            (false, true) => wall + course * 8 + if north { 3 } else { 1 },
+                            (true, false) => wall + edge * 8 + if west { 0 } else { 2 },
+                            (false, true) => wall + edge * 8 + if north { 3 } else { 1 },
                             (false, false) => cube + course,
                         };
                         out.push((bx, by, image, ring * RING_LIFT));
@@ -490,12 +570,7 @@ impl World {
         if m.finished || m.phase < LEVELING_PHASES {
             return false;
         }
-        let phase = def.phase(m.phase);
-        if figure == CARPENTER {
-            phase.iter().any(|p| p.0 == TIMBER)
-        } else {
-            figure == def.mason() && !phase.is_empty()
-        }
+        def.crew(m.phase).contains(&figure)
     }
 
     /// Tick 31: guilds send their craftsman to a monument that needs one.
@@ -545,8 +620,8 @@ impl World {
     }
 
     /// A craftsman walks to the monument and stays while its course needs him. The
-    /// mason lays each block as far as the delivered material allows, and, when the
-    /// course uses timber, only while a carpenter is there.
+    /// first of the phase's crew lays each block as far as the delivered material
+    /// allows, and only while the rest of the crew is there too.
     pub(crate) fn update_craftsman(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
         let (act, target, figure) = (f.action, f.target, f.kind);
@@ -572,17 +647,17 @@ impl World {
                 let Some(b) = self.buildings.get(target) else { return };
                 let Some(def) = monument_def(b.kind) else { return };
                 let m = b.monument.as_ref().expect("working");
-                let next = if figure != def.mason() {
+                let crew = def.crew(m.phase);
+                let here = |k: u16| m.craftsmen.iter().any(|&(kk, c)| kk == k && self.figures.get(c).is_some_and(|f| f.action == 2));
+                let lead = crew.first().copied().unwrap_or(0);
+                let next = if figure != lead || !crew.iter().all(|&k| here(k)) {
                     None
                 } else {
-                    let needs_carpenter = def.phase(m.phase).iter().any(|p| p.0 == TIMBER);
-                    let carpenter_here = m.craftsmen.iter().any(|&(k, c)| k == CARPENTER && self.figures.get(c).is_some_and(|f| f.action == 2));
-                    let paid = if needs_carpenter && !carpenter_here { 0 } else { def.blocks_paid(m) };
+                    let paid = def.blocks_paid(m);
                     m.progress.iter().enumerate().position(|(i, &p)| p < BLOCK_WORK && i < paid)
                 };
-                // The carpenter works while the mason does.
-                let moving = next.is_some()
-                    || figure == CARPENTER && m.craftsmen.iter().any(|&(k, c)| k == def.mason() && self.figures.get(c).is_some_and(|f| f.action == 2 && f.moving));
+                // The rest of the crew works while the one laying blocks does.
+                let moving = next.is_some() || figure != lead && m.craftsmen.iter().any(|&(k, c)| k == lead && self.figures.get(c).is_some_and(|f| f.action == 2 && f.moving));
                 if let Some(f) = self.figures.get_mut(fid) {
                     f.moving = moving;
                 }
@@ -626,7 +701,7 @@ impl World {
             let Some(b) = self.buildings.get(id) else { continue };
             let Some(def) = monument_def(b.kind) else { continue };
             let m = b.monument.as_ref().expect("active");
-            for &(r, _) in def.phase(m.phase) {
+            for (r, _) in def.phase(m.phase) {
                 let need = def.needs(m, r);
                 let have = self.stored(yard, r);
                 let amount = need.min(have).min(SLED_LOAD);
@@ -733,13 +808,24 @@ impl World {
             m.phase += 1;
             m.delivered.clear();
             m.progress.iter_mut().for_each(|p| *p = 0);
-            if m.phase >= last || (m.phase >= LEVELING_PHASES && def.phase(m.phase).is_empty()) {
+            if m.phase >= last {
                 m.finished = true;
-                let key = match def.style {
-                    Style::Mastaba { .. } => "message_history_mastaba",
-                    Style::SteppedPyramid => "message_history_pyramids",
+                let name = match def.style {
+                    Style::Mastaba { .. } => "mastaba",
+                    Style::Pyramid(Family::Stepped) => "stepped_pyramid",
+                    Style::Pyramid(Family::Bent) => "bent_pyramid",
+                    Style::Pyramid(Family::True) => "pyramid",
+                    Style::Pyramid(Family::Mudbrick) => "mudbrick_pyramid",
                 };
-                self.post(key, Some((x, y)), true);
+                self.post_event_text(crate::scenario_events::EventText {
+                    title: format!("{name}_congratulations_title"),
+                    body: format!("{name}_congratulations"),
+                    template: 131,
+                    ..Default::default()
+                });
+                if let Some(n) = self.notices.log.last_mut() {
+                    n.tile = Some((x, y));
+                }
             }
             self.refresh_monument_images(id);
         }

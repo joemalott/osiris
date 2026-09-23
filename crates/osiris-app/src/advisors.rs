@@ -1097,11 +1097,7 @@ fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Advis
     }
     for (i, &(id, k)) in list.iter().take(3).enumerate() {
         let y = py + 70.0 + 40.0 * i as f32;
-        let name = ui.t(198, match k {
-            kind::MEDIUM_MASTABA => 19,
-            kind::LARGE_MASTABA => 20,
-            _ => 18,
-        });
+        let name = ui.t(198, osiris_sim::monuments::monument_def(k).map_or(18, |d| d.title));
         draw_text(ui.r, Font::NormalWhiteOnDark, &name, px + 48.0, y, font::WHITE);
         if let Some((phase, finished, needs)) = world.monument_status(id) {
             let status = if finished {

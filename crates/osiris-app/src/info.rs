@@ -279,14 +279,7 @@ impl InfoPanel {
         const G: usize = 178;
         use osiris_sim::monuments::{self as mon, Style};
         let def = mon::monument_def(b.kind)?;
-        let title_id = match b.kind {
-            kind::MEDIUM_MASTABA => 19,
-            kind::LARGE_MASTABA => 20,
-            mon::SMALL_STEPPED_PYRAMID => 8,
-            mon::MEDIUM_STEPPED_PYRAMID => 9,
-            mon::LARGE_STEPPED_PYRAMID => 10,
-            _ => 18,
-        };
+        let title_id = def.title;
         let title = ui.t(198, title_id);
         let ([x, y], closed) = self.frame(ui, 29, 20, &title);
         let foreman = ui.t(G, 12);
@@ -297,10 +290,17 @@ impl InfoPanel {
         let blocks = m.progress.len().max(1);
         let pct = m.progress.iter().map(|&p| p as usize).sum::<usize>() * 100 / (blocks * mon::BLOCK_WORK as usize);
         let brick = matches!(def.style, Style::Mastaba { .. });
-        // (finished, mason's guild missing, no mason, going well) lines.
-        let (done_line, no_guild, no_mason, fine) = if brick { (41, 15, 19, 40) } else { (38, 14, 18, 37) };
-        let (mason_guild, mason) = if brick { (kind::BRICKLAYERS_GUILD, mon::BRICKLAYER) } else { (kind::STONEMASONS_GUILD, mon::STONEMASON) };
-        let needs_carpenter = needs.iter().any(|n| n.0 == 20);
+        // (finished, going well) lines.
+        let (done_line, fine) = if brick { (41, 40) } else { (38, if matches!(def.style, Style::Pyramid(mon::Family::Stepped)) { 37 } else { 31 }) };
+        let crew = def.crew(phase);
+        // Each craftsman's guild, the foreman's line when there is none, and when none comes.
+        let guild = |k: u16| match k {
+            mon::BRICKLAYER => (kind::BRICKLAYERS_GUILD, 15, 19),
+            mon::CARPENTER => (kind::CARPENTERS_GUILD, 16, 20),
+            _ => (kind::STONEMASONS_GUILD, 14, 18),
+        };
+        let no_guild = crew.iter().map(|&k| guild(k)).find(|g| !has(g.0)).map(|g| g.1);
+        let absent = crew.iter().find(|&&k| !m.has_craftsman(k)).map(|&k| guild(k).2);
         let short = needs.iter().find(|&&(r, got, want)| got < want && world.yards_stored(r) < osiris_sim::economy::LOAD).map(|n| n.0);
         let line = if finished {
             ui.t(G, done_line)
@@ -313,18 +313,13 @@ impl InfoPanel {
                 ui.t(G, if brick { 4 } else { 3 })
             };
             format!("{} {} {}% {}", work, ui.t(G, 2), pct, ui.t(G, 0))
-        } else if !has(mason_guild) {
-            ui.t(G, no_guild)
-        } else if needs_carpenter && !has(kind::CARPENTERS_GUILD) {
-            ui.t(G, 16)
-        } else if !m.has_craftsman(mason) {
-            ui.t(G, no_mason)
-        } else if needs_carpenter && !m.has_craftsman(mon::CARPENTER) {
-            ui.t(G, 20)
+        } else if let Some(line) = no_guild.or(absent) {
+            ui.t(G, line)
         } else if let Some(r) = short {
             ui.t(G, match r {
                 12 => 27,
                 20 => 28,
+                25 => 23,
                 _ => 22,
             })
         } else {
