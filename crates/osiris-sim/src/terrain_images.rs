@@ -905,6 +905,16 @@ pub(crate) fn cliff_image(map: &Map, defs: &Defs, x: i32, y: i32) -> u32 {
     cliff_offset(map, x, y, r).map_or(defs.terrain.rock + (r & 7), |o| defs.terrain.cliff + o)
 }
 
+/// Offsets 9..12, 15..18 and 36..48 name CliffTiles.bmp frames whose "top" pixels are
+/// almost entirely missing (a corrupt or unfinished part of the sheet): the frame
+/// decodes to little more than a hairline down its edges, so a tile drawn from one
+/// shows as a bare vertical line. `fixed` substitutes a full 8-neighbour look, which
+/// every broken frame is close enough to, for any offset landing on one of them.
+fn fixed(offset: u32, r: u32) -> u32 {
+    const BROKEN: [std::ops::Range<u32>; 3] = [9..12, 15..18, 36..48];
+    if BROKEN.iter().any(|b| b.contains(&offset)) { 48 + r % 24 } else { offset }
+}
+
 /// Which cliff image a cliff tile takes from the cliffs around it (orientation 0), or
 /// `None` for a lone outcrop, drawn as plain rock.
 fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {
@@ -921,7 +931,7 @@ fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {
         7 => {
             for (i, base) in [(1, 12), (7, 15), (5, 18), (3, 21)] {
                 if !m[i] {
-                    return Some(base + r3);
+                    return Some(fixed(base + r3, r));
                 }
             }
         }
@@ -943,11 +953,11 @@ fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {
         return Some(30 + r6);
     }
     if all(&[2, 3, 4, 5, 6]) {
-        return Some(36 + r6);
+        return Some(fixed(36 + r6, r));
     }
     if all(&[0, 1]) {
         if all(&[2, 3, 4]) {
-            return Some(42 + r6);
+            return Some(fixed(42 + r6, r));
         }
         if m[2] {
             return Some(r3);
@@ -960,7 +970,7 @@ fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {
         return Some(6 + r3);
     }
     if all(&[2, 3, 4]) {
-        return Some(9 + r3);
+        return Some(fixed(9 + r3, r));
     }
     None
 }
