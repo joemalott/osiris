@@ -154,6 +154,10 @@ fn describe(name: &str, s: &Scenario) {
     if i.monuments.iter().any(|&m| m != 0) || i.win.monuments.enabled {
         println!("    monuments {:?} goal {:?}", i.monuments, i.win.monuments);
     }
+    let burial: Vec<(usize, u32)> = i.burial_provisions_required.iter().copied().enumerate().filter(|p| p.1 > 0).collect();
+    if !burial.is_empty() {
+        println!("    burial provisions {burial:?}");
+    }
 }
 
 fn check_maps(game: &Path) -> Result<()> {

@@ -81,6 +81,7 @@ impl World {
             self.update_ratings_month();
             self.check_outbreak();
             self.pay_salary();
+            self.update_funerals();
             self.process_scenario_events();
             self.update_sieges();
             if !self.won && self.goals_met() {
@@ -110,6 +111,7 @@ impl World {
                 crate::monuments::BRICKLAYER | crate::monuments::STONEMASON | crate::monuments::CARPENTER => self.update_craftsman(fid),
                 crate::monuments::SLED => self.update_sled(fid),
                 crate::monuments::SLED_PULLER => self.update_sled_puller(fid),
+                crate::monuments::FUNERAL_WALKER => self.update_funeral_walker(fid),
                 crate::trade::CARAVAN_DONKEY => self.update_donkey(fid),
                 crate::food::MARKET_BUYER => self.update_buyer(fid),
                 k if crate::animals::is_animal(k) => self.update_animal(fid),

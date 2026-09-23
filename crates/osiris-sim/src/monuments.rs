@@ -30,6 +30,7 @@ pub const BRICKLAYER: u16 = 80;
 pub const STONEMASON: u16 = 81;
 pub const SLED: u16 = 86;
 pub const SLED_PULLER: u16 = 96;
+pub const FUNERAL_WALKER: u16 = 94;
 
 const CLAY: u16 = 11;
 const BRICKS: u16 = 12;
@@ -207,6 +208,9 @@ pub struct Monument {
     #[serde(default)]
     pub craftsmen: Vec<(u16, FigureId)>,
     pub finished: bool,
+    /// A tomb whose funeral procession has come: it houses the deceased.
+    #[serde(default)]
+    pub funeral_done: bool,
 }
 
 impl Monument {
@@ -313,6 +317,11 @@ impl MonumentDef {
             .min()
             .unwrap_or(blocks)
             .min(blocks)
+    }
+
+    /// Whether the monument is a tomb, which takes burial provisions.
+    pub fn is_tomb(&self) -> bool {
+        matches!(self.style, Style::Mastaba { .. } | Style::Pyramid(_))
     }
 
     /// Rings of a stepped pyramid.
@@ -901,5 +910,84 @@ impl World {
         let m = b.monument.as_ref()?;
         let needs = def.phase(m.phase).iter().map(|&(r, want)| (r, Monument::amount(&m.delivered, r), want)).collect();
         Some((m.phase, m.finished, needs))
+    }
+
+    /// Burial provisions the scenario asks for: (resource, units needed, units sent).
+    pub fn burial_needs(&self) -> Vec<(u16, i32, i32)> {
+        self.burial.iter().enumerate().filter(|(_, p)| p.0 > 0).map(|(r, &(need, sent))| (r as u16, need, sent)).collect()
+    }
+
+    pub fn burial_complete(&self) -> bool {
+        self.burial.iter().all(|&(need, sent)| sent >= need)
+    }
+
+    /// Sends up to `units` of burial provision `r` from storage (granaries too, for
+    /// food); returns what was sent.
+    pub fn dispatch_burial(&mut self, r: u16, units: i32) -> i32 {
+        let Some(&(need, sent)) = self.burial.get(r as usize) else { return 0 };
+        let mut left = units.min(need - sent).min(self.city_stored(r)).max(0);
+        let stores: Vec<BuildingId> = self
+            .buildings
+            .iter()
+            .filter(|b| b.kind == kind::STORAGE_YARD || crate::economy::resource::is_food(r) && b.kind == kind::GRANARY)
+            .map(|b| b.id)
+            .collect();
+        let mut moved = 0;
+        for id in stores {
+            if left <= 0 {
+                break;
+            }
+            let taken = self.take_stored(id, r, left);
+            left -= taken;
+            moved += taken;
+        }
+        self.burial[r as usize].1 += moved;
+        moved
+    }
+
+    /// Monthly: once every provision has been sent, a funeral procession walks from
+    /// the edge of the map to each finished tomb that has had none.
+    pub(crate) fn update_funerals(&mut self) {
+        if self.burial.iter().all(|p| p.0 == 0) || !self.burial_complete() {
+            return;
+        }
+        let walking: Vec<u32> = self.figures.iter().filter(|f| f.kind == FUNERAL_WALKER).map(|f| f.target).collect();
+        let tombs: Vec<BuildingId> = self
+            .buildings
+            .iter()
+            .filter(|b| monument_def(b.kind).is_some_and(|d| d.is_tomb()) && b.monument.as_ref().is_some_and(|m| m.finished && !m.funeral_done))
+            .map(|b| b.id)
+            .filter(|id| !walking.contains(id))
+            .collect();
+        let (ex, ey) = self.entry_point;
+        for id in tombs {
+            let Some(spot) = self.monument_access(id, (ex, ey)) else { continue };
+            let fid = self.figures.spawn(FUNERAL_WALKER, ex, ey, Travel::Land);
+            let map = &self.map;
+            if let Some(f) = self.figures.get_mut(fid) {
+                f.target = id;
+                if !f.go_to(map, spot) {
+                    f.dead = true;
+                }
+            }
+        }
+    }
+
+    /// The procession walks to its tomb, and the deceased is laid to rest.
+    pub(crate) fn update_funeral_walker(&mut self, fid: FigureId) {
+        let map = &self.map;
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        match f.walk(map) {
+            Step::Moving => {}
+            step => {
+                f.dead = true;
+                let target = f.target;
+                if step == Step::Arrived
+                    && let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut())
+                {
+                    m.funeral_done = true;
+                }
+            }
+        }
     }
 }

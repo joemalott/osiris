@@ -74,6 +74,16 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 view.advisor_popup = Some(popup.to_string());
             }
             ["savings", n] => world.governor.savings = n.parse()?,
+            ["burial", r, n] => world.burial[r.parse::<usize>()?].0 = n.parse()?,
+            ["sendburial", r, n] => {
+                let sent = world.dispatch_burial(r.parse()?, n.parse()?);
+                eprintln!("{step}: sent {sent}");
+            }
+            ["monuments", list] => {
+                for (slot, m) in world.scenario_monuments.iter_mut().zip(list.split(',')) {
+                    *slot = m.parse()?;
+                }
+            }
             ["orders"] => view.orders = true,
             ["empire"] => view.empire = Some(None),
             ["empire", c] => view.empire = Some(Some(c.parse()?)),
@@ -193,7 +203,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 for b in world.buildings.iter().filter(|b| b.monument.is_some()) {
                     let m = b.monument.as_ref().unwrap();
-                    eprintln!("  monument {} kind {} phase {} finished {} delivered {:?} in flight {:?} progress {:?} craftsmen {:?}", b.id, b.kind, m.phase, m.finished, m.delivered, m.in_flight, m.progress, m.craftsmen);
+                    eprintln!("  monument {} kind {} phase {} finished {} funeral {} delivered {:?} in flight {:?} progress {:?} craftsmen {:?}", b.id, b.kind, m.phase, m.finished, m.funeral_done, m.delivered, m.in_flight, m.progress, m.craftsmen);
                 }
                 for f in world.figures.iter().take(40) {
                     eprintln!(

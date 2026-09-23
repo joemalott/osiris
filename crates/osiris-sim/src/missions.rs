@@ -200,7 +200,16 @@ impl World {
     }
 
     pub fn is_allowed(&self, k: u16) -> bool {
-        self.mission.as_ref().is_none_or(|m| m.allowed.contains(&k))
+        self.mission.as_ref().is_none_or(|m| m.allowed.contains(&k)) && self.monument_allowed(k)
+    }
+
+    /// Only the monuments the scenario names (by their text-198 title) may be built.
+    fn monument_allowed(&self, k: u16) -> bool {
+        let Some(def) = self.defs.building(k).filter(|d| d.has_flag("is_monument")) else { return true };
+        let Some(title) = def.extra.get("info_title_id").and_then(|v| v.as_array()).and_then(|a| a.get(1)).and_then(|v| v.as_integer()) else { return true };
+        let listed = |t: i64| self.scenario_monuments.iter().any(|&m| m as i64 == t);
+        // The three mausoleum entries are one building.
+        listed(title) || (title == 25 && (listed(26) || listed(27)))
     }
 
     fn condition_met(&self, c: &Condition) -> bool {

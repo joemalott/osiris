@@ -100,6 +100,12 @@ pub struct World {
     #[serde(default)]
     pub water: crate::water::Water,
     pub events: crate::missions::CityEvents,
+    /// The monuments the scenario lets the city build, by title (text group 198).
+    #[serde(default)]
+    pub scenario_monuments: [u16; 3],
+    /// Burial provisions the tombs need: (units required, units sent) by resource.
+    #[serde(default)]
+    pub burial: Vec<(i32, i32)>,
     /// The governor's salary, savings and gifts to the Kingdom.
     #[serde(default)]
     pub governor: crate::kingdom::Governor,
@@ -189,6 +195,8 @@ impl World {
             water,
             events: Default::default(),
             governor: Default::default(),
+            scenario_monuments: info.monuments,
+            burial: info.burial_provisions_required.iter().map(|&r| (r as i32 * 100, 0)).collect(),
             scenario_events: crate::scenario_events::ScenarioEvents::from_records(&scenario.events, info.start_year as i32),
             message_texts: VecDeque::new(),
             won: false,

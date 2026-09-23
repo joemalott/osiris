@@ -123,6 +123,8 @@ enum Popup {
     Gift,
     /// Giving part of the governor's savings to the city: the amount so far.
     Donate(i32),
+    /// Dispatching a burial provision: the amount so far, in hundreds.
+    Burial(u16, i32),
 }
 
 impl Advisors {
@@ -132,6 +134,7 @@ impl Advisors {
             "salary" => Some(Popup::Salary),
             "gift" => Some(Popup::Gift),
             "donate" => Some(Popup::Donate(0)),
+            "burial" => Some(Popup::Burial(13, 0)),
             _ => None,
         };
     }
@@ -230,7 +233,7 @@ impl Advisors {
             Advisor::Population => population(&mut ui, world, [px, py], &mut self.scroll),
             Advisor::Political => political(&mut ui, world, [px, py], &mut self.popup),
             Advisor::Military => military(&mut ui, [px, py]),
-            Advisor::Monuments => monuments(&mut ui, world, [px, py]),
+            Advisor::Monuments => monuments(&mut ui, world, [px, py], &mut self.popup),
         };
         action = action.or(from_screen);
         if popup_open {
@@ -250,6 +253,13 @@ impl Advisors {
                 Some(Popup::Request(i, ok)) => request_popup(&mut ui, world, i, ok),
                 Some(Popup::Salary) => salary_popup(&mut ui, world),
                 Some(Popup::Gift) => gift_popup(&mut ui, world),
+                Some(Popup::Burial(r, n)) => match burial_popup(&mut ui, world, r, n) {
+                    Some(n) => {
+                        self.popup = Some(Popup::Burial(r, n));
+                        false
+                    }
+                    None => true,
+                },
                 Some(Popup::Donate(n)) => match donate_popup(&mut ui, world, n) {
                     Some(n) => {
                         self.popup = Some(Popup::Donate(n));
@@ -1150,6 +1160,40 @@ fn gift_popup(ui: &mut Ui, world: &mut World) -> bool {
     ui.button([x + 216.0, y + 240.0, 80.0, 24.0], "Cancel", Font::NormalBlackOnLight)
 }
 
+/// Choosing how much of a burial provision to send: the new amount (in hundreds)
+/// while it stays open, `None` when it closes.
+fn burial_popup(ui: &mut Ui, world: &mut World, r: u16, amount: i32) -> Option<i32> {
+    const G: usize = 199;
+    let title = ui.t(G, 10);
+    let [x, y] = popup_frame(ui, 26, 12, &title);
+    let (need, sent) = world.burial.get(r as usize).copied().unwrap_or((0, 0));
+    let most = ((need - sent).min(world.city_stored(r)) / 100).max(0);
+    ui.icon(r, x + 40.0, y + 52.0);
+    let line = format!("{} {}", ui.t(G, 4), amount);
+    ui.label(Font::NormalBlackOnLight, &line, x + 70.0, y + 54.0);
+    let mut amount = amount;
+    if ui.arrow(x + 260.0, y + 48.0, true) {
+        amount = (amount + 1).min(most);
+    }
+    if ui.arrow(x + 286.0, y + 48.0, false) {
+        amount = (amount - 1).max(0);
+    }
+    let all = ui.t(G, 5);
+    if ui.button([x + 320.0, y + 50.0, 60.0, 22.0], &all, Font::NormalBlackOnLight) {
+        amount = most;
+    }
+    let send = ui.t(G, 6);
+    if ui.button([x + 40.0, y + 130.0, 160.0, 24.0], &send, Font::NormalBlackOnLight) {
+        world.dispatch_burial(r, amount * 100);
+        return None;
+    }
+    let cancel = ui.t(G, 7);
+    if ui.button([x + 216.0, y + 130.0, 160.0, 24.0], &cancel, Font::NormalBlackOnLight) {
+        return None;
+    }
+    Some(amount)
+}
+
 /// Choosing how much of his savings the governor gives the city. The new amount while
 /// it stays open, `None` when it closes.
 fn donate_popup(ui: &mut Ui, world: &mut World, amount: i32) -> Option<i32> {
@@ -1217,28 +1261,73 @@ fn military(ui: &mut Ui, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
     None
 }
 
-fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
-    let title = ui.t(4, 13);
+/// Text lines (group 199) for a monument family: not begun (two lines), under way,
+/// just finished, and housing the deceased.
+fn monument_lines(k: u16) -> Option<([usize; 2], usize, usize, usize)> {
+    use osiris_sim::monuments::{self as mon, Family, Style};
+    let style = mon::monument_def(k)?.style;
+    Some(match style {
+        Style::Pyramid(Family::True) => ([14, 15], 16, 17, 18),
+        Style::Pyramid(Family::Mudbrick) => ([19, 20], 21, 22, 23),
+        Style::Pyramid(Family::Stepped) => ([24, 25], 26, 27, 28),
+        Style::Pyramid(Family::Bent) => ([29, 30], 31, 32, 33),
+        Style::Mastaba { .. } => ([34, 35], 36, 37, 38),
+        Style::Obelisk { .. } => ([43, 44], 45, 46, 46),
+    })
+}
+
+fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<Popup>) -> Option<AdvisorAction> {
+    const G: usize = 199;
+    let title = ui.t(G, 0);
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
-    let rating = format!("Monument rating {}", world.ratings.monument);
+    let rating = format!("{} {}", ui.t(G, 11), world.ratings.monument);
     ui.label(Font::NormalBlackOnLight, &rating, px + 60.0, py + 42.0);
-    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 60.0, 36, 8);
-    let list: Vec<(u32, u16)> = world.buildings.iter().filter(|b| b.monument.is_some()).map(|b| (b.id, b.kind)).collect();
-    if list.is_empty() {
-        ui.label(Font::NormalWhiteOnDark, "No monuments are being built.", px + 120.0, py + 110.0);
+    // The scenario's monuments, each with how it stands.
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 64.0, 36, 13);
+    let slots: Vec<u16> = world.scenario_monuments.iter().copied().filter(|&m| m > 0).collect();
+    for (i, &code) in slots.iter().enumerate() {
+        let y = py + 70.0 + 66.0 * i as f32;
+        let name = ui.t(198, code as usize);
+        ui.label(Font::NormalWhiteOnDark, &name, px + 48.0, y);
+        let def = osiris_sim::monuments::MONUMENTS.iter().find(|d| d.title == code as usize);
+        let Some((begin, under_way, done, rests)) = def.and_then(|d| monument_lines(d.kind)) else { continue };
+        // The same monument may be listed twice: the second slot is the second one built.
+        let nth = slots[..i].iter().filter(|&&c| c == code).count();
+        let built = def.and_then(|d| world.buildings.iter().filter(|b| b.kind == d.kind).nth(nth));
+        let lines: Vec<String> = match built.and_then(|b| b.monument.as_ref()) {
+            None => vec![ui.t(G, begin[0]), ui.t(G, begin[1])],
+            Some(m) if m.finished => vec![ui.t(G, if m.funeral_done { rests } else { done })],
+            Some(m) => {
+                let def = def.expect("found");
+                let blocks = m.progress.len().max(1) as i32;
+                let within = m.progress.iter().map(|&p| p as i32).sum::<i32>() * 100 / (blocks * osiris_sim::monuments::BLOCK_WORK as i32);
+                let pct = (m.phase as i32 * 100 + within) / (def.phase_count as i32 - 1).max(1);
+                vec![format!("{} {}% {}", ui.t(G, under_way), pct.min(99), ui.t(178, 0))]
+            }
+        };
+        ui.wrapped(Font::NormalWhiteOnDark, &lines.join(" "), px + 60.0, y + 16.0, 33.0 * 16.0);
     }
-    for (i, &(id, k)) in list.iter().take(3).enumerate() {
-        let y = py + 70.0 + 40.0 * i as f32;
-        let name = ui.t(198, osiris_sim::monuments::monument_def(k).map_or(18, |d| d.title));
-        draw_text(ui.r, Font::NormalWhiteOnDark, &name, px + 48.0, y, font::WHITE);
-        if let Some((phase, finished, needs)) = world.monument_status(id) {
-            let status = if finished {
-                ui.t(5, 32)
-            } else {
-                let pct = needs.iter().map(|&(_, got, want)| got * 100 / want.max(1)).min().unwrap_or(100);
-                format!("{} / {}    {}%", phase, osiris_sim::monuments::monument_def(k).map_or(0, |d| d.phase_count as usize - 1), pct)
-            };
-            draw_text(ui.r, Font::NormalBlackOnDark, &status, px + 48.0, y + 18.0, font::BLACK);
+    // Burial provisions: what is needed, what has been sent, and what is in storage.
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 280.0, 36, 8);
+    let needs = world.burial_needs();
+    if needs.is_empty() {
+        let none = ui.t(G, 12);
+        ui.centred(Font::NormalWhiteOnDark, &none, px + 32.0, py + 336.0, 36.0 * 16.0);
+    } else {
+        let hint = ui.t(G, 3);
+        ui.label(Font::NormalWhiteOnDark, &hint, px + 48.0, py + 288.0);
+    }
+    for (i, &(r, need, sent)) in needs.iter().take(6).enumerate() {
+        let (cx, cy) = (px + 48.0 + 280.0 * (i % 2) as f32, py + 310.0 + 34.0 * (i / 2) as f32);
+        let rect = [cx - 4.0, cy - 4.0, 270.0, 32.0];
+        ui.icon(r, cx, cy);
+        let line = format!("{} / {} {}", sent / 100, need / 100, ui.t(RESOURCE_NAMES, r as usize));
+        let f = if sent >= need { Font::NormalYellow } else { Font::NormalWhiteOnDark };
+        ui.label(f, &line, cx + 28.0, cy);
+        let stored = format!("{} {}", world.city_stored(r) / 100, ui.t(G, 1));
+        ui.label(Font::SmallPlain, &stored, cx + 28.0, cy + 16.0);
+        if sent < need && ui.clicked(rect) {
+            *popup = Some(Popup::Burial(r, 0));
         }
     }
     None
