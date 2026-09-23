@@ -13,6 +13,7 @@ mod overlay;
 mod script;
 mod sidebar;
 mod top_menu;
+mod widgets;
 
 use anyhow::{Context, Result, bail};
 use osiris_formats::{Campaign, ImageLibrary, MessageTable, MissionPak, Model, Scenario, TextTable};
@@ -176,6 +177,8 @@ struct App {
     audio: Option<Arc<osiris_audio::Audio>>,
     gfx: Option<gfx::Gfx>,
     drag: Option<(f64, f64)>,
+    /// Where a right-click began with nothing open, to inspect the tile if it isn't a drag.
+    inspect: Option<(f64, f64)>,
     cursor: (f64, f64),
     keys: std::collections::HashSet<KeyCode>,
     last_frame: std::time::Instant,
@@ -398,8 +401,18 @@ impl ApplicationHandler for App {
                         }
                         (MouseButton::Left, ElementState::Released) => game.release(),
                         (MouseButton::Right, ElementState::Pressed) => {
+                            // With nothing open, a right-click (not a drag) inspects the tile.
+                            self.inspect = game.idle().then_some(self.cursor);
                             game.cancel();
                             self.drag = Some(self.cursor);
+                        }
+                        (MouseButton::Right, ElementState::Released) => {
+                            if let Some(p) = self.inspect.take()
+                                && (p.0 - self.cursor.0).abs() + (p.1 - self.cursor.1).abs() < 6.0
+                            {
+                                game.inspect();
+                            }
+                            self.drag = None;
                         }
                         (MouseButton::Middle, ElementState::Pressed) => self.drag = Some(self.cursor),
                         (_, ElementState::Released) => self.drag = None,
@@ -633,7 +646,11 @@ fn main() -> Result<()> {
         }
         if let Some((x, y)) = view.info {
             let id = game.world.map.building.at_or(x, y, 0);
-            game.info = (id != 0).then_some(info::InfoPanel { building: id });
+            let mut panel = if id != 0 { info::InfoPanel::building(id) } else { info::InfoPanel::new(info::Target::Tile(x, y)) };
+            if view.orders {
+                panel.open_orders();
+            }
+            game.info = Some(panel);
         }
         return gfx::screenshot(library, args.size, out, |r| {
             game.view.center_on(r, &game.world.map, cx, cy);
@@ -652,6 +669,7 @@ fn main() -> Result<()> {
         audio,
         gfx: None,
         drag: None,
+        inspect: None,
         cursor: (0.0, 0.0),
         keys: Default::default(),
         last_frame: std::time::Instant::now(),

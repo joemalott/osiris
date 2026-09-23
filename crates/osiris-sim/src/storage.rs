@@ -51,6 +51,76 @@ impl crate::buildings::Building {
         }
     }
 
+    /// This storage building's amount tier for `r` (1-4 quarters of its capacity), for
+    /// accepting or for getting.
+    pub fn order_tier(&self, r: u16, get: bool) -> u8 {
+        self.order_tiers.get(r as usize).map_or(4, |t| if get { t.1 } else { t.0 })
+    }
+
+    /// How much of `r` it will hold under its orders.
+    pub fn order_cap(&self, r: u16) -> i32 {
+        match self.order(r) {
+            order::ACCEPT => self.order_tier(r, false) as i32 * CAPACITY / 4,
+            order::GET => self.order_tier(r, true) as i32 * CAPACITY / 4,
+            _ => 0,
+        }
+    }
+
+    /// Steps the current order's amount tier up or down a quarter.
+    pub fn change_order_tier(&mut self, r: u16, up: bool) {
+        let get = self.order(r) == order::GET;
+        if self.order_tiers.len() <= r as usize {
+            self.order_tiers.resize(r as usize + 1, (4, 4));
+        }
+        let t = &mut self.order_tiers[r as usize];
+        let v = if get { &mut t.1 } else { &mut t.0 };
+        *v = if up { (*v + 1).min(4) } else { (*v - 1).max(1) };
+    }
+
+    /// Clicking a resource's order: accept, get, empty, refuse, and round again.
+    pub fn cycle_order(&mut self, r: u16) {
+        let next = match self.order(r) {
+            order::ACCEPT => order::GET,
+            order::GET => order::EMPTY,
+            order::EMPTY => order::REFUSE,
+            _ => order::ACCEPT,
+        };
+        self.set_order(r, next);
+        self.empty_all = false;
+    }
+
+    /// Empties the whole building, or stops and restores the orders it had.
+    pub fn toggle_empty_all(&mut self) {
+        if self.empty_all {
+            self.orders = std::mem::take(&mut self.saved_orders);
+            self.empty_all = false;
+        } else {
+            let all: Vec<u8> = (0..crate::economy::resource::COUNT as u16).map(|r| self.order(r)).collect();
+            self.saved_orders = all;
+            self.orders = vec![order::EMPTY; crate::economy::resource::COUNT];
+            self.empty_all = true;
+        }
+    }
+
+    /// Refuses everything.
+    pub fn accept_none(&mut self) {
+        self.orders = vec![order::REFUSE; crate::economy::resource::COUNT];
+        self.empty_all = false;
+        self.saved_orders.clear();
+    }
+
+    /// Whether a bazaar buys `r`.
+    pub fn bazaar_buys(&self, r: u16) -> bool {
+        self.orders.get(r as usize).copied().unwrap_or(0) == 0
+    }
+
+    pub fn toggle_bazaar_buys(&mut self, r: u16) {
+        if self.orders.len() <= r as usize {
+            self.orders.resize(r as usize + 1, 0);
+        }
+        self.orders[r as usize] ^= 1;
+    }
+
     pub fn set_order(&mut self, r: u16, o: u8) {
         if self.orders.len() <= r as usize {
             let defaults: Vec<u8> = (self.orders.len()..=r as usize).map(|i| self.order(i as u16)).collect();
@@ -84,7 +154,8 @@ impl World {
         if b.road.is_none() || !matches!(b.order(r), order::ACCEPT | order::GET) {
             return 0;
         }
-        match b.kind {
+        let under_cap = (b.order_cap(r) - self.stored(id, r)).max(0);
+        let room = match b.kind {
             kind::STORAGE_YARD => {
                 if b.workers <= 0 {
                     return 0;
@@ -104,7 +175,8 @@ impl World {
                 (CAPACITY - self.total_stored(id)).max(0)
             }
             _ => 0,
-        }
+        };
+        room.min(under_cap)
     }
 
     /// Puts up to `amount` of `r` into building `id` and returns how much went in.

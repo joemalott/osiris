@@ -9,7 +9,8 @@ use osiris_formats::{ImageLibrary, TextTable};
 use osiris_render::{Renderer, Space};
 use osiris_sim::World;
 use osiris_sim::trade::status;
-use osiris_ui::{Font, PanelImages, draw_text, draw_text_tinted, font, panel, text_width};
+use crate::widgets::{Ui, UiImages, inside};
+use osiris_ui::{Font, PanelImages, draw_text, draw_text_tinted, font, panel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Advisor {
@@ -82,9 +83,6 @@ pub struct AdvisorImages {
     strip: u32,
     buttons: u32,
     icons: u32,
-    arrow_up: u32,
-    arrow_down: u32,
-    resource_icons: u32,
     lock: u32,
 }
 
@@ -95,9 +93,6 @@ impl AdvisorImages {
             strip: lib.group_id("Pharaoh_General", 160, 0)?,
             buttons: lib.group_id("Pharaoh_General", 159, 0)?,
             icons: lib.group_id("Pharaoh_General", 128, 0)?,
-            arrow_up: lib.group_id("Pharaoh_Unloaded", 0, 16)?,
-            arrow_down: lib.group_id("Pharaoh_Unloaded", 0, 18)?,
-            resource_icons: lib.group_id("Pharaoh_General", 129, 0)?,
             lock: lib.group_id("Pharaoh_General", 94, 0)?,
         })
     }
@@ -127,67 +122,6 @@ pub struct Advisors {
     scroll: usize,
 }
 
-/// One frame's drawing and click handling.
-struct Ui<'a> {
-    r: &'a mut Renderer,
-    panels: &'a PanelImages,
-    img: AdvisorImages,
-    text: &'a TextTable,
-    cursor: [f32; 2],
-    click: Option<[f32; 2]>,
-}
-
-fn inside(rect: [f32; 4], p: [f32; 2]) -> bool {
-    p[0] >= rect[0] && p[1] >= rect[1] && p[0] < rect[0] + rect[2] && p[1] < rect[1] + rect[3]
-}
-
-impl Ui<'_> {
-    fn t(&self, group: usize, id: usize) -> String {
-        self.text.get(group, id).unwrap_or("").to_owned()
-    }
-
-    fn image(&mut self, id: u32, x: f32, y: f32) {
-        self.r.image(id, [x, y], [1.0; 4], Space::Screen);
-    }
-
-    fn label(&mut self, f: Font, s: &str, x: f32, y: f32) -> f32 {
-        draw_text(self.r, f, s, x, y, font::BLACK) as f32
-    }
-
-    fn width(&self, f: Font, s: &str) -> f32 {
-        text_width(self.r, f, s) as f32
-    }
-
-    /// Whether the held click fell in `rect`; it is used up if so.
-    fn clicked(&mut self, rect: [f32; 4]) -> bool {
-        if self.click.is_some_and(|c| inside(rect, c)) {
-            self.click = None;
-            return true;
-        }
-        false
-    }
-
-    fn hot(&self, rect: [f32; 4]) -> bool {
-        inside(rect, self.cursor)
-    }
-
-    /// A bordered text button.
-    fn button(&mut self, rect: [f32; 4], s: &str, f: Font) -> bool {
-        let hot = self.hot(rect);
-        panel::button_border(self.r, self.panels, rect[0], rect[1], rect[2] as i32, rect[3] as i32, hot);
-        let w = self.width(f, s);
-        self.label(f, s, rect[0] + ((rect[2] - w) / 2.0).floor(), rect[1] + ((rect[3] - 12.0) / 2.0).floor());
-        self.clicked(rect)
-    }
-
-    fn arrow(&mut self, x: f32, y: f32, up: bool) -> bool {
-        let base = if up { self.img.arrow_up } else { self.img.arrow_down };
-        let rect = [x, y, 24.0, 24.0];
-        self.image(base, x, y);
-        self.clicked(rect)
-    }
-}
-
 impl Advisors {
     pub fn new(current: Advisor) -> Self {
         Self { current, popup: None, click: None, cursor: [0.0; 2], scroll: 0 }
@@ -214,9 +148,10 @@ impl Advisors {
         self.popup.take().is_none()
     }
 
-    pub fn draw(&mut self, r: &mut Renderer, panels: &PanelImages, img: AdvisorImages, world: &mut World, text: &TextTable) -> Option<AdvisorAction> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw(&mut self, r: &mut Renderer, panels: &PanelImages, img: AdvisorImages, ui_img: UiImages, world: &mut World, text: &TextTable) -> Option<AdvisorAction> {
         let screen = r.screen;
-        let mut ui = Ui { r, panels, img, text, cursor: self.cursor, click: self.click.take() };
+        let mut ui = Ui { r, panels, img: ui_img, text, cursor: self.cursor, click: self.click.take() };
         ui.r.rect([0.0, 0.0], screen, [0.0, 0.0, 0.0, 1.0], Space::Screen);
         ui.image(img.backdrop, ((screen[0] - 1024.0) / 2.0).floor(), ((screen[1] - 768.0) / 2.0).floor());
         // A popup takes every click while it is open.
@@ -260,7 +195,7 @@ impl Advisors {
         panel::outer_panel(ui.r, panels, px, py, 40, 27);
         ui.image(img.icons + self.current.index() as u32, px + 10.0, py + 10.0);
         let from_screen = match self.current {
-            Advisor::Labor => labor(&mut ui, world, [px, py], &mut self.popup),
+            Advisor::Labor => labor(&mut ui, img.lock, world, [px, py], &mut self.popup),
             Advisor::Trade => trade(&mut ui, world, [px, py], &mut self.popup, &mut self.scroll),
             Advisor::Financial => financial(&mut ui, world, [px, py]),
             Advisor::Chief => chief(&mut ui, world, [px, py]),
@@ -302,7 +237,7 @@ const LABOR_ROWS: [(usize, &str); 9] = [
     (9, "military"),
 ];
 
-fn labor(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<Popup>) -> Option<AdvisorAction> {
+fn labor(ui: &mut Ui, lock: u32, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<Popup>) -> Option<AdvisorAction> {
     const G: usize = 50;
     let title = ui.t(G, 0);
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
@@ -318,7 +253,7 @@ fn labor(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
         let (need, have) = world.labor.by_category.get(ci).copied().unwrap_or((0, 0));
         let prio = world.labor.priorities.get(ci).copied().unwrap_or(0);
         if prio > 0 {
-            ui.image(ui.img.lock, row[0] + 40.0 - 40.0, y + 4.0);
+            ui.image(lock, row[0], y + 4.0);
             draw_text(ui.r, Font::NormalWhiteOnDark, &prio.to_string(), row[0] + 15.0, y + 5.0, font::WHITE);
         }
         let name = ui.t(G, id);
@@ -401,7 +336,7 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
     for (row, &r) in list.iter().skip(*scroll).take(ROWS).enumerate() {
         let y = py + 68.0 + 22.0 * row as f32;
         let rect = [px + 20.0, y - 2.0, 570.0, 22.0];
-        ui.image(ui.img.resource_icons + r as u32, px + 28.0, y - 2.0);
+        ui.icon(r, px + 28.0, y - 2.0);
         let name = ui.t(RESOURCE_NAMES, r as usize);
         let hot = ui.hot(rect);
         let nf = if world.is_mothballed(r) || hot { Font::NormalYellow } else { Font::NormalWhiteOnDark };
@@ -484,7 +419,7 @@ fn prices_popup(ui: &mut Ui, world: &World) -> bool {
         ui.label(Font::SmallPlain, &sell, x + 14.0, ry + 38.0);
         for (i, &r) in chunk.iter().enumerate() {
             let cx = x + 104.0 + 27.0 * i as f32;
-            ui.image(ui.img.resource_icons + r as u32, cx, ry);
+            ui.icon(r, cx, ry);
             let (b, s) = (world.buy_price(r).to_string(), world.sell_price(r).to_string());
             ui.label(Font::SmallPlain, &b, cx, ry + 22.0);
             ui.label(Font::SmallPlain, &s, cx, ry + 38.0);
@@ -501,7 +436,7 @@ fn resource_popup(ui: &mut Ui, world: &mut World, r: u16) -> bool {
     let (w, h) = (576.0, 240.0);
     let (x, y) = (((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor());
     panel::outer_panel(ui.r, ui.panels, x, y, 36, 15);
-    ui.image(ui.img.resource_icons + r as u32, x + 16.0, y + 18.0);
+    ui.icon(r, x + 16.0, y + 18.0);
     let name = ui.t(RESOURCE_NAMES, r as usize);
     let nw = ui.width(Font::LargeBlackOnLight, &name);
     ui.label(Font::LargeBlackOnLight, &name, x + (w - nw) / 2.0, y + 16.0);

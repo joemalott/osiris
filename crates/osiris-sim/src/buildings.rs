@@ -85,9 +85,19 @@ pub struct Building {
     /// A storage yard's eight spaces: resource and units in each.
     #[serde(default)]
     pub spaces: Vec<(u16, i32)>,
-    /// A storage building's order per resource; missing entries take the defaults.
+    /// A storage building's order per resource; missing entries take the defaults. For a
+    /// bazaar, 1 means it doesn't buy the resource.
     #[serde(default)]
     pub orders: Vec<u8>,
+    /// A storage building's amount tiers per resource, for accepting and for getting:
+    /// 1-4 quarters of its capacity (missing entries mean all of it).
+    #[serde(default)]
+    pub order_tiers: Vec<(u8, u8)>,
+    /// A storage building told to empty itself, and the orders to restore afterwards.
+    #[serde(default)]
+    pub empty_all: bool,
+    #[serde(default)]
+    pub saved_orders: Vec<u8>,
     /// A venue's days of shows left, per performer (juggler, musician, dancer).
     #[serde(default)]
     pub shows: [i32; 3],

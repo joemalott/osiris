@@ -51,6 +51,7 @@ impl World {
         let foods: Vec<u16> = (resource::GRAIN..=resource::GAMEMEAT).filter(|&r| self.bazaar_source(id, r).is_some() || b.stock[r as usize] > 0).collect();
         let mut wanted: Vec<(u16, i32)> = foods.iter().enumerate().take(4).map(|(i, &r)| (r, PICK_FOOD_BELOW[i])).collect();
         wanted.extend(resource::HOUSE_GOODS.iter().zip(PICK_GOOD_BELOW).map(|(&r, t)| (r, t)));
+        wanted.retain(|w| b.bazaar_buys(w.0));
         let have = |r: u16| b.stock[r as usize];
         let with_source = |r: u16| self.bazaar_source(id, r).map(|s| (r, s));
         let empty_food = wanted.iter().filter(|w| resource::is_food(w.0) && have(w.0) == 0).find_map(|w| with_source(w.0));

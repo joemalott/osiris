@@ -112,6 +112,7 @@ pub struct Game {
     pub empire: Option<crate::empire_window::EmpireWindow>,
     pub advisors: Option<crate::advisors::Advisors>,
     advisor_images: Option<crate::advisors::AdvisorImages>,
+    ui_images: Option<crate::widgets::UiImages>,
     empire_images: Option<crate::empire_window::EmpireImages>,
     custom_dialog: Option<Message>,
     pub rules_panel: Option<RulesPanel>,
@@ -171,6 +172,7 @@ impl Game {
             empire: None,
             advisors: None,
             advisor_images: None,
+            ui_images: None,
             empire_images: None,
             custom_dialog: None,
             rules_panel: None,
@@ -237,6 +239,12 @@ impl Game {
     pub fn scroll_dialog(&mut self, delta: f32, screen: [f32; 2]) -> bool {
         if let Some(a) = &mut self.advisors {
             a.scroll(if delta < 0.0 { 1 } else { -1 });
+            return true;
+        }
+        if let Some(i) = &mut self.info
+            && i.contains(self.cursor)
+        {
+            i.scroll(if delta < 0.0 { 1 } else { -1 });
             return true;
         }
         match &mut self.dialog {
@@ -375,6 +383,9 @@ impl Game {
             self.hover = None;
             return;
         }
+        if let Some(i) = &mut self.info {
+            i.hover(screen);
+        }
         if let Some(e) = &mut self.empire {
             e.hover(r.screen, screen);
             self.hover = None;
@@ -505,10 +516,14 @@ impl Game {
             }
             return None;
         }
-        if let Some(i) = &self.info
-            && !i.contains(r, self.cursor)
+        if let Some(i) = &mut self.info
+            && self.dialog.is_none()
         {
-            self.info = None;
+            if i.contains(self.cursor) {
+                i.press(self.cursor);
+            } else {
+                self.info = None;
+            }
             return None;
         }
         self.press(r.screen)
@@ -585,10 +600,9 @@ impl Game {
                     self.drag_start = self.hover;
                 } else if let Some((x, y)) = self.hover {
                     let id = self.world.map.building.at_or(x, y, 0);
-                    if id != 0 {
-                        self.info = Some(InfoPanel { building: id });
-                        self.sound("BUTTON.WAV");
-                    }
+                    let target = if id != 0 { crate::info::Target::Building(id) } else { crate::info::Target::Tile(x, y) };
+                    self.info = Some(InfoPanel::new(target));
+                    self.sound("BUTTON.WAV");
                 }
             }
         }
@@ -641,6 +655,15 @@ impl Game {
             Button::Collapse => {}
         }
         None
+    }
+
+    /// Opens the information window for whatever is under the cursor.
+    pub fn inspect(&mut self) {
+        let Some((x, y)) = self.hover else { return };
+        let id = self.world.map.building.at_or(x, y, 0);
+        let target = if id != 0 { crate::info::Target::Building(id) } else { crate::info::Target::Tile(x, y) };
+        self.info = Some(InfoPanel::new(target));
+        self.sound("BUTTON.WAV");
     }
 
     pub fn open_advisor(&mut self, a: crate::advisors::Advisor) {
@@ -764,6 +787,14 @@ impl Game {
             }
             return;
         }
+        if let Some(i) = &mut self.info
+            && self.dialog.is_none()
+        {
+            if i.back() {
+                self.info = None;
+            }
+            return;
+        }
         if self.dialog.take().is_some() || self.empire.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() {
             return;
         }
@@ -878,7 +909,8 @@ impl Game {
         self.next_dialog(r);
         if let Some(a) = &mut self.advisors {
             let images = *self.advisor_images.get_or_insert_with(|| crate::advisors::AdvisorImages::load(&r.library).expect("overseer images"));
-            let action = a.draw(r, &self.images.panels, images, &mut self.world, &self.text);
+            let ui_images = *self.ui_images.get_or_insert_with(|| crate::widgets::UiImages::load(&r.library).expect("ui images"));
+            let action = a.draw(r, &self.images.panels, images, ui_images, &mut self.world, &self.text);
             if let Some(d) = &self.dialog {
                 d.draw(r);
             }
@@ -1003,8 +1035,17 @@ impl Game {
         let paused = self.paused.then_some("Paused");
         let label = overlay_name.or(paused);
         self.top_menu.draw(r, &self.images.panels, &status, label);
-        if let Some(i) = &self.info {
-            i.draw(r, &self.images.panels, &self.world, &self.text);
+        if let Some(i) = &mut self.info {
+            let img = *self.ui_images.get_or_insert_with(|| crate::widgets::UiImages::load(&r.library).expect("ui images"));
+            let mut ui = crate::widgets::Ui { r, panels: &self.images.panels, img, text: &self.text, cursor: self.cursor, click: None };
+            match i.draw(&mut ui, &mut self.world) {
+                Some(crate::info::InfoAction::Close) => self.info = None,
+                Some(crate::info::InfoAction::Overseer(a)) => {
+                    self.info = None;
+                    self.open_advisor(a);
+                }
+                None => {}
+            }
         }
         if let Some(p) = &self.rules_panel {
             p.draw(r, &self.images.panels, &self.world.rules, sidebar::panel_left(r.screen[0]), "Changes apply now, and to every game you play.");
