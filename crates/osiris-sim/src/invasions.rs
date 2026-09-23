@@ -445,13 +445,7 @@ impl World {
         }
         let army = self.figures.get(fid).map_or(0, |f| f.formation.saturating_sub(1000)) as usize;
         // Soldiers close by draw them off.
-        let near = self
-            .figures
-            .iter()
-            .filter(|o| !o.dead && o.action != action::CORPSE && (crate::military::is_soldier(o.kind) || o.kind == crate::crime::CONSTABLE))
-            .filter(|o| (o.x - x).abs() <= CHASE_RANGE && (o.y - y).abs() <= CHASE_RANGE)
-            .min_by_key(|o| (o.x - x).abs() + (o.y - y).abs())
-            .map(|o| (o.x, o.y));
+        let near = self.nearest_foe(true, (x, y), CHASE_RANGE).map(|o| (o.1, o.2));
         let map = &self.map;
         if let Some(to) = near {
             let f = self.figures.get_mut(fid).expect("present");
@@ -542,12 +536,7 @@ impl World {
     fn engage_as_invader(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
         let (x, y) = (f.x, f.y);
-        let foe = self
-            .figures
-            .iter()
-            .filter(|o| !o.dead && o.action != action::CORPSE && (crate::military::is_soldier(o.kind) || o.kind == crate::crime::CONSTABLE))
-            .find(|o| (o.x - x).abs() <= 1 && (o.y - y).abs() <= 1)
-            .map(|o| o.id);
+        let foe = self.nearest_foe(true, (x, y), 1).map(|o| o.0);
         if let Some(foe) = foe
             && let Some(f) = self.figures.get_mut(fid)
         {

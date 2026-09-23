@@ -109,6 +109,9 @@ pub struct World {
     /// The city's forts and their companies.
     #[serde(default)]
     pub military: crate::military::Military,
+    /// This tick's fighters on each side.
+    #[serde(skip)]
+    pub(crate) combatants: crate::military::Combatants,
     /// Invasions planned, and armies in the field.
     #[serde(default)]
     pub invasions: crate::invasions::Invasions,
@@ -211,6 +214,7 @@ impl World {
             events: Default::default(),
             governor: Default::default(),
             military: Default::default(),
+            combatants: Default::default(),
             invasions,
             scenario_monuments: info.monuments,
             burial: info.burial_provisions_required.iter().map(|&r| (r as i32 * 100, 0)).collect(),

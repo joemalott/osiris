@@ -110,6 +110,7 @@ impl World {
     }
 
     fn update_figures(&mut self) {
+        self.gather_combatants();
         for fid in self.figures.ids() {
             let kind = self.figures.get(fid).map_or(0, |f| f.kind);
             match kind {

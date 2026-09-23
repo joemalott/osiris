@@ -148,6 +148,14 @@ pub struct DistantBattle {
     pub fought: bool,
 }
 
+/// Who is on the field this tick, gathered once so fighters needn't search every
+/// figure: the city's fighters (soldiers, constables, sentries) and the invaders.
+#[derive(Debug, Clone, Default)]
+pub struct Combatants {
+    pub defenders: Vec<(FigureId, i32, i32)>,
+    pub invaders: Vec<(FigureId, i32, i32)>,
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Military {
     pub companies: Vec<Company>,
@@ -464,18 +472,36 @@ impl World {
         }
     }
 
+    /// Gathers this tick's combatants (at the start of the figures' turn).
+    pub(crate) fn gather_combatants(&mut self) {
+        let mut c = Combatants::default();
+        for f in self.figures.iter().filter(|f| !f.dead && f.action != action::CORPSE) {
+            if self.is_invader(f) {
+                c.invaders.push((f.id, f.x, f.y));
+            } else if is_soldier(f.kind) || matches!(f.kind, crate::crime::CONSTABLE | crate::defenses::TOWER_SENTRY) {
+                c.defenders.push((f.id, f.x, f.y));
+            }
+        }
+        self.combatants = c;
+    }
+
+    /// The nearest living enemy of a figure on the invaders' side (`invader`) or the
+    /// city's, within `range` tiles: its id and tile.
+    pub(crate) fn nearest_foe(&self, invader: bool, (x, y): (i32, i32), range: i32) -> Option<(FigureId, i32, i32)> {
+        let list = if invader { &self.combatants.defenders } else { &self.combatants.invaders };
+        list.iter()
+            .filter(|&&(_, ox, oy)| (ox - x).abs() <= range && (oy - y).abs() <= range)
+            .filter(|&&(id, _, _)| self.figures.get(id).is_some_and(|o| !o.dead && o.action != action::CORPSE))
+            .min_by_key(|&&(_, ox, oy)| (ox - x).abs() + (oy - y).abs())
+            .copied()
+    }
+
     /// Takes on an enemy within `range` tiles, if there is one.
     fn engage(&mut self, fid: FigureId, range: i32) {
         let Some(f) = self.figures.get(fid) else { return };
         let (x, y) = (f.x, f.y);
         let mine = self.is_invader(f);
-        let foe = self
-            .figures
-            .iter()
-            .filter(|o| !o.dead && o.action != action::CORPSE && self.is_hostile_to(o, mine))
-            .filter(|o| (o.x - x).abs() <= range && (o.y - y).abs() <= range)
-            .min_by_key(|o| (o.x - x).abs() + (o.y - y).abs())
-            .map(|o| o.id);
+        let foe = self.nearest_foe(mine, (x, y), range).map(|o| o.0);
         if let Some(foe) = foe
             && let Some(f) = self.figures.get_mut(fid)
         {
@@ -491,13 +517,7 @@ impl World {
     fn chase(&mut self, fid: FigureId, reach: i32) {
         let Some(f) = self.figures.get(fid) else { return };
         let (x, y) = (f.x, f.y);
-        let target = self
-            .figures
-            .iter()
-            .filter(|o| !o.dead && o.action != action::CORPSE && self.is_invader(o))
-            .filter(|o| (o.x - x).abs() <= reach && (o.y - y).abs() <= reach)
-            .min_by_key(|o| (o.x - x).abs() + (o.y - y).abs())
-            .map(|o| (o.x, o.y));
+        let target = self.nearest_foe(false, (x, y), reach).map(|o| (o.1, o.2));
         let map = &self.map;
         let f = self.figures.get_mut(fid).expect("present");
         match target {
@@ -534,15 +554,6 @@ impl World {
             if self.figures.get(s).is_some_and(|f| matches!(f.action, action::AT_STANDARD | action::GOING_TO_STANDARD)) {
                 self.send_to_post(s);
             }
-        }
-    }
-
-    /// Whether `o` fights on the other side from a figure that is (or isn't) an invader.
-    fn is_hostile_to(&self, o: &crate::figures::Figure, invader: bool) -> bool {
-        if invader {
-            is_soldier(o.kind) || o.kind == crate::crime::CONSTABLE
-        } else {
-            self.is_invader(o)
         }
     }
 
@@ -728,13 +739,7 @@ impl World {
         let (x, y) = (f.x, f.y);
         let mine = self.figures.get(fid).is_some_and(|f| self.is_invader(f));
         let range = stats.missile_range;
-        let target = self
-            .figures
-            .iter()
-            .filter(|o| !o.dead && o.action != action::CORPSE && self.is_hostile_to(o, mine))
-            .filter(|o| (o.x - x).abs() <= range && (o.y - y).abs() <= range)
-            .min_by_key(|o| (o.x - x).abs() + (o.y - y).abs())
-            .map(|o| (o.id, o.x, o.y));
+        let target = self.nearest_foe(mine, (x, y), range);
         let Some((target, tx, ty)) = target else { return };
         if let Some(f) = self.figures.get_mut(fid) {
             f.attack_tick = 0;

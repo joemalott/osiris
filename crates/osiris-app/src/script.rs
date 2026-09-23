@@ -152,6 +152,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             ["fortreturn", c] => world.return_company(c.parse()?),
             ["service", c] => world.toggle_kingdom_service(c.parse()?),
+            ["noinvasions"] => world.invasions.planned.clear(),
             ["order", c, o] => {
                 use osiris_sim::military::Order;
                 let order = match *o {
