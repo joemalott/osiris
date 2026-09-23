@@ -44,6 +44,12 @@ pub const MEDIUM_PYRAMID: u16 = 254;
 pub const LARGE_PYRAMID: u16 = 255;
 pub const SMALL_STEPPED_PYRAMID: u16 = 319;
 pub const MEDIUM_STEPPED_PYRAMID: u16 = 324;
+pub const MUDBRICK_PYRAMID_COMPLEX: u16 = 246;
+pub const GRAND_MUDBRICK_PYRAMID_COMPLEX: u16 = 247;
+pub const STEPPED_PYRAMID_COMPLEX: u16 = 251;
+pub const GRAND_STEPPED_PYRAMID_COMPLEX: u16 = 252;
+pub const PYRAMID_COMPLEX: u16 = 256;
+pub const GRAND_PYRAMID_COMPLEX: u16 = 257;
 pub const SPHINX: u16 = 210;
 pub const SMALL_OBELISK: u16 = 262;
 pub const LARGE_OBELISK: u16 = 263;
@@ -290,7 +296,7 @@ const fn obelisk(kind: u16, size: i32, stages: u8, granite: i32, timber: &'stati
     MonumentDef { kind, cols: size, rows: size, style: Style::Obelisk { size, stages, granite, timber }, phase_count: LEVELING_PHASES + stages + 1, weight, title }
 }
 
-pub const MONUMENTS: [MonumentDef; 19] = [
+pub const MONUMENTS: [MonumentDef; 25] = [
     MonumentDef { kind: SPHINX, cols: 3, rows: 6, style: Style::Sphinx, phase_count: LEVELING_PHASES + SPHINX_PHASES.len() as u8 + 1, weight: 1, title: 21 },
     // The rating weight is a placeholder.
     MonumentDef { kind: MAUSOLEUM, cols: 11, rows: 4, style: Style::Mausoleum, phase_count: 6, weight: 4, title: 25 },
@@ -313,6 +319,14 @@ pub const MONUMENTS: [MonumentDef; 19] = [
     pyramid(SMALL_PYRAMID, Family::True, 4, 16, 13),
     pyramid(MEDIUM_PYRAMID, Family::True, 6, 28, 14),
     pyramid(LARGE_PYRAMID, Family::True, 8, 40, 15),
+    // Complexes: a larger pyramid with a mortuary temple, causeway and valley temple.
+    // (Their rating weights are placeholders.)
+    pyramid(STEPPED_PYRAMID_COMPLEX, Family::Stepped, 10, 32, 11),
+    pyramid(GRAND_STEPPED_PYRAMID_COMPLEX, Family::Stepped, 12, 40, 12),
+    pyramid(MUDBRICK_PYRAMID_COMPLEX, Family::Mudbrick, 10, 36, 6),
+    pyramid(GRAND_MUDBRICK_PYRAMID_COMPLEX, Family::Mudbrick, 12, 44, 7),
+    pyramid(PYRAMID_COMPLEX, Family::True, 10, 52, 16),
+    pyramid(GRAND_PYRAMID_COMPLEX, Family::True, 12, 64, 17),
 ];
 
 pub fn monument_def(k: u16) -> Option<&'static MonumentDef> {
@@ -372,6 +386,9 @@ pub struct Monument {
     /// A pyramid's or mastaba's blocks.
     #[serde(default)]
     pub blocks: Vec<crate::pyramids::Block>,
+    /// A pyramid complex's temples and causeway.
+    #[serde(default)]
+    pub parts: Vec<crate::pyramids::Part>,
 }
 
 impl Monument {
@@ -538,8 +555,17 @@ impl World {
 
     /// Monument-specific placement rules: an obelisk's granite must be in storage,
     /// and only one obelisk may be under construction at a time.
-    pub(crate) fn can_place_monument(&self, k: u16) -> Result<(), &'static str> {
+    pub(crate) fn can_place_monument(&self, k: u16, (x, y): (i32, i32)) -> Result<(), &'static str> {
         let Some(def) = monument_def(k) else { return Ok(()) };
+        if let Style::Pyramid(_) = def.style {
+            // The row past the pyramid's south edge must be free (roads may cross it).
+            let (w, h) = self.monument_footprint(k).unwrap_or((0, 0));
+            let blocked = crate::map::mask::NOT_CLEAR & !(crate::map::terrain::ROAD | crate::map::terrain::TREE | crate::map::terrain::SHRUB);
+            if (x..x + w).any(|xx| self.map.terrain_is(xx, y + h, blocked)) {
+                return Err("Must be built on land free of obstructions");
+            }
+            self.complex_parts(def.style, crate::pyramids::variant(def.cols, def.style), (x, y))?;
+        }
         if let Style::Obelisk { granite, .. } = def.style {
             let building = self.buildings.iter().any(|b| matches!(b.kind, SMALL_OBELISK | LARGE_OBELISK) && b.monument.as_ref().is_some_and(|m| !m.finished));
             if building {
@@ -572,9 +598,16 @@ impl World {
         let ground = (y0..y0 + h).flat_map(|y| (x0..x0 + w).map(move |x| (x, y))).map(|(x, y)| self.map.images.at_or(x, y, 0)).collect();
         let mut m = Monument { progress: vec![0; def.units(0)], ground, ..Default::default() };
         if crate::pyramids::blockwise(def.style) {
-            m.blocks = crate::pyramids::layout(def.style, crate::pyramids::variant(def.cols, def.style));
+            let variant = crate::pyramids::variant(def.cols, def.style);
+            m.blocks = crate::pyramids::layout(def.style, variant);
             // A tick count for each tile's site work, and one for the centre's foundation.
             m.progress = vec![0; m.blocks.len() * 4 + 1];
+            // A complex's temples and causeway take their ground now.
+            m.parts = self.complex_parts(def.style, variant, (x0, y0)).unwrap_or_default();
+            for (px, py) in Self::part_tiles(&m.parts) {
+                self.map.terrain.update(x0 + px, y0 + py, |t| t | crate::map::terrain::BUILDING);
+                self.map.building.set(x0 + px, y0 + py, id);
+            }
         }
         if def.style == Style::Sphinx {
             // Carved from the rock where it stands: no leveling.
@@ -1115,8 +1148,10 @@ impl World {
             Job::Unit(i) => 1 + i as i32,
             Job::Polish(i) => 100_000 + i as i32,
             Job::Ramp(i) => 200_000 + i as i32,
+            Job::Part(i) => 300_000 + i as i32,
         };
         let decode = |a: i32| match a {
+            a if a >= 300_000 => Some(Job::Part((a - 300_000) as usize)),
             a if a >= 200_000 => Some(Job::Ramp((a - 200_000) as usize)),
             a if a >= 100_000 => Some(Job::Polish((a - 100_000) as usize)),
             a if a > 0 => Some(Job::Unit((a - 1) as usize)),
@@ -1138,14 +1173,7 @@ impl World {
             }
             None => {
                 let crew: Vec<FigureId> = self.buildings.get(target).and_then(|b| b.monument.as_ref()).map_or_else(Vec::new, |m| m.craftsmen.iter().map(|c| c.1).collect());
-                let taken: Vec<usize> = crew
-                    .iter()
-                    .filter(|&&c| c != fid)
-                    .filter_map(|&c| self.figures.get(c).and_then(|o| decode(o.amount)))
-                    .map(|j| match j {
-                        Job::Unit(i) | Job::Polish(i) | Job::Ramp(i) => i,
-                    })
-                    .collect();
+                let taken: Vec<Job> = crew.iter().filter(|&&c| c != fid).filter_map(|&c| self.figures.get(c).and_then(|o| decode(o.amount))).collect();
                 let job = self.tomb_job(target, figure, &taken);
                 match job {
                     Some(Job::Unit(i)) => {

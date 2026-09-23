@@ -79,6 +79,23 @@ pub struct Block {
     pub ramp_shown: bool,
 }
 
+/// A part of a pyramid complex: the mortuary temple against the pyramid's east face,
+/// the causeway blocks, and the valley temple on the shore. `x`, `y` are its top-left
+/// tile from the pyramid's, and may lie beyond its footprint.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct Part {
+    pub x: i32,
+    pub y: i32,
+    /// 0 mortuary temple, 1 causeway, 2 valley temple.
+    pub kind: u8,
+    pub built: bool,
+}
+
+/// Ticks a stonemason takes over a part of a complex.
+pub const PART_WORK: u16 = 200;
+/// Most causeway blocks before the shore.
+const MAX_CAUSEWAY: usize = 20;
+
 /// Ramps of each size of pyramid: (block, progress it is needed at, partner block).
 const RAMPS: [&[(u8, u8, u8)]; 5] = [
     &[(13, 1, 0), (14, 2, 15), (11, 3, 0), (9, 4, 7), (6, 5, 0), (5, 6, 0)],
@@ -280,9 +297,47 @@ pub enum Job {
     Unit(usize),
     Polish(usize),
     Ramp(usize),
+    /// A part of a pyramid complex.
+    Part(usize),
 }
 
 impl World {
+    /// A pyramid complex's parts for a pyramid placed at `(x0, y0)`: the causeway runs
+    /// east, two tiles at a time, from the middle of the pyramid's east face, until a
+    /// block is no longer clear; that block must be on the shore (land, with water
+    /// just east of it) for the valley temple, with at least one causeway block
+    /// before it. Smaller pyramids have none.
+    pub(crate) fn complex_parts(&self, style: Style, variant: usize, (x0, y0): (i32, i32)) -> Result<Vec<Part>, &'static str> {
+        if variant < 3 || !matches!(style, Style::Pyramid(_)) {
+            return Ok(Vec::new());
+        }
+        let shift = 2 * (variant as i32 + 1);
+        let (sx, sy) = (x0 + shift + if variant == 3 { 12 } else { 14 }, y0 + shift + 1);
+        let land = crate::map::mask::NOT_CLEAR & !(crate::map::terrain::TREE | crate::map::terrain::SHRUB);
+        let clear = |x: i32, y: i32| self.map.contains(x, y) && !self.map.terrain_is(x, y, land) && self.map.building.at_or(x, y, 0) == 0;
+        let water = |x: i32, y: i32| self.map.terrain_is(x, y, crate::map::terrain::WATER);
+        let mut parts = Vec::new();
+        let mut bx = sx;
+        while (0..2).all(|dy| (0..2).all(|dx| clear(bx + dx, sy + dy))) {
+            if parts.len() > MAX_CAUSEWAY {
+                return Err("Monument's causeway must lead to water");
+            }
+            parts.push(Part { x: bx - x0, y: sy - y0, kind: if parts.is_empty() { 0 } else { 1 }, built: false });
+            bx += 2;
+        }
+        let shore = clear(bx, sy) && clear(bx, sy + 1) && water(bx + 1, sy) && water(bx + 1, sy + 1);
+        if parts.len() < 2 || !shore {
+            return Err("Monument's causeway must lead to water");
+        }
+        parts.push(Part { x: bx - x0, y: sy - y0, kind: 2, built: false });
+        Ok(parts)
+    }
+
+    /// The tiles a complex's parts stand on, from the pyramid's top-left.
+    pub(crate) fn part_tiles(parts: &[Part]) -> Vec<(i32, i32)> {
+        parts.iter().flat_map(|p| [(p.x, p.y), (p.x + 1, p.y), (p.x, p.y + 1), (p.x + 1, p.y + 1)]).collect()
+    }
+
     fn tomb(&self, id: BuildingId) -> Option<(Style, usize, &Monument)> {
         let b = self.buildings.get(id)?;
         let def = monument_def(b.kind)?;
@@ -324,26 +379,38 @@ impl World {
         }
     }
 
-    /// Tomb work for a craftsman of type `figure`, other than the blocks in `taken`.
-    pub(crate) fn tomb_job(&self, id: BuildingId, figure: u16, taken: &[usize]) -> Option<Job> {
+    /// Tomb work for a craftsman of type `figure`, other than the jobs in `taken`: a
+    /// block's next unit, a ramp, polishing, and (for stonemasons with nothing else to
+    /// do once the site is ready) the next part of a complex.
+    pub(crate) fn tomb_job(&self, id: BuildingId, figure: u16, taken: &[Job]) -> Option<Job> {
         let (style, _, m) = self.tomb(id)?;
-        match m.phase {
+        let job = match m.phase {
             RAISE if figure == crate::monuments::CARPENTER => {
                 // A ramp a block is waiting for.
-                m.blocks.iter().enumerate().find(|(i, b)| b.waiting_for_ramp() && !taken.contains(i)).map(|(i, _)| Job::Ramp(i))
+                return m.blocks.iter().enumerate().find(|(i, b)| b.waiting_for_ramp() && !taken.contains(&Job::Ramp(*i))).map(|(i, _)| Job::Ramp(i));
             }
-            RAISE => self.frontier(id).into_iter().find(|&i| {
-                let b = &m.blocks[i];
-                !taken.contains(&i) && !b.waiting_for_ramp() && self.unit_craftsman(id, i) == figure && {
-                    let r = self.tomb_unit_material(id, i).unwrap_or(STONE);
-                    Monument::amount(&m.delivered, r) >= UNIT_MATERIAL
-                }
-            }).map(Job::Unit),
-            POLISH if figure == crate::monuments::STONEMASON && polished(style) => {
-                self.polish_frontier(id).into_iter().find(|i| !taken.contains(i)).map(Job::Polish)
-            }
+            RAISE => self
+                .frontier(id)
+                .into_iter()
+                .find(|&i| {
+                    let b = &m.blocks[i];
+                    !taken.contains(&Job::Unit(i)) && !b.waiting_for_ramp() && self.unit_craftsman(id, i) == figure && {
+                        let r = self.tomb_unit_material(id, i).unwrap_or(STONE);
+                        Monument::amount(&m.delivered, r) >= UNIT_MATERIAL
+                    }
+                })
+                .map(Job::Unit),
+            POLISH if figure == crate::monuments::STONEMASON && polished(style) => self.polish_frontier(id).into_iter().find(|&i| !taken.contains(&Job::Polish(i))).map(Job::Polish),
             _ => None,
-        }
+        };
+        job.or_else(|| {
+            // The complex's parts go up one at a time, outward from the pyramid.
+            if figure != crate::monuments::STONEMASON || m.phase == PREP {
+                return None;
+            }
+            let next = m.parts.iter().position(|p| !p.built)?;
+            (!taken.contains(&Job::Part(next))).then_some(Job::Part(next))
+        })
     }
 
     /// Whether a tomb wants a craftsman of type `figure` at all.
@@ -351,6 +418,8 @@ impl World {
         let Some((style, _, m)) = self.tomb(id) else { return false };
         match m.phase {
             RAISE if figure == crate::monuments::CARPENTER => m.blocks.iter().any(Block::waiting_for_ramp),
+            PREP => false,
+            _ if figure == crate::monuments::STONEMASON && m.parts.iter().any(|p| !p.built) => true,
             RAISE => self.frontier(id).into_iter().any(|i| self.unit_craftsman(id, i) == figure),
             POLISH => figure == crate::monuments::STONEMASON && polished(style),
             _ => false,
@@ -361,16 +430,10 @@ impl World {
     /// step, or its ramp built.
     pub(crate) fn finish_tomb_job(&mut self, id: BuildingId, job: Job) {
         let Some((style, var, _)) = self.tomb(id) else { return };
-        let material = match job {
-            Job::Unit(i) => self.tomb_unit_material(id, i),
-            _ => None,
-        };
         let Some(m) = self.buildings.get_mut(id).and_then(|b| b.monument.as_mut()) else { return };
         match job {
+            // (Its material was taken when the craftsman took on the unit.)
             Job::Unit(i) => {
-                if let Some(r) = material {
-                    Monument::add(&mut m.delivered, r, -UNIT_MATERIAL);
-                }
                 let Some(b) = m.blocks.get(i) else { return };
                 let limit = course_limit(style, var, b, i);
                 let b = &mut m.blocks[i];
@@ -388,6 +451,11 @@ impl World {
             Job::Polish(i) => {
                 if let Some(b) = m.blocks.get_mut(i) {
                     b.counter = b.counter.saturating_sub(1);
+                }
+            }
+            Job::Part(i) => {
+                if let Some(p) = m.parts.get_mut(i) {
+                    p.built = true;
                 }
             }
             Job::Ramp(i) => {
@@ -414,6 +482,7 @@ impl World {
             Job::Unit(_) => UNIT_WORK,
             Job::Polish(_) => POLISH_WORK,
             Job::Ramp(_) => RAMP_WORK,
+            Job::Part(_) => PART_WORK,
         }
     }
 
@@ -564,7 +633,7 @@ impl World {
                 }
                 false
             }
-            RAISE if m.blocks.iter().all(|b| b.state == BUILT) => {
+            RAISE if m.blocks.iter().all(|b| b.state == BUILT) && (polished(style) || m.parts.iter().all(|p| p.built)) => {
                 let m = self.buildings.get_mut(id).and_then(|b| b.monument.as_mut()).expect("tomb");
                 if polished(style) {
                     m.phase = POLISH;
@@ -581,7 +650,7 @@ impl World {
                     true
                 }
             }
-            POLISH => m.blocks.iter().all(|b| b.counter == 0),
+            POLISH => m.blocks.iter().all(|b| b.counter == 0) && m.parts.iter().all(|p| p.built),
             _ => false,
         }
     }
@@ -653,6 +722,12 @@ impl World {
                     _ => site + 41 + piece,
                 };
                 out.push(((x, y), image));
+            }
+        }
+        // A complex's parts are staked out until built.
+        for p in m.parts.iter().filter(|p| !p.built) {
+            for (x, y) in [(p.x, p.y), (p.x + 1, p.y), (p.x, p.y + 1), (p.x + 1, p.y + 1)] {
+                out.push(((x, y), site + 13));
             }
         }
         out
@@ -738,6 +813,13 @@ impl World {
                 out.push((bx, by, base + 101 + 6 * rand, 0));
             }
             out.push((bx, by, image, raise(b.level)));
+        }
+        // A complex's temples and causeway once built (each 2x2).
+        for p in m.parts.iter().filter(|p| p.built) {
+            let key = ["mortuary", "causeway", "valley"][p.kind.min(2) as usize];
+            if let Some(a) = bdef.anims.get(key) {
+                out.push((x0 + p.x, y0 + p.y, a.image, 0));
+            }
         }
         out
     }

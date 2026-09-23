@@ -2349,7 +2349,7 @@ id = 246
 key = "mudbrick_pyramid_complex"
 size = 2
 image = { pack = "mudbrick_pyramid", group = 2, offset = 7 }
-anims = { preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "mudbrick_pyramid", group = 1, offset = 0 }, mortuary = { pack = "mudbrick_pyramid", group = 9, offset = 0 }, causeway = { pack = "mudbrick_pyramid", group = 10, offset = 0 }, valley = { pack = "mudbrick_pyramid", group = 11, offset = 0 }, preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_brick_core_pyramid"
@@ -2369,7 +2369,7 @@ id = 247
 key = "grand_mudbrick_pyramid_complex"
 size = 2
 image = { pack = "mudbrick_pyramid", group = 2, offset = 7 }
-anims = { preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "mudbrick_pyramid", group = 1, offset = 0 }, mortuary = { pack = "mudbrick_pyramid", group = 9, offset = 0 }, causeway = { pack = "mudbrick_pyramid", group = 10, offset = 0 }, valley = { pack = "mudbrick_pyramid", group = 11, offset = 0 }, preview = { pack = "mudbrick_pyramid", group = 2, offset = 7 }, clear_land = { pack = "mudbrick_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_brick_core_pyramid"
@@ -2381,7 +2381,7 @@ enter_offset = [2, 20]
 filler_type = "grand_mudbrick_pyramid_complex"
 fire_proof = true
 info_title_id = [198, 7]
-init_tiles = [20, 20]
+init_tiles = [24, 24]
 wall_type = "large_mudbrick_pyramid_wall"
 
 [[building]]
@@ -2401,7 +2401,7 @@ enter_offset = [2, 20]
 filler_type = "large_stepped_pyramid"
 fire_proof = true
 info_title_id = [198, 10]
-init_tiles = [20, 20]
+init_tiles = [16, 16]
 wall_type = "large_stepped_pyramid_wall"
 
 [[building]]
@@ -2409,7 +2409,7 @@ id = 251
 key = "stepped_pyramid_complex"
 size = 2
 image = { pack = "stepped_pyramid", group = 2, offset = 7 }
-anims = { preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "stepped_pyramid", group = 1, offset = 0 }, mortuary = { pack = "stepped_pyramid", group = 9, offset = 0 }, causeway = { pack = "stepped_pyramid", group = 10, offset = 0 }, valley = { pack = "stepped_pyramid", group = 11, offset = 0 }, preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_building_stepped_pyramid"
@@ -2429,7 +2429,7 @@ id = 252
 key = "grand_stepped_pyramid_complex"
 size = 2
 image = { pack = "stepped_pyramid", group = 2, offset = 7 }
-anims = { preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "stepped_pyramid", group = 1, offset = 0 }, mortuary = { pack = "stepped_pyramid", group = 9, offset = 0 }, causeway = { pack = "stepped_pyramid", group = 10, offset = 0 }, valley = { pack = "stepped_pyramid", group = 11, offset = 0 }, preview = { pack = "stepped_pyramid", group = 2, offset = 7 }, clear_land = { pack = "stepped_pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_building_stepped_pyramid"
@@ -2441,7 +2441,7 @@ enter_offset = [2, 20]
 filler_type = "grand_stepped_pyramid_complex"
 fire_proof = true
 info_title_id = [198, 12]
-init_tiles = [20, 20]
+init_tiles = [24, 24]
 wall_type = "large_stepped_pyramid_wall"
 
 [[building]]
@@ -2507,7 +2507,7 @@ enter_offset = [2, 20]
 filler_type = "large_pyramid"
 fire_proof = true
 info_title_id = [198, 15]
-init_tiles = [20, 20]
+init_tiles = [16, 16]
 wall_type = "large_pyramid_wall"
 
 [[building]]
@@ -2515,7 +2515,7 @@ id = 256
 key = "pyramid_complex"
 size = 2
 image = { pack = "Pyramid", group = 2, offset = 7 }
-anims = { preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "Pyramid", group = 1, offset = 0 }, mortuary = { pack = "Pyramid", group = 9, offset = 0 }, causeway = { pack = "Pyramid", group = 10, offset = 0 }, valley = { pack = "Pyramid", group = 11, offset = 0 }, preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_true_pyramid"
@@ -2526,7 +2526,7 @@ damage_proof = true
 enter_offset = [2, 20]
 filler_type = "pyramid_complex"
 fire_proof = true
-info_title_id = [198, 15]
+info_title_id = [198, 16]
 init_tiles = [20, 20]
 wall_type = "large_pyramid_wall"
 
@@ -2535,7 +2535,7 @@ id = 257
 key = "grand_pyramid_complex"
 size = 2
 image = { pack = "Pyramid", group = 2, offset = 7 }
-anims = { preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
+anims = { blocks = { pack = "Pyramid", group = 1, offset = 0 }, mortuary = { pack = "Pyramid", group = 9, offset = 0 }, causeway = { pack = "Pyramid", group = 10, offset = 0 }, valley = { pack = "Pyramid", group = 11, offset = 0 }, preview = { pack = "Pyramid", group = 2, offset = 7 }, clear_land = { pack = "Pyramid", group = 2, offset = 12 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_true_pyramid"
@@ -2546,8 +2546,8 @@ damage_proof = true
 enter_offset = [2, 20]
 filler_type = "grand_pyramid_complex"
 fire_proof = true
-info_title_id = [198, 16]
-init_tiles = [20, 20]
+info_title_id = [198, 17]
+init_tiles = [24, 24]
 wall_type = "large_pyramid_wall"
 
 [[building]]

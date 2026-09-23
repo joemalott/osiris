@@ -57,7 +57,7 @@ impl World {
                 }
             }
         }
-        self.can_place_monument(k)?;
+        self.can_place_monument(k, (x, y))?;
         if crate::military::fort_soldier(k).is_some() && !self.fort_ground_clear(x, y) {
             return Err("No room for the parade ground");
         }
@@ -220,7 +220,9 @@ impl World {
         }
         let Some(b) = self.buildings.remove(id) else { return };
         let defense = (crate::defenses::is_wall(b.kind) || crate::defenses::is_gatehouse(b.kind) || b.kind == crate::defenses::ROADBLOCK).then_some((b.kind, b.x, b.y));
-        for (xx, yy) in b.tiles().collect::<Vec<_>>() {
+        let parts = b.monument.as_ref().map(|m| Self::part_tiles(&m.parts)).unwrap_or_default();
+        let part_tiles = parts.into_iter().map(|(px, py)| (b.x + px, b.y + py));
+        for (xx, yy) in b.tiles().chain(part_tiles).collect::<Vec<_>>() {
             self.map.terrain.update(xx, yy, |t| t & !terrain::BUILDING);
             self.map.building.set(xx, yy, 0);
             self.map.set_single_image(xx, yy, 0);

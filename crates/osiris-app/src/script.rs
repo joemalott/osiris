@@ -228,6 +228,19 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 eprintln!("saveload: {} bytes, identical after reload: {same}", bytes.len());
                 *world = loaded;
             }
+            ["asciimap"] => {
+                // The whole map: ~ water, p floodplain, x blocked, . clear land.
+                use osiris_sim::map::{mask, terrain};
+                for y in 0..world.map.height {
+                    let row: String = (0..world.map.width)
+                        .map(|x| {
+                            let t = world.map.terrain.at_or(x, y, 0);
+                            if t & terrain::WATER != 0 { '~' } else if t & terrain::FLOODPLAIN != 0 { 'p' } else if t & mask::NOT_CLEAR != 0 { 'x' } else { '.' }
+                        })
+                        .collect();
+                    eprintln!("{y:4} {row}");
+                }
+            }
             ["grid", p] => {
                 // Prints the terrain around a tile: # road, B building, f ferry crossing, ~ water, . open, x blocked.
                 let (cx, cy) = parse_point(p)?;
