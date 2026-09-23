@@ -38,7 +38,7 @@ const CHASE_RANGE: i32 = 5;
 const REMINDERS: [i32; 4] = [24, 12, 6, 1];
 const TRIGGER_BY_FAVOUR: u8 = 16;
 /// Action of a routed invader.
-const FLEEING: u16 = 148;
+const FLEEING: u16 = action::FLEEING;
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Invasion {
@@ -394,9 +394,10 @@ impl World {
 
     /// An army loses a man: its morale drops, and when it breaks the army flees.
     pub(crate) fn army_loses(&mut self, army: usize) {
+        // The share of the army still standing that he was.
+        let standing = self.invasions.armies.get(army).map_or(0, |a| a.figures.iter().filter(|&&g| self.figures.get(g).is_some_and(|f| !f.dead && f.action != action::CORPSE)).count() as i32);
         let Some(a) = self.invasions.armies.get_mut(army) else { return };
-        let size = a.figures.len().max(1) as i32;
-        a.morale = (a.morale - crate::military::morale_loss(100 / size)).max(0);
+        a.morale = (a.morale - crate::military::morale_loss(if standing > 0 { 100 / standing } else { 0 })).max(0);
         if a.morale <= crate::military::BROKEN_MORALE && !a.fleeing {
             a.fleeing = true;
             let (entry, figures) = (a.entry, a.figures.clone());
@@ -439,13 +440,13 @@ impl World {
         if kind == ENEMY_ARCHER {
             self.shoot_at_foes(fid);
         }
-        self.engage_as_invader(fid);
+        self.engage(fid, 1);
         if self.figures.get(fid).is_some_and(|f| f.action == action::ATTACK) {
             return;
         }
         let army = self.figures.get(fid).map_or(0, |f| f.formation.saturating_sub(1000)) as usize;
-        // Soldiers close by draw them off.
-        let near = self.nearest_foe(true, (x, y), CHASE_RANGE).map(|o| (o.1, o.2));
+        // Soldiers close by draw them off, those not already beset by two first.
+        let near = self.nearest_open_foe(true, (x, y), CHASE_RANGE).or_else(|| self.nearest_foe(true, (x, y), CHASE_RANGE)).map(|o| (o.1, o.2));
         let map = &self.map;
         if let Some(to) = near {
             let f = self.figures.get_mut(fid).expect("present");
@@ -529,20 +530,6 @@ impl World {
             return;
         }
         if f.walk(map) == Step::Lost {
-            f.route.clear();
-        }
-    }
-
-    fn engage_as_invader(&mut self, fid: FigureId) {
-        let Some(f) = self.figures.get(fid) else { return };
-        let (x, y) = (f.x, f.y);
-        let foe = self.nearest_foe(true, (x, y), 1).map(|o| o.0);
-        if let Some(foe) = foe
-            && let Some(f) = self.figures.get_mut(fid)
-        {
-            f.foe = foe;
-            f.action = action::ATTACK;
-            f.attack_tick = 0;
             f.route.clear();
         }
     }
