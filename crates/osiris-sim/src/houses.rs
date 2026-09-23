@@ -91,6 +91,20 @@ pub struct House {
     /// Sentiment updates in a row without food (up to 3).
     #[serde(default)]
     pub days_without_food: i32,
+    /// How healthy the household is, 0-100; it drifts toward what its apothecary,
+    /// physician and dentist give it.
+    #[serde(default = "half")]
+    pub common_health: i32,
+    /// Days of plague left.
+    #[serde(default)]
+    pub plague_days: i32,
+    /// Crime brewing in an unhappy household, 0-100.
+    #[serde(default)]
+    pub criminal_active: i32,
+}
+
+fn half() -> i32 {
+    50
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

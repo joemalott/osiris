@@ -54,7 +54,8 @@ pub fn is_roamer(kind: u16) -> bool {
         kind,
         LABOR_SEEKER | TAX_COLLECTOR | ARCHITECT | FIREMAN | PRIEST | TEACHER | LIBRARIAN | DENTIST | PHYSICIAN
             | HERBALIST | EMBALMER | WATER_CARRIER
-    ) || kind == crate::food::MARKET_TRADER
+    ) || matches!(kind, crate::crime::CONSTABLE | crate::crime::MAGISTRATE)
+        || kind == crate::food::MARKET_TRADER
         || crate::entertainment::performer_slot(kind).is_some()
 }
 
@@ -153,6 +154,14 @@ impl World {
                 }
             }
         }
+        match kind {
+            crate::crime::CONSTABLE | crate::crime::MAGISTRATE => {
+                let houses: Vec<BuildingId> = seen.iter().copied().filter(|&id| self.buildings.get(id).is_some_and(|b| b.house.as_ref().is_some_and(|h| h.population > 0))).collect();
+                self.patrol(kind, x, y, &houses);
+            }
+            figure_kind::HERBALIST => self.cure_plagued_near(x, y),
+            _ => {}
+        }
         for id in seen {
             let Some(b) = self.buildings.get_mut(id) else { continue };
             match kind {
@@ -168,8 +177,14 @@ impl World {
             let c = &mut h.coverage;
             match kind {
                 figure_kind::WATER_CARRIER => c.water_supply = VISIT,
-                figure_kind::HERBALIST => c.apothecary = VISIT,
-                figure_kind::PHYSICIAN => c.physician = VISIT,
+                figure_kind::HERBALIST => {
+                    c.apothecary = VISIT;
+                    h.common_health = h.common_health.max(50);
+                }
+                figure_kind::PHYSICIAN => {
+                    c.physician = VISIT;
+                    h.common_health = (h.common_health + 1).min(100);
+                }
                 figure_kind::DENTIST => c.dentist = VISIT,
                 figure_kind::EMBALMER => c.mortuary = VISIT,
                 figure_kind::TEACHER => c.school = VISIT,
@@ -200,7 +215,7 @@ impl World {
     }
 
     /// Picks the next road direction for a roamer standing on a tile centre.
-    fn roam_direction(&mut self, fid: u32) -> Option<u8> {
+    pub(crate) fn roam_direction(&mut self, fid: u32) -> Option<u8> {
         let f = self.figures.get(fid)?;
         let (x, y) = (f.x, f.y);
         let came_from = (f.direction + 4) % 8;

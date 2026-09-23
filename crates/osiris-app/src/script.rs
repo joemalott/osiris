@@ -119,6 +119,15 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 eprintln!("  kingdom {} wages {}", world.ratings.kingdom, world.finance.kingdom_wages);
             }
+            ["health"] => {
+                let houses: Vec<(i32, i32, i32, i32)> = world.buildings.iter().filter_map(|b| b.house.as_ref().filter(|h| h.population > 0).map(|h| (h.population, h.common_health, h.plague_days, h.criminal_active))).collect();
+                let plagued = houses.iter().filter(|h| h.2 > 0).count();
+                let crime: i32 = houses.iter().map(|h| h.3).max().unwrap_or(0);
+                let wanderers: Vec<u16> = world.figures.iter().filter(|f| matches!(f.kind, 22 | 23 | 98)).map(|f| f.kind).collect();
+                eprintln!("  health {} target {} houses {} plagued {plagued} max crime {crime} sentiment {} wanderers {:?} treasury {}", world.ratings.health, world.ratings.health_target, houses.len(), world.sentiment, wanderers, world.treasury);
+                let log: Vec<&str> = world.notices.log.iter().map(|n| n.key.as_str()).filter(|k| k.contains("plague") || k.contains("disease") || k.contains("malaria") || k.contains("crime")).collect();
+                eprintln!("  log {log:?}");
+            }
             ["clearmessages"] => {
                 world.messages.clear();
                 world.message_texts.clear();
@@ -128,6 +137,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 eprintln!("{step}: {ok}");
             }
             ["globallabor"] => world.rules.global_labor_pool = true,
+            ["nodisease"] => world.rules.disease = false,
             ["safe"] => {
                 world.rules.fire = false;
                 world.rules.collapse = false;

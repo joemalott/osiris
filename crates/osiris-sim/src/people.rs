@@ -77,6 +77,10 @@ impl World {
     fn house_room(&self, id: BuildingId) -> i32 {
         let Some(b) = self.buildings.get(id) else { return 0 };
         let Some(h) = &b.house else { return 0 };
+        // A plagued house takes in no one.
+        if h.plague_days > 0 {
+            return 0;
+        }
         let cap = self.balance.house(h.level).max_people * b.size * b.size;
         cap - h.population - h.incoming
     }

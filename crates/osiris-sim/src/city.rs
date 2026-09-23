@@ -20,6 +20,8 @@ impl World {
                 self.check_unlocks();
                 self.check_milestones();
                 self.update_trade_problems();
+                self.update_house_health();
+                self.update_crime();
             }
             7 => {
                 for id in self.buildings.ids() {
@@ -73,6 +75,7 @@ impl World {
             self.regrow_herds();
             self.update_gods_month();
             self.update_ratings_month();
+            self.check_outbreak();
             self.process_scenario_events();
             self.update_sieges();
             if !self.won && self.goals_met() {
@@ -107,6 +110,7 @@ impl World {
                 k if crate::animals::is_animal(k) => self.update_animal(fid),
                 k if crate::animals::is_hunter(k) => self.update_hunter(fid),
                 crate::farms::PEASANT => self.update_peasant(fid),
+                crate::health::PLAGUED_CITIZEN | crate::crime::PROTESTER | crate::crime::ROBBER => self.update_wanderer(fid),
                 _ => {}
             }
             if self.figures.get(fid).is_some_and(|f| f.dead) {

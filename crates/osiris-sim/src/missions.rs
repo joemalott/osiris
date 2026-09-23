@@ -43,6 +43,8 @@ pub enum Condition {
     Fire,
     Collapse,
     Disease,
+    /// Crime breaks out; no mission waits for it.
+    Crime,
     Population(i32),
     Stored(u16, i32),
     Built(u16),
@@ -210,7 +212,7 @@ impl World {
             }
             Condition::Built(k) => self.buildings.iter().any(|b| b.kind == *k && b.workers > 0),
             Condition::GoldDelivered(n) => self.gold_delivered >= *n,
-            Condition::Unknown(_) => false,
+            Condition::Crime | Condition::Unknown(_) => false,
         }
     }
 

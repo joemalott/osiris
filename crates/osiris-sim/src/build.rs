@@ -140,7 +140,7 @@ impl World {
             ..Default::default()
         };
         if kind::is_house(k) {
-            b.house = Some(crate::houses::House { level: (k - kind::HOUSE_FIRST) as u8, ..Default::default() });
+            b.house = Some(crate::houses::House { level: (k - kind::HOUSE_FIRST) as u8, common_health: 50, ..Default::default() });
         }
         let id = self.buildings.insert(b);
         for yy in y..y + fh {
