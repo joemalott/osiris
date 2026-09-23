@@ -5,9 +5,10 @@
 //! Cleopatra's cliffs too), trees, gardens, grass and empty land, the floodplain,
 //! meadow, marshland, dunes, water, rubble, roads and plazas. It then marks the
 //! floodplain's rows and banks and does it all again, since the banks change how the
-//! land and water beside the floodplain are drawn. Maps saved at version 147 or later
-//! store the result; older ones store ids from an earlier sprite layout, so Osiris runs
-//! this pass on them.
+//! land and water beside the floodplain are drawn. Maps saved at version 147 to 160
+//! store the result; older ones store ids from an earlier sprite layout, and later
+//! versions come from other editors (Akhenaten writes 189) whose images need not follow
+//! the terrain, so Osiris runs this pass on both.
 //!
 //! Almost every image follows from the terrain, the random grid, moisture and soil
 //! fertility. Two things don't: earthquake cracks cycle through their variants, and a
@@ -62,23 +63,27 @@ pub fn rebuild(map: &mut Map, defs: &Defs) -> Grid<Choice> {
     pass.choices
 }
 
-/// What a new city does to the map's stored images. Maps older than version 147 store
-/// ids from an earlier sprite layout, so all their terrain is drawn again. Every map
-/// has its rocks, ore, cliffs and dunes redrawn: the Cleopatra missions store their
-/// cliffs with ids from another layout.
+/// What a new city does to the map's stored images. Maps the original didn't save
+/// (older than version 147, with ids from an earlier sprite layout, or newer than 160,
+/// from another editor) have all their terrain drawn again. The rest have their rocks,
+/// ore, cliffs and dunes redrawn (the Cleopatra missions store their cliffs with ids
+/// from another layout) and lose any image outside the diamond, as the full pass
+/// leaves them: the Sandbox maps keep thousands of stale tiles there.
 pub fn redraw_on_load(map: &mut Map, defs: &Defs, version: i32) {
-    if version < 147 {
+    if !(147..=160).contains(&version) {
         rebuild(map, defs);
     } else {
         redraw_outcrops(map, defs);
     }
 }
 
-/// Redraws only rocks, ore, cliffs and dunes, as the original does on every start.
+/// Redraws only rocks, ore, cliffs and dunes, as the original does on every start, and
+/// clears the tiles outside the diamond.
 pub fn redraw_outcrops(map: &mut Map, defs: &Defs) {
     let mut pass = Pass::new(map, defs);
     pass.rocks(map);
     pass.dunes(map);
+    pass.clear_outside(map);
 }
 
 #[derive(Default)]
@@ -1019,6 +1024,17 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn stale_tiles_outside_the_diamond_are_cleared() {
+        let Some(data) = pharaoh_data_dir() else { return };
+        let (scenario, mut map, defs, _) = load(&data, "Sandbox.map");
+        let diamond = Diamond::new(map.width, map.height);
+        let outside = |map: &Map| (0..map.height).flat_map(|y| (0..map.width).map(move |x| (x, y))).filter(|&(x, y)| !diamond.inside(x, y) && map.images.at_or(x, y, 0) != 0).count();
+        assert!(outside(&map) > 4000);
+        redraw_on_load(&mut map, &defs, scenario.version);
+        assert_eq!(outside(&map), 0);
     }
 
     #[test]

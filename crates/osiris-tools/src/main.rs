@@ -145,7 +145,7 @@ pub fn write_png(path: &PathBuf, sprite: &Sprite) -> Result<()> {
 fn describe(name: &str, s: &Scenario) {
     let i = &s.info;
     println!(
-        "{name:32} v{} {}x{} start={} year={} funds={} climate={} entry=({},{}) exit=({},{}) \"{}\"",
+        "{name:32} v{} {}x{} start={} year={} funds={} climate={} entry=({},{}) exit=({},{}) camera={:?} \"{}\"",
         s.version,
         i.width,
         i.height,
@@ -157,6 +157,7 @@ fn describe(name: &str, s: &Scenario) {
         i.entry_point.y,
         i.exit_point.x,
         i.exit_point.y,
+        s.camera,
         i.subtitle
     );
     if i.monuments.iter().any(|&m| m != 0) || i.win.monuments.enabled {
@@ -327,6 +328,7 @@ fn dump_grids(game: &Path, what: &str, out: &Path) -> Result<()> {
     let mut buf: Vec<u8> = s.images.iter().flat_map(|v| v.to_le_bytes()).collect();
     buf.extend_from_slice(&s.edges);
     buf.extend(s.terrain.iter().flat_map(|v| v.to_le_bytes()));
+    buf.extend_from_slice(&s.moisture);
     std::fs::write(out, buf)?;
     Ok(())
 }

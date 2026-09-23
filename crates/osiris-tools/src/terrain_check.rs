@@ -118,14 +118,15 @@ const CLIFF_ID_SHIFT: u32 = 152;
 /// (later versions come from other editors) and compares it with the stored images,
 /// per kind of terrain: exact matches, and matches within the set of images a rule
 /// picks from by state the file doesn't hold (earthquake cracks, floodplain crops).
-/// Also counts the tiles inside the diamond that nothing draws, as stored and as a new
-/// city draws them. With `verbose`, prints where each kind of mismatch first occurs.
+/// Also counts the tiles inside the diamond that nothing draws and the tiles outside it
+/// that something does, as stored and as a new city draws them. With `verbose`, prints
+/// where each kind of mismatch first occurs.
 pub fn check_terrain_images(game: &Path, verbose: bool) -> Result<()> {
     let lib = ImageLibrary::open(&game.join("Data"))?;
     let defs = osiris_sim::Defs::load(&lib).map_err(anyhow::Error::msg)?;
     let mut stats: BTreeMap<(&str, &str), KindStats> = BTreeMap::new();
     let mut checked = 0;
-    println!("{:32} {:>4} {:>7} {:>7} {:>6} {:>6}", "map or mission", "ver", "tiles", "exact", "holes", "after");
+    println!("{:32} {:>4} {:>7} {:>7} {:>6} {:>6} {:>7} {:>6}", "map or mission", "ver", "tiles", "exact", "holes", "after", "outside", "after");
     for (name, s) in sources(game)? {
         if !(147..=160).contains(&s.version) {
             continue;
@@ -139,9 +140,12 @@ pub fn check_terrain_images(game: &Path, verbose: bool) -> Result<()> {
         osiris_sim::terrain_images::redraw_on_load(&mut on_load, &defs, s.version);
         let (covered_stored, covered_on_load) = (covered(&stored), covered(&on_load));
         let (mut tiles, mut exact, mut holes, mut holes_on_load) = (0, 0, 0, 0);
+        let (mut outside, mut outside_on_load) = (0, 0);
         for y in 0..map.height {
             for x in 0..map.width {
                 if !inside_diamond(&s, x, y) {
+                    outside += (stored.images.at_or(x, y, 0) != 0) as usize;
+                    outside_on_load += (on_load.images.at_or(x, y, 0) != 0) as usize;
                     continue;
                 }
                 let kind = kind_of(stored.terrain.at_or(x, y, 0));
@@ -174,7 +178,7 @@ pub fn check_terrain_images(game: &Path, verbose: bool) -> Result<()> {
                 }
             }
         }
-        println!("{name:32} {:>4} {tiles:>7} {exact:>7} {holes:>6} {holes_on_load:>6}", s.version);
+        println!("{name:32} {:>4} {tiles:>7} {exact:>7} {holes:>6} {holes_on_load:>6} {outside:>7} {outside_on_load:>6}", s.version);
     }
     println!("\n{checked} maps and missions. Per kind: tiles, exact matches, same image set, and the commonest misses (stored -> redrawn)");
     for ((group, kind), st) in &stats {
