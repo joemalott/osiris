@@ -152,6 +152,17 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             ["fortreturn", c] => world.return_company(c.parse()?),
             ["service", c] => world.toggle_kingdom_service(c.parse()?),
+            ["order", c, o] => {
+                use osiris_sim::military::Order;
+                let order = match *o {
+                    "tight" => Order::HoldTight,
+                    "loose" => Order::HoldLoose,
+                    "engage" => Order::Engage,
+                    "charge" => Order::Charge,
+                    _ => Order::MopUp,
+                };
+                world.set_order(c.parse()?, order);
+            }
             ["seapoint", p] => world.invasions.sea_points.push(parse_point(p)?),
             ["troops", n] => {
                 let i = world.scenario_events.request_troops_now(n.parse()?);

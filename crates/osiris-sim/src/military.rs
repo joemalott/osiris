@@ -10,6 +10,13 @@
 //! armour against missiles. A figure dies when its damage passes its hit points, and
 //! lies on the field a while before it is gone.
 //!
+//! Orders: a company holds its ground in tight or loose formation, fighting only what
+//! comes at it: tight, its men fight better but suffer more from missiles; loose, they
+//! cover more ground and suffer less from missiles but fight worse. (How much better
+//! or worse is not known from the original; these are estimates.) Or it engages
+//! enemies that come near, in formation; or breaks ranks to mop up every enemy it can
+//! find (charioteers charge the same way).
+//!
 //! Morale: every man lost shakes his side, the more so the bigger the share of it
 //! that fell; a company rests its spirits at the fort month by month and loses heart
 //! when kept out long. A company whose morale breaks runs home, and a broken army
@@ -70,6 +77,7 @@ pub mod action {
     pub const GOING_TO_STANDARD: u16 = 83;
     pub const GOING_TO_ACADEMY: u16 = 85;
     pub const GOING_ABROAD: u16 = 87;
+    pub const CHASING: u16 = 86;
     pub const AT_STANDARD: u16 = 84;
     pub const ATTACK: u16 = 90;
     pub const CORPSE: u16 = 149;
@@ -102,6 +110,30 @@ pub struct Company {
     /// Soldiers away fighting for the Kingdom.
     #[serde(default)]
     pub abroad: i32,
+    #[serde(default)]
+    pub order: Order,
+}
+
+/// A company's standing orders.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Order {
+    #[default]
+    HoldTight,
+    HoldLoose,
+    Engage,
+    MopUp,
+    Charge,
+}
+
+impl Order {
+    /// How far the company goes after enemies, in tiles (0: only those at hand).
+    fn reach(self) -> i32 {
+        match self {
+            Order::HoldTight | Order::HoldLoose => 0,
+            Order::Engage => 6,
+            Order::MopUp | Order::Charge => 20,
+        }
+    }
 }
 
 /// Troops sent to fight for the Kingdom, and the request they answer.
@@ -156,9 +188,15 @@ pub fn is_soldier(k: u16) -> bool {
 
 /// Where a soldier stands in a company's double line around its standard, or on the
 /// parade ground at rest.
-fn slot_offset(slot: u8) -> (i32, i32) {
+fn slot_offset(slot: u8, order: Order) -> (i32, i32) {
     let s = slot as i32;
-    (s % 8 - 4, s / 8)
+    match order {
+        // Four abreast, four deep.
+        Order::HoldTight => (s % 4 - 2, s / 4 - 2),
+        // Spread out, a tile between each man.
+        Order::HoldLoose => (2 * (s % 4) - 4, 2 * (s / 4) - 4),
+        _ => (s % 8 - 4, s / 8),
+    }
 }
 
 fn ground_slot(ground: (i32, i32), slot: u8) -> (i32, i32) {
@@ -292,7 +330,7 @@ impl World {
             let g = self.buildings.get(c.ground)?;
             Some(ground_slot((g.x, g.y), f.slot))
         } else {
-            let (dx, dy) = slot_offset(f.slot);
+            let (dx, dy) = slot_offset(f.slot, c.order);
             Some((c.standard_tile.0 + dx, c.standard_tile.1 + dy))
         }
     }
@@ -387,6 +425,17 @@ impl World {
                     self.shoot_at_foes(fid);
                 }
                 self.engage(fid, 1);
+                let reach = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map_or(0, |c| c.order.reach());
+                if reach > 0 && self.figures.get(fid).is_some_and(|f| f.action == action::AT_STANDARD) {
+                    self.chase(fid, reach);
+                }
+            }
+            action::CHASING => {
+                self.engage(fid, 1);
+                if self.figures.get(fid).is_some_and(|f| f.action == action::CHASING) {
+                    let reach = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map_or(0, |c| c.order.reach());
+                    self.chase(fid, reach);
+                }
             }
             action::AT_REST => {}
             action::ATTACK => self.fight(fid),
@@ -437,6 +486,57 @@ impl World {
         }
     }
 
+    /// A soldier under orders to go after enemies heads for the nearest within `reach`
+    /// tiles, or back to his place when none is left.
+    fn chase(&mut self, fid: FigureId, reach: i32) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let (x, y) = (f.x, f.y);
+        let target = self
+            .figures
+            .iter()
+            .filter(|o| !o.dead && o.action != action::CORPSE && self.is_invader(o))
+            .filter(|o| (o.x - x).abs() <= reach && (o.y - y).abs() <= reach)
+            .min_by_key(|o| (o.x - x).abs() + (o.y - y).abs())
+            .map(|o| (o.x, o.y));
+        let map = &self.map;
+        let f = self.figures.get_mut(fid).expect("present");
+        match target {
+            Some(to) => {
+                f.action = action::CHASING;
+                if !f.moving && f.destination != Some(to) {
+                    f.go_to(map, to);
+                }
+                f.walk(map);
+            }
+            None if f.action == action::CHASING => self.send_to_post(fid),
+            None => {}
+        }
+    }
+
+    /// The formation a soldier is holding, if he stands in his company's line.
+    fn holding(&self, fid: FigureId) -> Option<Order> {
+        let f = self.figures.get(fid)?;
+        if !matches!(f.action, action::AT_STANDARD | action::ATTACK) {
+            return None;
+        }
+        let c = self.military.companies.get(self.company_of(fid)?)?;
+        (!c.at_fort && matches!(c.order, Order::HoldTight | Order::HoldLoose)).then_some(c.order)
+    }
+
+    /// Changes a company's orders; its men re-form at their new places.
+    pub fn set_order(&mut self, company: usize, order: Order) {
+        let Some(c) = self.military.companies.get_mut(company) else { return };
+        c.order = order;
+        if c.at_fort {
+            return;
+        }
+        for s in c.soldiers.clone() {
+            if self.figures.get(s).is_some_and(|f| matches!(f.action, action::AT_STANDARD | action::GOING_TO_STANDARD)) {
+                self.send_to_post(s);
+            }
+        }
+    }
+
     /// Whether `o` fights on the other side from a figure that is (or isn't) an invader.
     fn is_hostile_to(&self, o: &crate::figures::Figure, invader: bool) -> bool {
         if invader {
@@ -466,7 +566,12 @@ impl World {
         }
         f.attack_tick = 0;
         let attack = self.fighter_stats(fid).attack;
-        let armor = self.fighter_stats(foe).armor;
+        let armor = self.fighter_stats(foe).armor
+            + match self.holding(foe) {
+                Some(Order::HoldTight) => 4,
+                Some(Order::HoldLoose) => -2,
+                _ => 0,
+            };
         self.hurt(foe, (attack - armor).max(0));
     }
 
@@ -666,7 +771,13 @@ impl World {
         let hit = self.figures.get(target).is_some_and(|t| !t.dead && t.action != action::CORPSE && (t.x - tx).abs() <= 1 && (t.y - ty).abs() <= 1);
         if hit {
             let armor = self.fighter_stats(target).missile_armor;
-            self.hurt(target, (attack - armor).max(0));
+            let damage = (attack - armor).max(0);
+            let damage = match self.holding(target) {
+                Some(Order::HoldTight) => damage * 3 / 2,
+                Some(Order::HoldLoose) => damage / 2,
+                _ => damage,
+            };
+            self.hurt(target, damage);
         }
     }
 

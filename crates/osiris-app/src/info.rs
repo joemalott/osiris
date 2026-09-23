@@ -138,7 +138,7 @@ impl InfoPanel {
         let company = world.military.companies.iter().position(|c| c.fort == b.id || c.ground == b.id);
         let Some(c) = company else { return Some(InfoAction::Close) };
         let title = ui.t(G, c % 10).trim_matches('"').to_owned();
-        let ([x, y], closed) = self.frame(ui, 28, 18, &title);
+        let ([x, y], closed) = self.frame(ui, 28, 26, &title);
         let co = world.military.companies[c].clone();
         panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 44.0, 26, 9);
         let arm = ui.t(G, match co.kind {
@@ -155,12 +155,32 @@ impl InfoPanel {
             ui.wrapped(Font::NormalWhiteOnDark, &none, x + 32.0, y + 104.0, 24.0 * 16.0);
         }
         let mut action = closed.then_some(InfoAction::Close);
+        // Standing orders, each with its name and what it means (text 138).
+        use osiris_sim::military::Order;
+        let orders: &[(Order, usize)] = match co.kind {
+            osiris_sim::military::INFANTRY => &[(Order::HoldTight, 12), (Order::HoldLoose, 14), (Order::Engage, 16), (Order::MopUp, 18)],
+            osiris_sim::military::CHARIOTEER => &[(Order::HoldLoose, 14), (Order::Engage, 16), (Order::MopUp, 18), (Order::Charge, 20)],
+            _ => &[(Order::HoldLoose, 14), (Order::Engage, 16), (Order::MopUp, 18)],
+        };
+        for (i, &(order, text)) in orders.iter().enumerate() {
+            let rect = [x + 24.0, y + 196.0 + 26.0 * i as f32, 240.0, 22.0];
+            let current = co.order == order;
+            panel::button_border(ui.r, ui.panels, rect[0], rect[1], rect[2] as i32, rect[3] as i32, current);
+            let label = ui.t(G, text);
+            ui.centred(if current { Font::NormalYellow } else { Font::NormalBlackOnLight }, &label, rect[0], rect[1] + 5.0, rect[2]);
+            if ui.clicked(rect) {
+                world.set_order(c, order);
+            }
+        }
+        let what = orders.iter().find(|o| o.0 == co.order).map_or(22, |o| o.1 + 1);
+        let what = ui.t(G, what);
+        ui.wrapped(Font::NormalBlackOnLight, &what, x + 276.0, y + 196.0, 10.0 * 16.0);
         let command = format!("{} {}", ui.t(51, 1), ui.t(51, 2));
-        if !co.soldiers.is_empty() && ui.button([x + 32.0, y + 200.0, 190.0, 24.0], &command, Font::NormalBlackOnLight) {
+        if !co.soldiers.is_empty() && ui.button([x + 32.0, y + 318.0, 190.0, 24.0], &command, Font::NormalBlackOnLight) {
             action = Some(InfoAction::SelectCompany(c));
         }
         let home = ui.t(G, 58);
-        if !co.at_fort && ui.button([x + 236.0, y + 200.0, 190.0, 24.0], &home, Font::NormalBlackOnLight) {
+        if !co.at_fort && ui.button([x + 236.0, y + 318.0, 190.0, 24.0], &home, Font::NormalBlackOnLight) {
             world.return_company(c);
         }
         action
