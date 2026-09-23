@@ -250,6 +250,45 @@ impl World {
     pub(crate) fn update_roamer(&mut self, fid: u32) {
         let Some(f) = self.figures.get(fid) else { return };
         let (kind, home, act) = (f.kind, f.home, f.action);
+        // Constables stand and fight invaders who come at them.
+        if kind == crate::crime::CONSTABLE {
+            match act {
+                crate::military::action::CORPSE => {
+                    let f = self.figures.get_mut(fid).expect("present");
+                    f.counter += 1;
+                    if f.counter > 200 {
+                        f.dead = true;
+                    }
+                    return;
+                }
+                crate::military::action::ATTACK => {
+                    self.fight(fid);
+                    if self.figures.get(fid).is_some_and(|f| f.action == 0) {
+                        // The fight is over: back on the rounds, heading home.
+                        let target = self.buildings.get(home).and_then(|b| b.road);
+                        let map = &self.map;
+                        let f = self.figures.get_mut(fid).expect("present");
+                        f.action = action::RETURNING;
+                        if !target.is_some_and(|t| f.go_to(map, t)) {
+                            f.dead = true;
+                        }
+                    }
+                    return;
+                }
+                _ => {
+                    let (x, y) = (f.x, f.y);
+                    let foe = self.figures.iter().find(|o| crate::invasions::is_invader_kind(o.kind) && o.action != crate::military::action::CORPSE && (o.x - x).abs() <= 1 && (o.y - y).abs() <= 1).map(|o| o.id);
+                    if let Some(foe) = foe {
+                        let f = self.figures.get_mut(fid).expect("present");
+                        f.foe = foe;
+                        f.action = crate::military::action::ATTACK;
+                        f.attack_tick = 0;
+                        f.route.clear();
+                        return;
+                    }
+                }
+            }
+        }
         if self.buildings.get(home).is_none() {
             if let Some(f) = self.figures.get_mut(fid) {
                 f.dead = true;
