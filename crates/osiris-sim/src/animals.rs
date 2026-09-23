@@ -145,15 +145,19 @@ impl World {
         }
     }
 
-    /// Monthly: herds that lost animals grow back by one.
+    /// Monthly: herds that lost animals grow back by one (by two under Min's oracle,
+    /// which halves the time they take to breed).
     pub(crate) fn regrow_herds(&mut self) {
+        let births = if self.complex_blessing(crate::temple_complex::OSIRIS, crate::temple_complex::ORACLE) { 2 } else { 1 };
         for i in 0..self.herds.len() {
             self.herds[i].members.retain(|&id| self.figures.get(id).is_some());
-            let herd = self.herds[i].clone();
-            if !herd.members.is_empty() && (herd.members.len() as i32) < herd.target
-                && let Some(id) = self.spawn_animal(&herd)
-            {
-                self.herds[i].members.push(id);
+            for _ in 0..births {
+                let herd = self.herds[i].clone();
+                if !herd.members.is_empty() && (herd.members.len() as i32) < herd.target
+                    && let Some(id) = self.spawn_animal(&herd)
+                {
+                    self.herds[i].members.push(id);
+                }
             }
         }
     }

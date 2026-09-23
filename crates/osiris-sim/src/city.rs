@@ -104,6 +104,10 @@ impl World {
         }
         if roll.year {
             self.advance_year_finance();
+            // A temple complex to Ra raises the Kingdom's regard each year.
+            if self.complex_blessing(crate::temple_complex::RA, 0) {
+                self.ratings.change_kingdom(1);
+            }
             self.reset_trade_year();
             self.update_ratings_year();
         }

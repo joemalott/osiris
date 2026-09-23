@@ -366,6 +366,10 @@ impl World {
         // world's own deterministic RNG instead so replays and saves reproduce it.
         let roll = self.rng.below(100) + 20;
         self.floods.quality_next = (self.floods.quality_next + roll) % 100;
+        // A temple complex to Osiris makes good floods likelier.
+        if self.complex_blessing(crate::temple_complex::OSIRIS, 0) {
+            self.floods.quality_next = (self.floods.quality_next + 10).min(100);
+        }
     }
 
     fn queue_flood_prediction_message(&mut self) {

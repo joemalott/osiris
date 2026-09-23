@@ -229,6 +229,11 @@ impl World {
             // Farms send their whole harvest; everything else one batch at a time.
             let carry = if farm { amount.min(LOAD * 8) } else { batch };
             self.spawn_cart(id, r, carry);
+            // Min's oracle doubles what fishermen and hunters bring in.
+            let rich = matches!(k, crate::water::FISHING_WHARF | kind::HUNTING_LODGE) && self.complex_blessing(crate::temple_complex::OSIRIS, crate::temple_complex::ORACLE);
+            if rich && let Some(f) = self.buildings.get(id).map(|b| b.walkers[2]).and_then(|c| self.figures.get_mut(c)) {
+                f.amount *= 2;
+            }
         }
         self.send_gatherers();
     }
@@ -540,6 +545,7 @@ impl World {
 
     /// Daily: cut trees and reeds grow back, reeds quickly and trees slowly.
     pub(crate) fn grow_vegetation(&mut self) {
+        let fast = self.complex_blessing(crate::temple_complex::OSIRIS, crate::temple_complex::ORACLE);
         let Some(grid) = self.vegetation.as_mut() else { return };
         for y in 0..self.map.height {
             for x in 0..self.map.width {
@@ -549,7 +555,9 @@ impl World {
                 }
                 let t = self.map.terrain.at_or(x, y, 0);
                 let (lo, hi) = if t & crate::map::terrain::MARSHLAND != 0 { (5, 14) } else { (1, 2) };
-                let r = lo + (self.rng.byte() % (hi - lo + 1));
+                let r = (lo + (self.rng.byte() % (hi - lo + 1))) as i32;
+                // Min's oracle speeds the regrowth by a quarter.
+                let r = if fast { r * 125 / 100 } else { r };
                 grid.set(x, y, (g as i32 + r).min(255) as u8);
             }
         }

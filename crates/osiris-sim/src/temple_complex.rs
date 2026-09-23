@@ -16,6 +16,13 @@ pub const SIZE: (i32, i32) = (13, 7);
 /// The three parts, 3x3 each, from the complex's corner.
 const PARTS: [(i32, i32); 3] = [(0, 2), (3, 2), (6, 2)];
 
+/// The gods, by index.
+pub const OSIRIS: usize = 0;
+pub const RA: usize = 1;
+pub const PTAH: usize = 2;
+pub const SETH: usize = 3;
+pub const BAST: usize = 4;
+
 /// The upgrades, as bits of the complex's `upgrades`.
 pub const ALTAR: u8 = 1;
 pub const ORACLE: u8 = 2;
@@ -164,6 +171,12 @@ impl World {
         }
         self.place_temple_complex(id);
         Outcome::Done { items: 1, cost }
+    }
+
+    /// Whether houses need less food: Sebek's altar (Osiris) or a complex to Bast
+    /// brings the city's need from a quarter of its people to a fifth.
+    pub fn eats_less(&self) -> bool {
+        self.complex_blessing(OSIRIS, ALTAR) || self.complex_blessing(BAST, 0)
     }
 
     /// Whether the city's complex is to god `g` and has upgrade `bit` (0: just the

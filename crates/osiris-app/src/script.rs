@@ -228,6 +228,23 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 eprintln!("saveload: {} bytes, identical after reload: {same}", bytes.len());
                 *world = loaded;
             }
+            ["imagestats"] => {
+                // Image ids on water, tree, rock and plain tiles: the most common of each.
+                use osiris_sim::map::terrain;
+                for (name, bit) in [("water", terrain::WATER), ("tree", terrain::TREE), ("rock", terrain::ROCK), ("marsh", terrain::MARSHLAND), ("flood", terrain::FLOODPLAIN)] {
+                    let mut counts: std::collections::BTreeMap<u32, u32> = Default::default();
+                    for y in 0..world.map.height {
+                        for x in 0..world.map.width {
+                            if world.map.terrain.at_or(x, y, 0) & bit != 0 {
+                                *counts.entry(world.map.images.at_or(x, y, 0)).or_default() += 1;
+                            }
+                        }
+                    }
+                    let mut v: Vec<(u32, u32)> = counts.into_iter().collect();
+                    v.sort_by_key(|e| std::cmp::Reverse(e.1));
+                    eprintln!("{name}: {:?}", &v[..v.len().min(6)]);
+                }
+            }
             ["asciimap"] => {
                 // The whole map: ~ water, p floodplain, x blocked, . clear land.
                 use osiris_sim::map::{mask, terrain};
@@ -256,7 +273,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 eprintln!("     x from {}", cx - 8);
             }
-            ["monlist"] => eprintln!("monuments {:?} complex gods {:?}", world.scenario_monuments, world.complex_gods),
+            ["monlist"] => eprintln!("monuments {:?} complex gods {:?} debt rate {}", world.scenario_monuments, world.complex_gods, world.debt_rate),
             ["report"] => {
                 let houses: Vec<String> = world
                     .buildings

@@ -90,7 +90,10 @@ impl World {
         self.treasury -= wages;
         self.finance.this_year.wages += wages;
         if self.treasury < 0 {
-            let interest = (-self.treasury) * 10 / 100 / 12;
+            // The scenario's rate; a temple complex to Ra lowers it by five.
+            let ra = if self.complex_blessing(crate::temple_complex::RA, 0) { 5 } else { 0 };
+            let rate = (self.debt_rate - ra).max(0);
+            let interest = (-self.treasury) * rate / 100 / 12;
             self.treasury -= interest;
             self.finance.this_year.interest += interest;
         }

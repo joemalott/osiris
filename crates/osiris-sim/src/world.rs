@@ -147,6 +147,9 @@ pub struct World {
     /// The gods a temple complex may be built to (Osiris, Ra, Ptah, Seth, Bast).
     #[serde(default)]
     pub complex_gods: [bool; 5],
+    /// Yearly interest on debt, in percent (the scenario's).
+    #[serde(default = "default_debt_rate")]
+    pub debt_rate: i32,
     /// For scripted tests only: every building gets all the workers it wants.
     #[serde(skip)]
     pub test_full_staff: bool,
@@ -241,6 +244,7 @@ impl World {
             entry_point: (info.entry_point.x, info.entry_point.y),
             start_corner: start_corner(scenario),
             complex_gods: info.temple_complex_gods(),
+            debt_rate: info.debt_interest_rate as i32,
             test_full_staff: false,
             exit_point: (info.exit_point.x, info.exit_point.y),
             counters: ContextCounters::default(),
@@ -493,4 +497,8 @@ fn start_corner(s: &Scenario) -> Option<(i32, i32)> {
     let g = osiris_formats::chunks::GRID_SIZE as i32;
     let (x0, y0) = (s.info.start_offset % g, s.info.start_offset / g);
     Some((2 * cx - (g + 2) - x0 + y0, cy - 1 - x0 - y0))
+}
+
+fn default_debt_rate() -> i32 {
+    10
 }

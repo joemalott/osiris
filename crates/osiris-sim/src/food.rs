@@ -221,12 +221,14 @@ impl World {
             .filter_map(|b| b.house.as_ref())
             .map(|h| h.population * FOOD_CONSUMPTION_PCT[h.level as usize] * (100 - CONSUMPTION_REDUCTION_PCT) / 100 / 100 * 2)
             .sum();
+        let per_month = if self.eats_less() { per_month * 4 / 5 } else { per_month };
         if per_month > 0 { food / per_month } else { 0 }
     }
 
     /// Twice a month: every house eats.
     pub(crate) fn consume_food(&mut self) {
         let houses = self.balance.houses.clone();
+        let less = self.eats_less();
         for b in self.buildings.iter_mut() {
             let Some(h) = b.house.as_mut() else { continue };
             let level = h.level as usize;
@@ -236,6 +238,9 @@ impl World {
             }
             let pct = FOOD_CONSUMPTION_PCT[level] * (100 - CONSUMPTION_REDUCTION_PCT) / 100 / 5 * 5;
             let mut per_type = h.population * pct / 100;
+            if less {
+                per_type = per_type * 4 / 5;
+            }
             if types > 1 {
                 per_type /= types;
             }
