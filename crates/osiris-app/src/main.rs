@@ -786,7 +786,11 @@ fn main() -> Result<()> {
             }
             game.info = Some(panel);
         }
+        let zoom = view.zoom;
         return gfx::screenshot(library, args.size, out, |r| {
+            if let Some(z) = zoom {
+                r.camera.zoom = z;
+            }
             match at {
                 Some((cx, cy)) => game.view.center_on(r, &game.world.map, cx, cy),
                 None => start_camera(r, &mut game),

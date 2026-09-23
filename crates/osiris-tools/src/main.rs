@@ -30,6 +30,7 @@ fn main() -> Result<()> {
         ["info", dir, pak] => info(Path::new(dir), pak),
         ["check-maps", dir] => check_maps(Path::new(dir)),
         ["check-images", dir] => check_images(Path::new(dir)),
+        ["holes", dir, what] => holes(Path::new(dir), what),
         ["goals", dir, what] => goals(Path::new(dir), what),
         ["image-histogram", dir, what] => image_histogram(Path::new(dir), what),
         ["dump-grids", dir, what, out] => dump_grids(Path::new(dir), what, Path::new(out)),
@@ -287,6 +288,34 @@ fn check_images(game: &Path) -> Result<()> {
     if bad_sources > 0 {
         bail!("{bad_sources} maps or missions have tiles drawn with the wrong images");
     }
+    Ok(())
+}
+
+/// Tiles of a map with nothing to draw: no draw flag and not covered by a larger
+/// image, or image 0. Prints each with its terrain and edge bits.
+fn holes(game: &Path, what: &str) -> Result<()> {
+    let s = load_any(game, what)?;
+    let mut n = 0;
+    let mut kinds: std::collections::BTreeMap<(u32, bool), usize> = Default::default();
+    for y in 0..s.info.height {
+        for x in 0..s.info.width {
+            let off = s.offset(x, y).unwrap();
+            let (img, edge, t) = (s.images[off], s.edges[off], s.terrain[off]);
+            let outside = t & 0x0008_0000 != 0;
+            let hole = !outside && (img == 0 || (edge & 0x40 == 0 && edge & 0x3f == 0));
+            if hole {
+                n += 1;
+                *kinds.entry((t, img == 0)).or_insert(0) += 1;
+                if n <= 5 {
+                    println!("{x},{y} image {img} edge {edge:#04x} terrain {t:#010x}");
+                }
+            }
+        }
+    }
+    for ((t, blank), c) in kinds {
+        println!("  terrain {t:#010x}{}: {c}", if blank { " (no image)" } else { "" });
+    }
+    println!("{n} holes");
     Ok(())
 }
 

@@ -219,7 +219,9 @@ impl Renderer {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("atlas"),
             mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Linear,
+            // Nearest when shrunk too: blending would mix tiles' transparent edges in
+            // and show a seam between every tile.
+            min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
         let instance_buffer = Self::make_instance_buffer(&device, 1 << 16);

@@ -22,6 +22,8 @@ pub struct ScriptView {
     pub overlay: Option<String>,
     pub top_menu: Option<usize>,
     pub build_menu: Option<String>,
+    /// Camera zoom for the screenshot.
+    pub zoom: Option<f32>,
     pub empire: Option<Option<usize>>,
     pub advisor: Option<String>,
     /// A popup to open over the overseer: salary, gift or donate.
@@ -58,6 +60,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["view", p] => view.centre = Some(parse_point(p)?),
             ["info", p] => view.info = Some(parse_point(p)?),
             ["dialogs"] => view.keep_dialogs = true,
+            ["zoom", z] => view.zoom = Some(z.parse()?),
             ["menu"] => view.menu = true,
             ["menu", page] => {
                 view.menu = true;
