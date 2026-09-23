@@ -16,6 +16,8 @@ const LABOR_DAYS: i32 = 96;
 /// Farms ask for peasants again once this many labor days remain.
 const RELABOR_BELOW: i32 = 47;
 pub const PEASANT: u16 = 35;
+/// Peasants a work camp has out at once.
+const MAX_PEASANTS_OUT: usize = 4;
 
 impl World {
     pub fn is_farm(&self, k: u16) -> bool {
@@ -123,17 +125,38 @@ impl World {
         }
     }
 
-    /// Tick 31: work camps send peasants to floodplain farms that need tending.
+    /// Tick 31: work camps send peasants to floodplain farms that need tending, and
+    /// spare ones to level monument sites. A camp has up to four out at once and sends
+    /// the next after a wait that grows as its staff shrinks.
     pub(crate) fn work_camp_walkers(&mut self) {
         let farmable = self.flood_state() == FloodState::Farmable;
         let camps: Vec<BuildingId> = self.buildings.iter().filter(|b| b.kind == kind::WORK_CAMP).map(|b| b.id).collect();
+        let needed = self.workers_needed(kind::WORK_CAMP).max(1);
         for camp in camps {
             let Some(c) = self.buildings.get(camp) else { continue };
             let Some(road) = c.road else { continue };
-            if c.workers <= 0 || c.walkers[0] != 0 {
+            let (cx, cy, workers, delay) = (c.x, c.y, c.workers, c.spawn_delay);
+            let out = self.figures.iter().filter(|f| f.kind == PEASANT && f.home == camp && !f.dead).count();
+            let staffed = workers * 100 / needed;
+            let wait = match staffed {
+                s if s >= 100 => 3,
+                s if s >= 75 => 7,
+                s if s >= 50 => 15,
+                s if s >= 25 => 29,
+                s if s > 0 => 47,
+                _ => continue,
+            };
+            if out >= MAX_PEASANTS_OUT {
                 continue;
             }
-            let (cx, cy) = (c.x, c.y);
+            // The wait runs until a peasant goes out.
+            let waited = (delay + 1).min(wait + 1);
+            if let Some(c) = self.buildings.get_mut(camp) {
+                c.spawn_delay = waited;
+            }
+            if waited <= wait {
+                continue;
+            }
             let busy: Vec<u32> = self.figures.iter().filter(|f| f.kind == PEASANT).map(|f| f.target).collect();
             // Floodplain farms come first; spare laborers level monument sites.
             let farm = self
@@ -148,6 +171,9 @@ impl World {
                     && let Some(spot) = self.monument_access(monument, (cx, cy))
                 {
                     let fid = self.figures.spawn(PEASANT, road.0, road.1, Travel::Land);
+                    if let Some(c) = self.buildings.get_mut(camp) {
+                        c.spawn_delay = 0;
+                    }
                     let map = &self.map;
                     if let Some(f) = self.figures.get_mut(fid) {
                         f.home = camp;
@@ -158,12 +184,14 @@ impl World {
                             f.dead = true;
                         }
                     }
-                    self.buildings.get_mut(camp).expect("present").walkers[0] = fid;
                 }
                 continue;
             };
             let Some(dest) = self.buildings.get(farm).map(|b| b.road.unwrap_or((b.x, b.y))) else { continue };
             let fid = self.figures.spawn(PEASANT, road.0, road.1, Travel::Land);
+            if let Some(c) = self.buildings.get_mut(camp) {
+                c.spawn_delay = 0;
+            }
             let map = &self.map;
             if let Some(f) = self.figures.get_mut(fid) {
                 f.home = camp;
@@ -172,9 +200,6 @@ impl World {
                 if !f.go_to(map, dest) {
                     f.dead = true;
                 }
-            }
-            if let Some(c) = self.buildings.get_mut(camp) {
-                c.walkers[0] = fid;
             }
         }
     }
