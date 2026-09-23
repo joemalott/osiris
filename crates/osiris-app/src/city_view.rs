@@ -157,6 +157,59 @@ impl CityView {
         r.camera.y = c[1] - r.screen[1] / 2.0 / r.camera.zoom;
     }
 
+    /// Draws tile `(x, y)`'s image if it belongs to this pass: flat ground (and the
+    /// flattened overlay footprints) in the first, anything taller in the second.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_tile(&self, r: &mut Renderer, map: &Map, x: i32, y: i32, overlay: Option<&OverlayDraw>, flat_pass: bool, [vx0, vy0, vx1, vy1]: [f32; 4]) {
+        if map.edges.at_or(x, y, 0) & edge::DRAW_TILE == 0 {
+            return;
+        }
+        let mut id = map.images.at_or(x, y, 0);
+        if id == 0 {
+            return;
+        }
+        if let Some(o) = overlay {
+            match (o.look)(x, y) {
+                crate::overlay::TileLook::Normal => {}
+                crate::overlay::TileLook::Ground(image) => id = image,
+                crate::overlay::TileLook::Flat => {
+                    if !flat_pass {
+                        return;
+                    }
+                    let n = r.record(id).filter(|rec| rec.kind == ImageKind::Isometric).map_or(1, |rec| rec.isometric_tiles().max(1));
+                    let (ox, oy) = (x, y - (n - 1));
+                    for dy in 0..n {
+                        for dx in 0..n {
+                            let shape = if dx == 0 {
+                                if dy == 0 { 0 } else { 1 }
+                            } else if dy == 0 {
+                                2
+                            } else {
+                                3
+                            };
+                            let p = tile_to_world(map, ox + dx, oy + dy);
+                            r.image(o.flat + shape, p, WHITE, Space::World);
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+        let Some(rec) = r.record(id) else { return };
+        let n = if rec.kind == ImageKind::Isometric { rec.isometric_tiles().max(1) } else { 1 };
+        let (iw, ih) = (rec.width as f32, rec.height as f32);
+        let flat = ih <= TILE_H * n as f32;
+        if flat != flat_pass {
+            return;
+        }
+        let p = tile_to_world(map, x, y);
+        let pos = [p[0], p[1] + TILE_H / 2.0 * (n + 1) as f32 - ih];
+        if pos[0] > vx1 || pos[1] > vy1 || pos[0] + iw < vx0 || pos[1] + ih < vy0 {
+            return;
+        }
+        r.image(id, pos, WHITE, Space::World);
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
@@ -183,56 +236,20 @@ impl CityView {
         let mut columns = overlay.map(|o| o.columns.clone()).unwrap_or_default();
         columns.sort_by_key(|c| (c.x + c.y, c.x));
         let mut next_column = 0;
-        // Back to front: by diagonal, then left to right within it.
+        // Flat ground first, then everything that stands up, back to front: a tall
+        // building must not be painted over by the flat tiles behind it.
         for d in 0..(w + h - 1) {
             let x_min = (d - (h - 1)).max(0);
             let x_max = d.min(w - 1);
             for x in x_min..=x_max {
-                let y = d - x;
-                if map.edges.at_or(x, y, 0) & edge::DRAW_TILE == 0 {
-                    continue;
-                }
-                let mut id = map.images.at_or(x, y, 0);
-                if id == 0 {
-                    continue;
-                }
-                if let Some(o) = overlay {
-                    match (o.look)(x, y) {
-                        crate::overlay::TileLook::Normal => {}
-                        crate::overlay::TileLook::Ground(image) => id = image,
-                        crate::overlay::TileLook::Flat => {
-                            let n = r.record(id).filter(|rec| rec.kind == ImageKind::Isometric).map_or(1, |rec| rec.isometric_tiles().max(1));
-                            let (ox, oy) = (x, y - (n - 1));
-                            for dy in 0..n {
-                                for dx in 0..n {
-                                    let shape = if dx == 0 {
-                                        if dy == 0 { 0 } else { 1 }
-                                    } else if dy == 0 {
-                                        2
-                                    } else {
-                                        3
-                                    };
-                                    let p = tile_to_world(map, ox + dx, oy + dy);
-                                    r.image(o.flat + shape, p, WHITE, Space::World);
-                                }
-                            }
-                            continue;
-                        }
-                    }
-                }
-                let Some(rec) = r.record(id) else { continue };
-                let n = if rec.kind == ImageKind::Isometric {
-                    rec.isometric_tiles().max(1)
-                } else {
-                    1
-                };
-                let (iw, ih) = (rec.width as f32, rec.height as f32);
-                let p = tile_to_world(map, x, y);
-                let pos = [p[0], p[1] + TILE_H / 2.0 * (n + 1) as f32 - ih];
-                if pos[0] > vx1 || pos[1] > vy1 || pos[0] + iw < vx0 || pos[1] + ih < vy0 {
-                    continue;
-                }
-                r.image(id, pos, WHITE, Space::World);
+                self.draw_tile(r, map, x, d - x, overlay, true, [vx0, vy0, vx1, vy1]);
+            }
+        }
+        for d in 0..(w + h - 1) {
+            let x_min = (d - (h - 1)).max(0);
+            let x_max = d.min(w - 1);
+            for x in x_min..=x_max {
+                self.draw_tile(r, map, x, d - x, overlay, false, [vx0, vy0, vx1, vy1]);
             }
             while next_column < columns.len() && columns[next_column].x + columns[next_column].y <= d {
                 let c = columns[next_column];

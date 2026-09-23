@@ -963,7 +963,12 @@ impl Game {
             Command::Build { kind: k, x, y, x1, y1 } if k == kind::VACANT_LOT => rect(x, y, x1, y1),
             Command::Build { kind: k, x, y, .. } => {
                 let (w, h) = if osiris_sim::temple_complex::is_upgrade(k) { (1, 1) } else { self.world.footprint_of(k) };
-                rect(x, y, x + w - 1, y + h - 1)
+                let mut tiles = rect(x, y, x + w - 1, y + h - 1);
+                // A fort brings its parade ground, three tiles along and one up.
+                if osiris_sim::military::fort_soldier(k).is_some() {
+                    tiles.extend(rect(x + 3, y - 1, x + 6, y + 2));
+                }
+                tiles
             }
         };
         (tiles.into_iter().map(|(x, y)| Highlight { x, y, color }).collect(), cost)

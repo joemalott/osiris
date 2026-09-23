@@ -138,6 +138,9 @@ const ARROW: f32 = 24.0;
 const SPEED_DOWN: (f32, f32) = (11.0, STATUS_Y + 22.0);
 const SPEED_UP: (f32, f32) = (35.0, STATUS_Y + 22.0);
 
+/// How much of the top bar image carries its patterned border, from the left.
+const TOP_BAR_BORDERED: f32 = 845.0;
+
 #[derive(Clone)]
 pub struct SidebarImages {
     top_bar: u32,
@@ -284,11 +287,18 @@ impl Sidebar {
 
     pub fn draw(&self, r: &mut Renderer, img: &SidebarImages, s: &SidebarState) {
         let [w, h] = r.screen;
-        // Top bar, tiled across the screen.
-        let mut x = 0.0;
-        while x < w {
+        // Top bar: the image's border stops short of its right end, the part meant
+        // to sit over the sidebar. One copy ends at the screen's right edge; more are
+        // laid leftward a bordered length apart, each covering the plain end of the
+        // one before it.
+        let bar_w = r.record(img.top_bar).map_or(1000.0, |rec| rec.width as f32);
+        let mut starts = vec![w - bar_w];
+        while starts.last().is_some_and(|&x| x > 0.0) {
+            let x = starts.last().copied().unwrap_or(0.0) - TOP_BAR_BORDERED;
+            starts.push(x);
+        }
+        for &x in starts.iter().rev() {
             r.image(img.top_bar, [x, 0.0], WHITE, Space::Screen);
-            x += 1000.0;
         }
 
         let ox = panel_left(w);
