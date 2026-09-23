@@ -792,50 +792,9 @@ impl Game {
                 });
             }
         }
-        self.building_animations(r, &mut out);
+        let cx = crate::anims::AnimContext { world: &self.world, r, ticks: self.world.time.total_ticks, millis: (self.anim_clock * 1000.0) as u64 };
+        crate::anims::building_animations(&cx, &mut out);
         out
-    }
-
-    /// Working animations on staffed buildings. A building either has a configured
-    /// "work" animation, drawn at a fixed offset and stepped by game ticks, or cycles
-    /// the frames stored after its own image at that image's speed.
-    fn building_animations(&self, r: &Renderer, out: &mut Vec<city_view::Overlay>) {
-        let ticks = self.world.time.total_ticks;
-        let millis = (self.anim_clock * 1000.0) as u64;
-        for b in self.world.buildings.iter() {
-            if b.is_house() || self.world.is_road_venue(b.kind) || self.world.is_farm(b.kind) {
-                continue;
-            }
-            let active = if b.kind == kind::BURNING_RUIN { b.progress > 0 } else { b.kind == kind::WELL || b.workers > 0 };
-            if !active {
-                continue;
-            }
-            let (dx, dy) = (b.x, b.y + b.size - 1);
-            let p = city_view::tile_to_world(&self.world.map, dx, dy);
-            let phase = b.id as u64 * 7;
-            let work = self.world.defs.building(b.kind).and_then(|d| d.anims.get("work")).filter(|a| a.frames > 1 && (a.x, a.y) != (0, 0));
-            if let Some(a) = work {
-                let frame = ((ticks + phase) / a.duration.max(1) as u64 % a.frames as u64) as u32;
-                out.push(city_view::Overlay { x: dx, y: dy, pos: [p[0] + a.x as f32, p[1] + a.y as f32], image: a.image + frame });
-                continue;
-            }
-            let base = self.world.map.images.at_or(dx, dy, 0);
-            let Some(rec) = r.record(base) else { continue };
-            let n = rec.num_animation_sprites as u64;
-            if n == 0 {
-                continue;
-            }
-            let step = millis / (20 * (rec.animation_speed_id as u64).max(1)) + phase;
-            let frame = if rec.animation_can_reverse {
-                let k = step % (2 * n);
-                if k < n { k + 1 } else { 2 * n - k }
-            } else {
-                step % n + 1
-            };
-            let tiles = if rec.kind == osiris_formats::ImageKind::Isometric { rec.isometric_tiles().max(1) } else { 1 };
-            let y = p[1] + rec.sprite_offset_y as f32 - rec.height as f32 + city_view::TILE_H / 2.0 * (tiles + 1) as f32;
-            out.push(city_view::Overlay { x: dx, y: dy, pos: [p[0] + rec.sprite_offset_x as f32, y], image: base + frame as u32 });
-        }
     }
 
     pub fn draw(&mut self, r: &mut Renderer) {

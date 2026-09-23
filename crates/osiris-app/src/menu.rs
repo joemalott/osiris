@@ -428,6 +428,17 @@ impl Menu {
             let lw = text_width(r, f, &item.label) as f32;
             draw_text(r, f, &item.label, x + (BOX_W - lw) / 2.0, iy, font::WHITE);
         }
+        // Scroll hints (the mouse wheel scrolls the list).
+        if self.scroll > 0 {
+            draw_text(r, Font::NormalWhiteOnDark, "^", x + BOX_W - 40.0, y + 46.0, font::WHITE);
+        }
+        if self.scroll + LIST_ROWS < self.items.len() {
+            let last = y + 46.0 + (LIST_ROWS - 1) as f32 * ROW_H;
+            draw_text(r, Font::NormalWhiteOnDark, "v", x + BOX_W - 40.0, last, font::WHITE);
+            let more = format!("{} more", self.items.len() - self.scroll - LIST_ROWS);
+            let mw = text_width(r, Font::SmallPlain, &more) as f32;
+            draw_text(r, Font::SmallPlain, &more, x + BOX_W - 46.0 - mw, last + 3.0, font::WHITE);
+        }
         let [bx, by] = self.back_button(r.screen);
         Self::button(r, panels, "Back", bx, by, 160.0, self.hover_back, true);
     }

@@ -66,6 +66,16 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let id = world.map.building.at_or(x, y, 0);
                 world.destroy(id, true);
             }
+            ["stock", p, r, n] => {
+                let (x, y) = parse_point(p)?;
+                let id = world.map.building.at_or(x, y, 0);
+                let b = world.buildings.get_mut(id).context("no building there")?;
+                let r: usize = r.parse()?;
+                if b.stock.len() <= r {
+                    b.stock.resize(r + 1, 0);
+                }
+                b.stock[r] = n.parse()?;
+            }
             ["safe"] => {
                 world.rules.fire = false;
                 world.rules.collapse = false;
@@ -105,7 +115,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 eprintln!("  labor {:?} unemployment {}%", world.labor, world.unemployment);
                 for b in world.buildings.iter().filter(|b| !b.is_house()) {
                     let stock: Vec<(usize, i32)> = b.stock.iter().copied().enumerate().filter(|&(_, v)| v > 0).collect();
-                    eprintln!("  bld {} kind {} at ({},{}) workers {} covered {} road {:?} walkers {:?} stock {:?}", b.id, b.kind, b.x, b.y, b.workers, b.houses_covered, b.road, b.walkers, stock);
+                    eprintln!("  bld {} kind {} at ({},{}) workers {} covered {} road {:?} walkers {:?} stock {:?} shows {:?}", b.id, b.kind, b.x, b.y, b.workers, b.houses_covered, b.road, b.walkers, stock, b.shows);
                 }
                 for f in world.figures.iter().take(5) {
                     eprintln!(

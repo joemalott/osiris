@@ -17,6 +17,8 @@ pub mod kind {
     pub const BOOTH: u16 = 31;
     pub const PAVILION: u16 = 33;
     pub const GARDENS: u16 = 39;
+    pub const CONSERVATORY: u16 = 34;
+    pub const DANCE_SCHOOL: u16 = 35;
     pub const JUGGLER_SCHOOL: u16 = 36;
     pub const APOTHECARY: u16 = 46;
     pub const TEMPLE_OSIRIS: u16 = 60;
@@ -79,6 +81,12 @@ pub struct Building {
     /// Which way a venue faces over its roads (0..4).
     #[serde(default)]
     pub orientation: u8,
+    /// A venue's days of shows left, per performer (juggler, musician, dancer).
+    #[serde(default)]
+    pub shows: [i32; 3],
+    /// A venue's performers out roaming, per performer.
+    #[serde(default)]
+    pub performers: [FigureId; 3],
     /// The image drawn for this building (global id).
     pub image: u32,
 }

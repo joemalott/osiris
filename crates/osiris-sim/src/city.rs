@@ -43,6 +43,7 @@ impl World {
                 self.lodge_walkers();
                 self.work_camp_walkers();
                 self.school_walkers();
+                self.venue_walkers();
             }
             9 => self.decay_house_services(),
             36 => self.update_culture(),
@@ -78,7 +79,7 @@ impl World {
                 crate::people::figure_kind::IMMIGRANT
                 | crate::people::figure_kind::EMIGRANT
                 | crate::people::figure_kind::HOMELESS => self.update_migrant(fid),
-                crate::entertainment::JUGGLER => self.update_entertainer(fid),
+                k if crate::entertainment::performer_slot(k).is_some() => self.update_entertainer(fid),
                 k if crate::services::is_roamer(k) => self.update_roamer(fid),
                 crate::economy::CART_PUSHER => self.update_cart(fid),
                 crate::food::MARKET_BUYER => self.update_buyer(fid),
@@ -97,7 +98,7 @@ impl World {
                 }
                 self.figures.remove(fid);
                 for b in self.buildings.iter_mut() {
-                    for w in &mut b.walkers {
+                    for w in b.walkers.iter_mut().chain(&mut b.performers) {
                         if *w == fid {
                             *w = 0;
                         }

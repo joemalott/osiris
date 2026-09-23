@@ -3,7 +3,7 @@
 //! has walked its maximum roam length.
 
 use crate::buildings::{BuildingId, kind};
-use crate::figures::{Step, Travel};
+use crate::figures::{FigureId, Step, Travel};
 use crate::map::{NEIGHBOURS, terrain};
 use crate::world::World;
 
@@ -55,7 +55,7 @@ pub fn is_roamer(kind: u16) -> bool {
         LABOR_SEEKER | TAX_COLLECTOR | ARCHITECT | FIREMAN | PRIEST | TEACHER | LIBRARIAN | DENTIST | PHYSICIAN
             | HERBALIST | EMBALMER | WATER_CARRIER
     ) || kind == crate::food::MARKET_TRADER
-        || kind == crate::entertainment::JUGGLER
+        || crate::entertainment::performer_slot(kind).is_some()
 }
 
 impl World {
@@ -67,8 +67,17 @@ impl World {
     }
 
     pub(crate) fn spawn_roamer(&mut self, home: BuildingId, kind: u16, slot: usize) {
-        let Some(b) = self.buildings.get(home) else { return };
-        let Some((rx, ry)) = b.road else { return };
+        if let Some(fid) = self.spawn_roaming_figure(home, kind)
+            && let Some(b) = self.buildings.get_mut(home)
+        {
+            b.walkers[slot] = fid;
+        }
+    }
+
+    /// Sends a `kind` walker roaming from `home`'s road.
+    pub(crate) fn spawn_roaming_figure(&mut self, home: BuildingId, kind: u16) -> Option<FigureId> {
+        let b = self.buildings.get(home)?;
+        let (rx, ry) = b.road?;
         let dir = b.roam_dir;
         let roam = self.max_roam(kind);
         let fid = self.figures.spawn(kind, rx, ry, Travel::Roads);
@@ -81,9 +90,9 @@ impl World {
             f.direction = dir;
         }
         if let Some(b) = self.buildings.get_mut(home) {
-            b.walkers[slot] = fid;
             b.roam_dir = (b.roam_dir + 2) % 8;
         }
+        Some(fid)
     }
 
     /// Tick 31: buildings send out their walkers.
@@ -100,7 +109,7 @@ impl World {
             }
             let Some(b) = self.buildings.get(id) else { continue };
             // These send their walkers through their own rules.
-            if matches!(b.kind, kind::BOOTH | kind::JUGGLER_SCHOOL | kind::BAZAAR) {
+            if matches!(b.kind, kind::BOOTH | kind::BANDSTAND | kind::PAVILION | kind::JUGGLER_SCHOOL | kind::CONSERVATORY | kind::DANCE_SCHOOL | kind::BAZAAR) {
                 continue;
             }
             let Some(kind) = self.defs.building(b.kind).and_then(|d| d.figure) else { continue };
@@ -166,6 +175,8 @@ impl World {
                 figure_kind::LIBRARIAN => c.library = VISIT,
                 figure_kind::TAX_COLLECTOR => c.tax = 50,
                 crate::entertainment::JUGGLER => c.juggler = VISIT,
+                crate::entertainment::MUSICIAN => c.musician = VISIT,
+                crate::entertainment::DANCER => c.dancer = VISIT,
                 figure_kind::PRIEST => {
                     // Temples and shrines of each god: Osiris, Ra, Ptah, Seth, Bast.
                     let god = match home_kind {

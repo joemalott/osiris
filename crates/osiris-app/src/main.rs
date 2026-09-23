@@ -1,3 +1,4 @@
+mod anims;
 mod city_view;
 mod game;
 mod gfx;
