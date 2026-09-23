@@ -56,6 +56,7 @@ pub const SPHINX: u16 = 210;
 pub const SMALL_OBELISK: u16 = 262;
 pub const LARGE_OBELISK: u16 = 263;
 pub const MAUSOLEUM: u16 = 222;
+pub const SUN_TEMPLE: u16 = 264;
 
 /// What a 2x2 block of a mastaba is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +86,11 @@ pub enum Style {
     /// a time; carpenters build each part a wooden ramp; the masons raise the second
     /// storey; and laborers lay out the courtyard.
     Mausoleum,
+    /// A 5x5 obelisk in an 11x10 walled court, a gate, and an avenue to a 3x3 fore
+    /// temple. Laborers level the site; carpenters and stonemasons take turns
+    /// shaping the obelisk; masons build the gate and the walls a sled of sandstone at
+    /// a time; laborers lay the court's floor; masons build the fore temple.
+    SunTemple,
 }
 
 /// A mausoleum: 22x8 tiles, the parts at these columns of rows 2-5, the phases'
@@ -99,6 +105,128 @@ const MAUSOLEUM_PLACEMENT: i32 = 24000;
 /// Timber for the ramps. The manual says a mausoleum needs wood; how much is not
 /// known, so this is a placeholder.
 const MAUSOLEUM_TIMBER: i32 = 400;
+
+/// The sun temple: 11x21 tiles; its obelisk's 5x5 corner; sandstone taken when it is
+/// placed; and the obelisk's thirteen steps, each carpenters' (true) or masons'
+/// work, with its ticks.
+const SUN_TEMPLE_SIZE: (i32, i32) = (11, 21);
+const SUN_OBELISK: (i32, i32) = (3, 1);
+const SUN_TEMPLE_PLACEMENT: i32 = 22000;
+const SUN_OBELISK_STEPS: [(bool, u16); 13] = [
+    (true, 260),
+    (true, 260),
+    (true, 450),
+    (true, 450),
+    (false, 360),
+    (true, 520),
+    (false, 360),
+    (true, 520),
+    (false, 300),
+    (true, 290),
+    (false, 270),
+    (true, 310),
+    (false, 380),
+];
+/// The sun temple's phases after the levelling: the obelisk's steps, then the gate,
+/// walls, floor and fore temple.
+const SUN_GATE: u8 = 14;
+const SUN_WALLS: u8 = 15;
+const SUN_FLOOR: u8 = 16;
+const SUN_FORE: u8 = 17;
+/// Sleds of sandstone the fore temple takes.
+const SUN_FORE_SLEDS: usize = 3;
+
+/// What a part of the sun temple is. Each has its image offset in the extras pack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SunPart {
+    /// The 2x2 gate.
+    Gate,
+    /// A corner pier (NW, NE, SE, SW).
+    Corner(u8),
+    SideWall,
+    EndWall,
+    Floor,
+    Path,
+    Planter,
+    Palm,
+    /// The 3x3 fore temple.
+    Fore,
+}
+
+impl SunPart {
+    fn is_wall(self) -> bool {
+        matches!(self, SunPart::Corner(_) | SunPart::SideWall | SunPart::EndWall)
+    }
+
+    fn is_floor(self) -> bool {
+        matches!(self, SunPart::Floor | SunPart::Path | SunPart::Planter | SunPart::Palm)
+    }
+
+    fn size(self) -> i32 {
+        match self {
+            SunPart::Gate => 2,
+            SunPart::Fore => 3,
+            _ => 1,
+        }
+    }
+
+    /// Offset of the finished image in the extras pack, facing the default view.
+    fn image(self) -> u32 {
+        match self {
+            SunPart::Gate => 0,
+            SunPart::Corner(c) => 2 + [0, 1, 2, 3][c as usize],
+            SunPart::SideWall => 6,
+            SunPart::EndWall => 7,
+            SunPart::Floor => 8,
+            SunPart::Path => 9,
+            SunPart::Planter => 10,
+            SunPart::Palm => 11,
+            SunPart::Fore => 12,
+        }
+    }
+}
+
+/// The sun temple's parts other than the obelisk, at their tiles, in the order the
+/// laborers level them.
+fn sun_temple_parts() -> Vec<((i32, i32), SunPart)> {
+    let mut v = vec![((6, 9), SunPart::Gate), ((0, 0), SunPart::Corner(0)), ((10, 0), SunPart::Corner(1)), ((10, 9), SunPart::Corner(2)), ((0, 9), SunPart::Corner(3))];
+    for y in 1..=8 {
+        v.push(((0, y), SunPart::SideWall));
+        v.push(((10, y), SunPart::SideWall));
+    }
+    for x in 1..=9 {
+        v.push(((x, 0), SunPart::EndWall));
+        if !(6..=7).contains(&x) {
+            v.push(((x, 9), SunPart::EndWall));
+        }
+    }
+    let planters = [(2, 2), (2, 4), (8, 2), (8, 4)];
+    let palms = [(2, 1), (2, 3), (2, 5), (8, 1), (8, 3), (8, 5)];
+    let (ox, oy) = SUN_OBELISK;
+    for y in 1..=8 {
+        for x in 1..=9 {
+            let obelisk = (ox..ox + 5).contains(&x) && (oy..oy + 5).contains(&y);
+            let part = if planters.contains(&(x, y)) {
+                SunPart::Planter
+            } else if palms.contains(&(x, y)) {
+                SunPart::Palm
+            } else if x == 7 && y >= 6 {
+                SunPart::Path
+            } else if obelisk {
+                continue;
+            } else {
+                SunPart::Floor
+            };
+            v.push(((x, y), part));
+        }
+    }
+    for y in 11..=17 {
+        v.push(((6, y), SunPart::Path));
+        v.push(((7, y), SunPart::Path));
+    }
+    v.push(((5, 18), SunPart::Fore));
+    v
+}
 
 /// What a courtyard tile of a mausoleum becomes, at column `x` and row `y`: an image
 /// offset in the skin's extras pack (paving, patterned paving, flowers, palm, the
@@ -230,10 +358,12 @@ const fn obelisk(kind: u16, size: i32, stages: u8, granite: i32, timber: &'stati
     MonumentDef { kind, cols: size, rows: size, style: Style::Obelisk { size, stages, granite, timber }, phase_count: LEVELING_PHASES + stages + 1, polish: 0, mastaba_phases: &[], weight, title }
 }
 
-pub const MONUMENTS: [MonumentDef; 18] = [
+pub const MONUMENTS: [MonumentDef; 19] = [
     MonumentDef { kind: SPHINX, cols: 3, rows: 6, style: Style::Sphinx, phase_count: LEVELING_PHASES + SPHINX_PHASES.len() as u8 + 1, polish: 0, mastaba_phases: &[], weight: 1, title: 21 },
     // The rating weight is a placeholder.
     MonumentDef { kind: MAUSOLEUM, cols: 11, rows: 4, style: Style::Mausoleum, phase_count: 6, polish: 0, mastaba_phases: &[], weight: 4, title: 25 },
+    // The rating weight is a placeholder.
+    MonumentDef { kind: SUN_TEMPLE, cols: 1, rows: 1, style: Style::SunTemple, phase_count: SUN_FORE + 2, polish: 0, mastaba_phases: &[], weight: 4, title: 24 },
     obelisk(SMALL_OBELISK, 3, 4, 100, &[200, 200, 200], 2, 22),
     obelisk(LARGE_OBELISK, 5, 6, 200, &[400, 400, 400, 200], 4, 23),
     mastaba(kind::SMALL_MASTABA, (2, 5), Style::Mastaba { entrance_row: 2, side_rows: 1, first_row_side: false }, &SMALL_MASTABA_PHASES, 2, 18),
@@ -268,6 +398,7 @@ pub fn placement_cost(k: u16) -> Option<(u16, i32)> {
     match monument_def(k)?.style {
         Style::Obelisk { granite, .. } => Some((GRANITE, granite)),
         Style::Mausoleum => Some((SANDSTONE, MAUSOLEUM_PLACEMENT)),
+        Style::SunTemple => Some((SANDSTONE, SUN_TEMPLE_PLACEMENT)),
         _ => None,
     }
 }
@@ -353,6 +484,14 @@ impl MonumentDef {
                     _ => Vec::new(),
                 };
             }
+            Style::SunTemple => {
+                return match p {
+                    SUN_GATE => vec![(SANDSTONE, SLED_LOAD)],
+                    SUN_WALLS => vec![(SANDSTONE, SLED_LOAD * sun_temple_parts().iter().filter(|p| p.1.is_wall()).count() as i32)],
+                    SUN_FORE => vec![(SANDSTONE, SLED_LOAD * SUN_FORE_SLEDS as i32)],
+                    _ => Vec::new(),
+                };
+            }
             Style::Pyramid(f) => f,
         };
         if p < LEVELING_PHASES || p >= self.courses_end() {
@@ -379,6 +518,13 @@ impl MonumentDef {
     /// bricklayers for bricks (and the clay that binds them), stonemasons for stone
     /// and limestone and for polishing, carpenters for the timber ramps.
     pub fn crew(&self, p: u8) -> Vec<u16> {
+        if self.style == Style::SunTemple {
+            return match p {
+                1..=13 => vec![if SUN_OBELISK_STEPS[(p - 1) as usize].0 { CARPENTER } else { STONEMASON }],
+                SUN_GATE | SUN_WALLS | SUN_FORE => vec![STONEMASON],
+                _ => Vec::new(),
+            };
+        }
         let phase = self.phase(p);
         let has = |r: u16| phase.iter().any(|e| e.0 == r);
         let mut crew = Vec::new();
@@ -407,14 +553,26 @@ impl MonumentDef {
                 2 => MAUSOLEUM_PARTS.len(),
                 _ => 0,
             },
+            Style::SunTemple => match p {
+                0 => sun_temple_parts().len(),
+                SUN_WALLS => sun_temple_parts().iter().filter(|p| p.1.is_wall()).count(),
+                SUN_FLOOR => sun_temple_parts().iter().filter(|p| p.1.is_floor()).count(),
+                SUN_FORE => SUN_FORE_SLEDS,
+                p if p <= SUN_GATE => 1,
+                _ => 0,
+            },
             _ => (self.cols * self.rows) as usize,
         }
     }
 
     /// Ticks of work each piece of phase `p` takes.
-    pub fn unit_work(&self, _p: u8) -> u16 {
+    pub fn unit_work(&self, p: u8) -> u16 {
         match self.style {
             Style::Mausoleum => MAUSOLEUM_WORK,
+            Style::SunTemple => match p {
+                1..=13 => SUN_OBELISK_STEPS[(p - 1) as usize].1,
+                _ => MAUSOLEUM_WORK,
+            },
             _ => BLOCK_WORK,
         }
     }
@@ -424,6 +582,7 @@ impl MonumentDef {
     pub fn laborers(&self, p: u8) -> bool {
         match self.style {
             Style::Mausoleum => p == 0 || p == 4,
+            Style::SunTemple => p == 0 || p == SUN_FLOOR,
             _ => p < LEVELING_PHASES,
         }
     }
@@ -477,6 +636,7 @@ impl World {
             Style::Obelisk { size, .. } => (size, size),
             Style::Sphinx => (6, 18),
             Style::Mausoleum => MAUSOLEUM_SIZE,
+            Style::SunTemple => SUN_TEMPLE_SIZE,
             _ => (d.cols * 2, d.rows * 2),
         })
     }
@@ -496,6 +656,14 @@ impl World {
         }
         if def.style == Style::Mausoleum && self.yards_stored(SANDSTONE) < MAUSOLEUM_PLACEMENT {
             return Err("You need 240 blocks of sandstone to build a mausoleum");
+        }
+        if def.style == Style::SunTemple {
+            if self.buildings.iter().any(|b| b.kind == SUN_TEMPLE && b.monument.as_ref().is_some_and(|m| !m.finished)) {
+                return Err("You can only have one sun temple under construction at a time");
+            }
+            if self.yards_stored(SANDSTONE) < SUN_TEMPLE_PLACEMENT {
+                return Err("You need 220 blocks of sandstone to build a sun temple");
+            }
         }
         Ok(())
     }
@@ -523,6 +691,7 @@ impl World {
                 Some((GRANITE, granite))
             }
             Style::Mausoleum => Some((SANDSTONE, MAUSOLEUM_PLACEMENT)),
+            Style::SunTemple => Some((SANDSTONE, SUN_TEMPLE_PLACEMENT)),
             _ => None,
         };
         if let Some((r, amount)) = paid {
@@ -687,6 +856,23 @@ impl World {
                 .map(|(x, y)| (b.x + x, b.y + y, stake))
                 .collect();
         }
+        if def.style == Style::SunTemple {
+            // The gate, the corner piers and the fore temple's corners are staked out
+            // until levelled.
+            let Some(stake) = self.defs.building(b.kind).and_then(|d| d.anims.get("stake")).map(|a| a.image) else { return Vec::new() };
+            let mut out = Vec::new();
+            for (i, ((x, y), part)) in sun_temple_parts().into_iter().enumerate() {
+                if m.progress.get(i).is_some_and(|&p| p >= MAUSOLEUM_WORK) {
+                    continue;
+                }
+                match part {
+                    SunPart::Gate | SunPart::Corner(_) => out.push((b.x + x, b.y + y, stake)),
+                    SunPart::Fore => out.extend([(0, 0), (2, 0), (0, 2), (2, 2)].map(|(dx, dy)| (b.x + x + dx, b.y + y + dy, stake))),
+                    _ => {}
+                }
+            }
+            return out;
+        }
         if !matches!(def.style, Style::Mastaba { .. } | Style::Pyramid(_)) {
             return Vec::new();
         }
@@ -747,6 +933,89 @@ impl World {
         }
     }
 
+    /// The sun temple's tiles: each part bare, levelled, then built; the obelisk in its
+    /// three looks as the carpenters and masons work it.
+    fn refresh_sun_temple(&mut self, id: BuildingId) {
+        let Some(b) = self.buildings.get(id) else { return };
+        let (Some(bdef), Some(m)) = (self.defs.building(b.kind), b.monument.as_ref()) else { return };
+        let (x0, y0) = (b.x, b.y);
+        let img = |key: &str| bdef.anims.get(key).map(|a| a.image);
+        let (Some(extras), Some(ground)) = (img("extras"), img("ground")) else { return };
+        let (phase, finished) = (m.phase, m.finished);
+        let done = |i: usize| m.progress.get(i).is_some_and(|&p| p >= MAUSOLEUM_WORK);
+        let (w, h) = SUN_TEMPLE_SIZE;
+        let bare = |x: i32, y: i32| m.ground.get((y * w + x) as usize).copied().filter(|&g| g != 0);
+        let levelled = |x: i32, y: i32| ground + (((x * 7 + y * 3) & 7) as u32);
+        // Tiles outside the parts keep their ground; the parts' tiles are set below.
+        let mut singles: Vec<(i32, i32, u32)> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter_map(|(x, y)| bare(x, y).map(|g| (x, y, g))).collect();
+        let mut blocks: Vec<(i32, i32, i32, u32)> = Vec::new();
+        let (mut walls, mut floors) = (0, 0);
+        for (i, ((x, y), part)) in sun_temple_parts().into_iter().enumerate() {
+            // Which piece of its phase's work this part is.
+            let built = finished
+                || match part {
+                    SunPart::Gate => phase > SUN_GATE,
+                    p if p.is_wall() => {
+                        walls += 1;
+                        phase > SUN_WALLS || phase == SUN_WALLS && done(walls - 1)
+                    }
+                    p if p.is_floor() => {
+                        floors += 1;
+                        phase > SUN_FLOOR || phase == SUN_FLOOR && done(floors - 1)
+                    }
+                    _ => phase > SUN_FORE,
+                };
+            let levelled_now = phase > 0 || done(i);
+            let n = part.size();
+            if built {
+                blocks.push((x, y, n, extras + part.image()));
+                continue;
+            }
+            for dy in 0..n {
+                for dx in 0..n {
+                    let (tx, ty) = (x + dx, y + dy);
+                    let image = if levelled_now { levelled(tx, ty) } else { bare(tx, ty).unwrap_or_else(|| levelled(tx, ty)) };
+                    singles.push((tx, ty, image));
+                }
+            }
+        }
+        let step = if finished { 13 } else { phase.saturating_sub(1).min(13) };
+        let obelisk = img(match step {
+            0..=8 => "obelisk1",
+            9..=12 => "obelisk2",
+            _ => "obelisk3",
+        });
+        for (x, y, image) in singles {
+            self.map.set_single_image(x0 + x, y0 + y, image);
+        }
+        for (x, y, n, image) in blocks {
+            self.map.set_footprint(x0 + x, y0 + y, n, image);
+        }
+        if let Some(image) = obelisk {
+            self.map.set_footprint(x0 + SUN_OBELISK.0, y0 + SUN_OBELISK.1, 5, image);
+        }
+    }
+
+    /// The scaffolding standing about a sun temple's obelisk as it is worked:
+    /// (image, pixel offset from the obelisk's left edge and the top of its footprint).
+    pub fn sun_temple_scaffold(&self, id: BuildingId) -> (Vec<(u32, (i32, i32))>, (i32, i32)) {
+        let none = (Vec::new(), (0, 0));
+        let Some(b) = self.buildings.get(id).filter(|b| b.kind == SUN_TEMPLE) else { return none };
+        let (Some(bdef), Some(m)) = (self.defs.building(b.kind), b.monument.as_ref()) else { return none };
+        let Some(extras) = bdef.anims.get("extras").map(|a| a.image) else { return none };
+        let step = if m.finished { 13 } else { m.phase.saturating_sub(1).min(13) };
+        let pieces = match step {
+            1 | 10 | 11 => 1,
+            2 | 8 | 9 => 2,
+            3 | 6 | 7 => 3,
+            4 | 5 => 4,
+            _ => 0,
+        };
+        let at = [(60, -29), (187, -29), (82, -96), (170, -100)];
+        let list = at.iter().take(pieces).enumerate().map(|(i, &o)| (extras + 13 + (i % 2) as u32, o)).collect();
+        (list, (b.x + SUN_OBELISK.0, b.y + SUN_OBELISK.1))
+    }
+
     /// Redraws a monument's ground-level tiles for its phase and the blocks done so far.
     pub fn refresh_monument_images(&mut self, id: BuildingId) {
         let Some(b) = self.buildings.get(id) else { return };
@@ -770,6 +1039,10 @@ impl World {
         }
         if def.style == Style::Mausoleum {
             self.refresh_mausoleum(id);
+            return;
+        }
+        if def.style == Style::SunTemple {
+            self.refresh_sun_temple(id);
             return;
         }
         if let Style::Obelisk { size, stages, .. } = def.style {
@@ -845,7 +1118,7 @@ impl World {
                     }
                 }
             }
-            Style::Obelisk { .. } | Style::Sphinx | Style::Mausoleum => {}
+            Style::Obelisk { .. } | Style::Sphinx | Style::Mausoleum | Style::SunTemple => {}
             Style::Pyramid(family) => {
                 let (corner, wall, cube) = (img("corner_bricks"), img("wall_bricks"), img("base_bricks"));
                 let courses = def.rings() * COURSES_PER_RING;
@@ -1256,6 +1529,7 @@ impl World {
                     Style::Obelisk { .. } => "obelisk",
                     Style::Sphinx => "sphinx",
                     Style::Mausoleum => "mausoleum",
+                    Style::SunTemple => "sun_temple",
                 };
                 self.post_event_text(crate::scenario_events::EventText {
                     title: format!("{name}_congratulations_title"),

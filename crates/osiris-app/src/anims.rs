@@ -174,6 +174,16 @@ fn monument(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
         }
         return;
     }
+    // Scaffolding about a sun temple's obelisk while it is shaped, placed from the
+    // obelisk's left edge and the top of its footprint, in front of it.
+    let (pieces, (ox, oy)) = cx.world.sun_temple_scaffold(b.id);
+    if !pieces.is_empty() {
+        let left = cx.point(ox, oy + 4)[0];
+        let top = cx.point(ox, oy)[1];
+        for (image, (dx, dy)) in pieces {
+            out.push(Overlay { x: ox + 4, y: oy + 4, pos: [left + dx as f32, top + dy as f32], image });
+        }
+    }
     // The surveyor's stakes at the corners of a site not yet worked.
     for (x, y, image) in cx.world.monument_stakes(b.id) {
         let Some(rec) = cx.r.record(image) else { continue };

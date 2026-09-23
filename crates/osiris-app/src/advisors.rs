@@ -1331,6 +1331,7 @@ fn monument_lines(k: u16) -> Option<([usize; 2], usize, usize, usize)> {
         Style::Obelisk { .. } => ([43, 44], 45, 46, 46),
         Style::Sphinx => ([39, 40], 41, 42, 42),
         Style::Mausoleum => ([51, 52], 53, 54, 55),
+        Style::SunTemple => ([47, 48], 49, 50, 50),
     })
 }
 
