@@ -164,17 +164,124 @@ fn save_rules(rules: &osiris_sim::Rules) {
     }
 }
 
-fn name_path() -> PathBuf {
+/// Legacy single-player files, from before families: migrated into a family folder
+/// the first time Osiris runs with the new layout (see [`migrate_legacy_family`]).
+fn legacy_name_path() -> PathBuf {
     user_dir().join("name.txt")
 }
+fn legacy_progress_path() -> PathBuf {
+    user_dir().join("progress.txt")
+}
+fn legacy_saves_dir() -> PathBuf {
+    user_dir().join("saves")
+}
 
-/// The governor's name for the messages: as the player set it, else the account's.
-pub fn player_name() -> String {
-    if let Ok(s) = std::fs::read_to_string(name_path())
-        && !s.trim().is_empty()
-    {
-        return s.trim().to_owned();
+/// Where every family's folder lives: `families/<sanitized name>/`.
+fn families_dir() -> PathBuf {
+    user_dir().join("families")
+}
+
+/// A family's own folder: its exact name (`name.txt`, since the folder name is
+/// sanitized and may have lost punctuation), campaign progress and saves.
+fn family_dir(name: &str) -> PathBuf {
+    families_dir().join(sanitize(name))
+}
+
+fn family_progress_path(name: &str) -> PathBuf {
+    family_dir(name).join("progress.txt")
+}
+
+fn family_saves_dir(name: &str) -> PathBuf {
+    family_dir(name).join("saves")
+}
+
+/// A family folder's exact display name, read back from its `name.txt`, falling
+/// back to the folder name itself if that's missing.
+fn family_display_name(dir: &Path) -> String {
+    std::fs::read_to_string(dir.join("name.txt"))
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| dir.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned()))
+}
+
+/// Every family in the registry, alphabetically.
+pub fn list_families() -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(families_dir())
+        .map(|rd| rd.filter_map(|e| e.ok()).filter(|e| e.path().is_dir()).map(|e| family_display_name(&e.path())).collect())
+        .unwrap_or_default();
+    v.sort_by_key(|s| s.to_lowercase());
+    v
+}
+
+/// Creates a family's folder and makes it the current one. Assumes the caller has
+/// already checked the name is non-empty and not already taken.
+pub fn create_family(name: &str) {
+    let dir = family_dir(name);
+    let _ = std::fs::create_dir_all(dir.join("saves"));
+    let _ = std::fs::write(dir.join("name.txt"), name.trim());
+    choose_family(name);
+}
+
+/// Removes a family and all of its saved games. If it was the current family,
+/// [`load_current_family`] naturally stops finding it, so no pointer needs clearing.
+pub fn delete_family(name: &str) {
+    let _ = std::fs::remove_dir_all(family_dir(name));
+}
+
+fn current_family_path() -> PathBuf {
+    user_dir().join("family.txt")
+}
+
+/// Remembers the last chosen family, for next launch.
+pub fn choose_family(name: &str) {
+    let _ = std::fs::create_dir_all(user_dir());
+    let _ = std::fs::write(current_family_path(), name.trim());
+}
+
+/// The last chosen family, if it still exists.
+fn load_current_family() -> String {
+    let name = std::fs::read_to_string(current_family_path()).unwrap_or_default().trim().to_owned();
+    if !name.is_empty() && family_dir(&name).is_dir() { name } else { String::new() }
+}
+
+/// Moves the pre-family `name.txt`/`progress.txt`/`saves/` into a family folder, the
+/// first time Osiris runs with the family registry. A no-op once any family exists.
+fn migrate_legacy_family() {
+    if !list_families().is_empty() {
+        return;
     }
+    let legacy_progress = legacy_progress_path();
+    let legacy_saves = legacy_saves_dir();
+    let has_saves = std::fs::read_dir(&legacy_saves).is_ok_and(|rd| rd.filter_map(|e| e.ok()).any(|e| e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("osiris"))));
+    if !legacy_progress.exists() && !has_saves {
+        return;
+    }
+    let name = std::fs::read_to_string(legacy_name_path())
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(default_family_name);
+    let dir = family_dir(&name);
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(dir.join("name.txt"), &name);
+    if legacy_progress.exists() {
+        let _ = std::fs::rename(&legacy_progress, dir.join("progress.txt"));
+    }
+    let saves_dir = dir.join("saves");
+    let _ = std::fs::create_dir_all(&saves_dir);
+    if let Ok(rd) = std::fs::read_dir(&legacy_saves) {
+        for e in rd.filter_map(|e| e.ok()) {
+            let p = e.path();
+            if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("osiris")) {
+                let _ = std::fs::rename(&p, saves_dir.join(p.file_name().unwrap()));
+            }
+        }
+    }
+    choose_family(&name);
+}
+
+fn default_family_name() -> String {
     std::env::var("USER")
         .ok()
         .and_then(|u| {
@@ -184,26 +291,47 @@ pub fn player_name() -> String {
         .unwrap_or_else(|| "Governor".to_owned())
 }
 
-pub fn save_player_name(name: &str) {
-    let _ = std::fs::create_dir_all(user_dir());
-    let _ = std::fs::write(name_path(), name.trim());
+/// The governor's name for the messages: the active family, else the account's.
+pub fn player_name() -> String {
+    let name = load_current_family();
+    if !name.is_empty() { name } else { default_family_name() }
 }
 
-fn progress_path() -> PathBuf {
-    user_dir().join("progress.txt")
-}
-
-/// Where the player is in the campaign.
-fn load_progress(c: &Campaign) -> progress::Progress {
-    match std::fs::read_to_string(progress_path()) {
+/// Where the player is in `family`'s campaign.
+fn load_progress(c: &Campaign, family: &str) -> progress::Progress {
+    match std::fs::read_to_string(family_progress_path(family)) {
         Ok(text) => progress::Progress::parse(c, &text),
         Err(_) => progress::Progress::new(c),
     }
 }
 
-fn save_progress(p: &progress::Progress) {
-    let _ = std::fs::create_dir_all(user_dir());
-    let _ = std::fs::write(progress_path(), p.to_text());
+fn save_progress(p: &progress::Progress, family: &str) {
+    let _ = std::fs::create_dir_all(family_dir(family));
+    let _ = std::fs::write(family_progress_path(family), p.to_text());
+}
+
+/// The family pages' text, resolved from `Pharaoh_Text.eng` (group numbers are the
+/// original's own).
+fn family_text(assets: &Assets) -> menu::FamilyText {
+    let t = |group: u32, id: u32| assets.text.get(group as usize, id as usize).unwrap_or("").trim().to_string();
+    menu::FamilyText {
+        registry_title: t(292, 3),
+        new_button: t(292, 0),
+        delete_button: t(292, 1),
+        proceed_button: t(292, 2),
+        back_button: t(292, 4),
+        enter_name: t(31, 0),
+        continue_button: t(13, 5),
+        cancel_button: t(12, 0),
+        delete_title: t(5, 90),
+        delete_body: t(5, 91),
+        exists_title: t(5, 92),
+        exists_body: t(5, 93),
+        none_title: t(5, 94),
+        none_body: t(5, 95),
+        yes: t(18, 1),
+        no: t(18, 0),
+    }
 }
 
 /// What the menu shows of the campaign: the missions the player may start, which are
@@ -244,16 +372,27 @@ struct App {
     keys: std::collections::HashSet<KeyCode>,
     last_frame: std::time::Instant,
     status: Option<(String, f32)>,
+    /// The active family; empty until one is chosen (gating the menu on startup).
+    family: String,
 }
 
 impl App {
+    /// Saves directory for the active family, or the pre-family default when none is
+    /// chosen yet (used by `--map`/`--mission` direct launches, which skip the menu).
+    fn saves_dir(&self) -> PathBuf {
+        if self.family.is_empty() { legacy_saves_dir() } else { family_saves_dir(&self.family) }
+    }
+
     fn menu(&self) -> Box<menu::Menu> {
+        let campaign = if self.family.is_empty() { menu::CampaignView::default() } else { campaign_view(&self.assets, &load_progress(&self.assets.campaign, &self.family)) };
         Box::new(menu::Menu::new(
             self.assets.mission_names.clone(),
-            campaign_view(&self.assets, &load_progress(&self.assets.campaign)),
+            campaign,
             list_files(&self.assets.data.join("Maps"), "map"),
-            list_files(&user_dir().join("saves"), "osiris"),
+            list_files(&self.saves_dir(), "osiris"),
             load_rules(),
+            self.family.clone(),
+            family_text(&self.assets),
         ))
     }
 
@@ -274,11 +413,17 @@ impl App {
                 return;
             }
             menu::Choice::Mission(n) => new_world(&self.assets, &Source::Mission(*n)).map(|w| (w, Some(*n))),
+            menu::Choice::Family(name) => {
+                self.family = name.clone();
+                choose_family(&self.family);
+                self.screen = Some(Screen::Menu(self.menu()));
+                return;
+            }
             menu::Choice::Path(path) => {
                 // The city is chosen: on to its first mission.
-                let mut p = load_progress(&self.assets.campaign);
+                let mut p = load_progress(&self.assets.campaign, &self.family);
                 p.choose(&self.assets.campaign, *path);
-                save_progress(&p);
+                save_progress(&p, &self.family);
                 match p.next {
                     progress::Next::Mission(m) => {
                         self.choose(menu::Choice::Mission(m), event_loop);
@@ -326,13 +471,13 @@ impl App {
         }
     }
 
-    fn save_path(game: &game::Game) -> PathBuf {
-        user_dir().join("saves").join(format!("{}.osiris", sanitize(&game.world.scenario_name)))
+    fn save_path(&self, game: &game::Game) -> PathBuf {
+        self.saves_dir().join(format!("{}.osiris", sanitize(&game.world.scenario_name)))
     }
 
     fn quicksave(&mut self) {
         let Some(Screen::Playing(game, _)) = &self.screen else { return };
-        let path = Self::save_path(game);
+        let path = self.save_path(game);
         let result = game.world.save().map_err(anyhow::Error::msg).and_then(|b| Ok(std::fs::write(&path, b)?));
         let msg = match result {
             Ok(()) => format!("Saved {}", path.file_stem().unwrap_or_default().to_string_lossy()),
@@ -343,7 +488,7 @@ impl App {
 
     fn quickload(&mut self) {
         let Some(Screen::Playing(game, _)) = &self.screen else { return };
-        let path = Self::save_path(game);
+        let path = self.save_path(game);
         match load_game(&self.assets, &path) {
             Ok(world) => {
                 let m = world.mission.as_ref().map(|m| m.id as usize);
@@ -355,7 +500,7 @@ impl App {
     }
 }
 
-fn sanitize(name: &str) -> String {
+pub fn sanitize(name: &str) -> String {
     let s: String = name.chars().map(|c| if c.is_alphanumeric() || c == ' ' { c } else { '_' }).collect();
     s.trim().to_owned()
 }
@@ -390,7 +535,15 @@ impl ApplicationHandler for App {
                     self.screen = Some(Screen::Menu(self.menu()));
                 }
             },
-            None => self.screen = Some(Screen::Menu(self.menu())),
+            None => {
+                let mut menu = self.menu();
+                if self.family.is_empty() {
+                    // No family chosen yet (or this is a fresh install): gate on the
+                    // registry before the rest of the menu is reachable.
+                    menu.open_page("family");
+                }
+                self.screen = Some(Screen::Menu(menu));
+            }
         }
         if let Some(a) = &self.audio {
             a.update_music(0);
@@ -421,14 +574,14 @@ impl ApplicationHandler for App {
                     KeyCode::F5 => self.quicksave(),
                     KeyCode::F9 => self.quickload(),
                     _ => match &mut self.screen {
-                        Some(Screen::Menu(m)) if m.editing_name => {
+                        Some(Screen::Menu(m)) if m.wants_text() => {
                             let text = match code {
                                 KeyCode::Backspace => Some("\u{8}".to_owned()),
                                 KeyCode::Enter | KeyCode::NumpadEnter => Some("\n".to_owned()),
                                 _ => event.text.as_ref().map(|t| t.to_string()),
                             };
                             if let Some(t) = text {
-                                m.type_name(&t);
+                                m.type_family_name(&t);
                             }
                         }
                         Some(Screen::Menu(m)) if code == KeyCode::Escape => m.back(),
@@ -610,9 +763,9 @@ impl App {
         }
         if let Some(mission) = finished {
             if let Some(m) = mission {
-                let mut p = load_progress(&self.assets.campaign);
+                let mut p = load_progress(&self.assets.campaign, &self.family);
                 p.won(&self.assets.campaign, m);
-                save_progress(&p);
+                save_progress(&p, &self.family);
             }
             let mut menu = self.menu();
             if mission.is_some() {
@@ -717,6 +870,7 @@ fn main() -> Result<()> {
         )
     })?;
     let assets = load_assets(&args.data, &library)?;
+    migrate_legacy_family();
 
     if let Some(out) = &args.screenshot {
         let source = match &args.map {
@@ -736,7 +890,16 @@ fn main() -> Result<()> {
             while let progress::Next::Mission(m) = p.next {
                 p.won(c, m);
             }
-            let mut menu = menu::Menu::new(assets.mission_names.clone(), campaign_view(&assets, &p), list_files(&assets.data.join("Maps"), "map"), vec![], Default::default());
+            let family = load_current_family();
+            let mut menu = menu::Menu::new(
+                assets.mission_names.clone(),
+                campaign_view(&assets, &p),
+                list_files(&assets.data.join("Maps"), "map"),
+                vec![],
+                Default::default(),
+                family,
+                family_text(&assets),
+            );
             if let Some(page) = &view.menu_page {
                 menu.open_page(page);
             }
@@ -815,6 +978,7 @@ fn main() -> Result<()> {
         keys: Default::default(),
         last_frame: std::time::Instant::now(),
         status: None,
+        family: load_current_family(),
     };
     event_loop.run_app(&mut app)?;
     Ok(())
