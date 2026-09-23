@@ -148,32 +148,33 @@ impl World {
             .map(|(_, id)| id)
     }
 
-    /// Daily: towers without a sentry get one from a staffed recruiter.
-    pub(crate) fn man_towers(&mut self) {
-        let recruiter = self.buildings.iter().find(|b| b.kind == crate::military::RECRUITER && b.workers > 0 && b.road.is_some()).and_then(|b| b.road);
-        let Some(from) = recruiter else { return };
-        let towers: Vec<(BuildingId, (i32, i32))> = self
-            .buildings
-            .iter()
-            .filter(|b| is_tower(b.kind) && b.workers > 0 && b.walkers[0] == 0)
-            .map(|b| (b.id, (b.x, b.y)))
-            .collect();
-        for (tower, (tx, ty)) in towers {
-            let fid = self.figures.spawn(TOWER_SENTRY, from.0, from.1, Travel::Land);
-            let map = &self.map;
-            let Some(f) = self.figures.get_mut(fid) else { continue };
-            f.home = tower;
-            f.action = 1;
-            // Up onto the tower: the sentry walks to its foot, then stands on it.
-            let foot = [(tx - 1, ty), (tx, ty - 1), (tx + 2, ty), (tx, ty + 2), (tx - 1, ty + 1), (tx + 1, ty - 1)]
-                .into_iter()
-                .find(|&(x, y)| crate::figures::passable(map, Travel::Land, x, y));
-            if !foot.is_some_and(|p| f.go_to(map, p)) {
-                f.dead = true;
-                continue;
-            }
-            self.buildings.get_mut(tower).expect("present").walkers[0] = fid;
+    /// The first staffed tower without a sentry, if any.
+    pub(crate) fn tower_wanting_sentry(&self) -> Option<BuildingId> {
+        self.buildings.iter().find(|b| is_tower(b.kind) && b.workers > 0 && b.walkers[0] == 0).map(|b| b.id)
+    }
+
+    /// When its turn to enlist comes, a recruiter sends a sentry to a staffed tower
+    /// that lacks one before it raises a soldier (as the original does). True if it
+    /// sent one.
+    pub(crate) fn man_a_tower(&mut self, recruiter: BuildingId) -> bool {
+        let Some(from) = self.buildings.get(recruiter).and_then(|b| b.road) else { return false };
+        let Some(tower) = self.tower_wanting_sentry() else { return false };
+        let Some((tx, ty)) = self.buildings.get(tower).map(|b| (b.x, b.y)) else { return false };
+        let fid = self.figures.spawn(TOWER_SENTRY, from.0, from.1, Travel::Land);
+        let map = &self.map;
+        let Some(f) = self.figures.get_mut(fid) else { return true };
+        f.home = tower;
+        f.action = 1;
+        // Up onto the tower: the sentry walks to its foot, then stands on it.
+        let foot = [(tx - 1, ty), (tx, ty - 1), (tx + 2, ty), (tx, ty + 2), (tx - 1, ty + 1), (tx + 1, ty - 1)]
+            .into_iter()
+            .find(|&(x, y)| crate::figures::passable(map, Travel::Land, x, y));
+        if !foot.is_some_and(|p| f.go_to(map, p)) {
+            f.dead = true;
+            return true;
         }
+        self.buildings.get_mut(tower).expect("present").walkers[0] = fid;
+        true
     }
 
     /// A sentry climbs his tower and throws javelins at invaders in range.

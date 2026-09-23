@@ -24,7 +24,6 @@ impl World {
                 self.update_house_health();
                 self.update_crime();
                 self.update_recruiters();
-                self.man_towers();
                 self.check_siege();
             }
             7 => {

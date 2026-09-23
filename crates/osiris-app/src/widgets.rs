@@ -21,6 +21,19 @@ pub struct UiImages {
     pub portraits: u32,
     /// A company's experience rank, Green to The best (Pharaoh_General group 2).
     pub experience_icons: u32,
+    /// The company window's order buttons for infantry, archers and charioteers
+    /// (Pharaoh_Unloaded groups 34-36): four orders, return to fort, and its greyed
+    /// frame; the charioteers' greyed charge last.
+    pub company_orders: [u32; 3],
+    /// The companies' emblems, one per company name (Pharaoh_General group 127).
+    pub company_emblems: u32,
+    /// The standards' flags: infantry, archers, chariots, nine frames each, the
+    /// last hanging still (Pharaoh_General group 126).
+    pub company_flags: u32,
+    /// The standard's pole with its morale ball, highest first (Pharaoh_General 54).
+    pub standard_pole: u32,
+    /// The standard's experience ball, top of the pole first (Pharaoh_General 224).
+    pub experience_ball: u32,
 }
 
 impl UiImages {
@@ -33,6 +46,11 @@ impl UiImages {
             advisor_buttons: lib.group_id("Pharaoh_General", 106, 0)?,
             portraits: lib.group_id("Pharaoh_Unloaded", 25, 0)?,
             experience_icons: lib.group_id("Pharaoh_General", 2, 0)?,
+            company_orders: [lib.group_id("Pharaoh_Unloaded", 34, 0)?, lib.group_id("Pharaoh_Unloaded", 35, 0)?, lib.group_id("Pharaoh_Unloaded", 36, 0)?],
+            company_emblems: lib.group_id("Pharaoh_General", 127, 0)?,
+            company_flags: lib.group_id("Pharaoh_General", 126, 0)?,
+            standard_pole: lib.group_id("Pharaoh_General", 54, 0)?,
+            experience_ball: lib.group_id("Pharaoh_General", 224, 0)?,
         })
     }
 }

@@ -65,8 +65,8 @@ pub const FORT_INFANTRY: u16 = 45;
 pub const FORT_GROUND: u16 = 54;
 pub const RECRUITER: u16 = 95;
 const ACADEMIES: [u16; 3] = [94, 185, 186];
-const WEAPONS: u16 = 10;
-const CHARIOTS: u16 = 28;
+pub const WEAPONS: u16 = 10;
+pub const CHARIOTS: u16 = 28;
 
 /// What a recruiter must hand a new soldier of `kind`, if anything.
 fn outfit(kind: u16) -> Option<u16> {
@@ -234,6 +234,19 @@ pub struct Company {
     /// marched.
     #[serde(default)]
     pub facing: u8,
+    /// The company window's "rotate the line" switch: the next tight or loose
+    /// formation ordered is turned.
+    #[serde(default)]
+    pub rotate: bool,
+    /// Whether the tight or loose line the company holds was turned when ordered.
+    #[serde(default)]
+    pub turned: bool,
+    /// Charioteers who have charged can't charge again until their horses have had
+    /// [`CHARGE_REST`] soldier-turns to recover.
+    #[serde(default)]
+    pub charged: bool,
+    #[serde(default)]
+    pub charge_rest: i32,
 }
 
 impl Company {
@@ -255,6 +268,10 @@ const REST_PER_WIND: u64 = 2;
 fn full_wind() -> i32 {
     WIND
 }
+
+/// After a charge, the turns its men must take (each soldier's turn counts) before
+/// the company can charge again, as the original counts them.
+const CHARGE_REST: i32 = 2000;
 
 /// A company's standing orders. (The original keeps them as a number: tight 1 or 2
 /// and loose 3 or 4, by which way the line is turned; engage 15, mop up 6, charge 0.)
@@ -397,6 +414,21 @@ fn battle_losses(advantage_pct: i32) -> i32 {
     }
 }
 
+/// Days a recruiter waits between recruits, by how well it is staffed (the
+/// original's table); none without staff.
+fn recruit_delay(workers: i32, needed: i32) -> Option<i32> {
+    if workers <= 0 {
+        return None;
+    }
+    Some(match workers * 100 / needed.max(1) {
+        p if p >= 100 => 8,
+        p if p >= 75 => 12,
+        p if p >= 50 => 16,
+        p if p >= 25 => 32,
+        _ => 48,
+    })
+}
+
 /// The fort kinds and the soldiers they hold.
 pub fn fort_soldier(k: u16) -> Option<u16> {
     match k {
@@ -411,22 +443,44 @@ pub fn is_soldier(k: u16) -> bool {
     matches!(k, ARCHER | CHARIOTEER | INFANTRY)
 }
 
-/// Where a soldier stands in a company's double line around its standard, or on the
-/// parade ground at rest.
-fn slot_offset(slot: u8, order: Order) -> (i32, i32) {
-    let s = slot as i32;
+/// Where each of a company's sixteen men stands relative to its standard, by the
+/// original's formation layouts: the charge's close block; the tight double line,
+/// across or turned; the loose staggered line, across or turned; and mopping up,
+/// engaging and at rest on the parade ground, each a four-by-four block (the
+/// original's layouts 0, 1-4, 6, 15 and 7).
+const LAYOUTS: [[(i8, i8); COMPANY_SIZE]; 8] = [
+    [(0, 0), (1, 0), (0, 1), (1, 1), (-1, 0), (-1, 1), (0, -1), (1, -1), (-1, -1), (2, -1), (2, 0), (2, 1), (0, 2), (1, 2), (-1, 2), (2, 2)],
+    [(0, 0), (0, 1), (-1, 0), (1, 0), (-1, 1), (1, 1), (-2, 0), (-2, 1), (2, 0), (2, 1), (-3, 0), (-3, 1), (3, 0), (3, 1), (-4, 0), (-4, 1)],
+    [(0, 0), (0, -1), (0, 1), (1, 0), (1, -1), (1, 1), (0, -2), (1, -2), (0, 2), (1, 2), (0, -3), (1, -3), (0, 3), (1, 3), (0, -4), (1, -4)],
+    [(0, 0), (2, 0), (-2, 0), (1, 1), (-1, 1), (3, 1), (-3, 1), (4, 0), (-4, 0), (5, 1), (6, 0), (-5, 1), (-6, 0), (7, 1), (8, 0), (-7, 1)],
+    [(0, 0), (0, -2), (0, 2), (1, -1), (1, 1), (1, -3), (1, 3), (0, -4), (0, 4), (1, -5), (0, -6), (1, 5), (0, 6), (1, -7), (0, -8), (1, 7)],
+    [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (2, 1), (1, 2), (0, 2), (2, 2), (3, 0), (3, 1), (3, 2), (1, 3), (2, 3), (0, 3), (3, 3)],
+    [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (2, 1), (1, 2), (0, 2), (2, 2), (3, 0), (3, 1), (3, 2), (1, 3), (2, 3), (0, 3), (3, 3)],
+    [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (2, 1), (1, 2), (0, 2), (2, 2), (3, 0), (3, 1), (3, 2), (1, 3), (2, 3), (0, 3), (3, 3)],
+];
+
+/// The row of [`LAYOUTS`] a company in the field stands in: by its orders, and for
+/// the held lines by which way the line was turned when they were given.
+fn layout(order: Order, turned: bool) -> usize {
     match order {
-        // Four abreast, four deep.
-        Order::HoldTight => (s % 4 - 2, s / 4 - 2),
-        // Spread out, a tile between each man.
-        Order::HoldLoose => (2 * (s % 4) - 4, 2 * (s / 4) - 4),
-        _ => (s % 8 - 4, s / 8),
+        Order::Charge => 0,
+        Order::HoldTight => 1 + turned as usize,
+        Order::HoldLoose => 3 + turned as usize,
+        Order::MopUp => 5,
+        Order::Engage => 6,
     }
 }
 
+/// Where a soldier stands around his company's standard.
+fn slot_offset(slot: u8, order: Order, turned: bool) -> (i32, i32) {
+    let (dx, dy) = LAYOUTS[layout(order, turned)][slot as usize % COMPANY_SIZE];
+    (dx as i32, dy as i32)
+}
+
+/// A soldier's place on the parade ground at rest.
 fn ground_slot(ground: (i32, i32), slot: u8) -> (i32, i32) {
-    let s = slot as i32;
-    (ground.0 + s % 4, ground.1 + s / 4)
+    let (dx, dy) = LAYOUTS[7][slot as usize % COMPANY_SIZE];
+    (ground.0 + dx as i32, ground.1 + dy as i32)
 }
 
 impl World {
@@ -497,67 +551,109 @@ impl World {
         }
     }
 
-    /// Daily: each staffed recruiter with a hundred weapons turns them into a soldier
-    /// for the nearest fort short of men.
+    /// Daily: each recruiter with road access and staff counts the days to its next
+    /// recruit, fewer the better staffed it is (the original's table: 8 days at full
+    /// strength up to 48 with a skeleton staff), and then sends a sentry to a tower
+    /// that lacks one or, failing that, a soldier to a fort.
     pub(crate) fn update_recruiters(&mut self) {
-        let recruiters: Vec<BuildingId> = self.buildings.iter().filter(|b| b.kind == RECRUITER && b.workers > 0 && b.road.is_some()).map(|b| b.id).collect();
+        let recruiters: Vec<BuildingId> = self.buildings.iter().filter(|b| b.kind == RECRUITER && b.road.is_some()).map(|b| b.id).collect();
         for r in recruiters {
             let Some(b) = self.buildings.get(r) else { continue };
-            let (rx, ry) = (b.x, b.y);
-            let road = b.road.expect("checked");
-            let has = |res: u16| b.stock.get(res as usize).copied().unwrap_or(0) >= crate::economy::LOAD;
-            // The nearest fort short of men whom this recruiter can outfit.
-            let needing = self
-                .military
-                .companies
-                .iter()
-                .enumerate()
-                .filter(|(_, c)| c.fort != 0 && c.soldiers.len() + c.recruits.len() + (c.abroad as usize) < COMPANY_SIZE)
-                .filter(|(_, c)| outfit(c.kind).is_none_or(has))
-                .filter_map(|(i, c)| self.buildings.get(c.fort).map(|f| (i, (f.x - rx).abs() + (f.y - ry).abs())))
-                .min_by_key(|&(_, d)| d)
-                .map(|(i, _)| i);
-            let Some(c) = needing else { continue };
-            if let Some(res) = outfit(self.military.companies[c].kind) {
-                self.buildings.get_mut(r).expect("present").stock[res as usize] -= crate::economy::LOAD;
+            let Some(delay) = recruit_delay(b.workers, self.workers_needed(b.kind)) else { continue };
+            let b = self.buildings.get_mut(r).expect("present");
+            b.spawn_delay += 1;
+            if b.spawn_delay <= delay {
+                continue;
             }
-            let company = &self.military.companies[c];
-            let kind = company.kind;
-            let used: Vec<u8> = company.soldiers.iter().chain(&company.recruits).filter_map(|&s| self.figures.get(s).map(|f| f.slot)).collect();
-            let slot = (0..COMPANY_SIZE as u8).find(|s| !used.contains(s)).unwrap_or(0);
-            let fid = self.figures.spawn(kind, road.0, road.1, Travel::Land);
-            if let Some(f) = self.figures.get_mut(fid) {
-                f.formation = c as u16 + 1;
-                f.slot = slot;
-                f.home = self.military.companies[c].fort;
+            b.spawn_delay = 0;
+            if !self.man_a_tower(r) {
+                self.recruit(r);
             }
-            self.military.companies[c].recruits.push(fid);
-            // A recruit trains at a military academy on his way, if one is half staffed.
-            let academy = self
-                .buildings
-                .iter()
-                .filter(|a| ACADEMIES.contains(&a.kind) && a.road.is_some() && a.workers * 2 >= self.workers_needed(a.kind).max(1))
-                .min_by_key(|a| (a.x - rx).abs() + (a.y - ry).abs())
-                .and_then(|a| a.road);
-            // He brings his training, and Seth's favour, to the company's experience.
-            let brings = if academy.is_some() { ACADEMY_EXPERIENCE } else { 0 } + if self.complex_blessing(crate::temple_complex::SETH, 0) { SETH_EXPERIENCE } else { 0 };
-            let co = &mut self.military.companies[c];
-            let n = (co.soldiers.len() + co.recruits.len()) as i32 + co.abroad;
-            co.experience = with_recruit(co.experience, n, brings);
-            let map = &self.map;
-            let training = match (academy, self.figures.get_mut(fid)) {
-                (Some(to), Some(f)) => {
-                    let ok = f.go_to(map, to);
-                    if ok {
-                        f.action = action::GOING_TO_ACADEMY;
-                    }
-                    ok
+        }
+    }
+
+    /// Whether this recruiter would enlist anyone: some fort is short of men it
+    /// can outfit, or a tower lacks a sentry.
+    pub fn recruits_wanted(&self, recruiter: BuildingId) -> bool {
+        self.company_to_recruit(recruiter).is_some() || self.tower_wanting_sentry().is_some()
+    }
+
+    /// The company a recruiter enlists for next: of the companies at their forts
+    /// (not in the field, nor away fighting for the Kingdom) and short of men whom
+    /// it can outfit, charioteers first, then infantry, then archers, and of those
+    /// the one whose fort is nearest.
+    fn company_to_recruit(&self, recruiter: BuildingId) -> Option<usize> {
+        let b = self.buildings.get(recruiter)?;
+        let has = |res: u16| b.stock.get(res as usize).copied().unwrap_or(0) > 0;
+        let away = self.military.battle.as_ref().map_or(&[][..], |battle| &battle.companies[..]);
+        self.military
+            .companies
+            .iter()
+            .enumerate()
+            .filter(|&(i, c)| c.fort != 0 && c.at_fort && c.abroad == 0 && !away.contains(&i))
+            .filter(|(_, c)| c.soldiers.len() + c.recruits.len() < COMPANY_SIZE)
+            .filter(|(_, c)| outfit(c.kind).is_none_or(has))
+            .filter_map(|(i, c)| {
+                let f = self.buildings.get(c.fort)?;
+                let priority = match c.kind {
+                    CHARIOTEER => 3,
+                    INFANTRY => 2,
+                    _ => 1,
+                };
+                Some((i, priority, (f.x - b.x).abs().max((f.y - b.y).abs())))
+            })
+            .max_by_key(|&(i, priority, distance)| (priority, std::cmp::Reverse(distance), std::cmp::Reverse(i)))
+            .map(|(i, _, _)| i)
+    }
+
+    /// A recruiter enlists a soldier, if some fort wants one: he takes a load of
+    /// weapons (infantry) or chariots (charioteers) from its store, walks out of
+    /// its door to the nearest fully staffed military academy to the fort if there
+    /// is one, and on to his place on the fort's parade ground.
+    fn recruit(&mut self, recruiter: BuildingId) {
+        let Some(c) = self.company_to_recruit(recruiter) else { return };
+        let Some(road) = self.buildings.get(recruiter).and_then(|b| b.road) else { return };
+        if let Some(res) = outfit(self.military.companies[c].kind) {
+            let stock = &mut self.buildings.get_mut(recruiter).expect("present").stock[res as usize];
+            *stock = (*stock - crate::economy::LOAD).max(0);
+        }
+        let company = &self.military.companies[c];
+        let kind = company.kind;
+        let used: Vec<u8> = company.soldiers.iter().chain(&company.recruits).filter_map(|&s| self.figures.get(s).map(|f| f.slot)).collect();
+        let slot = (0..COMPANY_SIZE as u8).find(|s| !used.contains(s)).unwrap_or(0);
+        let fid = self.figures.spawn(kind, road.0, road.1, Travel::Land);
+        if let Some(f) = self.figures.get_mut(fid) {
+            f.formation = c as u16 + 1;
+            f.slot = slot;
+            f.home = self.military.companies[c].fort;
+        }
+        self.military.companies[c].recruits.push(fid);
+        let fort = self.buildings.get(self.military.companies[c].fort).map_or((road.0, road.1), |f| (f.x, f.y));
+        let academy = self
+            .buildings
+            .iter()
+            .filter(|a| ACADEMIES.contains(&a.kind) && a.workers >= self.workers_needed(a.kind))
+            .min_by_key(|a| ((a.x - fort.0).abs().max((a.y - fort.1).abs()), a.id))
+            .map(|a| a.road);
+        // He brings his training, and Seth's favour, to the company's experience,
+        // even if the academy has no road to call at.
+        let brings = if academy.is_some() { ACADEMY_EXPERIENCE } else { 0 } + if self.complex_blessing(crate::temple_complex::SETH, 0) { SETH_EXPERIENCE } else { 0 };
+        let co = &mut self.military.companies[c];
+        let n = (co.soldiers.len() + co.recruits.len()) as i32 + co.abroad;
+        co.experience = with_recruit(co.experience, n, brings);
+        let map = &self.map;
+        let training = match (academy.flatten(), self.figures.get_mut(fid)) {
+            (Some(to), Some(f)) => {
+                let ok = f.go_to(map, to);
+                if ok {
+                    f.action = action::GOING_TO_ACADEMY;
                 }
-                _ => false,
-            };
-            if !training {
-                self.send_to_post(fid);
+                ok
             }
+            _ => false,
+        };
+        if !training {
+            self.send_to_post(fid);
         }
     }
 
@@ -570,7 +666,7 @@ impl World {
             let g = self.buildings.get(c.ground)?;
             Some(ground_slot((g.x, g.y), f.slot))
         } else {
-            let (dx, dy) = slot_offset(f.slot, c.order);
+            let (dx, dy) = slot_offset(f.slot, c.order, c.turned);
             Some((c.standard_tile.0 + dx, c.standard_tile.1 + dy))
         }
     }
@@ -589,27 +685,77 @@ impl World {
         }
     }
 
-    /// Orders a company out to form up around `tile`.
-    pub fn move_company(&mut self, company: usize, tile: (i32, i32)) {
-        let from = self.military.companies.get(company).and_then(|c| self.figures.get(c.standard)).map(|f| (f.x, f.y));
-        let Some(c) = self.military.companies.get_mut(company) else { return };
+    /// Orders a company out to form up around `tile`. False, and nothing done, when
+    /// its standard can't get there ("This company cannot reach its intended
+    /// destination"). Charioteers under orders to charge set off at the charge,
+    /// and must rest their horses before charging again.
+    pub fn move_company(&mut self, company: usize, tile: (i32, i32)) -> bool {
+        let Some(standard) = self.military.companies.get(company).map(|c| c.standard) else { return false };
+        let from = self.figures.get(standard).map(|f| (f.x, f.y));
+        let map = &self.map;
+        let reached = match self.figures.get_mut(standard) {
+            Some(f) if (f.x, f.y) == tile => true,
+            Some(f) => f.go_to(map, tile),
+            None => false,
+        };
+        if !reached {
+            return false;
+        }
+        if let Some(f) = self.figures.get_mut(standard) {
+            f.action = action::GOING_TO_STANDARD;
+        }
+        let c = &mut self.military.companies[company];
         // It faces the way it marches.
         if let Some(d) = from.and_then(|from| general_direction(from, tile)) {
             c.facing = d;
         }
+        if c.order == Order::Charge && !c.charged {
+            c.charged = true;
+            c.charge_rest = 0;
+        }
         c.at_fort = false;
         c.standard_tile = tile;
-        let (standard, soldiers) = (c.standard, c.soldiers.clone());
-        let map = &self.map;
-        if let Some(f) = self.figures.get_mut(standard) {
-            f.action = action::GOING_TO_STANDARD;
-            f.go_to(map, tile);
-        }
+        let soldiers = c.soldiers.clone();
         for s in soldiers {
             if self.figures.get(s).is_some_and(|f| f.action != action::ATTACK) {
                 self.send_to_post(s);
             }
         }
+        true
+    }
+
+    /// The company window's switch that turns the line of the next tight or loose
+    /// formation ordered.
+    pub fn rotate_line(&mut self, company: usize) {
+        if let Some(c) = self.military.companies.get_mut(company) {
+            c.rotate = !c.rotate;
+        }
+    }
+
+    /// The men a company counts: those with it, those on their way from the
+    /// recruiter, and those away fighting for the Kingdom.
+    pub fn company_men(&self, company: usize) -> usize {
+        self.military.companies.get(company).map_or(0, |c| c.soldiers.len() + c.recruits.len() + c.abroad.max(0) as usize)
+    }
+
+    /// The wounds a company's men carry, as a percentage of all their hit points
+    /// (0 when unhurt).
+    pub fn company_wounds(&self, company: usize) -> i32 {
+        let Some(c) = self.military.companies.get(company) else { return 0 };
+        let (mut damage, mut hp) = (0, 0);
+        for &s in c.soldiers.iter().chain(&c.recruits) {
+            if let Some(f) = self.figures.get(s) {
+                damage += f.damage.max(0);
+                hp += self.fighter_stats(s).hp.max(0);
+            }
+        }
+        if hp > 0 { damage * 100 / hp } else { 0 }
+    }
+
+    /// Whether a company's standard is planted (its flag hangs still), rather than
+    /// on the move.
+    pub fn company_halted(&self, company: usize) -> bool {
+        self.military.companies.get(company).and_then(|c| self.figures.get(c.standard)).is_some_and(|f| !f.moving)
     }
 
     /// Orders a company back to its fort.
@@ -644,6 +790,16 @@ impl World {
         if act == action::CORPSE {
             self.update_corpse(fid);
             return;
+        }
+        // Charged horses recover a little with each man's turn.
+        if let Some(c) = self.company_of(fid).and_then(|c| self.military.companies.get_mut(c))
+            && c.charged
+        {
+            c.charge_rest += 1;
+            if c.charge_rest > CHARGE_REST {
+                c.charged = false;
+                c.charge_rest = 0;
+            }
         }
         // Recruits join the company when they reach it.
         if let Some(c) = self.company_of(fid)
@@ -895,10 +1051,18 @@ impl World {
         Some(Line { kind: c.kind, order: c.order, facing })
     }
 
-    /// Changes a company's orders; its men re-form at their new places.
+    /// Changes a company's orders; its men re-form at their new places. A tight or
+    /// loose line is turned if the company's rotate switch is on. Charioteers can't
+    /// be ordered to charge while their horses recover from the last.
     pub fn set_order(&mut self, company: usize, order: Order) {
         let Some(c) = self.military.companies.get_mut(company) else { return };
+        if order == Order::Charge && (c.kind != CHARIOTEER || c.charged) {
+            return;
+        }
         c.order = order;
+        if matches!(order, Order::HoldTight | Order::HoldLoose) {
+            c.turned = c.rotate;
+        }
         if c.at_fort {
             return;
         }
@@ -1233,6 +1397,25 @@ mod tests {
         assert_eq!((loose.missile_armor(), loose.armor(), loose.attack()), (4, 0, 0));
         assert!(toward(0, 7) && toward(7, 0) && toward(3, 3) && !toward(0, 2) && !toward(6, 0));
         assert_eq!((general_direction((0, 0), (1, -9)), general_direction((0, 0), (5, -4)), general_direction((0, 0), (-9, 2))), (Some(0), Some(1), Some(6)));
+    }
+
+    #[test]
+    fn recruiters_wait_by_staffing() {
+        // The recruiter (10 workers) waits 8 days full, up to 48 with one man.
+        assert_eq!([10, 8, 5, 3, 1, 0].map(|w| recruit_delay(w, 10)), [Some(8), Some(12), Some(16), Some(32), Some(48), None]);
+    }
+
+    #[test]
+    fn formations_place_every_man_once() {
+        for (i, row) in LAYOUTS.iter().enumerate() {
+            let mut seen = row.to_vec();
+            seen.sort();
+            seen.dedup();
+            // Every layout gives each man his own tile.
+            assert_eq!(seen.len(), COMPANY_SIZE, "layout {i}");
+        }
+        assert_eq!(slot_offset(15, Order::HoldTight, true), (1, -4));
+        assert_eq!(slot_offset(14, Order::HoldLoose, false), (8, 0));
     }
 
     #[test]

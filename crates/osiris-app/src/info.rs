@@ -31,13 +31,15 @@ pub enum Target {
     Tile(i32, i32),
     /// Up to seven walkers on the clicked tile, and the one shown.
     Figures([u32; 7], u8, u8),
+    /// A company, opened from one of its soldiers or its standard.
+    Company(usize),
 }
 
 /// What the window asks of the game.
 pub enum InfoAction {
     Close,
     Overseer(crate::advisors::Advisor),
-    /// Take command of a company.
+    /// Take command of a company: the next map click sends it there.
     SelectCompany(usize),
 }
 
@@ -78,6 +80,15 @@ impl InfoPanel {
         self.scroll = (self.scroll as i32 + lines).max(0) as usize;
     }
 
+    /// The company to take command of when this window is closed by a right-click:
+    /// as in the original, closing a company's window with men in it (unless they
+    /// are mopping up) lets the player click where to send them.
+    pub fn company_on_close(&self, world: &World) -> Option<usize> {
+        let Target::Company(c) = self.target else { return None };
+        let co = world.military.companies.get(c)?;
+        (world.company_men(c) > 0 && co.order != osiris_sim::military::Order::MopUp).then_some(c)
+    }
+
     /// Right-click: closes the orders window, else the whole window.
     pub fn back(&mut self) -> bool {
         if self.orders {
@@ -107,6 +118,7 @@ impl InfoPanel {
                 }
                 action
             }
+            Target::Company(c) => self.company_window(ui, world, c),
         };
         if self.orders {
             ui.click = orders_click;
@@ -132,64 +144,212 @@ impl InfoPanel {
         ([x, y], closed)
     }
 
-    /// A fort: its company's name, soldiers and morale, and orders for it.
-    fn fort_window(&mut self, ui: &mut Ui, world: &mut World, b: &Building) -> Option<InfoAction> {
-        const G: usize = 138;
-        let company = world.military.companies.iter().position(|c| c.fort == b.id || c.ground == b.id);
-        let Some(c) = company else { return Some(InfoAction::Close) };
-        let title = ui.t(G, c % 10).trim_matches('"').to_owned();
-        let ([x, y], closed) = self.frame(ui, 28, 26, &title);
-        let co = world.military.companies[c].clone();
-        panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 44.0, 26, 9);
-        let arm = ui.t(G, match co.kind {
-            osiris_sim::military::CHARIOTEER => 33,
-            osiris_sim::military::ARCHER => 35,
-            _ => 34,
-        });
-        let count = format!("{} {} ({})", ui.t(G, 23), co.soldiers.len(), arm);
-        ui.label(Font::NormalWhiteOnDark, &count, x + 32.0, y + 56.0);
-        let morale = format!("{} {}", ui.t(G, 36), ui.t(G, 37 + (co.morale / 5).clamp(0, 20) as usize));
-        ui.label(Font::NormalWhiteOnDark, &morale, x + 32.0, y + 78.0);
-        // Experience: its rank's icon and name.
-        let rank = osiris_sim::military::experience_rank(co.experience);
-        let experience = ui.t(G, 25);
-        ui.label(Font::NormalWhiteOnDark, &experience, x + 32.0, y + 100.0);
-        ui.image(ui.img.experience_icons + rank as u32, x + 200.0, y + 96.0);
-        let rank = ui.t(G, 60 + rank);
-        ui.label(Font::NormalWhiteOnDark, &rank, x + 232.0, y + 100.0);
-        if co.soldiers.is_empty() {
-            let none = ui.t(G, 10);
-            ui.wrapped(Font::NormalWhiteOnDark, &none, x + 32.0, y + 126.0, 24.0 * 16.0);
+    /// A fort (or its parade ground): the original shows only what forts are for,
+    /// or that Seth has cursed it. Its company's window opens from its soldiers and
+    /// its standard.
+    fn fort_window(&mut self, ui: &mut Ui) -> Option<InfoAction> {
+        const G: usize = 89;
+        let title = ui.t(G, 0);
+        let ([x, y], closed) = self.frame(ui, 29, 16, "");
+        ui.centred(Font::LargeBlackOnLight, &title, x, y + 10.0, 29.0 * 16.0);
+        let text = ui.t(G, 2);
+        ui.wrapped(Font::NormalBlackOnLight, &text, x + 32.0, y + 16.0 * 16.0 - 158.0, 25.0 * 16.0);
+        closed.then_some(InfoAction::Close)
+    }
+
+    /// The recruiter: its weapons and chariots in store, and how fast it trains
+    /// recruits, by its staff, its weapons and whether any fort or tower wants men.
+    fn recruiter_window(&mut self, ui: &mut Ui, world: &World, b: &Building) -> Option<InfoAction> {
+        const G: usize = 136;
+        let title = ui.t(G, 0);
+        let ([x, y], closed) = self.frame(ui, 29, 16, "");
+        ui.centred(Font::LargeBlackOnLight, &title, x, y + 10.0, 29.0 * 16.0);
+        let stored = |r: u16| b.stock.get(r as usize).copied().unwrap_or(0);
+        let (weapons, chariots) = (osiris_sim::military::WEAPONS, osiris_sim::military::CHARIOTS);
+        let mut rows = vec![(weapons, stored(weapons) / resource_load(), if stored(weapons) / resource_load() == 1 { 15 } else { 2 })];
+        if stored(chariots) != 0 {
+            rows.push((chariots, stored(chariots) / resource_load(), if stored(chariots) / resource_load() == 1 { 14 } else { 13 }));
         }
-        let mut action = closed.then_some(InfoAction::Close);
-        // Standing orders, each with its name and what it means (text 138).
-        use osiris_sim::military::Order;
-        let orders: &[(Order, usize)] = match co.kind {
-            osiris_sim::military::INFANTRY => &[(Order::HoldTight, 12), (Order::HoldLoose, 14), (Order::Engage, 16), (Order::MopUp, 18)],
-            // Charioteers can't hold a loose formation (manual, Marching Orders).
-            osiris_sim::military::CHARIOTEER => &[(Order::HoldTight, 12), (Order::Engage, 16), (Order::MopUp, 18), (Order::Charge, 20)],
-            _ => &[(Order::HoldTight, 12), (Order::HoldLoose, 14), (Order::Engage, 16), (Order::MopUp, 18)],
+        for (i, &(r, n, label)) in rows.iter().enumerate() {
+            let ry = y + 40.0 + 22.0 * i as f32;
+            ui.icon(r, x + 32.0, ry);
+            let line = format!("{} {}", n, ui.t(G, label));
+            ui.label(Font::NormalBlackOnLight, &line, x + 58.0, ry + 4.0);
+        }
+        let needed = world.workers_needed(b.kind).max(1);
+        let pct = b.workers * 100 / needed;
+        let tier = |full, two_thirds, third, least| match pct {
+            p if p >= 100 => full,
+            p if p >= 66 => two_thirds,
+            p if p >= 33 => third,
+            _ => least,
         };
-        for (i, &(order, text)) in orders.iter().enumerate() {
-            let rect = [x + 24.0, y + 196.0 + 26.0 * i as f32, 240.0, 22.0];
-            let current = co.order == order;
-            panel::button_border(ui.r, ui.panels, rect[0], rect[1], rect[2] as i32, rect[3] as i32, current);
-            let label = ui.t(G, text);
-            ui.centred(if current { Font::NormalYellow } else { Font::NormalBlackOnLight }, &label, rect[0], rect[1] + 5.0, rect[2]);
-            if ui.clicked(rect) {
+        let status = if b.road.is_none() {
+            ui.t(TEXT_FRAME, 25)
+        } else if b.workers < 1 {
+            ui.t(G, 3)
+        } else if !world.recruits_wanted(b.id) {
+            ui.t(G, 4)
+        } else if stored(weapons) < 1 {
+            ui.t(G, tier(5, 6, 7, 8))
+        } else {
+            ui.t(G, tier(9, 10, 11, 12))
+        };
+        ui.wrapped(Font::NormalBlackOnLight, &status, x + 32.0, y + 90.0, 25.0 * 16.0);
+        Self::workers(ui, world, b, x + 16.0, y + 142.0, "");
+        closed.then_some(InfoAction::Close)
+    }
+
+    /// A company, as the original lays its window out: its name and arm; its
+    /// standard (emblem, flag, and the pole with its morale and experience balls);
+    /// its strength, health, experience and morale; the four order buttons and
+    /// Return to Fort, with what the hovered (or current) one means; and the switch
+    /// that turns its line.
+    fn company_window(&mut self, ui: &mut Ui, world: &mut World, c: usize) -> Option<InfoAction> {
+        use osiris_sim::military::{self as mil, Order};
+        const G: usize = 138;
+        let Some(co) = world.military.companies.get(c).filter(|co| co.fort != 0).cloned() else { return Some(InfoAction::Close) };
+        let (wb, hb) = (29, 22);
+        let ([x, y], closed) = self.frame(ui, wb, hb, "");
+        let w = wb as f32 * 16.0;
+        let name = ui.t(G, c % 10).trim_matches('"').to_owned();
+        ui.centred(Font::LargeBlackOnLight, &name, x, y + 10.0, w);
+        // The original's window gives charioteers the infantry's banner and infantry
+        // the chariots' (its standards in the field have them the right way round).
+        let (arm, buttons, banner) = match co.kind {
+            mil::CHARIOTEER => (76, 2, 0),
+            mil::INFANTRY => (74, 0, 18),
+            _ => (75, 1, 9),
+        };
+        let subtitle = ui.t(G, arm);
+        ui.centred(Font::NormalBlackOnLight, &subtitle, x, y + 30.0, w);
+        // The standard, top to bottom, each part centred in a 40-pixel column.
+        let size = |ui: &Ui, id: u32| ui.r.record(id).map_or((0.0, 0.0), |r| (r.width as f32, r.height as f32));
+        let column = |width: f32| x + 16.0 + ((40.0 - width) / 2.0).trunc();
+        let emblem = ui.img.company_emblems + (c % 10) as u32;
+        let (ew, eh) = size(ui, emblem);
+        ui.image(emblem, column(ew), y + 16.0);
+        let flag = ui.img.company_flags + banner + if world.company_halted(c) { 8 } else { 0 };
+        let (fw, fh) = size(ui, flag);
+        ui.image(flag, column(fw), y + 16.0 + eh);
+        let pole = ui.img.standard_pole + (20 - co.morale / 5).clamp(0, 20) as u32;
+        let ball = ui.img.experience_ball + mil::experience_ball(co.experience);
+        let (pw, _) = size(ui, pole);
+        let (bw, _) = size(ui, ball);
+        ui.image(pole, column(pw), y + 16.0 + eh + fh);
+        ui.image(ball, column(bw), y + 16.0 + eh + fh);
+        // Strength, health, experience and morale.
+        let men = world.company_men(c) - co.abroad.max(0) as usize;
+        let label = ui.t(G, 23);
+        ui.label(Font::NormalBlackOnLight, &label, x + 100.0, y + 60.0);
+        ui.label(Font::NormalBlackOnLight, &men.to_string(), x + 294.0, y + 60.0);
+        let label = ui.t(G, 24);
+        ui.label(Font::NormalBlackOnLight, &label, x + 100.0, y + 80.0);
+        let health = match world.company_wounds(c) {
+            p if p < 1 => 26,
+            p if p < 21 => 27,
+            p if p < 41 => 28,
+            p if p < 56 => 29,
+            p if p < 71 => 30,
+            p if p < 91 => 31,
+            _ => 32,
+        };
+        let health = ui.t(G, health);
+        ui.label(Font::NormalBlackOnLight, &health, x + 300.0, y + 80.0);
+        let label = format!("{} {}", ui.t(G, 73), ui.t(G, 25));
+        ui.label(Font::NormalBlackOnLight, &label, x + 100.0, y + 100.0);
+        let rank = mil::experience_rank(co.experience);
+        ui.image(ui.img.experience_icons + rank as u32, x + 275.0, y + 100.0);
+        let rank = ui.t(G, 60 + rank);
+        ui.label(Font::NormalBlackOnLight, &rank, x + 300.0, y + 100.0);
+        let label = format!("{} {}", ui.t(G, 73), ui.t(G, 36));
+        ui.label(Font::NormalBlackOnLight, &label, x + 100.0, y + 120.0);
+        let morale = ui.t(G, 37 + (co.morale / 5).clamp(0, 20) as usize);
+        ui.label(Font::NormalBlackOnLight, &morale, x + 300.0, y + 120.0);
+        let mut action = closed.then_some(InfoAction::Close);
+        if men == 0 {
+            // Why the fort stands empty: the men are away or on their way, or there
+            // is no recruiter to raise them.
+            let recruiter = world.buildings.iter().any(|b| b.kind == mil::RECRUITER && b.workers > 0);
+            let why = ui.t(G, if recruiter { 10 } else { 11 });
+            ui.wrapped(Font::NormalBlackOnLight, &why, x + 32.0, y + 172.0, (wb - 4) as f32 * 16.0);
+            return action;
+        }
+        // The order buttons: hold tight, hold loose (charioteers: charge), engage,
+        // mop up, and return to fort. A held line's picture is mirrored unless the
+        // line is turned; Return to Fort's always is.
+        let chariots = co.kind == mil::CHARIOTEER;
+        let current = match co.order {
+            Order::HoldTight => Some(0),
+            Order::HoldLoose => Some(1),
+            Order::Charge if !co.charged => Some(1),
+            Order::Charge => None,
+            Order::Engage => Some(2),
+            Order::MopUp => Some(3),
+        };
+        let rect = |i: usize| [x + 19.0 + 85.0 * i as f32, y + 139.0, 84.0, 84.0];
+        let hovered = (0..5).find(|&i| ui.hot(rect(i)));
+        let base = ui.img.company_orders[buttons];
+        for i in 0..5 {
+            let r = rect(i);
+            let focus = hovered.map_or(current == Some(i), |h| h == i);
+            panel::button_border(ui.r, ui.panels, r[0], r[1], 84, 84, focus);
+            let (image, mirrored) = match i {
+                1 if chariots => (base + if co.charged { 6 } else { 1 }, false),
+                4 => (base + if co.at_fort { 5 } else { 4 }, true),
+                _ => (base + i as u32, !co.rotate),
+            };
+            ui.r.image_flipped(image, [x + 21.0 + 85.0 * i as f32, y + 141.0], [1.0; 4], osiris_render::Space::Screen, mirrored);
+        }
+        let clicked = (0..5).find(|&i| ui.clicked(rect(i)));
+        match clicked {
+            Some(4) if !co.at_fort => {
+                world.return_company(c);
+                action = Some(InfoAction::Close);
+            }
+            Some(4) | None => {}
+            Some(1) if chariots && co.charged => {}
+            Some(i) => {
+                let order = match i {
+                    0 => Order::HoldTight,
+                    1 if chariots => Order::Charge,
+                    1 => Order::HoldLoose,
+                    2 => Order::Engage,
+                    _ => Order::MopUp,
+                };
                 world.set_order(c, order);
+                // Mopping up, the company goes after the enemy by itself; for the
+                // rest the player now clicks where to send it.
+                action = Some(if order == Order::MopUp { InfoAction::Close } else { InfoAction::SelectCompany(c) });
             }
         }
-        let what = orders.iter().find(|o| o.0 == co.order).map_or(22, |o| o.1 + 1);
-        let what = ui.t(G, what);
-        ui.wrapped(Font::NormalBlackOnLight, &what, x + 276.0, y + 196.0, 10.0 * 16.0);
-        let command = format!("{} {}", ui.t(51, 1), ui.t(51, 2));
-        if !co.soldiers.is_empty() && ui.button([x + 32.0, y + 318.0, 190.0, 24.0], &command, Font::NormalBlackOnLight) {
-            action = Some(InfoAction::SelectCompany(c));
-        }
-        let home = ui.t(G, 58);
-        if !co.at_fort && ui.button([x + 236.0, y + 318.0, 190.0, 24.0], &home, Font::NormalBlackOnLight) {
-            world.return_company(c);
+        // What the hovered button, or else the current order, means.
+        panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 230.0, wb - 2, 5);
+        let standing = match co.order {
+            Order::HoldTight => 0,
+            Order::HoldLoose | Order::Charge => 1,
+            Order::Engage => 2,
+            Order::MopUp => 3,
+        };
+        let (title, text) = match hovered.unwrap_or(standing) {
+            0 => (12, 13),
+            1 if chariots => (20, 21),
+            1 => (14, 15),
+            2 => (16, 17),
+            3 => (18, 19),
+            _ => (58, 22),
+        };
+        let title = ui.t(G, title);
+        ui.label(Font::NormalYellow, &title, x + 24.0, y + 236.0);
+        let text = ui.t(G, text);
+        ui.wrapped(Font::NormalWhiteOnDark, &text, x + 24.0, y + 252.0, (wb - 4) as f32 * 16.0);
+        // The switch that turns the line.
+        let r = [x + ((wb - 20) * 16 / 2) as f32, y + (hb * 16 - 40) as f32, 320.0, 30.0];
+        panel::button_border(ui.r, ui.panels, r[0], r[1], 320, 30, ui.hot(r));
+        let rotate = ui.t(G, 77);
+        ui.centred(Font::NormalBlackOnLight, &rotate, r[0], y + ((hb - 2) * 16) as f32, 320.0);
+        if ui.clicked(r) {
+            world.rotate_line(c);
         }
         action
     }
@@ -285,7 +445,10 @@ impl InfoPanel {
             return self.monument_window(ui, world, b);
         }
         if osiris_sim::military::fort_soldier(b.kind).is_some() || b.kind == osiris_sim::military::FORT_GROUND {
-            return self.fort_window(ui, world, b);
+            return self.fort_window(ui);
+        }
+        if b.kind == osiris_sim::military::RECRUITER {
+            return self.recruiter_window(ui, world, b);
         }
         if world.is_farm(b.kind) {
             return self.farm_window(ui, world, b, g, &name);
