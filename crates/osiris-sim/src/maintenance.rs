@@ -76,6 +76,10 @@ impl World {
         }
         self.demolish(id);
         for &(x, y) in &tiles {
+            // Nothing is left standing in the river.
+            if self.map.terrain_is(x, y, terrain::WATER) {
+                continue;
+            }
             // A venue's plaza is road underneath; the road survives.
             if self.map.terrain_is(x, y, terrain::ROAD) {
                 let (mut rules, map) = self.tile_rules();

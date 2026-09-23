@@ -38,6 +38,10 @@ impl World {
                 self.update_farms();
                 self.update_venues();
             }
+            34 => {
+                self.update_shipwrights();
+                self.update_ferries();
+            }
             31 => {
                 self.generate_walkers();
                 self.send_carts();
@@ -104,6 +108,10 @@ impl World {
                 k if crate::animals::is_animal(k) => self.update_animal(fid),
                 k if crate::animals::is_hunter(k) => self.update_hunter(fid),
                 crate::farms::PEASANT => self.update_peasant(fid),
+                crate::fishing::FISHING_BOAT => self.update_fishing_boat(fid),
+                crate::docks::TRADE_SHIP => self.update_trade_ship(fid),
+                crate::docks::DOCKER => self.update_docker(fid),
+                crate::water::FERRY_BOAT => self.update_ferry_boat(fid),
                 _ => {}
             }
             if self.figures.get(fid).is_some_and(|f| f.dead) {

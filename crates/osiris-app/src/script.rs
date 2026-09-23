@@ -100,7 +100,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 for (i, c) in world.trade.cities.iter().enumerate() {
                     let route = &world.trade.routes[c.route as usize];
                     let traded: Vec<(usize, i32)> = route.traded.iter().copied().enumerate().filter(|t| t.1 > 0).collect();
-                    eprintln!("  city {i} name {} type {} open {} sea {} traded {:?}", c.name_id, c.city_type, c.open, c.sea, traded);
+                    eprintln!("  city {i} name {} type {} open {} sea {} traded {:?} next {} route {} points {} limits {:?}", c.name_id, c.city_type, c.open, c.sea, traded, c.entry_delay, c.route, route.points.len(), route.limit.iter().enumerate().filter(|l| *l.1 > 0).collect::<Vec<_>>());
                 }
                 for t in &world.trade.traders {
                     eprintln!("  trader {:?} at {:?}", t, world.trader_position(t));
@@ -120,14 +120,14 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 *world = loaded;
             }
             ["grid", p] => {
-                // Prints the terrain around a tile: # road, B building, ~ water, . open, x blocked.
+                // Prints the terrain around a tile: # road, B building, f ferry crossing, ~ water, . open, x blocked.
                 let (cx, cy) = parse_point(p)?;
                 for y in cy - 6..=cy + 6 {
                     let row: String = (cx - 8..=cx + 8)
                         .map(|x| {
                             let t = world.map.terrain.at_or(x, y, 0);
                             use osiris_sim::map::{mask, terrain};
-                            if t & terrain::BUILDING != 0 { 'B' } else if t & terrain::ROAD != 0 { '#' } else if t & terrain::WATER != 0 { '~' } else if t & mask::NOT_CLEAR & !terrain::FLOODPLAIN != 0 { 'x' } else { '.' }
+                            if t & terrain::FERRY_ROUTE != 0 && t & terrain::WATER != 0 { 'f' } else if t & terrain::BUILDING != 0 { 'B' } else if t & terrain::ROAD != 0 { '#' } else if t & terrain::WATER != 0 { '~' } else if t & mask::NOT_CLEAR & !terrain::FLOODPLAIN != 0 { 'x' } else { '.' }
                         })
                         .collect();
                     eprintln!("{y:4} {row}");
@@ -160,8 +160,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 for f in world.figures.iter().take(40) {
                     eprintln!(
-                        "  fig {} kind {} at ({},{}) dest {:?} route {} moving {} counter {} progress {} dir {}",
-                        f.id, f.kind, f.x, f.y, f.destination, f.route.len(), f.moving, f.counter, f.progress, f.direction
+                        "  fig {} kind {} at ({},{}) dest {:?} route {} moving {} counter {} progress {} dir {} action {} home {} amount {}",
+                        f.id, f.kind, f.x, f.y, f.destination, f.route.len(), f.moving, f.counter, f.progress, f.direction, f.action, f.home, f.amount
                     );
                 }
             }

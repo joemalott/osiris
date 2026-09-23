@@ -17,6 +17,9 @@ impl World {
         }
         let size = def.size.max(1);
         let (fw, fh) = self.monument_footprint(k).unwrap_or((size, size));
+        if def.needs("shoreline") {
+            return self.can_place_on_shore(k, x, y);
+        }
         if self.is_road_venue(k) {
             if self.venue_orientation(k, x, y).is_none() {
                 return Err("Must be built where roads meet");
@@ -148,7 +151,9 @@ impl World {
                 self.map.building.set(xx, yy, id);
             }
         }
-        if self.is_road_venue(k) {
+        if crate::water::is_shore_building(k) {
+            self.place_on_shore(id);
+        } else if self.is_road_venue(k) {
             self.place_venue(id);
         } else if k == kind::STORAGE_YARD {
             self.place_storage_yard(id);
@@ -183,6 +188,9 @@ impl World {
             self.map.terrain.update(xx, yy, |t| t & !terrain::BUILDING);
             self.map.building.set(xx, yy, 0);
             self.map.set_single_image(xx, yy, 0);
+        }
+        if crate::water::is_shore_building(b.kind) {
+            self.remove_from_shore(&b);
         }
         for f in b.walkers {
             if f != 0 {

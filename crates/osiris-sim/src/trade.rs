@@ -416,12 +416,17 @@ impl World {
         }
         self.trade.traders.retain(|t| t.step != usize::MAX);
         for i in arrived {
-            self.caravan_arrives(i);
+            let sea = self.trade.cities.get(self.trade.traders[i].city).is_some_and(|c| c.sea);
+            if sea {
+                self.ship_arrives(i);
+            } else {
+                self.caravan_arrives(i);
+            }
         }
         for city in 0..self.trade.cities.len() {
             let c = &self.trade.cities[city];
-            // Ships need docks; only land routes trade for now. Ra's wrath keeps traders away.
-            if !c.open || !c.trades() || c.sea || self.religion.ra_no_traders_months > 0 {
+            // Ships need a working dock. Ra's wrath keeps traders away.
+            if !c.open || !c.trades() || (c.sea && !self.sea_trade_open()) || self.religion.ra_no_traders_months > 0 {
                 continue;
             }
             let route = &self.trade.routes[c.route as usize];
@@ -593,8 +598,8 @@ impl World {
         dealt
     }
 
-    /// The caravan has left the city: its trader heads home along the route.
-    fn caravan_gone(&mut self, fid: FigureId) {
+    /// The caravan (or ship) has left the city: its trader heads home along the route.
+    pub(crate) fn caravan_gone(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get_mut(fid) else { return };
         f.dead = true;
         let t = f.target as usize;
