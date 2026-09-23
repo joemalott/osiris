@@ -217,7 +217,7 @@ impl World {
         let size = self.size_of(k);
         let dims = self.monument_footprint(k).or_else(|| crate::temple_complex::is_complex(k).then_some(crate::temple_complex::SIZE));
         let (fw, fh) = dims.unwrap_or((size, size));
-        let image = self.defs.building(k).map_or(0, |d| d.image);
+        let image = self.statue_image(k).unwrap_or_else(|| self.defs.building(k).map_or(0, |d| d.image));
         let mut b = Building {
             dims,
             kind: k,
@@ -315,6 +315,25 @@ impl World {
         }
         if crate::royal_tombs::is_royal_tomb(b.kind) {
             self.remove_royal_tomb(b.kind, b.x, b.y);
+        }
+    }
+
+    /// A statue's image: its groups hold looks of four facings each; the build tool
+    /// picks the look and the facing (the original's default facing is 1, face-on).
+    pub fn statue_image(&self, k: u16) -> Option<u32> {
+        let d = self.defs.building(k).filter(|d| d.has_flag("is_statue"))?;
+        let looks = &d.variants;
+        (!looks.is_empty()).then(|| looks[self.statue_variant as usize % looks.len()] + (self.statue_facing % 4) as u32)
+    }
+
+    /// Games saved before statues had images kept them imageless (drawn black); give
+    /// those the default look and facing.
+    pub(crate) fn upgrade_statues(&mut self) {
+        let bare: Vec<(BuildingId, u16)> = self.buildings.ids().into_iter().filter_map(|id| self.buildings.get(id).filter(|b| b.image == 0).map(|b| (id, b.kind))).collect();
+        for (id, k) in bare {
+            if let Some(image) = self.statue_image(k) {
+                self.set_building_image(id, image);
+            }
         }
     }
 

@@ -164,8 +164,20 @@ pub struct World {
     /// For scripted tests only: every building gets all the workers it wants.
     #[serde(skip)]
     pub test_full_staff: bool,
+    /// The build tool's statue choice: which of the statue's looks (each four
+    /// facings), and which facing. Planner state, not part of the city.
     #[serde(skip)]
+    pub statue_variant: u8,
+    #[serde(skip, default = "default_statue_facing")]
+    pub statue_facing: u8,
+    /// Rotating variant counters of the road/earthquake context tables. Saved so a
+    /// reloaded game re-images roads exactly as the running one would.
+    #[serde(default)]
     counters: ContextCounters,
+}
+
+fn default_statue_facing() -> u8 {
+    1
 }
 
 /// Leading bytes of a saved game, followed by a format version.
@@ -196,6 +208,7 @@ impl World {
         world.balance = balance;
         world.upgrade_monuments();
         world.upgrade_companies();
+        world.upgrade_statues();
         Ok(world)
     }
 }
@@ -260,6 +273,8 @@ impl World {
             complex_gods: info.temple_complex_gods(),
             debt_rate: info.debt_interest_rate as i32,
             test_full_staff: false,
+            statue_variant: 0,
+            statue_facing: 1,
             exit_point: (info.exit_point.x, info.exit_point.y),
             counters: ContextCounters::default(),
         }
@@ -283,15 +298,22 @@ impl World {
     }
 
     pub(crate) fn tile_rules(&mut self) -> (TileRules<'_>, &mut Map) {
-        let desirability = &|_x: i32, _y: i32| 0;
         (
             TileRules {
                 defs: &self.defs,
                 counters: &mut self.counters,
-                desirability,
+                desirability: &self.desirability,
             },
             &mut self.map,
         )
+    }
+
+    /// Re-images every road tile, as the original does each month: roads in desirable
+    /// areas turn paved (and back), and dirt roads pick up floodplain edges.
+    pub(crate) fn update_all_roads(&mut self) {
+        let (w, h) = (self.map.width, self.map.height);
+        let (mut rules, map) = self.tile_rules();
+        rules.roads_in(map, 0, 0, w - 1, h - 1);
     }
 
     /// Runs one simulation tick.

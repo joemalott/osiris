@@ -92,6 +92,7 @@ impl World {
             self.update_distant_battle();
             self.process_scenario_events();
             self.update_sieges();
+            self.update_all_roads();
             let years = self.time.year - self.scenario_events.start_year;
             let survived = self.survival.is_some_and(|n| years >= n);
             if !self.won && !self.lost && (self.goals_met() || survived) {
