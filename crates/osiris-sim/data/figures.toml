@@ -146,7 +146,7 @@ terrain_usage = "any"
 id = 14
 key = "standard_bearer"
 category = "armed"
-anims = { walk = { pack = "SprMain", group = 45, offset = 0, frames = 12 }, pole = { pack = "Pharaoh_General", group = 54, offset = 0, frames = 21 }, flag_infantry = { pack = "Pharaoh_General", group = 126, offset = 0, frames = 9, duration = 6 }, flag_archers = { pack = "Pharaoh_General", group = 126, offset = 10, frames = 9, duration = 6 }, flag_chariots = { pack = "Pharaoh_General", group = 126, offset = 20, frames = 9, duration = 6 }, sign = { pack = "Pharaoh_General", group = 3, offset = 0 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 14 } }
+anims = { walk = { pack = "SprMain", group = 45, offset = 0, frames = 12 }, pole = { pack = "Pharaoh_General", group = 54, offset = 0, frames = 21 }, experience = { pack = "Pharaoh_General", group = 224, offset = 0, frames = 21 }, flag_infantry = { pack = "Pharaoh_General", group = 126, offset = 0, frames = 9, duration = 6 }, flag_archers = { pack = "Pharaoh_General", group = 126, offset = 10, frames = 9, duration = 6 }, flag_chariots = { pack = "Pharaoh_General", group = 126, offset = 20, frames = 9, duration = 6 }, sign = { pack = "Pharaoh_General", group = 3, offset = 0 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 14 } }
 is_soldier = true
 max_damage = 80
 terrain_usage = "any"

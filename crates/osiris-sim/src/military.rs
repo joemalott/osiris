@@ -22,6 +22,12 @@
 //! that fell; a company rests its spirits at the fort month by month and loses heart
 //! when kept out long. A company whose morale breaks runs home, and a broken army
 //! runs for the edge of the map.
+//!
+//! Experience: a company's experience (0 to 100) is the average of its men's. A raw
+//! recruit brings none, one who passed through a military academy 25, and a temple
+//! complex to Seth adds 10 either way; every enemy a company's man kills adds one.
+//! Experienced companies count for more in distant battles, and Seth, when upset,
+//! takes the most experienced. The ball on a company's standard climbs with it.
 
 use crate::balance::UnitStats;
 use crate::buildings::BuildingId;
@@ -76,9 +82,52 @@ pub fn morale_loss(share_pct: i32) -> i32 {
     }
 }
 
-/// The highest morale a company of `kind` reaches; training raises it by 20.
-fn morale_cap(kind: u16, trained: bool) -> i32 {
-    (if kind == INFANTRY { 80 } else { 60 }) + if trained { 20 } else { 0 }
+/// The highest morale a company of `kind` reaches. (The original would raise it by
+/// 20 for a company marked as trained, but nothing ever sets that mark: the academy
+/// gives experience instead.)
+fn morale_cap(kind: u16) -> i32 {
+    if kind == INFANTRY { 80 } else { 60 }
+}
+
+/// The most experience a company can have.
+pub const MAX_EXPERIENCE: i32 = 100;
+/// What a recruit trained at a military academy brings to his company.
+const ACADEMY_EXPERIENCE: i32 = 25;
+/// What a temple complex to Seth adds to every recruit's.
+const SETH_EXPERIENCE: i32 = 10;
+
+/// A company's experience after a recruit bringing `brings` joins it, `n` men with
+/// him. The original counts him as half a man, except that an academy recruit
+/// joining a company greener than himself counts fully (a complex to Seth makes
+/// him bring 35, so he counts as half again). Rounded up.
+fn with_recruit(experience: i32, n: i32, brings: i32) -> i32 {
+    let n = n.max(1);
+    if experience < ACADEMY_EXPERIENCE && brings == ACADEMY_EXPERIENCE {
+        return ceil_div((n - 1) * experience + brings, n);
+    }
+    ceil_div((2 * n - 1) * experience + brings, 2 * n).min(MAX_EXPERIENCE)
+}
+
+fn ceil_div(a: i32, b: i32) -> i32 {
+    (a + b - 1) / b
+}
+
+/// The experience rank of a company (0 "Green" to 5 "The best", text 138:60-65),
+/// which also picks its icon in the fort window and the Military overseer's report.
+pub fn experience_rank(experience: i32) -> usize {
+    ((experience + 10) / 20).clamp(0, 5) as usize
+}
+
+/// The frame of the experience ball on a company's standard: 0 at the top of the
+/// staff, 20 at the bottom.
+pub fn experience_ball(experience: i32) -> u32 {
+    (20 - (experience + 3) / 5).clamp(0, 20) as u32
+}
+
+/// Whether killing a figure of `kind` teaches a soldier anything: not animals or
+/// robbers.
+fn teaches(kind: u16) -> bool {
+    !matches!(kind, 68..=70 | 82..=84 | 102..=104 | crate::crime::ROBBER)
 }
 
 /// Action states of fighters.
@@ -112,9 +161,12 @@ pub struct Company {
     /// Months out of the fort.
     #[serde(default)]
     pub months_away: i32,
-    /// Its men have trained at a military academy, which steadies them.
+    /// The company's experience, 0 to 100: the average of its men's.
     #[serde(default)]
-    pub trained: bool,
+    pub experience: i32,
+    /// Old saves' mark of academy training, turned into experience on loading.
+    #[serde(default, skip_serializing)]
+    trained: bool,
     /// Marked for Kingdom service: it answers Pharaoh's calls for troops.
     #[serde(default)]
     pub kingdom_service: bool,
@@ -129,6 +181,16 @@ pub struct Company {
     /// The tick the horses last ran or rested, so a company tires once a tick.
     #[serde(default)]
     pub wind_tick: u64,
+}
+
+impl Company {
+    /// An old save's mark of academy training becomes an academy recruit's
+    /// experience.
+    fn upgrade(&mut self) {
+        if std::mem::take(&mut self.trained) {
+            self.experience = self.experience.max(ACADEMY_EXPERIENCE);
+        }
+    }
 }
 
 /// Ticks a company of charioteers can charge at top speed before its horses tire,
@@ -250,6 +312,14 @@ impl World {
         self.balance.unit(f.kind)
     }
 
+    /// Saves from before experience marked companies whose men had trained at an
+    /// academy; they get an academy recruit's experience.
+    pub(crate) fn upgrade_companies(&mut self) {
+        for c in &mut self.military.companies {
+            c.upgrade();
+        }
+    }
+
     /// Places a fort's parade ground and musters its company.
     pub(crate) fn place_fort(&mut self, id: BuildingId) {
         let Some(b) = self.buildings.get(id) else { return };
@@ -341,6 +411,11 @@ impl World {
                 .filter(|a| ACADEMIES.contains(&a.kind) && a.road.is_some() && a.workers * 2 >= self.workers_needed(a.kind).max(1))
                 .min_by_key(|a| (a.x - rx).abs() + (a.y - ry).abs())
                 .and_then(|a| a.road);
+            // He brings his training, and Seth's favour, to the company's experience.
+            let brings = if academy.is_some() { ACADEMY_EXPERIENCE } else { 0 } + if self.complex_blessing(crate::temple_complex::SETH, 0) { SETH_EXPERIENCE } else { 0 };
+            let co = &mut self.military.companies[c];
+            let n = (co.soldiers.len() + co.recruits.len()) as i32 + co.abroad;
+            co.experience = with_recruit(co.experience, n, brings);
             let map = &self.map;
             let training = match (academy, self.figures.get_mut(fid)) {
                 (Some(to), Some(f)) => {
@@ -492,9 +567,6 @@ impl World {
                 let map = &self.map;
                 let f = self.figures.get_mut(fid).expect("present");
                 if f.walk(map) != Step::Moving {
-                    if let Some(c) = self.company_of(fid) {
-                        self.military.companies[c].trained = true;
-                    }
                     self.send_to_post(fid);
                 }
             }
@@ -648,17 +720,33 @@ impl World {
             };
         // A charge breaks the enemy's line: his armour does him no good.
         let armor = if self.charging(fid) { 0 } else { armor };
-        self.hurt(foe, (attack - armor).max(0));
+        // (The original means to add (experience + 10) / 20 to the armour of the
+        // city's men, but takes the experience of the striker's company, an
+        // invader's, which is always 0; so experience never tells here.)
+        let kind = self.figures.get(foe).map_or(0, |o| o.kind);
+        if self.hurt(foe, (attack - armor).max(0)) {
+            self.learn(self.company_of(fid), kind);
+        }
+    }
+
+    /// A company's man has killed a figure of `kind`: the company gains a point of
+    /// experience.
+    fn learn(&mut self, company: Option<usize>, kind: u16) {
+        if let Some(c) = company.and_then(|c| self.military.companies.get_mut(c))
+            && teaches(kind)
+        {
+            c.experience = (c.experience + 1).min(MAX_EXPERIENCE);
+        }
     }
 
     /// Adds damage to a figure; it falls when the damage passes its hit points, and
-    /// its side's morale suffers.
-    pub(crate) fn hurt(&mut self, fid: FigureId, damage: i32) {
+    /// its side's morale suffers. True if this killed it.
+    pub(crate) fn hurt(&mut self, fid: FigureId, damage: i32) -> bool {
         let hp = self.fighter_stats(fid).hp.max(1);
-        let Some(f) = self.figures.get_mut(fid) else { return };
+        let Some(f) = self.figures.get_mut(fid) else { return false };
         f.damage += damage;
         if f.damage <= hp || f.action == action::CORPSE {
-            return;
+            return false;
         }
         f.action = action::CORPSE;
         f.counter = 0;
@@ -676,12 +764,19 @@ impl World {
         } else if formation >= 1000 {
             self.army_loses(formation as usize - 1000);
         }
+        true
     }
 
     /// The strength the companies marked for Kingdom service would bring to a distant
-    /// battle: one a soldier, two if trained.
+    /// battle: each soldier one, and one more for each hundred points of his company's
+    /// experience; an infantryman one more.
     pub fn kingdom_service_strength(&self) -> i32 {
-        self.military.companies.iter().filter(|c| c.kingdom_service && c.fort != 0).map(|c| c.soldiers.len() as i32 * if c.trained { 2 } else { 1 }).sum()
+        self.military
+            .companies
+            .iter()
+            .filter(|c| c.kingdom_service && c.fort != 0)
+            .map(|c| (c.experience + if c.kind == INFANTRY { 200 } else { 100 }) * c.soldiers.len() as i32 / 100)
+            .sum()
     }
 
     pub fn toggle_kingdom_service(&mut self, company: usize) {
@@ -746,11 +841,19 @@ impl World {
             }
             return;
         }
-        let won = b.strength >= b.enemy && b.strength > 0;
-        let losses = if won { battle_losses((b.strength - b.enemy) * 100 / b.strength.max(1)) } else { 100 };
+        // Seth, if he has promised, sees the troops through without loss.
+        let protected = std::mem::take(&mut self.religion.seth_protects);
+        let won = protected || b.strength >= b.enemy && b.strength > 0;
+        let losses = if protected {
+            0
+        } else if won {
+            battle_losses((b.strength - b.enemy) * 100 / b.strength.max(1))
+        } else {
+            100
+        };
         for &c in &b.companies {
             let co = &mut self.military.companies[c];
-            co.abroad = co.abroad * (100 - losses) / 100;
+            co.abroad -= co.abroad * losses / 100;
         }
         let returning = b.companies.iter().any(|&c| self.military.companies[c].abroad > 0);
         if let Some(bb) = self.military.battle.as_mut() {
@@ -766,7 +869,7 @@ impl World {
         for c in &mut self.military.companies {
             if c.at_fort {
                 c.months_away = 0;
-                c.morale = (c.morale + 5).min(morale_cap(c.kind, c.trained));
+                c.morale = (c.morale + 5).min(morale_cap(c.kind));
             } else {
                 c.months_away += 1;
                 if c.months_away > 3 {
@@ -811,8 +914,11 @@ impl World {
             f.direction = crate::figures::direction_to((x, y), (tx, ty)).unwrap_or(f.direction);
         }
         let missile = self.figures.spawn(if mine { ARROW } else { JAVELIN }, x, y, Travel::Land);
+        let company = if mine { 0 } else { self.company_of(fid).map_or(0, |c| c as u16 + 1) };
         if let Some(m) = self.figures.get_mut(missile) {
             m.foe = target;
+            // The company whose man loosed it, which learns from a kill.
+            m.formation = company;
             m.amount = stats.missile_attack;
             m.destination = Some((tx, ty));
             m.direction = crate::figures::direction_to((x, y), (tx, ty)).unwrap_or(0);
@@ -837,7 +943,7 @@ impl World {
             return;
         }
         m.dead = true;
-        let (target, attack) = (m.foe, m.amount);
+        let (target, attack, company) = (m.foe, m.amount, m.formation.checked_sub(1).map(|c| c as usize));
         let hit = self.figures.get(target).is_some_and(|t| !t.dead && t.action != action::CORPSE && (t.x - tx).abs() <= 1 && (t.y - ty).abs() <= 1);
         if hit {
             let armor = self.fighter_stats(target).missile_armor;
@@ -847,7 +953,10 @@ impl World {
                 Some(Order::HoldLoose) => damage / 2,
                 _ => damage,
             };
-            self.hurt(target, damage);
+            let kind = self.figures.get(target).map_or(0, |t| t.kind);
+            if self.hurt(target, damage) {
+                self.learn(company, kind);
+            }
         }
     }
 
@@ -858,5 +967,52 @@ impl World {
         if f.walk(map) != Step::Moving {
             f.action = if f.action == action::GOING_TO_FORT { action::AT_REST } else { action::AT_STANDARD };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recruits_average_in() {
+        // A raw company's first academy recruit counts fully; later ones keep it at 25.
+        assert_eq!(with_recruit(0, 1, ACADEMY_EXPERIENCE), 25);
+        assert_eq!(with_recruit(25, 2, ACADEMY_EXPERIENCE), 25);
+        // A raw recruit counts as half a man, rounded up.
+        assert_eq!(with_recruit(50, 16, 0), 49);
+        // Seth's recruits (10, or 35 with an academy) count as half a man too.
+        assert_eq!(with_recruit(0, 1, 10), 5);
+        assert_eq!(with_recruit(0, 1, 35), 18);
+        assert_eq!(with_recruit(100, 16, 35), 98);
+    }
+
+    #[test]
+    fn ranks_and_ball() {
+        assert_eq!((experience_rank(0), experience_rank(9), experience_rank(10), experience_rank(89), experience_rank(90), experience_rank(100)), (0, 0, 1, 4, 5, 5));
+        assert_eq!((experience_ball(0), experience_ball(2), experience_ball(50), experience_ball(97), experience_ball(100)), (20, 19, 10, 0, 0));
+    }
+
+    #[test]
+    fn old_saves_keep_their_training() {
+        #[derive(serde::Serialize)]
+        struct Old {
+            fort: BuildingId,
+            ground: BuildingId,
+            kind: u16,
+            soldiers: Vec<FigureId>,
+            recruits: Vec<FigureId>,
+            standard: FigureId,
+            standard_tile: (i32, i32),
+            at_fort: bool,
+            morale: i32,
+            trained: bool,
+        }
+        let old = Old { fort: 1, ground: 2, kind: INFANTRY, soldiers: vec![], recruits: vec![], standard: 3, standard_tile: (0, 0), at_fort: true, morale: 50, trained: true };
+        let bytes = rmp_serde::to_vec_named(&old).unwrap();
+        let mut c: Company = rmp_serde::from_slice(&bytes).unwrap();
+        c.upgrade();
+        assert_eq!(c.experience, ACADEMY_EXPERIENCE);
+        assert!(!rmp_serde::to_vec_named(&c).unwrap().windows(7).any(|w| w == b"trained"));
     }
 }

@@ -19,6 +19,8 @@ pub struct UiImages {
     pub advisor_buttons: u32,
     /// Walker portraits, indexed by figure type (Pharaoh_Unloaded group 25).
     pub portraits: u32,
+    /// A company's experience rank, Green to The best (Pharaoh_General group 2).
+    pub experience_icons: u32,
 }
 
 impl UiImages {
@@ -30,6 +32,7 @@ impl UiImages {
             context_icons: lib.group_id("Pharaoh_General", 134, 0)?,
             advisor_buttons: lib.group_id("Pharaoh_General", 106, 0)?,
             portraits: lib.group_id("Pharaoh_Unloaded", 25, 0)?,
+            experience_icons: lib.group_id("Pharaoh_General", 2, 0)?,
         })
     }
 }
