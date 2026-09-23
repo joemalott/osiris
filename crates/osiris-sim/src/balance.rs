@@ -26,6 +26,9 @@ pub struct Balance {
 /// A fighter's stats from the figure model.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UnitStats {
+    /// What sort of figure it is to the fighting rules (the model's first column):
+    /// 1 a citizen, 2 the city's fighters, 3 an enemy, 4 a criminal, 5 a native.
+    pub class: i32,
     pub hp: i32,
     pub attack: i32,
     pub armor: i32,
@@ -43,6 +46,7 @@ pub struct UnitStats {
 impl UnitStats {
     fn from_model(f: &osiris_formats::FigureModel) -> Self {
         Self {
+            class: f.kind as i32,
             hp: f.hit_points as i32,
             attack: f.attack as i32,
             armor: f.armor as i32,

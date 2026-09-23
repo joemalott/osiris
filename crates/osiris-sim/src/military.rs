@@ -5,18 +5,36 @@
 //! of chariots; archers bring their own bows. The player sends a company to a spot
 //! (it forms up around its standard) or back to its fort.
 //!
-//! Fighting: a soldier or invader next to an enemy strikes it once his blow comes
-//! round (24 ticks); the blow does its attack less the target's armour. Archers shoot
-//! at enemies in range every so often; a missile does its attack less the target's
-//! armour against missiles. A figure dies when its damage passes its hit points, and
-//! lies on the field a while before it is gone.
+//! Fighting, as the original does it: a soldier or invader who takes on an enemy
+//! next to him strikes first after 12 ticks and then every 24 (every 12 against a
+//! citizen or criminal); the man he goes for, if not already fighting, turns on him
+//! and strikes after 24. No more than two set on a man who is already fighting.
+//! A blow does the striker's attack × (20 − the target's armour) / 20, the armour
+//! counted from 0 to 20 and adjusted as below. The city's missiles (javelins) do
+//! their thrower's missile attack × (20 − the target's armour against missiles) / 20;
+//! the invaders' (spears in the original, whatever the archer) do the spear's missile
+//! attack, 10, or nothing at all to a man whose armour against missiles comes to more
+//! than 10. A figure dies when its damage passes its hit points, and lies on the
+//! field a while before it is gone.
 //!
 //! Orders: a company holds its ground in tight or loose formation, fighting only what
-//! comes at it: tight, its men fight better but suffer more from missiles; loose, they
-//! cover more ground and suffer less from missiles but fight worse. (How much better
-//! or worse is not known from the original; these are estimates.) Or it engages
-//! enemies that come near, in formation; or breaks ranks to mop up every enemy it can
-//! find (charioteers charge the same way).
+//! comes at it; or it engages enemies that come near, in formation; or breaks ranks
+//! to mop up every enemy it can find; or, charioteers, charges. A company standing
+//! halted in the field fights by its orders, and its men fight worse when they have
+//! turned from the way it faces (a flank or rear attack):
+//!
+//! - infantry in tight formation strike at +4 and take blows at +4 armour;
+//! - in loose formation, infantry and archers have +4 armour against missiles;
+//! - mopping up, men strike at +2 but have −2 armour, against missiles too;
+//! - a man turned from his company's front has −4 armour, against missiles too.
+//!
+//! Infantry and charioteers who strike a man busy with someone else from behind
+//! strike at +4. Charioteers charging do not stop to fight but ride the enemy down:
+//! each they run into takes their attack, four times over once they have run six
+//! tiles straight (until twenty), and his armour does him no good. The armour a
+//! company's experience was meant to add, (experience + 10) / 20, counts against
+//! missiles only: in melee the original takes the striker's company's, which an
+//! invader hasn't.
 //!
 //! Morale: every man lost shakes his side, the more so the bigger the share of it
 //! that fell; a company rests its spirits at the fort month by month and loses heart
@@ -59,10 +77,34 @@ fn outfit(kind: u16) -> Option<u16> {
     }
 }
 
+/// The invaders' missile in the original, whatever the archer: its row of the
+/// figure model says what a hit does.
+const SPEAR: u16 = 71;
+
+/// The row of the figure model a figure type fights by. The original's infantry are
+/// type 12 and its charioteers type 13 (a charioteers' fort raises a company of type
+/// 13, and the company windows and the Military overseer call them so), where Osiris
+/// numbers them the other way round.
+fn model_row(kind: u16) -> u16 {
+    match kind {
+        INFANTRY => 12,
+        CHARIOTEER => 13,
+        k => k,
+    }
+}
+
 /// Soldiers a company holds.
 pub const COMPANY_SIZE: usize = 16;
 /// Ticks a blow takes to land.
 const BLOW_TICKS: u16 = 24;
+/// Where a blow's count starts when it strikes the first blow of a fight, or a
+/// citizen or criminal.
+const QUICK_BLOW: u16 = 12;
+/// The most armour counts for.
+const MAX_ARMOR: i32 = 20;
+/// The straight run (tiles) over which a charging chariot tramples at four times
+/// its attack.
+const CHARGE_RUN: std::ops::Range<i32> = 6..20;
 /// Ticks a fallen figure lies on the field.
 const CORPSE_TICKS: i32 = 200;
 /// Where the parade ground sits beside its fort.
@@ -82,11 +124,11 @@ pub fn morale_loss(share_pct: i32) -> i32 {
     }
 }
 
-/// The highest morale a company of `kind` reaches. (The original would raise it by
-/// 20 for a company marked as trained, but nothing ever sets that mark: the academy
-/// gives experience instead.)
+/// The highest morale a company of `kind` reaches: charioteers 80, infantry and
+/// archers 60. (The original would raise it by 20 for a company marked as trained,
+/// but nothing ever sets that mark: the academy gives experience instead.)
 fn morale_cap(kind: u16) -> i32 {
-    if kind == INFANTRY { 80 } else { 60 }
+    if kind == CHARIOTEER { 80 } else { 60 }
 }
 
 /// The most experience a company can have.
@@ -140,6 +182,7 @@ pub mod action {
     pub const CHASING: u16 = 86;
     pub const AT_STANDARD: u16 = 84;
     pub const ATTACK: u16 = 90;
+    pub const FLEEING: u16 = 148;
     pub const CORPSE: u16 = 149;
 }
 
@@ -181,6 +224,10 @@ pub struct Company {
     /// The tick the horses last ran or rested, so a company tires once a tick.
     #[serde(default)]
     pub wind_tick: u64,
+    /// The way the company faces in the field (a direction): the way it last
+    /// marched.
+    #[serde(default)]
+    pub facing: u8,
 }
 
 impl Company {
@@ -203,7 +250,8 @@ fn full_wind() -> i32 {
     WIND
 }
 
-/// A company's standing orders.
+/// A company's standing orders. (The original keeps them as a number: tight 1 or 2
+/// and loose 3 or 4, by which way the line is turned; engage 15, mop up 6, charge 0.)
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Order {
     #[default]
@@ -243,6 +291,80 @@ pub struct DistantBattle {
 pub struct Combatants {
     pub defenders: Vec<(FigureId, i32, i32)>,
     pub invaders: Vec<(FigureId, i32, i32)>,
+}
+
+/// Whether direction `a` is `b` or one step either side of it: a man fighting that
+/// way faces the way his company does, or strikes at another's back.
+fn toward(a: u8, b: u8) -> bool {
+    (a as i32 - b as i32).rem_euclid(8) <= 1 || (b as i32 - a as i32).rem_euclid(8) <= 1
+}
+
+/// The direction from `from` to `to`, to the nearest eighth of the compass.
+fn general_direction(from: (i32, i32), to: (i32, i32)) -> Option<u8> {
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let sx = if 2 * dx.abs() < dy.abs() { 0 } else { dx.signum() };
+    let sy = if 2 * dy.abs() < dx.abs() { 0 } else { dy.signum() };
+    crate::figures::direction_to((0, 0), (sx, sy))
+}
+
+/// A company standing halted in the field, as a man of it fights: its arm, its
+/// orders, and whether he faces the way it does.
+#[derive(Debug, Clone, Copy)]
+struct Line {
+    kind: u16,
+    order: Order,
+    facing: bool,
+}
+
+impl Line {
+    /// What the line adds to its man's attack.
+    fn attack(self) -> i32 {
+        match (self.kind, self.order) {
+            (_, _) if !self.facing => 0,
+            (INFANTRY, Order::HoldTight) => 4,
+            (_, Order::MopUp) => 2,
+            _ => 0,
+        }
+    }
+
+    /// What the line adds to its man's armour against blows.
+    fn armor(self) -> i32 {
+        match (self.kind, self.order) {
+            (_, _) if !self.facing => -4,
+            (INFANTRY, Order::HoldTight) => 4,
+            (_, Order::MopUp) => -2,
+            _ => 0,
+        }
+    }
+
+    /// What the line adds to its man's armour against missiles.
+    fn missile_armor(self) -> i32 {
+        match (self.kind, self.order) {
+            (_, _) if !self.facing => -4,
+            (INFANTRY | ARCHER, Order::HoldLoose) => 4,
+            (_, Order::MopUp) => -2,
+            _ => 0,
+        }
+    }
+}
+
+/// The damage a blow or missile of `attack` does against `armor`, the armour
+/// counted from 0 to 20.
+fn blow(attack: i32, armor: i32) -> i32 {
+    if attack == 0 {
+        return 0;
+    }
+    ((MAX_ARMOR - armor.clamp(0, MAX_ARMOR)) * attack / MAX_ARMOR).max(0)
+}
+
+/// The damage an invader's missile of `attack` does against `armor`: the original
+/// works it out as (30 − armour) / 20 × attack, so all of it up to 10 armour and
+/// none past.
+fn spear(attack: i32, armor: i32) -> i32 {
+    if attack == 0 {
+        return 0;
+    }
+    ((30 - armor.clamp(0, MAX_ARMOR)) / MAX_ARMOR * attack).max(0)
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -309,7 +431,7 @@ impl World {
         if let Some(s) = self.invader_stats(f) {
             return s;
         }
-        self.balance.unit(f.kind)
+        self.balance.unit(model_row(f.kind))
     }
 
     /// Saves from before experience marked companies whose men had trained at an
@@ -463,7 +585,12 @@ impl World {
 
     /// Orders a company out to form up around `tile`.
     pub fn move_company(&mut self, company: usize, tile: (i32, i32)) {
+        let from = self.military.companies.get(company).and_then(|c| self.figures.get(c.standard)).map(|f| (f.x, f.y));
         let Some(c) = self.military.companies.get_mut(company) else { return };
+        // It faces the way it marches.
+        if let Some(d) = from.and_then(|from| general_direction(from, tile)) {
+            c.facing = d;
+        }
         c.at_fort = false;
         c.standard_tile = tile;
         let (standard, soldiers) = (c.standard, c.soldiers.clone());
@@ -537,14 +664,19 @@ impl World {
                 if kind == ARCHER {
                     self.shoot_at_foes(fid);
                 }
-                self.engage(fid, 1);
+                // Charging charioteers ride at the enemy rather than stand and fight.
+                if !self.charging(fid) {
+                    self.engage(fid, 1);
+                }
                 let reach = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map_or(0, |c| c.order.reach());
                 if reach > 0 && self.figures.get(fid).is_some_and(|f| f.action == action::AT_STANDARD) {
                     self.chase(fid, reach);
                 }
             }
             action::CHASING => {
-                self.engage(fid, 1);
+                if !self.charging(fid) {
+                    self.engage(fid, 1);
+                }
                 if self.figures.get(fid).is_some_and(|f| f.action == action::CHASING) {
                     let reach = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map_or(0, |c| c.order.reach());
                     self.chase(fid, reach);
@@ -598,26 +730,65 @@ impl World {
             .copied()
     }
 
-    /// Takes on an enemy within `range` tiles, if there is one.
-    fn engage(&mut self, fid: FigureId, range: i32) {
+    /// Takes on an enemy within `range` tiles, if there is one: the nearest who is not
+    /// already fighting two. He strikes first after 12 ticks; the enemy, if not
+    /// already fighting, turns on him and strikes after 24.
+    pub(crate) fn engage(&mut self, fid: FigureId, range: i32) {
         let Some(f) = self.figures.get(fid) else { return };
         let (x, y) = (f.x, f.y);
-        let mine = self.is_invader(f);
-        let foe = self.nearest_foe(mine, (x, y), range).map(|o| o.0);
-        if let Some(foe) = foe
-            && let Some(f) = self.figures.get_mut(fid)
-        {
+        let Some((foe, ox, oy)) = self.nearest_open_foe(self.is_invader(f), (x, y), range) else { return };
+        let facing = crate::figures::direction_to((x, y), (ox, oy));
+        if let Some(f) = self.figures.get_mut(fid) {
             f.foe = foe;
             f.action = action::ATTACK;
-            f.attack_tick = 0;
+            f.attack_tick = QUICK_BLOW;
             f.route.clear();
+            f.moving = false;
+            f.direction = facing.unwrap_or(f.direction);
         }
+        // Sentries keep to their towers, and the fleeing keep running.
+        if let Some(o) = self.figures.get_mut(foe)
+            && !matches!(o.action, action::ATTACK | action::CORPSE | action::FLEEING | action::GOING_ABROAD)
+            && o.kind != crate::defenses::TOWER_SENTRY
+        {
+            o.foe = fid;
+            o.action = action::ATTACK;
+            o.attack_tick = 0;
+            o.route.clear();
+            o.moving = false;
+            o.direction = facing.map_or(o.direction, |d| (d + 4) % 8);
+        }
+    }
+
+    /// The nearest enemy of a figure on the invaders' side (`invader`) or the city's,
+    /// within `range` tiles, whom it can take on: one not already fighting two, nor a
+    /// chariot at the charge.
+    pub(crate) fn nearest_open_foe(&self, invader: bool, (x, y): (i32, i32), range: i32) -> Option<(FigureId, i32, i32)> {
+        let list = if invader { &self.combatants.defenders } else { &self.combatants.invaders };
+        list.iter()
+            .filter(|&&(_, ox, oy)| (ox - x).abs() <= range && (oy - y).abs() <= range)
+            .filter(|&&(id, _, _)| self.figures.get(id).is_some_and(|o| !o.dead && o.action != action::CORPSE))
+            .filter(|&&(id, _, _)| self.attackers(id) < 2 && !self.riding(id))
+            .min_by_key(|&&(_, ox, oy)| (ox - x).abs() + (oy - y).abs())
+            .copied()
+    }
+
+    /// How many are fighting a figure, if it is fighting itself.
+    fn attackers(&self, fid: FigureId) -> usize {
+        let Some(f) = self.figures.get(fid).filter(|f| f.action == action::ATTACK) else { return 0 };
+        let list = if self.is_invader(f) { &self.combatants.defenders } else { &self.combatants.invaders };
+        list.iter().filter(|&&(id, _, _)| self.figures.get(id).is_some_and(|a| a.action == action::ATTACK && a.foe == fid)).count()
     }
 
     /// Whether a soldier is a charioteer charging with horses still fresh.
     fn charging(&self, fid: FigureId) -> bool {
         self.figures.get(fid).is_some_and(|f| f.kind == CHARIOTEER)
             && self.company_of(fid).and_then(|c| self.military.companies.get(c)).is_some_and(|c| c.order == Order::Charge && c.wind > 0)
+    }
+
+    /// Whether a charioteer is at the charge: galloping after the enemy.
+    fn riding(&self, fid: FigureId) -> bool {
+        self.figures.get(fid).is_some_and(|f| f.action == action::CHASING) && self.charging(fid)
     }
 
     /// Once a tick, a company's horses tire while it charges and recover while it
@@ -638,10 +809,11 @@ impl World {
 
     /// A soldier under orders to go after enemies heads for the nearest within `reach`
     /// tiles, or back to his place when none is left. Charging charioteers go at the
-    /// gallop until their horses tire, and then at half pace.
+    /// gallop until their horses tire, and then at half pace; galloping, they ride
+    /// down whoever they run into, and fight once they can ride no further.
     fn chase(&mut self, fid: FigureId, reach: i32) {
         let Some(f) = self.figures.get(fid) else { return };
-        let (x, y) = (f.x, f.y);
+        let (x, y, heading) = (f.x, f.y, f.direction);
         let target = self.nearest_foe(false, (x, y), reach).map(|o| (o.1, o.2));
         let charioteer = f.kind == CHARIOTEER && self.company_of(fid).and_then(|c| self.military.companies.get(c)).is_some_and(|c| c.order == Order::Charge);
         let fresh = self.charging(fid);
@@ -662,20 +834,59 @@ impl World {
                     f.walk(map);
                 }
                 f.speed = 1;
+                if !fresh {
+                    f.counter = 0;
+                    return;
+                }
+                let (nx, ny, moving) = (f.x, f.y, f.moving);
+                if (nx, ny) == (x, y) {
+                    // Nowhere further to ride: fight.
+                    if !moving && (to.0 - x).abs() <= 1 && (to.1 - y).abs() <= 1 {
+                        self.engage(fid, 1);
+                    }
+                    return;
+                }
+                // The run counts the tiles gone straight.
+                let steps = (nx - x).abs().max((ny - y).abs());
+                f.counter = if f.direction == heading { f.counter + steps } else { steps };
+                self.trample(fid, (nx, ny));
             }
             None if f.action == action::CHASING => self.send_to_post(fid),
             None => {}
         }
     }
 
-    /// The formation a soldier is holding, if he stands in his company's line.
-    fn holding(&self, fid: FigureId) -> Option<Order> {
+    /// A charging chariot comes onto `tile`: the first enemy there takes its attack,
+    /// four times over if it has run six to nineteen tiles straight, his armour
+    /// counting for nothing. (The original weighs it by the chariot's own armour
+    /// instead, (30 - armour) / 20, which is one for any chariot.)
+    fn trample(&mut self, fid: FigureId, tile: (i32, i32)) {
+        let victim = self.combatants.invaders.iter().map(|o| o.0).find(|&id| self.figures.get(id).is_some_and(|o| (o.x, o.y) == tile && !o.dead && o.action != action::CORPSE));
+        let Some(victim) = victim else { return };
+        let stats = self.fighter_stats(fid);
+        let run = self.figures.get(fid).map_or(0, |f| f.counter);
+        let attack = if CHARGE_RUN.contains(&run) { 4 * stats.attack } else { stats.attack };
+        let kind = self.figures.get(victim).map_or(0, |o| o.kind);
+        if self.hurt(victim, (30 - stats.armor) / MAX_ARMOR * attack) {
+            self.learn(self.company_of(fid), kind);
+        }
+    }
+
+    /// The line a soldier fights in: his company, when it stands halted in the field
+    /// with its standard planted. He faces its way when standing in it, or when
+    /// fighting or walking that way.
+    fn line(&self, fid: FigureId) -> Option<Line> {
         let f = self.figures.get(fid)?;
-        if !matches!(f.action, action::AT_STANDARD | action::ATTACK) {
+        if !is_soldier(f.kind) {
             return None;
         }
         let c = self.military.companies.get(self.company_of(fid)?)?;
-        (!c.at_fort && matches!(c.order, Order::HoldTight | Order::HoldLoose)).then_some(c.order)
+        let halted = !c.at_fort && self.figures.get(c.standard).is_some_and(|s| s.action == action::AT_STANDARD);
+        if !halted {
+            return None;
+        }
+        let facing = f.action == action::AT_STANDARD || toward(f.direction, c.facing);
+        Some(Line { kind: c.kind, order: c.order, facing })
     }
 
     /// Changes a company's orders; its men re-form at their new places.
@@ -692,7 +903,8 @@ impl World {
         }
     }
 
-    /// A blow comes round: the foe takes the attack less his armour.
+    /// A blow comes round: the foe takes the striker's attack against his armour,
+    /// each as their lines make it, the striker's the better for coming at his back.
     pub(crate) fn fight(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
         let (foe, x, y) = (f.foe, f.x, f.y);
@@ -703,29 +915,36 @@ impl World {
             f.action = 0;
             return;
         };
-        let (ox, oy) = (o.x, o.y);
+        let (ox, oy, their_foe, their_way, victim) = (o.x, o.y, o.foe, o.direction, o.kind);
         let f = self.figures.get_mut(fid).expect("present");
         f.direction = crate::figures::direction_to((x, y), (ox, oy)).unwrap_or(f.direction);
+        let (way, kind) = (f.direction, f.kind);
         f.attack_tick += 1;
         if f.attack_tick < BLOW_TICKS {
             return;
         }
-        f.attack_tick = 0;
-        let attack = self.fighter_stats(fid).attack;
-        let armor = self.fighter_stats(foe).armor
-            + match self.holding(foe) {
-                Some(Order::HoldTight) => 4,
-                Some(Order::HoldLoose) => -2,
-                _ => 0,
-            };
-        // A charge breaks the enemy's line: his armour does him no good.
-        let armor = if self.charging(fid) { 0 } else { armor };
-        // (The original means to add (experience + 10) / 20 to the armour of the
-        // city's men, but takes the experience of the striker's company, an
-        // invader's, which is always 0; so experience never tells here.)
-        let kind = self.figures.get(foe).map_or(0, |o| o.kind);
-        if self.hurt(foe, (attack - armor).max(0)) {
-            self.learn(self.company_of(fid), kind);
+        let (mine, theirs) = (self.fighter_stats(fid), self.fighter_stats(foe));
+        // Citizens and criminals are struck down twice as fast.
+        self.figures.get_mut(fid).expect("present").attack_tick = if matches!(theirs.class, 1 | 4) { QUICK_BLOW } else { 0 };
+        let company = self.company_of(fid);
+        // The original means to add (experience + 10) / 20 to the armour of the
+        // city's men, but takes the striker's company's experience: an invader's,
+        // which is none.
+        let seasoned = if !self.figures.get(foe).is_some_and(|o| self.is_invader(o)) { (company.and_then(|c| self.military.companies.get(c)).map_or(0, |c| c.experience) + 10) / 20 } else { 0 };
+        let mut armor = (theirs.armor + seasoned).min(MAX_ARMOR);
+        let mut attack = mine.attack;
+        // Infantry and charioteers strike at the back of a man busy with another.
+        if their_foe != fid && company.is_some() && matches!(kind, INFANTRY | CHARIOTEER) && toward(way, their_way) {
+            attack += 4;
+        }
+        if let Some(l) = self.line(fid) {
+            attack += l.attack();
+        }
+        if let Some(l) = self.line(foe) {
+            armor += l.armor();
+        }
+        if self.hurt(foe, blow(attack, armor)) {
+            self.learn(company, victim);
         }
     }
 
@@ -754,9 +973,12 @@ impl World {
         f.route.clear();
         f.moving = false;
         let formation = if f.kind == crate::navy::ENEMY_TRANSPORT { 0 } else { f.formation };
+        // The share of the company still standing that he was.
+        let standing = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map_or(0, |c| {
+            c.soldiers.iter().chain(&c.recruits).filter(|&&s| self.figures.get(s).is_some_and(|f| !f.dead && f.action != action::CORPSE)).count() as i32
+        });
         if let Some(c) = self.company_of(fid).and_then(|c| self.military.companies.get_mut(c)) {
-            let size = (c.soldiers.len() + c.recruits.len()).max(1) as i32;
-            c.morale = (c.morale - morale_loss(100 / size)).max(0);
+            c.morale = (c.morale - morale_loss(if standing > 0 { 100 / standing } else { 0 })).max(0);
             if c.morale <= BROKEN_MORALE && !c.at_fort {
                 let company = self.company_of(fid).expect("checked");
                 self.return_company(company);
@@ -893,7 +1115,9 @@ impl World {
         }
     }
 
-    /// An archer looses a missile at the nearest enemy in range, when he is ready.
+    /// An archer looses a missile at the nearest enemy in range each time he has
+    /// reloaded (his rate of fire, in ticks), if there is one. The city's javelins
+    /// carry their thrower's missile attack; the invaders' do the spear's.
     pub(crate) fn shoot_at_foes(&mut self, fid: FigureId) {
         let stats = self.fighter_stats(fid);
         if stats.missile_range <= 0 {
@@ -901,32 +1125,35 @@ impl World {
         }
         let Some(f) = self.figures.get_mut(fid) else { return };
         f.attack_tick += 1;
-        if (f.attack_tick as i32) < stats.missile_delay.max(1) {
+        if (f.attack_tick as i32) <= stats.missile_delay {
             return;
         }
+        f.attack_tick = 0;
         let (x, y) = (f.x, f.y);
         let mine = self.figures.get(fid).is_some_and(|f| self.is_invader(f));
         let range = stats.missile_range;
         let target = self.nearest_foe(mine, (x, y), range);
         let Some((target, tx, ty)) = target else { return };
         if let Some(f) = self.figures.get_mut(fid) {
-            f.attack_tick = 0;
             f.direction = crate::figures::direction_to((x, y), (tx, ty)).unwrap_or(f.direction);
         }
         let missile = self.figures.spawn(if mine { ARROW } else { JAVELIN }, x, y, Travel::Land);
         let company = if mine { 0 } else { self.company_of(fid).map_or(0, |c| c as u16 + 1) };
+        let attack = if mine { self.balance.unit(SPEAR).missile_attack } else { stats.missile_attack };
         if let Some(m) = self.figures.get_mut(missile) {
             m.foe = target;
             // The company whose man loosed it, which learns from a kill.
             m.formation = company;
-            m.amount = stats.missile_attack;
+            m.amount = attack;
             m.destination = Some((tx, ty));
             m.direction = crate::figures::direction_to((x, y), (tx, ty)).unwrap_or(0);
         }
     }
 
     /// A missile flies a tile every few ticks toward where its target stood, and
-    /// wounds it if it is still there.
+    /// wounds it if it is still there: a javelin by its attack against the target's
+    /// armour against missiles; an invader's missile all or nothing, its armour
+    /// counting the experience of a soldier's company and his line.
     pub(crate) fn update_missile(&mut self, fid: FigureId) {
         let Some(m) = self.figures.get_mut(fid) else { return };
         m.counter += 1;
@@ -943,20 +1170,19 @@ impl World {
             return;
         }
         m.dead = true;
-        let (target, attack, company) = (m.foe, m.amount, m.formation.checked_sub(1).map(|c| c as usize));
+        let (target, attack, company, theirs) = (m.foe, m.amount, m.formation.checked_sub(1).map(|c| c as usize), m.kind == ARROW);
         let hit = self.figures.get(target).is_some_and(|t| !t.dead && t.action != action::CORPSE && (t.x - tx).abs() <= 1 && (t.y - ty).abs() <= 1);
-        if hit {
-            let armor = self.fighter_stats(target).missile_armor;
-            let damage = (attack - armor).max(0);
-            let damage = match self.holding(target) {
-                Some(Order::HoldTight) => damage * 3 / 2,
-                Some(Order::HoldLoose) => damage / 2,
-                _ => damage,
-            };
-            let kind = self.figures.get(target).map_or(0, |t| t.kind);
-            if self.hurt(target, damage) {
-                self.learn(company, kind);
-            }
+        if !hit {
+            return;
+        }
+        let armor = self.fighter_stats(target).missile_armor;
+        let kind = self.figures.get(target).map_or(0, |t| t.kind);
+        if theirs {
+            let seasoned = if is_soldier(kind) { (self.company_of(target).and_then(|c| self.military.companies.get(c)).map_or(0, |c| c.experience) + 10) / 20 } else { 0 };
+            let armor = (armor + seasoned).min(MAX_ARMOR) + self.line(target).map_or(0, |l| l.missile_armor());
+            self.hurt(target, spear(attack, armor));
+        } else if self.hurt(target, blow(attack, armor.min(MAX_ARMOR))) {
+            self.learn(company, kind);
         }
     }
 
@@ -985,6 +1211,22 @@ mod tests {
         assert_eq!(with_recruit(0, 1, 10), 5);
         assert_eq!(with_recruit(0, 1, 35), 18);
         assert_eq!(with_recruit(100, 16, 35), 98);
+    }
+
+    #[test]
+    fn blows_and_lines() {
+        // Bedouin (attack 12) on infantry (armour 2) in a tight line, facing and not.
+        let tight = |facing| Line { kind: INFANTRY, order: Order::HoldTight, facing };
+        assert_eq!(blow(12, 2 + tight(true).armor()), 8);
+        assert_eq!(blow(12, 2 + tight(false).armor()), 12);
+        assert_eq!(blow(12 + tight(true).attack(), 0), 16);
+        assert_eq!((blow(0, 5), blow(10, 25), blow(5, -3)), (0, 0, 5));
+        // An invader's missile does all or nothing.
+        assert_eq!((spear(10, 10), spear(10, 11), spear(10, -4)), (10, 0, 10));
+        let loose = Line { kind: ARCHER, order: Order::HoldLoose, facing: true };
+        assert_eq!((loose.missile_armor(), loose.armor(), loose.attack()), (4, 0, 0));
+        assert!(toward(0, 7) && toward(7, 0) && toward(3, 3) && !toward(0, 2) && !toward(6, 0));
+        assert_eq!((general_direction((0, 0), (1, -9)), general_direction((0, 0), (5, -4)), general_direction((0, 0), (-9, 2))), (Some(0), Some(1), Some(6)));
     }
 
     #[test]
