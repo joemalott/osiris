@@ -71,7 +71,7 @@ pub struct Religion {
     pub festival: Option<PlannedFestival>,
     /// Months since each of the last festivals, for the two-a-year limit.
     pub recent_festivals: Vec<i32>,
-    /// Sentiment a festival adds, and how many times it has applied.
+    /// The size of the last festival and how many times it has lifted sentiment.
     pub festival_mood: (i32, i32),
     /// Months of Ra's trade blessing (+) or curse (-), and no-trader months.
     pub ra_trade_months: i32,
@@ -459,12 +459,8 @@ impl World {
             g.months_since_festival = 0;
         }
         self.religion.recent_festivals.push(0);
-        let boost = match f.size {
-            festival::SMALL => 7,
-            festival::LARGE => 9,
-            _ => 12,
-        };
-        self.religion.festival_mood = (boost, 1);
+        let boost = festival_boost(f.size, 0);
+        self.religion.festival_mood = (f.size as i32, 1);
         for h in self.buildings.iter_mut().filter_map(|b| b.house.as_mut()) {
             h.happiness = (h.happiness + boost).min(100);
         }
@@ -476,8 +472,30 @@ impl World {
         self.post(key, None, true);
     }
 
+    /// What the last festival still adds to each sentiment update: a second lift after
+    /// the first, then a little each time while it is less than a year old.
+    pub(crate) fn festival_sentiment(&mut self) -> i32 {
+        let (size, stage) = self.religion.festival_mood;
+        if stage == 0 || self.religion.recent_festivals.is_empty() {
+            self.religion.festival_mood.1 = 0;
+            return 0;
+        }
+        self.religion.festival_mood.1 = stage + 1;
+        festival_boost(size as u8, stage.min(2))
+    }
+
     /// The mood of the least happy known god, for the overseers.
     pub fn least_god_mood(&self) -> i32 {
         self.religion.known().map(|(_, g)| g.mood).min().unwrap_or(50)
     }
+}
+
+/// Sentiment a festival of `size` adds: on the day, at the next update, and after.
+fn festival_boost(size: u8, stage: i32) -> i32 {
+    let row = match size {
+        festival::SMALL => [7, 2, 1],
+        festival::LARGE => [9, 3, 2],
+        _ => [12, 5, 3],
+    };
+    row[stage.clamp(0, 2) as usize]
 }

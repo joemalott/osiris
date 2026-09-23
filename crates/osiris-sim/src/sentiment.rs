@@ -110,6 +110,7 @@ impl World {
         let wages = self.wage_sentiment();
         let jobs = self.employment_sentiment();
         let huts = self.hut_penalty();
+        let festival = self.festival_sentiment();
         let pop = self.population;
         let houses = self.balance.houses.clone();
         let (mut food_total, mut needing_food, mut huts_total, mut counted) = (0, 0, 0, 0);
@@ -145,7 +146,7 @@ impl World {
                 food_total += f;
                 (f, 0)
             };
-            h.happiness = (h.happiness + taxes + wages + jobs + food + hut).clamp(0, 100);
+            h.happiness = (h.happiness + taxes + wages + jobs + food + hut + festival).clamp(0, 100);
         }
         let occupied: Vec<i32> = self.buildings.iter().filter_map(|b| b.house.as_ref()).filter(|h| h.population > 0).map(|h| h.happiness).collect();
         let previous = self.sentiment;
