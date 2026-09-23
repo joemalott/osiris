@@ -498,7 +498,7 @@ impl World {
         let dwindled = self.population < self.invasions.peak_population / 4 && invaders > 2 + soldiers;
         if dwindled || self.population <= 0 {
             self.invasions.lost = true;
-            self.messages.push_back("defeat".to_owned());
+            self.messages.push_back("message_mission_defeat".to_owned());
         }
     }
 }

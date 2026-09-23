@@ -37,6 +37,8 @@ pub enum Target {
 pub enum InfoAction {
     Close,
     Overseer(crate::advisors::Advisor),
+    /// Take command of a company.
+    SelectCompany(usize),
 }
 
 pub struct InfoPanel {
@@ -130,6 +132,40 @@ impl InfoPanel {
         ([x, y], closed)
     }
 
+    /// A fort: its company's name, soldiers and morale, and orders for it.
+    fn fort_window(&mut self, ui: &mut Ui, world: &mut World, b: &Building) -> Option<InfoAction> {
+        const G: usize = 138;
+        let company = world.military.companies.iter().position(|c| c.fort == b.id || c.ground == b.id);
+        let Some(c) = company else { return Some(InfoAction::Close) };
+        let title = ui.t(G, c % 10).trim_matches('"').to_owned();
+        let ([x, y], closed) = self.frame(ui, 28, 18, &title);
+        let co = world.military.companies[c].clone();
+        panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 44.0, 26, 9);
+        let arm = ui.t(G, match co.kind {
+            osiris_sim::military::CHARIOTEER => 33,
+            osiris_sim::military::ARCHER => 35,
+            _ => 34,
+        });
+        let count = format!("{} {} ({})", ui.t(G, 23), co.soldiers.len(), arm);
+        ui.label(Font::NormalWhiteOnDark, &count, x + 32.0, y + 56.0);
+        let morale = format!("{} {}", ui.t(G, 36), ui.t(G, 37 + (co.morale / 5).clamp(0, 20) as usize));
+        ui.label(Font::NormalWhiteOnDark, &morale, x + 32.0, y + 78.0);
+        if co.soldiers.is_empty() {
+            let none = ui.t(G, 10);
+            ui.wrapped(Font::NormalWhiteOnDark, &none, x + 32.0, y + 104.0, 24.0 * 16.0);
+        }
+        let mut action = closed.then_some(InfoAction::Close);
+        let command = format!("{} {}", ui.t(51, 1), ui.t(51, 2));
+        if !co.soldiers.is_empty() && ui.button([x + 32.0, y + 200.0, 190.0, 24.0], &command, Font::NormalBlackOnLight) {
+            action = Some(InfoAction::SelectCompany(c));
+        }
+        let home = ui.t(G, 58);
+        if !co.at_fort && ui.button([x + 236.0, y + 200.0, 190.0, 24.0], &home, Font::NormalBlackOnLight) {
+            world.return_company(c);
+        }
+        action
+    }
+
     /// A walker: tabs for each walker on the tile, then the chosen one's portrait,
     /// name, what he is and where from, and what he carries. Returns the tab clicked.
     fn figure_window(&mut self, ui: &mut Ui, world: &World, ids: &[u32], selected: usize) -> (Option<InfoAction>, Option<usize>) {
@@ -219,6 +255,9 @@ impl InfoPanel {
         }
         if b.monument.is_some() {
             return self.monument_window(ui, world, b);
+        }
+        if osiris_sim::military::fort_soldier(b.kind).is_some() || b.kind == osiris_sim::military::FORT_GROUND {
+            return self.fort_window(ui, world, b);
         }
         if world.is_farm(b.kind) {
             return self.farm_window(ui, world, b, g, &name);

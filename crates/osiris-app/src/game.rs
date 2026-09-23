@@ -113,6 +113,8 @@ pub struct Game {
     pub message_list: Option<MessageList>,
     pub empire: Option<crate::empire_window::EmpireWindow>,
     pub advisors: Option<crate::advisors::Advisors>,
+    /// The company awaiting orders: the next map click sends it there.
+    pub selected_company: Option<usize>,
     advisor_images: Option<crate::advisors::AdvisorImages>,
     ui_images: Option<crate::widgets::UiImages>,
     empire_images: Option<crate::empire_window::EmpireImages>,
@@ -174,6 +176,7 @@ impl Game {
             message_list: None,
             empire: None,
             advisors: None,
+            selected_company: None,
             advisor_images: None,
             ui_images: None,
             empire_images: None,
@@ -604,6 +607,9 @@ impl Game {
                 }
                 if self.tool != Tool::None {
                     self.drag_start = self.hover;
+                } else if let Some((x, y)) = self.hover
+                    && self.command_company(x, y)
+                {
                 } else if let Some((x, y)) = self.hover {
                     let id = self.world.map.building.at_or(x, y, 0);
                     let target = if id != 0 { crate::info::Target::Building(id) } else { crate::info::Target::Tile(x, y) };
@@ -860,12 +866,48 @@ impl Game {
         if self.dialog.take().is_some() || self.empire.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() {
             return;
         }
+        if self.selected_company.take().is_some() {
+            return;
+        }
         if self.sidebar.open.take().is_some() {
             return;
         }
         if self.drag_start.take().is_none() {
             self.tool = Tool::None;
         }
+    }
+
+    /// A map click while commanding: with a company selected, sends it to the tile
+    /// (or home, when the tile is its fort); otherwise clicking one of the city's
+    /// soldiers selects his company. True when the click was used.
+    fn command_company(&mut self, x: i32, y: i32) -> bool {
+        if let Some(c) = self.selected_company {
+            let Some(company) = self.world.military.companies.get(c) else {
+                self.selected_company = None;
+                return false;
+            };
+            let clicked = self.world.map.building.at_or(x, y, 0);
+            if clicked != 0 && (clicked == company.fort || clicked == company.ground) {
+                self.world.return_company(c);
+            } else {
+                self.world.move_company(c, (x, y));
+            }
+            self.sound("BUTTON.WAV");
+            return true;
+        }
+        let soldier = self.world.figures.iter().find(|f| (f.x - x).abs() <= 1 && (f.y - y).abs() <= 1 && self.world.company_of(f.id).is_some()).map(|f| f.id);
+        let Some(c) = soldier.and_then(|s| self.world.company_of(s)) else { return false };
+        self.select_company(c);
+        true
+    }
+
+    pub fn select_company(&mut self, c: usize) {
+        self.selected_company = Some(c);
+        self.info = None;
+        self.advisors = None;
+        let name = self.text.get(138, c % 10).unwrap_or("").trim_matches('"').to_owned();
+        self.say(&format!("{name}: click where to send them, or their fort to call them home"));
+        self.sound("BUTTON.WAV");
     }
 
     fn say(&mut self, text: &str) {
@@ -876,10 +918,14 @@ impl Game {
         let ok = [0.3, 1.0, 0.3, 0.45];
         let bad = [1.0, 0.2, 0.2, 0.45];
         let Some(cmd) = self.pending_command() else {
-            return (
-                self.hover.map(|(x, y)| Highlight { x, y, color: [1.0, 1.0, 1.0, 0.25] }).into_iter().collect(),
-                None,
-            );
+            let mut tiles: Vec<Highlight> = self.hover.map(|(x, y)| Highlight { x, y, color: [1.0, 1.0, 1.0, 0.25] }).into_iter().collect();
+            // The selected company's soldiers.
+            if let Some(c) = self.selected_company.and_then(|c| self.world.military.companies.get(c)) {
+                for f in c.soldiers.iter().filter_map(|&s| self.world.figures.get(s)) {
+                    tiles.push(Highlight { x: f.x, y: f.y, color: [1.0, 0.85, 0.2, 0.35] });
+                }
+            }
+            return (tiles, None);
         };
         let est = self.world.estimate(&cmd);
         let cost = match est {
@@ -1008,6 +1054,14 @@ impl Game {
                     self.advisors = None;
                     self.empire = Some(Default::default());
                 }
+                Some(crate::advisors::AdvisorAction::GoToCompany(c)) => {
+                    self.advisors = None;
+                    let at = self.world.military.companies.get(c).and_then(|co| co.soldiers.iter().find_map(|&s| self.world.figures.get(s)).map(|f| (f.x, f.y)));
+                    if let Some((x, y)) = at {
+                        self.view.center_on(r, &self.world.map, x, y);
+                    }
+                    self.select_company(c);
+                }
                 None => {}
             }
             return;
@@ -1132,6 +1186,7 @@ impl Game {
                     self.info = None;
                     self.open_advisor(a);
                 }
+                Some(crate::info::InfoAction::SelectCompany(c)) => self.select_company(c),
                 None => {}
             }
         }

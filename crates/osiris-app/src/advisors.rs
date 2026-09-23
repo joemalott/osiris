@@ -103,6 +103,8 @@ impl AdvisorImages {
 pub enum AdvisorAction {
     Close,
     OpenEmpire,
+    /// Take command of a company and look at it.
+    GoToCompany(usize),
 }
 
 /// A popup over an overseer screen.
@@ -232,7 +234,7 @@ impl Advisors {
             Advisor::Health => health(&mut ui, world, [px, py]),
             Advisor::Population => population(&mut ui, world, [px, py], &mut self.scroll),
             Advisor::Political => political(&mut ui, world, [px, py], &mut self.popup),
-            Advisor::Military => military(&mut ui, [px, py]),
+            Advisor::Military => military(&mut ui, world, [px, py]),
             Advisor::Monuments => monuments(&mut ui, world, [px, py], &mut self.popup),
         };
         action = action.or(from_screen);
@@ -1247,18 +1249,47 @@ fn request_popup(ui: &mut Ui, world: &mut World, i: usize, can: bool) -> bool {
     }
 }
 
-fn military(ui: &mut Ui, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
+fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
     const G: usize = 51;
     let title = ui.t(G, 0);
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 70.0, 36, 17);
-    let none = ui.t(G, 16);
-    ui.wrapped(Font::NormalWhiteOnDark, &none, px + 42.0, py + 70.0 + 128.0, 34.0 * 16.0);
-    let threats = ui.t(G, 8);
-    ui.label(Font::NormalBlackOnLight, &threats, px + 50.0, py + 432.0 - 90.0);
+    let companies: Vec<(usize, osiris_sim::military::Company)> = world.military.companies.iter().cloned().enumerate().filter(|(_, c)| c.fort != 0).collect();
+    if companies.is_empty() {
+        let none = ui.t(G, 16);
+        ui.wrapped(Font::NormalWhiteOnDark, &none, px + 42.0, py + 70.0 + 128.0, 34.0 * 16.0);
+    }
+    let mut action = None;
+    for (row, (c, co)) in companies.iter().take(6).enumerate() {
+        let ry = py + 78.0 + 44.0 * row as f32;
+        let name = ui.t(138, c % 10).trim_matches('"').to_owned();
+        ui.label(Font::NormalWhiteOnDark, &name, px + 44.0, ry + 4.0);
+        let arm = ui.t(138, match co.kind {
+            osiris_sim::military::CHARIOTEER => 33,
+            osiris_sim::military::ARCHER => 35,
+            _ => 34,
+        });
+        let count = format!("{} {}", co.soldiers.len(), arm);
+        ui.label(Font::NormalWhiteOnDark, &count, px + 44.0, ry + 22.0);
+        let morale = ui.t(138, 37 + (co.morale / 5).clamp(0, 20) as usize);
+        ui.label(Font::NormalWhiteOnDark, &morale, px + 200.0, ry + 22.0);
+        let go = format!("{} {}", ui.t(G, 1), ui.t(G, 2));
+        if !co.soldiers.is_empty() && ui.button([px + 330.0, ry + 4.0, 110.0, 22.0], &go, Font::NormalWhiteOnDark) {
+            action = Some(AdvisorAction::GoToCompany(*c));
+        }
+        let back = format!("{} {}", ui.t(G, 3), ui.t(G, 4));
+        if !co.at_fort && ui.button([px + 450.0, ry + 4.0, 110.0, 22.0], &back, Font::NormalWhiteOnDark) {
+            world.return_company(*c);
+        }
+    }
+    // What the scouts report.
+    let invaders = world.figures.iter().any(|f| osiris_sim::invasions::is_invader_kind(f.kind));
+    let coming = world.invasions.planned.iter().any(|p| p.announced && !p.done);
+    let threat = ui.t(G, if invaders { 10 } else if coming { 9 } else { 8 });
+    ui.label(Font::NormalBlackOnLight, &threat, px + 50.0, py + 432.0 - 90.0);
     let abroad = ui.t(G, 12);
     ui.label(Font::NormalBlackOnLight, &abroad, px + 50.0, py + 432.0 - 70.0);
-    None
+    action
 }
 
 /// Text lines (group 199) for a monument family: not begun (two lines), under way,
