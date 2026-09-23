@@ -101,6 +101,8 @@ pub struct Game {
     messages: Arc<MessageTable>,
     /// The phrases of eventmsg.txt, for scenario event messages.
     pub phrases: Arc<osiris_formats::Phrases>,
+    /// The governor's name, for the messages.
+    pub player_name: String,
     dialog: Option<MessageDialog>,
     pub info: Option<InfoPanel>,
     minimap: Option<Minimap>,
@@ -150,6 +152,7 @@ impl Game {
         let top_menu = TopMenu::new(&text);
         Self {
             phrases: Arc::default(),
+            player_name: "Governor".to_owned(),
             world,
             view: CityView::default(),
             tool: Tool::None,
@@ -788,13 +791,10 @@ impl Game {
         let item = |r: u16| self.text.get(23, 54 + r as usize).unwrap_or("").to_owned();
         let city = |c: Option<u8>| c.and_then(|c| self.text.get(195, c as usize)).unwrap_or("").to_owned();
         let shown = |r: u16, units: i32| if r == osiris_sim::scenario_events::DEBEN || r == osiris_sim::scenario_events::TROOPS || units < 100 { units } else { units / 100 };
-        let player = std::env::var("USER").map(|u| {
-            let mut c = u.chars();
-            c.next().map(|f| f.to_uppercase().chain(c).collect::<String>()).unwrap_or_default()
-        });
+
         let fill = |s: &str, (r, amount, c): (u16, i32, Option<u8>), reason: &str| {
             s.replace("[greeting]", self.text.get(32, 11).unwrap_or(""))
-                .replace("[player_name]", player.as_deref().unwrap_or("Governor"))
+                .replace("[player_name]", &self.player_name)
                 .replace("[reason_phrase]", reason)
                 .replace("[city_name]", &city(c))
                 .replace("[amount]", &shown(r, amount).to_string())

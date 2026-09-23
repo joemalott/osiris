@@ -151,6 +151,31 @@ fn save_rules(rules: &osiris_sim::Rules) {
     }
 }
 
+fn name_path() -> PathBuf {
+    user_dir().join("name.txt")
+}
+
+/// The governor's name for the messages: as the player set it, else the account's.
+pub fn player_name() -> String {
+    if let Ok(s) = std::fs::read_to_string(name_path())
+        && !s.trim().is_empty()
+    {
+        return s.trim().to_owned();
+    }
+    std::env::var("USER")
+        .ok()
+        .and_then(|u| {
+            let mut c = u.chars();
+            c.next().map(|f| f.to_uppercase().chain(c).collect())
+        })
+        .unwrap_or_else(|| "Governor".to_owned())
+}
+
+pub fn save_player_name(name: &str) {
+    let _ = std::fs::create_dir_all(user_dir());
+    let _ = std::fs::write(name_path(), name.trim());
+}
+
 fn progress_path() -> PathBuf {
     user_dir().join("progress.txt")
 }
@@ -204,6 +229,7 @@ impl App {
         world.rules = load_rules();
         let mut game = game::Game::new(world, images, self.assets.text.clone(), self.assets.messages.clone(), self.audio.clone());
         game.phrases = self.assets.phrases.clone();
+        game.player_name = player_name();
         let (cx, cy) = start_view(&game.world);
         game.view.center_on(&mut gfx.renderer, &game.world.map, cx, cy);
         self.screen = Some(Screen::Playing(Box::new(game), mission));
@@ -346,6 +372,16 @@ impl ApplicationHandler for App {
                     KeyCode::F5 => self.quicksave(),
                     KeyCode::F9 => self.quickload(),
                     _ => match &mut self.screen {
+                        Some(Screen::Menu(m)) if m.editing_name => {
+                            let text = match code {
+                                KeyCode::Backspace => Some("\u{8}".to_owned()),
+                                KeyCode::Enter | KeyCode::NumpadEnter => Some("\n".to_owned()),
+                                _ => event.text.as_ref().map(|t| t.to_string()),
+                            };
+                            if let Some(t) = text {
+                                m.type_name(&t);
+                            }
+                        }
                         Some(Screen::Menu(m)) if code == KeyCode::Escape => m.back(),
                         Some(Screen::Playing(g, _)) if code == KeyCode::Escape && g.idle() => {
                             self.screen = Some(Screen::Menu(self.menu()));
@@ -636,6 +672,7 @@ fn main() -> Result<()> {
         }
         let mut game = game::Game::new(world, images, assets.text.clone(), assets.messages.clone(), None);
         game.phrases = assets.phrases.clone();
+        game.player_name = player_name();
         let (cx, cy) = view.centre.or(view.info).unwrap_or_else(|| start_view(&game.world));
         if !view.keep_dialogs {
             game.close_dialog();

@@ -63,6 +63,9 @@ pub struct Menu {
     /// Set when the rules change, so the caller can store them.
     pub rules_changed: bool,
     hover_back: bool,
+    /// The governor's name, and whether it is being typed.
+    pub name: String,
+    pub editing_name: bool,
 }
 
 const LIST_ROWS: usize = 16;
@@ -106,6 +109,8 @@ impl Menu {
             rules_panel: RulesPanel::default(),
             rules_changed: false,
             hover_back: false,
+            name: crate::player_name(),
+            editing_name: false,
         };
         m.build();
         m
@@ -275,7 +280,41 @@ impl Menu {
         }
     }
 
+    /// Where the governor's name is written on the campaign page.
+    fn name_rect(screen: [f32; 2]) -> [f32; 4] {
+        let (_, info) = Self::plaque(screen);
+        [info[0], info[3] - 60.0, info[2] - info[0], 24.0]
+    }
+
+    /// Typing the governor's name: a character, backspace, or Enter to keep it.
+    pub fn type_name(&mut self, text: &str) {
+        for c in text.chars() {
+            match c {
+                '\u{8}' | '\u{7f}' => {
+                    self.name.pop();
+                }
+                '\r' | '\n' => {
+                    self.editing_name = false;
+                    crate::save_player_name(&self.name);
+                }
+                c if !c.is_control() && self.name.chars().count() < 24 => self.name.push(c),
+                _ => {}
+            }
+        }
+    }
+
     pub fn click(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
+        if self.page == Page::Campaign {
+            let [x, y, w, h] = Self::name_rect(screen);
+            let on_name = inside(p, x, y, w, h);
+            if self.editing_name && !on_name {
+                self.editing_name = false;
+                crate::save_player_name(&self.name);
+            } else if on_name {
+                self.editing_name = true;
+                return None;
+            }
+        }
         if self.page == Page::Rules {
             match self.rules_panel.click(&mut self.rules, screen, screen[0], p) {
                 RulesClick::Toggled => self.rules_changed = true,
@@ -407,6 +446,12 @@ impl Menu {
                 y += 22.0;
             }
         }
+        // The governor, whose name the messages will use; click to change it.
+        let [nx, ny, nw, _] = Self::name_rect(r.screen);
+        let caret = if self.editing_name { "_" } else { "" };
+        let label = format!("Governor: {}{caret}", self.name);
+        let w = text_width(r, Font::NormalBlackOnLight, &label) as f32;
+        draw_text(r, if self.editing_name { Font::NormalBlue } else { Font::NormalBlackOnLight }, &label, (nx + (nw - w) / 2.0).floor(), ny, font::BLACK);
         let [bx, by] = self.back_button(r.screen);
         Self::button(r, panels, "Back", bx, by, 160.0, self.hover_back, true);
     }
