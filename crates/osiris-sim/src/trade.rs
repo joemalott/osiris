@@ -109,8 +109,15 @@ pub struct TradeCity {
     pub open: bool,
     pub cost: i32,
     pub sea: bool,
+    /// What it sells and buys while it trades (or is ours); nothing otherwise.
     pub sells: Vec<bool>,
     pub buys: Vec<bool>,
+    /// The goods the scenario lists for it, sold and bought, which it trades once it
+    /// is a trading city.
+    #[serde(default)]
+    pub listed_sells: Vec<bool>,
+    #[serde(default)]
+    pub listed_buys: Vec<bool>,
     /// Position on the empire map.
     pub pos: (i32, i32),
     /// Where its name sits beside its icon: 0 left, 1 above, 2 right, 3 below.
@@ -118,9 +125,6 @@ pub struct TradeCity {
     pub text_align: u8,
     /// Days until the next trader sets out.
     pub entry_delay: i32,
-    /// Months left of a siege, which keeps its traders home.
-    #[serde(default)]
-    pub siege_months: i32,
     /// Its caravans or ships in the city, by slot (0 for a free slot).
     #[serde(default)]
     pub traders: [FigureId; MAX_TRADERS],
@@ -129,6 +133,17 @@ pub struct TradeCity {
 impl TradeCity {
     pub fn trades(&self) -> bool {
         city::trades(self.city_type)
+    }
+
+    /// Takes up its listed goods if it trades (or is ours), and drops them if not.
+    /// Older saved games kept no lists; their cities keep what they had.
+    fn refresh_goods(&mut self) {
+        if self.listed_sells.is_empty() {
+            return;
+        }
+        let keep = self.trades() || self.city_type == city::OURS;
+        self.sells = self.listed_sells.iter().map(|&l| l && keep).collect();
+        self.buys = self.listed_buys.iter().map(|&l| l && keep).collect();
     }
 }
 
@@ -212,37 +227,31 @@ impl Trade {
             if o.kind != fmt::object::CITY {
                 continue;
             }
-            let trades = city::trades(o.city_type);
             let mut c = TradeCity {
                 name_id: o.city_name_id,
                 city_type: o.city_type,
                 route: o.trade_route_id,
                 open: o.trade_route_open,
                 cost: o.trade_route_cost as i32,
-                sells: vec![false; RESOURCES],
-                buys: vec![false; RESOURCES],
+                listed_sells: (0..RESOURCES).map(|r| r > 0 && o.sells.contains(&(r as u8))).collect(),
+                listed_buys: (0..RESOURCES).map(|r| r > 0 && o.buys.contains(&(r as u8))).collect(),
                 pos: (o.x, o.y),
                 text_align: o.text_align,
                 entry_delay: LAND_ENTRY_DELAY,
                 ..Default::default()
             };
+            c.refresh_goods();
+            // Every city's route gets its yearly allowances, trading or not, so a city
+            // that becomes a trade partner later brings its goods with it.
             if let Some(route) = t.routes.get_mut(o.trade_route_id as usize) {
                 c.sea = route.sea;
                 for r in 1..RESOURCES {
-                    if !trades {
-                        continue;
-                    }
-                    c.sells[r] = o.sells.contains(&(r as u8));
-                    c.buys[r] = o.buys.contains(&(r as u8));
-                    let amount = match o.demand.get(r).copied().unwrap_or(0) {
+                    route.limit[r] = match o.demand.get(r).copied().unwrap_or(0) {
                         1 => 1500,
                         2 => 2500,
                         3 => 4000,
                         _ => 0,
                     };
-                    if c.sells[r] || c.buys[r] {
-                        route.limit[r] = amount;
-                    }
                 }
             }
             t.cities.push(c);
@@ -433,6 +442,34 @@ impl World {
         Ok(())
     }
 
+    /// A scenario event makes `city` a city of kind `city_type`: it trades its listed
+    /// goods if the new kind trades and none otherwise, and `close` shuts its route.
+    /// Imports and exports no open route still carries are then stopped.
+    pub fn change_trade_city(&mut self, city: usize, city_type: u8, close: bool) {
+        let Some(c) = self.trade.cities.get_mut(city) else { return };
+        c.city_type = city_type;
+        if close {
+            c.open = false;
+        }
+        c.refresh_goods();
+        for r in 1..RESOURCES as u16 {
+            let st = self.trade.status[r as usize];
+            let buying = matches!(st, status::IMPORT | status::IMPORT_AS_NEEDED);
+            if st == status::NONE || self.open_partner(r, buying) {
+                continue;
+            }
+            self.trade.status[r as usize] = status::NONE;
+        }
+    }
+
+    /// Whether an open trading city sells (or buys) `r` and its route allows some.
+    fn open_partner(&self, r: u16, buying: bool) -> bool {
+        self.trade.cities.iter().enumerate().any(|(i, c)| {
+            let list = if buying { &c.sells } else { &c.buys };
+            c.trades() && c.open && list.get(r as usize).copied().unwrap_or(false) && self.trade_limit(i, r) > 0
+        })
+    }
+
     pub fn set_trade(&mut self, r: u16, st: u8, amount: i32) {
         if let Some(s) = self.trade.status.get_mut(r as usize) {
             *s = st;
@@ -487,8 +524,8 @@ impl World {
                 continue;
             }
             let Some(slot) = (0..slots as usize).find(|&s| !self.trader_in_city(city, s)) else { continue };
-            // Ra's wrath, storms, sandstorms and sieges keep traders away.
-            let troubled = c.siege_months > 0 || if c.sea { self.scenario_events.sea_problem_days > 0 } else { self.scenario_events.land_problem_days > 0 };
+            // Ra's wrath, storms and sandstorms keep traders away.
+            let troubled = if c.sea { self.scenario_events.sea_problem_days > 0 } else { self.scenario_events.land_problem_days > 0 };
             let blocked = troubled || self.religion.ra_no_traders_months > 0;
             let c = &mut self.trade.cities[city];
             if c.entry_delay > 0 {
@@ -785,6 +822,23 @@ mod tests {
         }
         world.trade = t;
         Some(world)
+    }
+
+    #[test]
+    fn a_city_trades_its_listed_goods_only_while_it_is_a_trading_city() {
+        let Some(mut w) = sandbox() else { return };
+        // Only the land city is open.
+        w.trade.cities[1].open = false;
+        let c = &mut w.trade.cities[0];
+        (c.listed_sells, c.listed_buys) = (c.sells.clone(), c.buys.clone());
+        w.set_trade(5, status::IMPORT, 1000);
+        w.change_trade_city(0, city::EGYPTIAN, true);
+        let c = &w.trade.cities[0];
+        assert!(!c.open && !c.sells[5] && !c.buys[6]);
+        assert_eq!(w.trade.status[5], status::NONE, "no open route brings it any more");
+        w.change_trade_city(0, city::EGYPTIAN_TRADING, false);
+        let c = &w.trade.cities[0];
+        assert!(!c.open && c.sells[5] && c.buys[6]);
     }
 
     /// Caravans alive in the city.
