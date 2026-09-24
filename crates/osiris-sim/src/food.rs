@@ -446,10 +446,12 @@ impl World {
     /// people's worth (a fifth with a complex to Bast or Osiris's altar), split evenly
     /// over the food types its level needs, taken from the city's foods in turn. A food
     /// it has less of than its share is used up; either way it counts as eaten. It
-    /// stops once it has eaten as many types as its level needs.
+    /// stops once it has eaten as many types as its level needs. Where the Kingdom
+    /// supplies the grain, every house is simply left holding its share of grain.
     pub(crate) fn consume_food(&mut self) {
         let houses = self.balance.houses.clone();
         let pct = self.eat_pct();
+        let kingdom_grain = self.kingdom_grain;
         let mut slots: Vec<usize> = Vec::new();
         for r in self.city_foods() {
             if let Some(s) = resource::food_slot(r)
@@ -462,12 +464,17 @@ impl World {
             let Some(h) = b.house.as_mut() else { continue };
             let types = houses.get(h.level as usize).map_or(0, |m| m.food_types);
             h.foods_eaten = 0;
-            if types <= 0 {
-                continue;
-            }
             let mut share = h.population * pct / 100;
             if types > 1 {
                 share /= types;
+            }
+            if kingdom_grain {
+                h.foods[0] = share;
+                h.foods_eaten = 1;
+                continue;
+            }
+            if types <= 0 {
+                continue;
             }
             for &s in &slots {
                 let f = &mut h.foods[s];

@@ -174,6 +174,9 @@ pub struct World {
     /// Yearly interest on debt, in percent (the scenario's).
     #[serde(default = "default_debt_rate")]
     pub debt_rate: i32,
+    /// The scenario has the Kingdom supply the city's grain.
+    #[serde(default)]
+    pub kingdom_grain: bool,
     /// For scripted tests only: every building gets all the workers it wants.
     #[serde(skip)]
     pub test_full_staff: bool,
@@ -295,6 +298,7 @@ impl World {
             scenario_allowed,
             scenario_goals: crate::missions::Goals::from_scenario(&info.win),
             debt_rate: info.debt_interest_rate as i32,
+            kingdom_grain: info.kingdom_supplies_grain,
             test_full_staff: false,
             statue_variant: 0,
             statue_facing: 1,
