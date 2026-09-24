@@ -698,19 +698,20 @@ impl World {
     }
 
     /// Where a figure up on tomb `target` is drawn: the tile to sort him with (the
-    /// lower-left tile of the block he is on, or of the one he left while he is nearer
-    /// it) and his foot's offset from a walker's there, part way along his move
-    /// (`FUN_004f0d30`). `ground` is the tile he stepped up from at the foot.
+    /// lower-left tile of the block he is over, as the original draws him with that
+    /// block) and his foot's offset from a walker's there, part way along his move
+    /// (`FUN_004f0d30`, `FUN_004f1d10`). `ground` is the tile he stepped up from at
+    /// the foot.
     pub fn perch_sprite(&self, target: BuildingId, p: &Perch, ground: (i32, i32)) -> Option<((i32, i32), (i32, i32))> {
         let to_tile = self.block_tile(target, p.block as usize)?;
         let to = (to_tile.0, to_tile.1 + 1);
         let to_off = self.stand_offset(target, p.block as usize, p.height)?;
-        let (from, from_off) = match p.from {
+        let (from_tile, from, from_off) = match p.from {
             Some(b) => {
                 let t = self.block_tile(target, b as usize)?;
-                ((t.0, t.1 + 1), self.stand_offset(target, b as usize, p.from_height)?)
+                (t, (t.0, t.1 + 1), self.stand_offset(target, b as usize, p.from_height)?)
             }
-            None => (ground, (0, 0)),
+            None => (to_tile, ground, (0, 0)),
         };
         // A walker's foot moves 30 pixels across and 15 down a tile.
         let px = |(x, y): (i32, i32)| ((x - y) * 30, (x + y) * 15);
@@ -718,10 +719,15 @@ impl World {
         let start = (a.0 - b.0 + from_off.0, a.1 - b.1 + from_off.1);
         let (step, steps) = (p.step.min(p.steps) as i32, p.steps.max(1) as i32);
         let off = (start.0 + (to_off.0 - start.0) * step / steps, start.1 + (to_off.1 - start.1) * step / steps);
-        if step * 2 < steps && p.from.is_some() {
-            return Some((from, (off.0 - (a.0 - b.0), off.1 - (a.1 - b.1))));
-        }
-        Some((to, off))
+        // The block under him part way across.
+        let (ix, iy) = (from_tile.0 + (to_tile.0 - from_tile.0) * step / steps, from_tile.1 + (to_tile.1 - from_tile.1) * step / steps);
+        let over = self.buildings.get(target).and_then(|bld| {
+            let m = bld.monument.as_ref()?;
+            m.blocks.iter().map(|bl| (bld.x + bl.x, bld.y + bl.y)).find(|&(x, y)| (x..x + 2).contains(&ix) && (y..y + 2).contains(&iy))
+        });
+        let sort = over.map_or(to, |(x, y)| (x, y + 1));
+        let c = px(sort);
+        Some((sort, (off.0 + b.0 - c.0, off.1 + b.1 - c.1)))
     }
 
     /// Whether a tomb wants a craftsman of type `figure` at all.
