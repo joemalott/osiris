@@ -21,10 +21,6 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      - name: Name the archives after the version
-        run: |
-          cd artifacts
-          for f in osiris-*; do mv "$f" "${f/osiris-/osiris-${GITHUB_REF_NAME}-}"; done
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

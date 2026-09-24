@@ -11,6 +11,17 @@ plain library with no global state and a seeded random number generator, so a
 scripted run gives the same result every time, and the renderer packs every sprite into
 GPU texture atlases and draws the city in a few batched calls.
 
+## Download
+
+| | Latest release | Snapshot (every commit) |
+|---|---|---|
+| macOS (Apple Silicon) | [osiris-macos-arm64.zip](../../releases/latest/download/osiris-macos-arm64.zip) | [osiris-macos-arm64.zip](../../releases/download/snapshot/osiris-macos-arm64.zip) |
+| Windows x64 | [osiris-windows-x64.zip](../../releases/latest/download/osiris-windows-x64.zip) | [osiris-windows-x64.zip](../../releases/download/snapshot/osiris-windows-x64.zip) |
+| Linux x64 | [osiris-linux-x64.tar.gz](../../releases/latest/download/osiris-linux-x64.tar.gz) | [osiris-linux-x64.tar.gz](../../releases/download/snapshot/osiris-linux-x64.tar.gz) |
+
+All versions are on the [releases page](../../releases). You also need the original
+game data; see [Playing](#playing).
+
 ## Status
 
 Playable but unfinished. Expect bugs, and expect things that differ from the original.
@@ -30,9 +41,8 @@ What is in:
   by laborers and guild craftsmen with materials dragged from storage, and burial
   provisions for tombs
 
-What is missing or incomplete: the sun temple, mausoleum, pyramid complexes, royal
-tombs, temple complexes, the campaign's branching choice screens, earthquakes and tomb
-robbers. Some numbers the original never documented are placeholders, and the code
+What is missing or incomplete: tomb robbers, predators such as crocodiles and hippos,
+and the original's cheats. Some numbers the original never documented are placeholders, and the code
 says so where they are.
 
 ### Game rules
@@ -54,8 +64,8 @@ looks for a folder named `PharaohData` holding the game's `Data/` folder, maps a
 
 Or pass it directly: `osiris --data /path/to/PharaohData`.
 
-Snapshot builds for macOS (Apple Silicon), Windows and Linux are built from every commit
-and published on the [snapshot release](../../releases/tag/snapshot). They are unsigned.
+Builds for macOS (Apple Silicon), Windows and Linux are linked under
+[Download](#download). They are unsigned.
 On macOS, right-click `Osiris.app` and choose Open the first time.
 
 ## Building
