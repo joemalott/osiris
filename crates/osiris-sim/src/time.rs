@@ -1,6 +1,7 @@
-//! Game clock: 50 ticks make a day, 16 days a month, 12 months a year.
+//! Game clock: 51 ticks make a day (the original's city update runs ticks 0 to 50),
+//! 16 days a month, 12 months a year.
 
-pub const TICKS_PER_DAY: u32 = 50;
+pub const TICKS_PER_DAY: u32 = 51;
 pub const DAYS_PER_MONTH: u32 = 16;
 pub const MONTHS_PER_YEAR: u32 = 12;
 
@@ -75,10 +76,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn year_has_9600_ticks() {
+    fn year_has_9792_ticks() {
         let mut t = GameTime::new(-3500);
         let mut years = 0;
-        for _ in 0..9600 {
+        for _ in 0..9792 {
             years += t.advance().year as u32;
         }
         assert_eq!((years, t.year, t.month, t.day, t.tick), (1, -3499, 0, 0, 0));

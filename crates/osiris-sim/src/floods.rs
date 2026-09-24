@@ -23,8 +23,8 @@ use std::collections::VecDeque;
 
 /// Ticks in one of the original's "cycles".
 const CYCLE_TICKS: i32 = 25;
-/// Cycles in a pseudo-year, per the original (`392 * 25 = 9800`, slightly longer than our
-/// 9600-tick calendar year; `current_cycle` wraps on this, not on the calendar, just as the
+/// Cycles in a pseudo-year, per the original (`392 * 25 = 9800`, slightly longer than the
+/// 9792-tick calendar year; `current_cycle` wraps on this, not on the calendar, just as the
 /// original's does).
 const CYCLES_IN_YEAR: i32 = 392;
 /// Distinct floodplain shore-distance rows the flood can reach.
