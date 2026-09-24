@@ -136,7 +136,8 @@ impl World {
             let Some(c) = self.buildings.get(camp) else { continue };
             let Some(road) = c.road else { continue };
             let (cx, cy, workers, delay) = (c.x, c.y, c.workers, c.spawn_delay);
-            let out = self.figures.iter().filter(|f| f.kind == PEASANT && f.home == camp && !f.dead).count();
+            // (A sled its laborer drags counts as his.)
+            let out = self.figures.iter().filter(|f| (f.kind == PEASANT || f.kind == crate::monuments::SLED) && f.home == camp && !f.dead).count();
             let staffed = workers * 100 / needed;
             let wait = match staffed {
                 s if s >= 100 => 3,
@@ -183,7 +184,29 @@ impl World {
                     }
                     continue;
                 }
-                if let Some((monument, block)) = self.leveling_job((cx, cy))
+                // Levelling a site or dragging a sled of material, whichever monument
+                // is nearer.
+                let level = self.leveling_job((cx, cy));
+                let haul = self.haul_job((cx, cy));
+                let dist = |id: BuildingId| self.buildings.get(id).map_or(i32::MAX, |b| (b.x - cx).abs() + (b.y - cy).abs());
+                if let Some(job) = haul
+                    && level.is_none_or(|(m, _)| dist(job.0) < dist(m))
+                {
+                    let fid = self.figures.spawn(PEASANT, road.0, road.1, Travel::Land);
+                    if let Some(c) = self.buildings.get_mut(camp) {
+                        c.spawn_delay = 0;
+                    }
+                    if let Some(f) = self.figures.get_mut(fid) {
+                        f.home = camp;
+                    }
+                    if !self.send_hauler(fid, job)
+                        && let Some(f) = self.figures.get_mut(fid)
+                    {
+                        f.dead = true;
+                    }
+                    continue;
+                }
+                if let Some((monument, block)) = level
                     && let Some(spot) = self.monument_access(monument, (cx, cy))
                 {
                     let fid = self.figures.spawn(PEASANT, road.0, road.1, Travel::Land);
@@ -223,6 +246,10 @@ impl World {
     pub(crate) fn update_peasant(&mut self, fid: u32) {
         if self.figures.get(fid).is_some_and(|f| matches!(f.action, 5 | 6)) {
             self.update_lamp_carrier(fid);
+            return;
+        }
+        if self.figures.get(fid).is_some_and(|f| f.action == crate::monuments::HAULING) {
+            self.update_hauler(fid);
             return;
         }
         let map = &self.map;
