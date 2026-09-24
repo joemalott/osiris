@@ -101,6 +101,8 @@ impl World {
             self.update_sieges();
             self.update_all_roads();
             if roll.year {
+                self.rng.next();
+                self.wind = self.rng.byte() as u8 & 7;
                 self.advance_year_finance();
                 self.reset_trade_year();
                 self.pay_tribute();
@@ -146,7 +148,8 @@ impl World {
                 k if crate::animals::is_animal(k) => self.update_animal(fid),
                 k if crate::animals::is_hunter(k) => self.update_hunter(fid),
                 crate::farms::PEASANT => self.update_peasant(fid),
-                crate::health::PLAGUED_CITIZEN | crate::crime::PROTESTER | crate::crime::ROBBER => self.update_wanderer(fid),
+                crate::crime::ROBBER => self.update_thief(fid),
+                crate::health::PLAGUED_CITIZEN | crate::crime::PROTESTER => self.update_wanderer(fid),
                 k if crate::military::is_soldier(k) => self.update_soldier(fid),
                 crate::military::STANDARD_BEARER => self.update_standard_bearer(fid),
                 crate::military::ARROW | crate::military::JAVELIN => self.update_missile(fid),

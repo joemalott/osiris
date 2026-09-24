@@ -174,6 +174,9 @@ pub struct World {
     /// reloaded game re-images roads exactly as the running one would.
     #[serde(default)]
     counters: ContextCounters,
+    /// The way fire spreads from burning ruins this year (0-7).
+    #[serde(default)]
+    pub wind: u8,
 }
 
 fn default_statue_facing() -> u8 {
@@ -277,6 +280,7 @@ impl World {
             statue_facing: 1,
             exit_point: (info.exit_point.x, info.exit_point.y),
             counters: ContextCounters::default(),
+            wind: 0,
         }
     }
 

@@ -1,7 +1,7 @@
 //! Trade with the cities of the empire.
 //!
 //! Each trading city lies at the end of a land or sea route. Once the player opens a
-//! route, the city sends a trader along it every few days (one at a time); after
+//! route, the city sends a trader along it every few days (up to three at a time); after
 //! walking the route on the empire map it arrives at the city's entry point as a
 //! caravan with two donkeys. The caravan visits storage yards, each eleven ticks buying
 //! one load of a good the player exports and selling one load of a good the player

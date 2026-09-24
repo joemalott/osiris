@@ -135,6 +135,10 @@ impl World {
             if !is_roamer(kind) || b.walkers[0] != 0 {
                 continue;
             }
+            // Tax offices send collectors only while the palace has staff.
+            if kind == figure_kind::TAX_COLLECTOR && !self.palace_staffed() {
+                continue;
+            }
             let Some(delay) = spawn_delay_days(b.kind, b.workers, needed.max(1)) else { continue };
             if b.spawn_delay > 0 {
                 if let Some(b) = self.buildings.get_mut(id) {
@@ -203,7 +207,7 @@ impl World {
         match kind {
             crate::crime::CONSTABLE | crate::crime::MAGISTRATE => {
                 let houses: Vec<BuildingId> = seen.iter().copied().filter(|&id| self.buildings.get(id).is_some_and(|b| b.house.as_ref().is_some_and(|h| h.population > 0))).collect();
-                self.patrol(kind, x, y, &houses);
+                self.patrol(kind, &houses);
             }
             figure_kind::PRIEST => self.priest_blessings(home_kind, x, y, &seen),
             _ => {}

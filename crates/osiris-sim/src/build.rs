@@ -231,7 +231,9 @@ impl World {
             ..Default::default()
         };
         if kind::is_house(k) {
-            b.house = Some(crate::houses::House { level: (k - kind::HOUSE_FIRST) as u8, ..Default::default() });
+            // A new house starts at its level's base crime risk.
+            let level = (k - kind::HOUSE_FIRST) as u8;
+            b.house = Some(crate::houses::House { level, crime: self.balance.house(level).crime_base, ..Default::default() });
         }
         let id = self.buildings.insert(b);
         for yy in y..y + fh {
