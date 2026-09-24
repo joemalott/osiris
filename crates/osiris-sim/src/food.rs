@@ -194,14 +194,27 @@ impl World {
         }
     }
 
-    /// Weekly: each house uses up as much of each good as its level requires.
+    /// At the start and the middle of each month every house uses up a quarter of each
+    /// good its level needs (four times the need for a house over one tile). A need
+    /// that doesn't split into quarters leaves a remainder of one, two or three, of
+    /// which one unit is used: at the start of the month for one or two, mid-month for
+    /// three.
     pub(crate) fn consume_goods(&mut self) {
+        let start = self.time.day != crate::time::DAYS_PER_MONTH / 2;
+        let remainder = |r: i32| match r {
+            1 | 2 => start as i32,
+            3 => !start as i32,
+            _ => 0,
+        };
         let houses = self.balance.houses.clone();
         for b in self.buildings.iter_mut() {
+            let big = b.size > 1;
             let Some(h) = b.house.as_mut() else { continue };
             let Some(m) = houses.get(h.level as usize) else { continue };
             for (slot, need) in [m.pottery, m.jewelry, m.linen, m.beer].into_iter().enumerate() {
-                h.goods[slot] -= need.max(0).min(h.goods[slot]);
+                let need = need.max(0) * if big { 4 } else { 1 };
+                let used = if need % 4 == 0 { need / 4 } else { remainder(need % 4) };
+                h.goods[slot] -= used.min(h.goods[slot]);
             }
         }
     }
