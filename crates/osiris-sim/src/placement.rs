@@ -9,8 +9,13 @@
 //! south edge only where they block, and a complex's mortuary temple, causeway and
 //! valley temple, as far as the causeway could be laid out, all in the colour of the
 //! whole placement. Osiris also marks the block where the causeway failed.
+//!
+//! Where a building may go, the original shows its ghost instead of the tiles: the
+//! art it would put on the map, tinted green (`FUN_0043b630`). Houses, tombs and the
+//! other monuments but the sphinx keep their tiles.
 
-use crate::world::World;
+use crate::map::edge;
+use crate::world::{Outcome, World};
 
 /// One tile of a placement preview.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,7 +37,56 @@ pub struct Preview {
     pub result: Result<(), &'static str>,
 }
 
+/// One image of a placement ghost, drawn from draw tile `(x, y)` as the map draws
+/// its images.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GhostImage {
+    pub x: i32,
+    pub y: i32,
+    pub image: u32,
+}
+
 impl World {
+    /// Whether building type `k` shows its ghost where it may be placed. The
+    /// original draws only the tiles of houses, roads and walls, bridges, tombs and
+    /// every monument but the sphinx.
+    pub fn has_ghost(&self, k: u16) -> bool {
+        use crate::buildings::kind;
+        let drawn = |k: u16| self.defs.building(k).is_some();
+        let monument = crate::monuments::monument_def(k).is_some_and(|d| d.style != crate::monuments::Style::Sphinx);
+        drawn(k)
+            && !kind::is_house(k)
+            && !monument
+            && !crate::royal_tombs::is_royal_tomb(k)
+            && !crate::defenses::is_wall(k)
+            && ![kind::ROAD, crate::irrigation::DITCH, crate::bridges::LOW_BRIDGE].contains(&k)
+    }
+
+    /// The art that building `k` placed with its top-left tile at `(x, y)` (an
+    /// altar or oracle: clicked on tile `(x, y)`) would put on the map, found by
+    /// building it on a copy of the city: the images of every draw tile it lays or
+    /// changes. Empty where it can't be built; money is not asked about.
+    pub fn placement_ghost(&self, k: u16, x: i32, y: i32) -> Vec<GhostImage> {
+        let mut trial = self.clone();
+        trial.treasury = i32::MAX / 4;
+        if !matches!(trial.build(k, x, y, x, y, false), Outcome::Done { .. }) {
+            return Vec::new();
+        }
+        let (old, new) = (&self.map, &trial.map);
+        let mut out = Vec::new();
+        for ty in 0..new.height {
+            for tx in 0..new.width {
+                let image = new.images.at_or(tx, ty, 0);
+                let draw = new.edges.at_or(tx, ty, 0) & edge::DRAW_TILE != 0;
+                let changed = image != old.images.at_or(tx, ty, 0) || new.edges.at_or(tx, ty, 0) != old.edges.at_or(tx, ty, 0);
+                if draw && changed && image != 0 && new.building.at_or(tx, ty, 0) != 0 {
+                    out.push(GhostImage { x: tx, y: ty, image });
+                }
+            }
+        }
+        out
+    }
+
     /// The tile of building type `k`'s footprint that sits under the cursor: a tomb's
     /// anchor block, as in the original, otherwise the middle tile.
     pub fn cursor_tile(&self, k: u16) -> (i32, i32) {
@@ -100,5 +154,50 @@ impl World {
         }
         debug_assert!(failed || tiles.iter().all(|t| !t.red), "a preview that builds shows no red");
         Preview { tiles, result }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mission_one() -> Option<World> {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.join("mission1.pak").is_file() {
+            return None;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).expect("open image library");
+        let scenario = osiris_formats::MissionPak::open(&data.join("mission1.pak")).expect("pak").scenario(1).expect("scenario");
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).expect("load defs"));
+        let model_text = std::fs::read(data.join("Pharaoh_Model_Normal.txt")).expect("read model");
+        let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&model_text)).expect("parse model");
+        let balance = std::sync::Arc::new(crate::balance::Balance::from_model(&model));
+        let mut world = World::new(&scenario, defs, balance);
+        world.start(&scenario);
+        world.scenario_allowed = None;
+        world.treasury = 100_000;
+        Some(world)
+    }
+
+    #[test]
+    fn statue_ghost_is_its_chosen_look() {
+        let Some(mut world) = mission_one() else { return };
+        const LARGE_STATUE: u16 = 43;
+        world.statue_variant = 2;
+        world.statue_facing = 3;
+        let (x, y) = (0..world.map.height)
+            .flat_map(|y| (0..world.map.width).map(move |x| (x, y)))
+            .find(|&(x, y)| x > 20 && y > 20 && world.can_place(LARGE_STATUE, x, y).is_ok())
+            .expect("a site");
+        let images = world.map.images.clone();
+        let started = std::time::Instant::now();
+        let ghost = world.placement_ghost(LARGE_STATUE, x, y);
+        eprintln!("ghost worked out in {:?}", started.elapsed());
+        // Drawn from the footprint's left corner, as built.
+        assert_eq!(ghost, vec![GhostImage { x, y: y + 2, image: world.statue_image(LARGE_STATUE).unwrap() }]);
+        assert!(world.map.images == images && world.map.building.at_or(x, y, 0) == 0, "the city itself is untouched");
+        // Nothing where it can't go.
+        world.create_building(LARGE_STATUE, x, y);
+        assert!(world.placement_ghost(LARGE_STATUE, x, y).is_empty());
     }
 }

@@ -8,9 +8,15 @@
 use osiris_formats::ImageKind;
 use osiris_render::{Paint, Renderer, Space, WHITE};
 use osiris_sim::map::{Map, edge};
+use osiris_sim::placement::GhostImage;
 
 pub const TILE_W: f32 = 60.0;
 pub const TILE_H: f32 = 30.0;
+
+/// The original's placement colours (5-6-5): a ghost, and ground where a building
+/// may go, keep only green; ground where it may not keeps only red.
+pub const PLACE_OK: u16 = 0x1fe3;
+pub const PLACE_BAD: u16 = 0xf863;
 
 #[derive(Default)]
 pub struct CityView {
@@ -126,12 +132,22 @@ fn draw_column(r: &mut Renderer, c: &ColumnMark, p: [f32; 2]) {
     }
 }
 
-/// A per-tile highlight drawn over the terrain.
+/// A per-tile highlight drawn over the city.
 #[derive(Debug, Clone, Copy)]
 pub struct Highlight {
     pub x: i32,
     pub y: i32,
     pub color: [f32; 4],
+    pub paint: Paint,
+}
+
+/// Where the map draws image `id` from draw tile `(x, y)`: the image's bottom edge
+/// on the bottom corner of its footprint.
+fn footprint_pos(r: &Renderer, map: &Map, x: i32, y: i32, id: u32) -> Option<[f32; 2]> {
+    let rec = r.record(id)?;
+    let n = if rec.kind == ImageKind::Isometric { rec.isometric_tiles().max(1) } else { 1 };
+    let p = tile_to_world(map, x, y);
+    Some([p[0], p[1] + TILE_H / 2.0 * (n + 1) as f32 - rec.height as f32])
 }
 
 impl CityView {
@@ -202,8 +218,7 @@ impl CityView {
         if flat != flat_pass {
             return;
         }
-        let p = tile_to_world(map, x, y);
-        let pos = [p[0], p[1] + TILE_H / 2.0 * (n + 1) as f32 - ih];
+        let Some(pos) = footprint_pos(r, map, x, y, id) else { return };
         if pos[0] > vx1 || pos[1] > vy1 || pos[0] + iw < vx0 || pos[1] + ih < vy0 {
             return;
         }
@@ -216,6 +231,7 @@ impl CityView {
         r: &mut Renderer,
         map: &Map,
         highlights: &[Highlight],
+        ghost: &[GhostImage],
         highlight_image: u32,
         sprites: &[Sprite],
         overlays: &[Overlay],
@@ -224,9 +240,6 @@ impl CityView {
         let before = r.instance_count();
         let [vx0, vy0, vx1, vy1] = r.world_view();
         let (w, h) = (map.width, map.height);
-        let mut marks = highlights.to_vec();
-        marks.sort_by_key(|m| (m.x + m.y, m.x));
-        let mut next_mark = 0;
         let mut people = sprites.to_vec();
         people.sort_by_key(|s| (s.x + s.y, s.x));
         let mut next_person = 0;
@@ -265,13 +278,6 @@ impl CityView {
                 r.image(o.image, o.pos, WHITE, Space::World);
                 next_extra += 1;
             }
-            // Highlights on this diagonal go over the terrain drawn so far.
-            while next_mark < marks.len() && marks[next_mark].x + marks[next_mark].y <= d {
-                let m = marks[next_mark];
-                let p = tile_to_world(map, m.x, m.y);
-                r.image_painted(highlight_image, p, m.color, Space::World, Paint::Silhouette);
-                next_mark += 1;
-            }
             while next_person < people.len() && people[next_person].x + people[next_person].y <= d {
                 let s = people[next_person];
                 let p = tile_to_world(map, s.x, s.y);
@@ -279,6 +285,18 @@ impl CityView {
                 draw_sprite(r, s.image, foot);
                 next_person += 1;
             }
+        }
+        // A placement ghost and the highlighted tiles go over the whole city, as the
+        // original draws them after its buildings: nothing in front cuts into them.
+        let mut ghost = ghost.to_vec();
+        ghost.sort_by_key(|g| (g.x + g.y, -g.x));
+        for g in ghost {
+            if let Some(pos) = footprint_pos(r, map, g.x, g.y, g.image) {
+                r.image_painted(g.image, pos, WHITE, Space::World, Paint::Masked(PLACE_OK));
+            }
+        }
+        for m in highlights {
+            r.image_painted(highlight_image, tile_to_world(map, m.x, m.y), m.color, Space::World, m.paint);
         }
         self.last_sprites = r.instance_count() - before;
     }

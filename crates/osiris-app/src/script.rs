@@ -153,6 +153,13 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["orders"] => view.orders = true,
             // Holds building tool K with the cursor on tile x,y for the screenshot.
             ["hold", k, p] => view.hold = Some((k.parse()?, parse_point(p)?)),
+            // The statue tool after N presses of R (look N mod 4, turned N / 4 times).
+            ["statue", n] => {
+                let n: u8 = n.parse()?;
+                world.statue_variant = n % 4;
+                world.statue_facing = (n / 4 % 4 + 1) % 4;
+            }
+            ["gateface", f] => world.gatehouse_facing = f.parse::<u8>()? & 1,
             ["treasury", n] => world.treasury = n.parse()?,
             ["gatefacing", n] => world.gatehouse_facing = n.parse::<u8>()?.min(1),
             // The placement preview of building K with the cursor on x,y: each tile's verdict.
