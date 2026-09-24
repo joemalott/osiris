@@ -344,6 +344,12 @@ impl World {
         self.floods.quality_next = (self.floods.quality_next + delta).clamp(0, 100);
     }
 
+    /// The month (0 = the first) the next flood starts rising.
+    pub fn flood_start_month(&self) -> u32 {
+        let ticks = self.floods.start_cycle().max(0) as u32 * CYCLE_TICKS as u32;
+        ticks / crate::time::TICKS_PER_DAY / crate::time::DAYS_PER_MONTH % crate::time::MONTHS_PER_YEAR
+    }
+
     pub fn has_floodplain(&self) -> bool {
         self.floods.floodplain_width > 0
     }

@@ -1223,10 +1223,11 @@ impl Game {
         let t = &self.world.time;
         let month = self.text.get(TEXT_MONTHS, t.month as usize).unwrap_or("?");
         let year = if t.year < 0 { format!("{} BC", -t.year) } else { format!("{} AD", t.year) };
+        let label = |i: usize, fallback: &str| self.text.get(6, i).unwrap_or(fallback).to_owned();
         let status = [
-            format!("Deben {}", self.world.treasury),
-            format!("Pop {}", self.world.population),
-            format!("{month} {year}"),
+            (label(0, "Db"), self.world.treasury.to_string()),
+            (label(1, "Pop"), self.world.population.to_string()),
+            (month.to_owned(), year),
         ];
         self.refresh_empty_categories();
         let category = match self.tool {

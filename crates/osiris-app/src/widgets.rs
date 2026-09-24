@@ -34,6 +34,8 @@ pub struct UiImages {
     pub standard_pole: u32,
     /// The standard's experience ball, top of the pole first (Pharaoh_General 224).
     pub experience_ball: u32,
+    /// Pharaoh_Unloaded group 21; the gods' pictures for temple windows are 21-25.
+    pub gods: u32,
 }
 
 impl UiImages {
@@ -51,6 +53,7 @@ impl UiImages {
             company_flags: lib.group_id("Pharaoh_General", 126, 0)?,
             standard_pole: lib.group_id("Pharaoh_General", 54, 0)?,
             experience_ball: lib.group_id("Pharaoh_General", 224, 0)?,
+            gods: lib.group_id("Pharaoh_Unloaded", 21, 0)?,
         })
     }
 }

@@ -25,11 +25,13 @@ pub enum MenuAction {
     Unavailable,
 }
 
+#[derive(Clone)]
 pub struct Entry {
     pub label: String,
     pub action: MenuAction,
 }
 
+#[derive(Clone)]
 pub struct Header {
     pub label: String,
     pub entries: Vec<Entry>,
@@ -39,6 +41,10 @@ pub struct Header {
 
 pub struct TopMenu {
     pub headers: Vec<Header>,
+    /// The headers as built. On a screen narrower than 800 the Overlays header folds
+    /// into Options, leaving File, Options, Help and Overseers as in the original.
+    all: Vec<Header>,
+    narrow: Option<bool>,
     pub open: Option<usize>,
     hover: Option<usize>,
     cursor: [f32; 2],
@@ -86,8 +92,11 @@ impl TopMenu {
             ("Overlays".to_owned(), overlays),
             (t(4, 0, "Overseers"), overseers),
         ];
+        let all: Vec<Header> = headers.into_iter().map(|(label, entries)| Header { label, entries, x: 0.0, w: 0.0 }).collect();
         Self {
-            headers: headers.into_iter().map(|(label, entries)| Header { label, entries, x: 0.0, w: 0.0 }).collect(),
+            headers: all.clone(),
+            all,
+            narrow: None,
             open: None,
             hover: None,
             cursor: [0.0; 2],
@@ -95,11 +104,25 @@ impl TopMenu {
     }
 
     fn layout(&mut self, r: &Renderer) {
+        let narrow = r.screen[0] < 800.0;
+        if self.narrow != Some(narrow) {
+            // A menu open across a change of layout closes.
+            if self.narrow.is_some() {
+                self.open = None;
+            }
+            self.narrow = Some(narrow);
+            self.headers = self.all.clone();
+            if narrow {
+                let overlays = self.headers.remove(3);
+                self.headers[1].entries.extend(overlays.entries);
+            }
+        }
         let mut x = 10.0;
         for h in &mut self.headers {
             h.w = text_width(r, Font::NormalBlackOnLight, &h.label) as f32;
             h.x = x;
-            x += h.w + 18.0;
+            // The original leaves 10 pixels between headers.
+            x += h.w + 10.0;
         }
     }
 
@@ -158,25 +181,28 @@ impl TopMenu {
     }
 
     /// Draws the headers, the status on the right and any open drop-down.
-    pub fn draw(&mut self, r: &mut Renderer, panels: &PanelImages, status: &[String], overlay: Option<&str>) {
+    pub fn draw(&mut self, r: &mut Renderer, panels: &PanelImages, status: &[(String, String)], overlay: Option<&str>) {
         self.layout(r);
         for (i, h) in self.headers.iter().enumerate() {
             let hot = self.open == Some(i) || (self.open.is_none() && self.header_at(self.cursor) == Some(i));
             let f = if hot { Font::NormalYellow } else { Font::NormalBlackOnLight };
             draw_text(r, f, &h.label, h.x, BAR_Y, font::BLACK);
         }
-        // Status fields right-aligned before the sidebar.
-        let mut x = r.screen[0] - crate::sidebar::WIDTH - 10.0;
-        // On a narrow screen the fields move right, over the sidebar's end of the
-        // bar, rather than run into the menu headers.
-        let widths: f32 = status.iter().map(|s| text_width(r, Font::NormalBlackOnLight, s) as f32 + 30.0).sum::<f32>() - 30.0;
-        let headers_end = self.headers.last().map_or(0.0, |h| h.x + h.w) + 16.0;
-        x += (headers_end - (x - widths)).clamp(0.0, (r.screen[0] - 40.0 - x).max(0.0));
-        for s in status.iter().rev() {
-            let w = text_width(r, Font::NormalBlackOnLight, s) as f32;
-            x -= w;
-            draw_text(r, Font::NormalBlackOnLight, s, x, BAR_Y, font::BLACK);
-            x -= 30.0;
+        // The treasury, population and date at the original's places for its 640, 800
+        // and 1024 wide screens, kept that far from the right edge on wider ones.
+        let w = r.screen[0];
+        let (xs, shift) = if w < 800.0 {
+            ([250.0, 375.0, 515.0], w - 640.0)
+        } else if w < 1024.0 {
+            ([343.0, 470.0, 655.0], w - 800.0)
+        } else {
+            ([495.0, 645.0, 883.0], w - 1024.0)
+        };
+        for ((label, value), x) in status.iter().zip(xs) {
+            let x = x + shift;
+            let lw = text_width(r, Font::NormalBlackOnLight, label) as f32;
+            draw_text(r, Font::NormalBlackOnLight, label, x, BAR_Y, font::BLACK);
+            draw_text(r, Font::NormalBlackOnLight, value, x + lw + 4.0, BAR_Y, font::BLACK);
         }
         if let Some(name) = overlay {
             let label = format!("Overlay: {name}");
