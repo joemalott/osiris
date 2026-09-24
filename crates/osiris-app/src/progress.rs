@@ -5,6 +5,8 @@
 
 use osiris_formats::Campaign;
 use osiris_formats::campaign::{CampaignEntry, Choice, ChoiceScreen};
+use osiris_sim::ratings::MissionResult;
+use std::collections::BTreeMap;
 
 /// What comes after the missions played so far.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +24,8 @@ pub struct Progress {
     pub done: Vec<usize>,
     pub path: u32,
     pub next: Next,
+    /// The best result of each mission won, which Explore History shows.
+    pub results: BTreeMap<usize, MissionResult>,
 }
 
 /// A campaign entry, with the sections run together.
@@ -48,7 +52,7 @@ fn on_path(path: u32, current: u32, merge: &[u32]) -> bool {
 impl Progress {
     /// The start of the campaign.
     pub fn new(c: &Campaign) -> Self {
-        let mut p = Self { done: Vec::new(), path: 0, next: Next::End };
+        let mut p = Self { done: Vec::new(), path: 0, next: Next::End, results: BTreeMap::new() };
         p.next = p.scan(c, 0, true);
         p
     }
@@ -91,6 +95,14 @@ impl Progress {
             return;
         };
         self.next = self.scan(c, i + 1, true);
+    }
+
+    /// Keeps a won mission's result, as the original does, only when it scores higher
+    /// than the one kept.
+    pub fn record(&mut self, m: usize, r: MissionResult) {
+        if self.results.get(&m).is_none_or(|old| r.score > old.score) {
+            self.results.insert(m, r);
+        }
     }
 
     /// The pending choice screen, with its choices.
@@ -161,6 +173,13 @@ impl Progress {
                         _ => Next::End,
                     };
                 }
+                (Some("result"), Some(m)) => {
+                    let v: Vec<i32> = words.by_ref().filter_map(|w| w.parse().ok()).collect();
+                    if let (Ok(m), &[culture, prosperity, kingdom, population, funds, months, score, difficulty]) = (m.parse::<usize>(), v.as_slice()) {
+                        let difficulty = difficulty.clamp(0, 4) as u8;
+                        p.results.insert(m, MissionResult { culture, prosperity, kingdom, population, funds, months, score, difficulty });
+                    }
+                }
                 _ => {}
             }
         }
@@ -174,7 +193,11 @@ impl Progress {
             Next::Choice(i) => format!("choice {i}"),
             Next::End => "end".into(),
         };
-        format!("path {}\ndone {}\nnext {next}\n", self.path, done.join(" "))
+        let mut text = format!("path {}\ndone {}\nnext {next}\n", self.path, done.join(" "));
+        for (m, r) in &self.results {
+            text += &format!("result {m} {} {} {} {} {} {} {} {}\n", r.culture, r.prosperity, r.kingdom, r.population, r.funds, r.months, r.score, r.difficulty);
+        }
+        text
     }
 }
 
@@ -205,6 +228,10 @@ mod tests {
         assert_eq!(p.path, 0);
         let back = Progress::parse(&c, &p.to_text());
         assert_eq!((back.done, back.path, back.next), (p.done.clone(), p.path, p.next.clone()));
+        let r = MissionResult { culture: 40, prosperity: 20, kingdom: 55, population: 1200, funds: -300, months: 30, score: 5000, difficulty: 1 };
+        p.record(1, r);
+        p.record(1, MissionResult { score: 10, ..r });
+        assert_eq!(Progress::parse(&c, &p.to_text()).results.get(&1), Some(&r));
         assert_eq!(p.playable(), vec![0, 1, 3, 4, 5]);
     }
 

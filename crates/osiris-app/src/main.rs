@@ -14,6 +14,7 @@ mod message_list;
 mod rules_panel;
 mod minimap;
 mod overlay;
+mod mission_brief;
 mod progress;
 mod script;
 mod sidebar;
@@ -363,6 +364,7 @@ fn campaign_view(assets: &Assets, p: &progress::Progress) -> menu::CampaignView 
         playable: p.playable().into_iter().filter(|&m| m < count).collect(),
         done: p.done.clone(),
         choice,
+        results: p.results.clone(),
     }
 }
 
@@ -399,7 +401,7 @@ impl App {
 
     fn menu(&self) -> Box<menu::Menu> {
         let campaign = if self.family.is_empty() { menu::CampaignView::default() } else { campaign_view(&self.assets, &load_progress(&self.assets.campaign, &self.family)) };
-        Box::new(menu::Menu::new(
+        let mut menu = Box::new(menu::Menu::new(
             self.assets.mission_names.clone(),
             campaign,
             list_files(&self.assets.data.join("Maps"), "map"),
@@ -407,7 +409,11 @@ impl App {
             load_rules(),
             self.family.clone(),
             family_text(&self.assets),
-        ))
+            self.assets.text.clone(),
+            self.assets.data.clone(),
+        ));
+        menu.difficulty = load_difficulty();
+        menu
     }
 
     fn start(&mut self, mut world: World, mission: Option<usize>) {
@@ -646,7 +652,11 @@ impl ApplicationHandler for App {
                             if std::mem::take(&mut m.rules_changed) {
                                 save_rules(&m.rules);
                             }
+                            if std::mem::take(&mut m.difficulty_changed) {
+                                save_difficulty(m.difficulty);
+                            }
                         }
+                        (MouseButton::Left, ElementState::Released) => m.release(),
                         (MouseButton::Right, ElementState::Pressed) => m.back(),
                         _ => {}
                     },
@@ -723,7 +733,7 @@ impl App {
         }
         let status = self.status.as_ref().map(|(s, _)| s.clone());
         let Some(gfx) = &mut self.gfx else { return };
-        let mut finished: Option<Option<usize>> = None;
+        let mut finished: Option<Option<(usize, osiris_sim::ratings::MissionResult)>> = None;
         let mut lost_choice: Option<(top_menu::MenuAction, Option<usize>)> = None;
         match &mut self.screen {
             Some(Screen::Menu(m)) => {
@@ -769,7 +779,7 @@ impl App {
                 }
                 // Once the victory message has been read, go on to the next mission.
                 if game.world.won && game.idle() {
-                    finished = Some(*mission);
+                    finished = Some(mission.map(|m| (m, game.world.mission_result())));
                 }
                 // A lost mission waits on its screen's New Game or Replay mission.
                 if game.world.lost
@@ -795,9 +805,10 @@ impl App {
             None => {}
         }
         if let Some(mission) = finished {
-            if let Some(m) = mission {
+            if let Some((m, result)) = mission {
                 let mut p = load_progress(&self.assets.campaign, &self.family);
                 p.won(&self.assets.campaign, m);
+                p.record(m, result);
                 save_progress(&p, &self.family);
             }
             let mut menu = self.menu();
@@ -942,9 +953,18 @@ fn main() -> Result<()> {
                 Default::default(),
                 family,
                 family_text(&assets),
+                assets.text.clone(),
+                assets.data.clone(),
             );
+            menu.difficulty = load_difficulty();
             if let Some(page) = &view.menu_page {
                 menu.open_page(page);
+            }
+            if let Some(i) = view.menu_pick {
+                menu.pick_row(i);
+            }
+            if view.menu_results {
+                menu.show_prior_results(true);
             }
             return gfx::screenshot(library, args.size, out, |r| menu.draw(r, &images.panels));
         }

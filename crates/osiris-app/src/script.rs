@@ -18,6 +18,10 @@ pub struct ScriptView {
     pub menu: bool,
     pub messages: bool,
     pub menu_page: Option<String>,
+    /// A row to pick on the menu's list, and whether Explore History shows made-up
+    /// prior results.
+    pub menu_pick: Option<usize>,
+    pub menu_results: bool,
     pub rules: bool,
     /// Opens the Difficulty window.
     pub difficulty: bool,
@@ -131,6 +135,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 view.menu = true;
                 view.menu_page = Some(page.to_string());
             }
+            ["menupick", n] => view.menu_pick = Some(n.parse()?),
+            ["menuresults"] => view.menu_results = true,
             ["rules"] => view.rules = true,
             ["difficultywindow"] => view.difficulty = true,
             ["overlay", name] => view.overlay = Some(name.to_string()),

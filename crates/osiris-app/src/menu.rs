@@ -1,11 +1,16 @@
 //! The front end: main menu, campaign mission list, custom maps, saved games and the
 //! game rules, drawn over the original's background art.
 
+use crate::mission_brief::Brief;
 use crate::rules_panel::{RulesClick, RulesPanel};
+use osiris_formats::{MissionPak, Scenario, TextTable};
 use osiris_render::{Renderer, Space, WHITE};
 use osiris_sim::Rules;
-use osiris_ui::{Font, PanelImages, draw_text, draw_text_tinted, font, panel, rich_text, text_width};
+use osiris_sim::ratings::MissionResult;
+use osiris_ui::{Font, PanelImages, draw_text, font, panel, rich_text, text_width};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Background images in Pharaoh_Unloaded (global ids).
 const BG_TITLE: u32 = 201;
@@ -28,10 +33,29 @@ const CHOICE_MARKER: u32 = 502;
 const CHOICE_MAP_AT: [f32; 2] = [192.0, 144.0];
 const MARKER_R: f32 = 23.0;
 
-/// The history plaque in `BG_HISTORY` (1024x768): the dark list panel on the right and
-/// the sandstone area under the picture frame on the left.
-const PLAQUE_LIST: [f32; 4] = [522.0, 204.0, 808.0, 584.0];
-const PLAQUE_INFO: [f32; 4] = [226.0, 366.0, 496.0, 600.0];
+/// Custom Missions and Explore History, in the 1024x768 background's coordinates
+/// (the original's 640x480 window sits at 192,144 in it). The scenario list: its left
+/// edge and row width, and the stone's track beside it.
+const LIST_X: f32 = 216.0;
+const LIST_W: f32 = 256.0;
+const TRACK_X: f32 = 472.0;
+const TRACK_W: f32 = 32.0;
+/// The scroll arrows (Pharaoh_General group 96, frames 8 and 12) and the stone.
+const ARROW_X: f32 = 474.0;
+const ARROW_DOWN_Y: f32 = 579.0;
+const ARROW_SIZE: [f32; 2] = [39.0, 26.0];
+const STONE_X: f32 = 481.0;
+/// The cancel icon (group 96, frame 4) that leaves, and the arrow (group 192) that
+/// starts the mission.
+const EXIT_BUTTON: [f32; 4] = [527.0, 584.0, 39.0, 27.0];
+const PLAY_BUTTON: [f32; 4] = [792.0, 584.0, 27.0, 27.0];
+/// Explore History's "Show Prior Results" button and its tabs.
+const RESULTS_BUTTON: [f32; 4] = [542.0, 554.0, 250.0, 23.0];
+const TAB_MISSIONS: [f32; 4] = [224.0, 352.0, 160.0, 25.0];
+const TAB_CAMPAIGNS: [f32; 4] = [387.0, 352.0, 93.0, 25.0];
+/// The difficulty's arrows, beside its line under the objectives.
+const DIFFICULTY_UP: [f32; 4] = [560.0, 536.0, 17.0, 17.0];
+const DIFFICULTY_DOWN: [f32; 4] = [577.0, 536.0, 17.0, 17.0];
 
 /// The campaign as the menu shows it.
 #[derive(Debug, Clone, Default)]
@@ -41,6 +65,8 @@ pub struct CampaignView {
     pub done: Vec<usize>,
     /// The choice of the next city, when one is waiting.
     pub choice: Option<ChoiceView>,
+    /// The best result of each mission won.
+    pub results: BTreeMap<usize, MissionResult>,
 }
 
 #[derive(Debug, Clone)]
@@ -170,6 +196,21 @@ pub struct Menu {
     /// 2; a popup's OK or Yes is 0, No is 1.
     family_hover: Option<u8>,
     family_text: FamilyText,
+    text: Arc<TextTable>,
+    data: PathBuf,
+    cursor: [f32; 2],
+    /// The row picked on Custom Missions or Explore History, and what the panel beside
+    /// the list tells of its scenario.
+    picked: Option<usize>,
+    brief: Option<Brief>,
+    /// Explore History shows the picked mission's prior results, not its objectives.
+    show_results: bool,
+    /// The list's stone is being dragged.
+    dragging: bool,
+    /// The difficulty new games start at; set when the arrows change it, so the caller
+    /// can store it.
+    pub difficulty: u8,
+    pub difficulty_changed: bool,
 }
 
 const LIST_ROWS: usize = 16;
@@ -200,9 +241,54 @@ fn inside4(p: [f32; 2], r: [f32; 4]) -> bool {
     inside(p, r[0], r[1], r[2], r[3])
 }
 
+/// A 1024x768 background scaled to cover the screen. Drawing happens in its
+/// coordinates, where the original draws, with the renderer's screen frame set.
+struct Frame {
+    o: [f32; 2],
+    s: f32,
+}
+
+impl Frame {
+    fn new(screen: [f32; 2]) -> Self {
+        let (o, s) = cover_screen(screen, [1024.0, 768.0]);
+        Self { o, s }
+    }
+
+    /// A point on screen in the background's coordinates.
+    fn to_bg(&self, p: [f32; 2]) -> [f32; 2] {
+        [(p[0] - self.o[0]) / self.s, (p[1] - self.o[1]) / self.s]
+    }
+}
+
+fn text_color(f: Font) -> [f32; 4] {
+    if matches!(f, Font::SmallPlain | Font::NormalBlackOnLight | Font::LargeBlackOnLight) { font::BLACK } else { font::WHITE }
+}
+
+fn bg_text(r: &mut Renderer, f: Font, s: &str, x: f32, y: f32) {
+    draw_text(r, f, s, x, y, text_color(f));
+}
+
+/// Text centred in a band `w` wide from `x`, as the original centres it: flush left
+/// when it is wider.
+fn bg_centred(r: &mut Renderer, f: Font, s: &str, x: f32, y: f32, w: f32) {
+    let tw = text_width(r, f, s) as f32;
+    let dx = ((w - tw) / 2.0).max(0.0).floor();
+    draw_text(r, f, s, x + dx, y, text_color(f));
+}
+
+fn bg_wrapped(r: &mut Renderer, f: Font, s: &str, x: f32, y: f32, w: f32) {
+    let opts = rich_text::Options { font: f, width: w as i32, paragraph_indent: 0 };
+    let laid = rich_text::layout(s, &opts, &mut rich_text::RendererMeasure::new(r));
+    rich_text::draw(r, &laid, [x, y], laid.height as f32, 0.0, text_color(f));
+}
+
+fn bg_image(r: &mut Renderer, id: u32, x: f32, y: f32) {
+    r.image(id, [x, y], WHITE, Space::Screen);
+}
+
 impl Menu {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(mission_names: Vec<String>, campaign: CampaignView, maps: Vec<PathBuf>, mut saves: Vec<PathBuf>, rules: Rules, family: String, family_text: FamilyText) -> Self {
+    pub fn new(mission_names: Vec<String>, campaign: CampaignView, maps: Vec<PathBuf>, mut saves: Vec<PathBuf>, rules: Rules, family: String, family_text: FamilyText, text: Arc<TextTable>, data: PathBuf) -> Self {
         saves.sort_by_key(|p| std::cmp::Reverse(std::fs::metadata(p).and_then(|m| m.modified()).ok()));
         let mut m = Self {
             page: Page::Main,
@@ -227,6 +313,15 @@ impl Menu {
             family_confirm: None,
             family_hover: None,
             family_text,
+            text,
+            data,
+            cursor: [0.0, 0.0],
+            picked: None,
+            brief: None,
+            show_results: false,
+            dragging: false,
+            difficulty: osiris_sim::difficulty::NORMAL,
+            difficulty_changed: false,
         };
         m.build();
         m
@@ -276,12 +371,56 @@ impl Menu {
         }
         self.page = page;
         self.build();
-        self.scroll = if page == Page::Campaign {
-            self.items.len().saturating_sub(self.visible_rows() / 2)
-        } else {
-            0
-        };
+        self.scroll = if page == Page::Campaign { self.items.len() } else { 0 };
         self.clamp_scroll();
+        self.dragging = false;
+        // Custom Missions starts on the first map, Explore History on the mission to
+        // play next.
+        let first = match page {
+            Page::Custom => (!self.items.is_empty()).then_some(0),
+            Page::Campaign => self.items.iter().rposition(|i| matches!(i.action, Action::Choose(Choice::Mission(_)))),
+            _ => None,
+        };
+        self.picked = None;
+        self.brief = None;
+        if let Some(i) = first {
+            self.pick(i);
+        }
+    }
+
+    /// Picks row `i` of the list and reads its scenario for the panel.
+    fn pick(&mut self, i: usize) {
+        self.picked = Some(i);
+        let Some(item) = self.items.get(i) else { return };
+        self.brief = match &item.action {
+            Action::Choose(Choice::Map(p)) => Scenario::load_map(p).ok().map(|s| Brief::new(item.label.clone(), &s)),
+            Action::Choose(Choice::Mission(m)) => MissionPak::open(&self.data.join("mission1.pak")).ok().and_then(|pak| pak.scenario(*m).ok()).map(|s| Brief::new(item.label.clone(), &s)),
+            _ => None,
+        };
+    }
+
+    /// Picks a row by number, for scripted screenshots.
+    pub fn pick_row(&mut self, i: usize) {
+        if i < self.items.len() {
+            self.pick(i);
+            let rows = self.visible_rows();
+            if i < self.scroll || i >= self.scroll + rows {
+                self.scroll = i;
+                self.clamp_scroll();
+            }
+        }
+    }
+
+    /// Shows the prior results on Explore History, for scripted screenshots; with
+    /// `sample`, every mission won gets a made-up result first.
+    pub fn show_prior_results(&mut self, sample: bool) {
+        self.show_results = true;
+        if sample {
+            for &m in &self.campaign.done {
+                let r = MissionResult { culture: 45, prosperity: 30, kingdom: 52, population: 1450 + 10 * m as i32, funds: 3200, months: 50, score: 6120, difficulty: 2 };
+                self.campaign.results.insert(m, r);
+            }
+        }
     }
 
     fn build(&mut self) {
@@ -308,7 +447,7 @@ impl Menu {
                     .playable
                     .iter()
                     .map(|&m| Item {
-                        label: format!("{}. {}", m + 1, self.mission_names.get(m).map_or("", |s| s.as_str())),
+                        label: self.mission_names.get(m).cloned().unwrap_or_default(),
                         enabled: true,
                         action: Action::Choose(Choice::Mission(m)),
                     })
@@ -342,7 +481,31 @@ impl Menu {
     }
 
     fn visible_rows(&self) -> usize {
-        LIST_ROWS
+        match self.page {
+            Page::Custom => 15,
+            Page::Campaign => 13,
+            _ => LIST_ROWS,
+        }
+    }
+
+    /// The top of the Custom Missions or Explore History list, and the up arrow's.
+    fn list_top(&self) -> (f32, f32) {
+        if self.page == Page::Campaign { (396.0, 391.0) } else { (364.0, 359.0) }
+    }
+
+    /// How far the stone travels.
+    fn stone_range(&self) -> f32 {
+        (self.visible_rows() * 16) as f32 - 76.0
+    }
+
+    /// Scrolls to put the stone at `y` (in the background's coordinates).
+    fn drag_stone(&mut self, y: f32) {
+        let range = self.stone_range();
+        let (top, _) = self.list_top();
+        let t = (y - top - 25.0).clamp(0.0, range);
+        let max = self.items.len().saturating_sub(self.visible_rows());
+        let pct = (t * 100.0 / range) as usize;
+        self.scroll = max * pct / 100;
     }
 
     fn clamp_scroll(&mut self) {
@@ -352,13 +515,6 @@ impl Menu {
     /// Main page: button `i`'s top-left.
     fn main_button(screen: [f32; 2], i: usize) -> [f32; 2] {
         [(screen[0] / 2.0 - BUTTON_W / 2.0).floor(), (screen[1] / 2.0 - 100.0 + 40.0 * i as f32).floor()]
-    }
-
-    /// The campaign list panel and info area in screen space.
-    fn plaque(screen: [f32; 2]) -> ([f32; 4], [f32; 4]) {
-        let (o, s) = cover_screen(screen, [1024.0, 768.0]);
-        let map = |r: [f32; 4]| [o[0] + r[0] * s, o[1] + r[1] * s, o[0] + r[2] * s, o[1] + r[3] * s];
-        (map(PLAQUE_LIST), map(PLAQUE_INFO))
     }
 
     /// List pages other than the campaign: an outer panel in the middle of the screen.
@@ -373,10 +529,6 @@ impl Menu {
 
     fn back_button(&self, screen: [f32; 2]) -> [f32; 2] {
         match self.page {
-            Page::Campaign => {
-                let (_, info) = Self::plaque(screen);
-                [((info[0] + info[2]) / 2.0 - 80.0).floor(), (info[3] - BUTTON_H).floor()]
-            }
             Page::Family => {
                 let (x, y) = self.list_box(screen);
                 let rows = self.items.len().clamp(1, LIST_ROWS) as f32;
@@ -439,16 +591,16 @@ impl Menu {
                 let [x, y] = Self::main_button(screen, i);
                 inside(p, x, y, BUTTON_W, BUTTON_H)
             }),
-            Page::Campaign => {
-                let (list, _) = Self::plaque(screen);
-                if p[0] < list[0] || p[0] > list[2] || p[1] < list[1] {
+            Page::Campaign | Page::Custom => {
+                let b = Frame::new(screen).to_bg(p);
+                let (top, _) = self.list_top();
+                if b[0] < LIST_X || b[0] >= LIST_X + LIST_W || b[1] < top {
                     return None;
                 }
-                let row = ((p[1] - list[1] - 4.0) / ROW_H) as usize;
-                let rows = ((list[3] - list[1] - 8.0) / ROW_H) as usize;
-                (row < rows).then_some(row + self.scroll)
+                let row = ((b[1] - top) / 16.0) as usize;
+                (row < self.visible_rows()).then_some(row + self.scroll)
             }
-            Page::Custom | Page::Load | Page::Family => {
+            Page::Load | Page::Family => {
                 let (x, y) = self.list_box(screen);
                 let top = y + 44.0;
                 if p[0] < x + 16.0 || p[0] > x + BOX_W - 16.0 || p[1] < top {
@@ -476,15 +628,24 @@ impl Menu {
             self.family_hover = if inside4(p, yes) { Some(0) } else if inside4(p, no) { Some(1) } else { None };
             return;
         }
+        self.cursor = p;
+        if self.dragging {
+            self.drag_stone(Frame::new(screen).to_bg(p)[1]);
+        }
         self.hover = self.item_at(screen, p);
         self.hover_point = self.point_at(screen, p);
         let [bx, by] = self.back_button(screen);
-        self.hover_back = !matches!(self.page, Page::Main | Page::CityChoice) && inside(p, bx, by, 160.0, BUTTON_H);
+        self.hover_back = !matches!(self.page, Page::Main | Page::CityChoice | Page::Custom | Page::Campaign) && inside(p, bx, by, 160.0, BUTTON_H);
         self.family_hover = match self.page {
             Page::Family => self.family_buttons(screen).iter().position(|&r| inside4(p, r)).map(|i| i as u8),
             Page::NewFamily => inside4(p, self.new_family_ok_button(screen)).then_some(0),
             _ => None,
         };
+    }
+
+    /// The left button came up: the stone is let go.
+    pub fn release(&mut self) {
+        self.dragging = false;
     }
 
     pub fn scroll(&mut self, lines: i32) {
@@ -523,12 +684,6 @@ impl Menu {
             let (cx, cy) = (o[0] + (CHOICE_MAP_AT[0] + pt.x) * s, o[1] + (CHOICE_MAP_AT[1] + pt.y) * s);
             (p[0] - cx).powi(2) + (p[1] - cy).powi(2) <= (MARKER_R * s).powi(2)
         })
-    }
-
-    /// Where the active family's name is written, read-only, on the campaign page.
-    fn name_rect(screen: [f32; 2]) -> [f32; 4] {
-        let (_, info) = Self::plaque(screen);
-        [info[0], info[3] - 60.0, info[2] - info[0], 24.0]
     }
 
     /// Whether the window should forward typed text to [`Self::type_family_name`].
@@ -659,6 +814,9 @@ impl Menu {
         if self.page == Page::NewFamily {
             return self.click_new_family(screen, p);
         }
+        if matches!(self.page, Page::Custom | Page::Campaign) {
+            return self.click_scenarios(screen, p);
+        }
         if self.page == Page::CityChoice {
             let i = self.point_at(screen, p)?;
             return self.campaign.choice.as_ref().and_then(|c| c.points.get(i)).map(|pt| Choice::Path(pt.path));
@@ -697,6 +855,61 @@ impl Menu {
         }
     }
 
+    /// A click on Custom Missions or Explore History: the exit and start buttons, the
+    /// results toggle, the scroll arrows and stone, or a row, which is picked (the
+    /// choice of the next city opens straight away).
+    fn click_scenarios(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
+        let b = Frame::new(screen).to_bg(p);
+        let at = |r: [f32; 4]| inside4(b, r);
+        if at(EXIT_BUTTON) {
+            self.back();
+            return None;
+        }
+        if at(PLAY_BUTTON) {
+            let item = self.items.get(self.picked?)?;
+            let Action::Choose(c) = item.action.clone() else { return None };
+            if let Choice::Mission(m) = c {
+                self.selected_mission = Some(m);
+            }
+            return Some(c);
+        }
+        // The arrows are there whenever the objectives are.
+        if self.brief.is_some() && !(self.page == Page::Campaign && self.show_results) {
+            let d = self.difficulty;
+            let want = if at(DIFFICULTY_UP) { (d + 1).min(osiris_sim::difficulty::IMPOSSIBLE) } else if at(DIFFICULTY_DOWN) { d.saturating_sub(1) } else { d };
+            if want != d {
+                self.difficulty = want;
+                self.difficulty_changed = true;
+                return None;
+            }
+        }
+        if self.page == Page::Campaign && at(RESULTS_BUTTON) {
+            self.show_results = !self.show_results;
+            return None;
+        }
+        let (top, up_y) = self.list_top();
+        if at([ARROW_X, up_y, ARROW_SIZE[0], ARROW_SIZE[1]]) {
+            self.scroll(-1);
+            return None;
+        }
+        if at([ARROW_X, ARROW_DOWN_Y, ARROW_SIZE[0], ARROW_SIZE[1]]) {
+            self.scroll(1);
+            return None;
+        }
+        let range = self.stone_range();
+        if self.items.len() > self.visible_rows() && b[0] >= TRACK_X && b[0] < TRACK_X + TRACK_W && b[1] >= top + 25.0 && b[1] <= top + 50.0 + range {
+            self.dragging = true;
+            self.drag_stone(b[1]);
+            return None;
+        }
+        let i = self.item_at(screen, p)?;
+        match self.items.get(i)?.action.clone() {
+            Action::Go(page) => self.go(page),
+            Action::Choose(_) => self.pick(i),
+        }
+        None
+    }
+
     fn background(r: &mut Renderer, image: u32) {
         let [sw, sh] = r.screen;
         r.rect([0.0, 0.0], [sw, sh], [0.0, 0.0, 0.0, 1.0], Space::Screen);
@@ -720,9 +933,9 @@ impl Menu {
     pub fn draw(&self, r: &mut Renderer, panels: &PanelImages) {
         match self.page {
             Page::Main => self.draw_main(r, panels),
-            Page::Campaign => self.draw_campaign(r, panels),
+            Page::Campaign | Page::Custom => self.draw_scenarios(r, panels),
             Page::CityChoice => self.draw_choice(r),
-            Page::Custom | Page::Load => self.draw_list(r, panels),
+            Page::Load => self.draw_list(r, panels),
             Page::Rules => {
                 Self::background(r, BG_TITLE);
                 self.rules_panel.draw(r, panels, &self.rules, r.screen[0], "These apply to every game you play.");
@@ -746,65 +959,181 @@ impl Menu {
         draw_text(r, Font::SmallPlain, credit, sw - cw - 12.0, sh - 20.0, [0.8, 0.8, 0.8, 1.0]);
     }
 
-    fn draw_campaign(&self, r: &mut Renderer, panels: &PanelImages) {
-        Self::background(r, BG_HISTORY);
-        let (list, info) = Self::plaque(r.screen);
-        let rows = ((list[3] - list[1] - 8.0) / ROW_H) as usize;
-        r.set_clip(Some([list[0], list[1], list[2] - list[0], list[3] - list[1]]));
-        for (row, i) in (self.scroll..self.items.len()).take(rows).enumerate() {
-            let item = &self.items[i];
-            let y = list[1] + 6.0 + row as f32 * ROW_H;
-            if !item.enabled {
-                draw_text_tinted(r, Font::NormalWhiteOnDark, &item.label, list[0] + 10.0, y, [0.45, 0.4, 0.35, 1.0]);
-                continue;
-            }
-            let f = if self.hover == Some(i) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
-            draw_text(r, f, &item.label, list[0] + 10.0, y, font::WHITE);
-            if matches!(item.action, Action::Choose(Choice::Mission(m)) if self.campaign.done.contains(&m)) {
-                draw_text(r, f, "done", list[2] - 50.0, y, font::WHITE);
-            }
-        }
+    /// Custom Missions and Explore History, drawn as the original's one window: the
+    /// list of scenarios on the left with its scroll bar, the picked scenario's picture
+    /// above it, and its details on the dark panel to the right.
+    fn draw_scenarios(&self, r: &mut Renderer, panels: &PanelImages) {
+        Self::background(r, if self.page == Page::Campaign { BG_HISTORY } else { BG_CUSTOM });
+        let f = Frame::new(r.screen);
+        r.screen_frame = Some((f.o, f.s));
+        self.draw_scenarios_framed(r, panels, &f);
         r.set_clip(None);
-        // Scroll hints.
-        if self.scroll > 0 {
-            draw_text(r, Font::NormalWhiteOnDark, "^", list[2] - 16.0, list[1] + 2.0, font::WHITE);
-        }
-        if self.scroll + rows < self.items.len() {
-            draw_text(r, Font::NormalWhiteOnDark, "v", list[2] - 16.0, list[3] - 20.0, font::WHITE);
+        r.screen_frame = None;
+    }
+
+    fn draw_scenarios_framed(&self, r: &mut Renderer, panels: &PanelImages, f: &Frame) {
+        let history = self.page == Page::Campaign;
+        let t = |g: usize, i: usize| self.text.get(g, i).unwrap_or("").trim().to_string();
+        let cursor = f.to_bg(self.cursor);
+        if history {
+            bg_centred(r, Font::LargeBlackOnLight, &t(293, 6), 212.0, 161.0, 600.0);
+            // Individual missions are this page; Osiris has no list of campaigns.
+            for (tab, label, on) in [(TAB_MISSIONS, t(294, 38), true), (TAB_CAMPAIGNS, t(294, 39), false)] {
+                panel::button_border(r, panels, tab[0], tab[1], tab[2] as i32, tab[3] as i32, on);
+                bg_centred(r, Font::NormalBlackOnLight, &label, tab[0] + 4.0, tab[1] + 7.0, tab[2]);
+                if !on {
+                    r.rect([tab[0], tab[1]], [tab[2], tab[3]], [0.0, 0.0, 0.0, 0.45], Space::Screen);
+                }
+            }
         }
 
-        let title = "The Campaign";
-        let tw = text_width(r, Font::LargeBlackOnLight, title) as f32;
-        let cx = (info[0] + info[2]) / 2.0;
-        draw_text(r, Font::LargeBlackOnLight, title, (cx - tw / 2.0).floor(), info[1], font::BLACK);
-        let shown = self.hover.or(self.items.len().checked_sub(1));
-        let about = shown.and_then(|i| self.items.get(i)).map(|item| match item.action {
-            Action::Choose(Choice::Mission(m)) => {
-                let status = if self.campaign.done.contains(&m) { "Completed. Click to play it again." } else { "Your next mission. Click to begin." };
-                (format!("Mission {}", m + 1), self.mission_names.get(m).cloned().unwrap_or_default(), status.to_string())
-            }
-            _ => {
-                let c = self.campaign.choice.as_ref();
-                ("Next".to_string(), item.label.clone(), c.map_or_else(String::new, |c| c.prompt.clone()))
-            }
-        });
-        if let Some((heading, name, status)) = &about {
-            let lines = [(Font::NormalBlackOnLight, heading.as_str()), (Font::NormalBlackOnLight, name.as_str()), (Font::SmallPlain, status.as_str())];
-            let mut y = info[1] + 40.0;
-            for (f, text) in lines {
-                let w = text_width(r, f, text) as f32;
-                draw_text(r, f, text, (cx - w / 2.0).floor(), y, font::BLACK);
-                y += 22.0;
+        let rows = self.visible_rows();
+        let (top, up_y) = self.list_top();
+        panel::inner_panel(r, panels, LIST_X - 9.0, top - 15.0, 16, rows as i32 + 1);
+        r.set_clip(Some([LIST_X, top, LIST_W, rows as f32 * 16.0]));
+        for (row, i) in (self.scroll..self.items.len()).take(rows).enumerate() {
+            let lit = self.hover == Some(i) || (self.hover.is_none() && self.picked == Some(i));
+            let font = if lit { Font::NormalYellow } else { Font::NormalWhiteOnDark };
+            bg_text(r, font, &self.items[i].label, LIST_X, top + 16.0 * row as f32);
+        }
+        r.set_clip(None);
+        panel::inner_panel(r, panels, TRACK_X + 6.0, top + 22.0, 2, rows as i32 - 3);
+        if let Ok(arrows) = r.library.group_id("Pharaoh_General", 96, 8) {
+            for (y, image) in [(up_y, arrows), (ARROW_DOWN_Y, arrows + 4)] {
+                let over = inside4(cursor, [ARROW_X, y, ARROW_SIZE[0], ARROW_SIZE[1]]) as u32;
+                bg_image(r, image + over, ARROW_X, y);
             }
         }
-        // The governor, whose name the messages use: the active family, read-only
-        // here (switch families from the main menu instead).
-        let [nx, ny, nw, _] = Self::name_rect(r.screen);
-        let label = format!("Governor: {}", self.family);
-        let w = text_width(r, Font::NormalBlackOnLight, &label) as f32;
-        draw_text(r, Font::NormalBlackOnLight, &label, (nx + (nw - w) / 2.0).floor(), ny, font::BLACK);
-        let [bx, by] = self.back_button(r.screen);
-        Self::button(r, panels, "Back", bx, by, 160.0, self.hover_back, true);
+        if self.items.len() > rows {
+            let max = self.items.len() - rows;
+            let pct = if self.scroll == 0 { 0 } else if self.scroll < max { self.scroll * 100 / max } else { 100 };
+            let y = top + 25.0 + (self.stone_range() as usize * pct / 100) as f32;
+            bg_image(r, panels.panel_button + 39, STONE_X, y);
+        }
+
+        // The toggle's frame goes under the text, which may reach it.
+        if history {
+            let [x, y, w, h] = RESULTS_BUTTON;
+            panel::button_border(r, panels, x, y, w as i32, h as i32, inside4(cursor, RESULTS_BUTTON));
+        }
+        if let Some(b) = &self.brief {
+            self.draw_brief(r, f, b);
+        }
+
+        if history {
+            let label = t(44, if self.show_results { 221 } else { 220 });
+            bg_centred(r, Font::NormalWhiteOnDark, &label, 546.0, 558.0, 250.0);
+            bg_text(r, Font::NormalBlackOnLight, &t(44, 217), 572.0, 590.0);
+            bg_text(r, Font::NormalBlackOnLight, &t(44, 215), 652.0, 590.0);
+        } else {
+            bg_text(r, Font::NormalBlackOnLight, &t(44, 136), 697.0, 590.0);
+        }
+        if let Ok(cancel) = r.library.group_id("Pharaoh_General", 96, 4) {
+            bg_image(r, cancel + inside4(cursor, EXIT_BUTTON) as u32, EXIT_BUTTON[0], EXIT_BUTTON[1]);
+        }
+        if let Ok(go) = r.library.group_id("Pharaoh_General", 192, 0) {
+            bg_image(r, go + inside4(cursor, PLAY_BUTTON) as u32, PLAY_BUTTON[0], PLAY_BUTTON[1]);
+        }
+    }
+
+    /// The picked scenario: picture, name, subtitle and start year, then either its
+    /// objectives or, on Explore History, the family's best result in it.
+    fn draw_brief(&self, r: &mut Renderer, f: &Frame, b: &Brief) {
+        let history = self.page == Page::Campaign;
+        let t = |g: usize, i: usize| self.text.get(g, i).unwrap_or("").trim().to_string();
+        // Pictures 0-18 are Pharaoh's; Cleopatra's follow in the expansion's pack.
+        let image = match b.image.max(0) as usize {
+            n @ 0..19 => r.library.group_id("Pharaoh_Unloaded", 28, n),
+            n => r.library.group_id("Expansion", 38, n - 19),
+        };
+        if let Ok(id) = image {
+            bg_image(r, id, 270.0, if history { 200.0 } else { 180.0 });
+        }
+        let white = Font::NormalWhiteOnDark;
+        bg_centred(r, white, &b.name, 527.0, 209.0, 260.0);
+        bg_centred(r, Font::NormalYellow, &b.subtitle, 527.0, 229.0, 260.0);
+        let year = if b.start_year < 0 { format!("{} {}", -b.start_year, t(20, 0)) } else { format!("{} {}", t(20, 1), b.start_year) };
+        bg_text(r, white, &year, 602.0, 249.0);
+
+        if history && self.show_results {
+            let m = match self.picked.and_then(|i| self.items.get(i)).map(|i| &i.action) {
+                Some(Action::Choose(Choice::Mission(m))) => *m,
+                _ => return,
+            };
+            let Some(res) = self.campaign.results.get(&m) else {
+                bg_wrapped(r, white, &t(305, 0), 537.0, 269.0, 260.0);
+                return;
+            };
+            bg_wrapped(r, white, &t(297, m), 537.0, 269.0, 270.0);
+            let w = &b.win;
+            let lines = [
+                (w.culture.enabled, 0, res.culture, 429.0),
+                (w.prosperity.enabled, 1, res.prosperity, 445.0),
+                (w.kingdom.enabled, 3, res.kingdom, 461.0),
+                (w.population.enabled, 4, res.population, 477.0),
+                (true, 5, res.funds, 493.0),
+            ];
+            for (shown, id, value, y) in lines {
+                if shown {
+                    bg_centred(r, white, &format!("{} {value}", t(298, id)), 537.0, y, 270.0);
+                }
+            }
+            bg_centred(r, white, &format!("{} {}", t(298, 7), t(153, res.difficulty as usize + 1)), 527.0, 509.0, 270.0);
+            bg_centred(r, white, &format!("{} {} {}", t(298, 6), res.months / 12, t(298, 9)), 537.0, 525.0, 270.0);
+            bg_centred(r, Font::NormalYellow, &format!("{} {}", t(298, 8), res.score), 537.0, 541.0, 270.0);
+            return;
+        }
+
+        bg_centred(r, white, &t(44, 77 + b.climate as usize), 527.0, 269.0, 260.0);
+        bg_centred(r, white, &t(44, b.size_text()), 527.0, 289.0, 260.0);
+        bg_centred(r, white, &t(44, b.military_text()), 527.0, 309.0, 260.0);
+        bg_centred(r, white, &t(32, b.challenge_text()), 527.0, 329.0, 260.0);
+        if b.open_play {
+            bg_wrapped(r, white, &t(145, 0), 537.0, 369.0, 260.0);
+            self.draw_difficulty(r, f);
+            return;
+        }
+        bg_centred(r, Font::NormalYellow, &t(44, 127), 527.0, 361.0, 260.0);
+        let w = &b.win;
+        let goals = [
+            (w.culture.enabled, w.culture.value, 129, 389.0),
+            (w.prosperity.enabled, w.prosperity.value, 130, 405.0),
+            (w.kingdom.enabled, w.kingdom.value, 132, 421.0),
+            (w.population.enabled, w.population.value, 133, 437.0),
+            (w.survival_time.enabled, w.survival_time.value, 135, 469.0),
+            (w.time_limit.enabled, w.time_limit.value, 134, 469.0),
+        ];
+        for (on, value, id, y) in goals {
+            if on {
+                bg_text(r, white, &format!("{value} {}", t(44, id)), 602.0, y);
+            }
+        }
+        let count = w.housing_count.value;
+        if count != 0 {
+            let level = w.housing_level.value.max(0) as usize + if count >= 2 { 20 } else { 0 };
+            bg_text(r, white, &format!("{count} {}", t(29, level)), 602.0, 453.0);
+        }
+        // The monuments to build, by name; the monument goal's own number is never shown.
+        for (i, &m) in b.monuments.iter().enumerate() {
+            if m != 0 {
+                bg_centred(r, white, &t(198, m as usize), 542.0, 485.0 + 16.0 * i as f32, 260.0);
+            }
+        }
+        self.draw_difficulty(r, f);
+    }
+
+    /// The difficulty new games start at, with its arrows (Pharaoh_General groups 212
+    /// and 16): up to the left, down to the right.
+    fn draw_difficulty(&self, r: &mut Renderer, f: &Frame) {
+        let t = |g: usize, i: usize| self.text.get(g, i).unwrap_or("").trim().to_string();
+        let line = format!("{} {}", t(44, 216), t(153, self.difficulty as usize + 1));
+        bg_text(r, Font::NormalWhiteOnDark, &line, 602.0, 536.0);
+        let cursor = f.to_bg(self.cursor);
+        for (group, rect) in [(212, DIFFICULTY_UP), (16, DIFFICULTY_DOWN)] {
+            if let Ok(id) = r.library.group_id("Pharaoh_General", group, 0) {
+                bg_image(r, id + inside4(cursor, rect) as u32, rect[0], rect[1]);
+            }
+        }
     }
 
     /// The map of Egypt with a marker on each city to choose from; the period's title

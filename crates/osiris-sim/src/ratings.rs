@@ -205,6 +205,63 @@ fn culture_rating(cov: &[i32; 12]) -> i32 {
     (worst + bonus).clamp(0, 100)
 }
 
+/// What the family history keeps of a won mission: the city as it stood, how long it
+/// took, and the score.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MissionResult {
+    pub culture: i32,
+    pub prosperity: i32,
+    pub kingdom: i32,
+    pub population: i32,
+    pub funds: i32,
+    pub months: i32,
+    pub score: i32,
+    /// The lowest difficulty played at, which also scales the score.
+    pub difficulty: u8,
+}
+
+/// The original's score: the ratings times the population, the worth of the
+/// scenario's finished monuments squared over the months taken squared, and the funds
+/// per month, scaled by the lowest difficulty played ((level + 1) / 3, so 1 at
+/// Normal). The original then takes off a point for each cheat used; Osiris has none.
+fn score(ratings: i32, population: i32, monuments: i32, funds: i32, months: i32, difficulty: i32) -> i32 {
+    let m = months.max(1) as f64;
+    let a = monuments as f64;
+    let s = ratings as f64 * (population as f64 * 0.002) + a / (m * m * 0.00015625) * (a * 20.0) + funds as f64 / (m * (1.0 / 30.0));
+    (s * ((difficulty as f64 + 1.0) * (1.0 / 3.0))) as i32
+}
+
+impl World {
+    /// The mission's result as it stands. Months are counted from the start year's
+    /// January, as the original does.
+    pub fn mission_result(&self) -> MissionResult {
+        let months = self.time.month as i32 + (self.scenario_events.start_year - self.time.year).abs() * 12;
+        let mut used = Vec::new();
+        let mut worth = 0;
+        for &t in self.scenario_monuments.iter().filter(|&&t| t > 0) {
+            let want = crate::monuments::monument_for_title(t as usize).map(|d| d.title);
+            let done = self.buildings.iter().find(|b| {
+                !used.contains(&b.id) && b.monument.is_some() && crate::monuments::monument_def(b.kind).map(|d| d.title) == want && self.monument_percent(b.id) >= 100
+            });
+            if let Some(b) = done {
+                used.push(b.id);
+                worth += MONUMENT_WORTH.get(t as usize).copied().unwrap_or(0);
+            }
+        }
+        let r = &self.ratings;
+        MissionResult {
+            culture: r.culture,
+            prosperity: r.prosperity,
+            kingdom: r.kingdom,
+            population: self.population,
+            funds: self.treasury,
+            months,
+            score: score(r.kingdom + r.prosperity + r.culture, self.population, worth, self.treasury, months, self.lowest_difficulty as i32),
+            difficulty: self.lowest_difficulty,
+        }
+    }
+}
+
 /// The monument rating for the worth built (and provisions sent).
 fn monument_rating(worth: i32, unfinished: bool) -> i32 {
     let r = (worth.max(0) as f64).sqrt() * 6.32 + 0.5 - if unfinished { 1.0 } else { 0.0 };
@@ -498,6 +555,15 @@ mod tests {
         // Dentists step up at 90% rather than 100%.
         assert_eq!(culture_score(95, &CULTURE[8].1, &CULTURE[8].2), 100);
         assert_eq!(culture_score(85, &CULTURE[8].1, &CULTURE[8].2), 65);
+    }
+
+    #[test]
+    fn score_weighs_ratings_monuments_and_funds_by_time() {
+        assert_eq!(score(150, 1000, 0, 1000, 12, 2), 2800);
+        // A finished small mudbrick pyramid (worth 4) in three years.
+        assert_eq!(score(0, 0, 4, 0, 36, 2), 1580);
+        // A third, stored inexactly, leaves Impossible just under five thirds.
+        assert_eq!(score(150, 1000, 0, 0, 12, 4), 499);
     }
 
     #[test]

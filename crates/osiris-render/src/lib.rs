@@ -135,6 +135,9 @@ pub struct Renderer {
     pub scale: f32,
     /// Screen-space rectangle (x, y, w, h) that subsequent draws are clipped to.
     clip: Option<[f32; 4]>,
+    /// While set, screen-space draws and clips are given in a frame of their own that
+    /// lands at this offset and scale (a screen laid out at 1024x768, stretched).
+    pub screen_frame: Option<([f32; 2], f32)>,
     pub library: ImageLibrary,
 }
 
@@ -272,6 +275,7 @@ impl Renderer {
             screen: [1.0, 1.0],
             scale: 1.0,
             clip: None,
+            screen_frame: None,
             library,
         }
     }
@@ -361,6 +365,10 @@ impl Renderer {
             Paint::Silhouette => (2, 0, color),
             Paint::Masked(m) => (4, m, color),
             Paint::Filter(m) => (8, m, Paint::filter_tint(m)),
+        };
+        let (pos, size) = match self.screen_frame {
+            Some((o, k)) if space == Space::Screen => ([o[0] + pos[0] * k, o[1] + pos[1] * k], [size[0] * k, size[1] * k]),
+            _ => (pos, size),
         };
         let inst = Instance {
             pos,
@@ -560,7 +568,10 @@ impl Renderer {
 
     /// Clips following draws to a screen rectangle, or stops clipping with `None`.
     pub fn set_clip(&mut self, clip: Option<[f32; 4]>) {
-        self.clip = clip;
+        self.clip = match (clip, self.screen_frame) {
+            (Some(c), Some((o, k))) => Some([o[0] + c[0] * k, o[1] + c[1] * k, c[2] * k, c[3] * k]),
+            _ => clip,
+        };
     }
 
     /// Visible world rectangle as `(x0, y0, x1, y1)`.

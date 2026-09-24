@@ -55,6 +55,9 @@ pub struct EventRecord {
     pub route: [i16; 4],
     pub subtype: i8,
     pub city: i8,
+    /// Byte 100, unnamed: the original follows a request's `on_defeat` only when it is
+    /// 1 or 2.
+    pub defeat_link: u8,
     /// Phrase ids of the reasons the message may give; 0xffff is none.
     pub reasons: [u16; 4],
 }
@@ -103,7 +106,8 @@ fn parse_event(data: &[u8]) -> Result<(i16, EventRecord)> {
     }
     e.subtype = r.i8()?;
     e.city = r.i8()?;
-    r.skip(2 + 6 + 4 + 2)?;
+    e.defeat_link = r.u8()?;
+    r.skip(1 + 6 + 4 + 2)?;
     for v in &mut e.reasons {
         *v = r.u16()?;
     }
