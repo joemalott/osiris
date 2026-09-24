@@ -65,6 +65,12 @@ pub struct Invasion {
     recurring: bool,
     /// Comes when the kingdom rating falls to nothing, not on a date.
     pub by_favour: bool,
+    /// Comes only when another event leads to it, not on a date.
+    #[serde(default)]
+    pub via_event: bool,
+    /// The scenario event it was planned from.
+    #[serde(default)]
+    pub event: Option<usize>,
     pub armed: bool,
     pub announced: bool,
     last_warning: i32,
@@ -115,8 +121,9 @@ impl Invasions {
         let planned = s
             .events
             .iter()
-            .filter(|e| e.kind == crate::scenario_events::event::INVASION)
-            .map(|e| Invasion {
+            .enumerate()
+            .filter(|(_, e)| e.kind == crate::scenario_events::event::INVASION)
+            .map(|(i, e)| Invasion {
                 invader: e.item.value.clamp(1, 4) as u8,
                 amount: e.amount.into(),
                 point: osiris_formats::EventValue { value: e.location[0], fixed: e.location[1], min: e.location[2], max: e.location[3] }.into(),
@@ -127,6 +134,8 @@ impl Invasions {
                 interval: (e.time.min, e.time.max),
                 recurring: e.trigger == crate::scenario_events::trigger::RECURRING,
                 by_favour: e.trigger == TRIGGER_BY_FAVOUR,
+                via_event: e.trigger == crate::scenario_events::trigger::ONLY_VIA_EVENT,
+                event: Some(i),
                 ..Default::default()
             })
             .collect();
@@ -209,6 +218,8 @@ impl World {
                     inv.year = arrive / 12;
                     inv.month = arrive % 12;
                 }
+            } else if inv.via_event && !inv.armed {
+                continue;
             }
             let left = inv.year * 12 + inv.month - now;
             let group = phrases(inv.invader);
@@ -258,7 +269,7 @@ impl World {
                 let (min, max) = (p.interval.0 as i32, p.interval.1 as i32);
                 let years = if min >= 0 && max > min { min + self.rng.below(max - min + 1) } else { min.max(max) };
                 p.year += years.max(1);
-            } else if p.by_favour {
+            } else if p.by_favour || p.via_event {
                 p.armed = false;
             } else {
                 p.done = true;
@@ -289,6 +300,10 @@ impl World {
         }
         let group = phrases(inv.invader);
         self.post_invasion_text(inv.invader, &format!("{group}_city_attacked_alert"), 0);
+        // The army's arrival leads on to whatever event follows it (the next wave).
+        if let Some(on) = inv.event.and_then(|e| self.scenario_events.list.get(e)).map(|e| e.on_completed) {
+            self.follow(on, inv.event.unwrap_or(0), crate::scenario_events::Outcome::Completed);
+        }
         if let Some(n) = self.notices.log.last_mut() {
             n.tile = Some(spot);
         }
@@ -331,6 +346,19 @@ impl World {
             if let Some(a) = self.invasions.armies.get_mut(army) {
                 a.figures.push(fid);
             }
+        }
+    }
+
+    /// Another event has led to the invasion planned from scenario event `event`: it
+    /// sets out now and arrives when its months of warning have passed.
+    pub(crate) fn arm_invasion(&mut self, event: usize) {
+        let now = self.months_now();
+        if let Some(inv) = self.invasions.planned.iter_mut().find(|p| p.via_event && p.event == Some(event) && !p.armed) {
+            inv.armed = true;
+            inv.announced = false;
+            let arrive = now + inv.warning.max(1);
+            inv.year = arrive / 12;
+            inv.month = arrive % 12;
         }
     }
 
@@ -615,5 +643,43 @@ mod tests {
         assert_eq!((stuck_backoff(1), stuck_backoff(2), stuck_backoff(3), stuck_backoff(4)), (100, 200, 400, 800));
         // ...capped so it never stalls forever.
         assert_eq!((stuck_backoff(5), stuck_backoff(6), stuck_backoff(255)), (1600, 1600, 1600));
+    }
+
+    /// Campaign mission 20 (with the real game data, when present).
+    fn mission(n: usize) -> Option<World> {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.join("mission1.pak").is_file() {
+            return None;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).ok()?;
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).ok()?);
+        let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&std::fs::read(data.join("Pharaoh_Model_Normal.txt")).ok()?)).ok()?;
+        let balance = std::sync::Arc::new(crate::balance::Balance::from_model(&model));
+        let scenario = osiris_formats::MissionPak::open(&data.join("mission1.pak")).ok()?.scenario(n).ok()?;
+        let mut world = World::new(&scenario, defs, balance);
+        world.start(&scenario);
+        world.load_mission(n as i32);
+        Some(world)
+    }
+
+    #[test]
+    fn invasions_only_via_event_wait_for_their_event() {
+        let Some(mut world) = mission(20) else { return };
+        // Mission 20's later waves of Pharaoh's army follow the one his lost favour
+        // sends; none comes while the kingdom rating holds.
+        assert!(world.invasions.planned.iter().filter(|p| p.via_event).count() >= 3);
+        for _ in 0..3000 {
+            world.tick();
+        }
+        assert!(world.invasions.armies.is_empty(), "no army without a cause");
+        // Favour gone: the first army comes, and the next wave follows it.
+        for _ in 0..40_000 {
+            world.ratings.kingdom = 0;
+            world.tick();
+            if world.invasions.armies.len() >= 2 {
+                break;
+            }
+        }
+        assert!(world.invasions.armies.len() >= 2, "armies {}", world.invasions.armies.len());
     }
 }

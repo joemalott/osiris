@@ -309,7 +309,7 @@ impl World {
     }
 
     /// The event `i` follows another: it fires after its delay.
-    fn follow(&mut self, i: i16, parent: usize, outcome: Outcome) {
+    pub(crate) fn follow(&mut self, i: i16, parent: usize, outcome: Outcome) {
         let Some(e) = usize::try_from(i).ok().and_then(|i| self.scenario_events.list.get(i)) else { return };
         if e.trigger != trigger::ONLY_VIA_EVENT && !(e.trigger == trigger::FIRED && e.cause.is_some()) {
             return;
@@ -496,6 +496,8 @@ impl World {
                 }
                 popup_key = Some("message_plague_of_locusts");
             }
+            // Invasions keep their own calendar; one another event led to sets out now.
+            event::INVASION if e.trigger == trigger::FIRED => self.arm_invasion(i),
             event::FROGS => popup_key = Some("message_plague_of_frogs"),
             event::HAILSTORM => popup_key = Some("message_hailstorm"),
             event::BLOOD_RIVER => popup_key = Some("message_river_of_blood"),
@@ -510,8 +512,9 @@ impl World {
             text.reason = self.reason_phrase(i).unwrap_or(no_reason);
             self.post_event_text(text);
         }
-        // Everything but a request leads straight on to what follows it.
-        if e.kind != event::REQUEST {
+        // Everything but a request leads straight on to what follows it; an invasion
+        // does when the army arrives.
+        if e.kind != event::REQUEST && e.kind != event::INVASION {
             let on = self.scenario_events.list[i].on_completed;
             self.follow(on, i, Outcome::Completed);
         }
