@@ -641,7 +641,7 @@ terrain_usage = "roads"
 id = 81
 key = "stonemason"
 category = "citizen"
-anims = { walk = { pack = "SprMain", group = 150, offset = 0, frames = 12 }, death = { pack = "SprMain", group = 151, offset = 0, frames = 8, loop = false }, work_ground = { pack = "SprMain", group = 152, offset = 0, frames = 7 }, work_wall = { pack = "SprMain", group = 153, offset = 0, frames = 7 }, climbing = { pack = "SprMain", group = 154, offset = 0, frames = 3 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 81 } }
+anims = { walk = { pack = "SprMain", group = 150, offset = 0, frames = 12 }, death = { pack = "SprMain", group = 151, offset = 0, frames = 8, loop = false }, work_ground = { pack = "SprMain", group = 152, offset = 0, frames = 7 }, work_wall = { pack = "SprMain", group = 153, offset = 0, frames = 7 }, climbing = { pack = "SprMain", group = 154, offset = 0, frames = 3 }, idle = { pack = "SprMain", group = 155, offset = 0, frames = 12 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 81 } }
 max_damage = 10
 terrain_usage = "roads"
 

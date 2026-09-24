@@ -19,6 +19,7 @@ mod mission_brief;
 mod progress;
 mod script;
 mod sidebar;
+mod tomb_view;
 mod top_menu;
 mod water_view;
 mod widgets;

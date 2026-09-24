@@ -1236,6 +1236,10 @@ impl Game {
                 out.push(Sprite { x: f.x, y: f.y, offset: f.pixel_offset(), image });
                 continue;
             }
+            if let Some(s) = crate::tomb_view::figure_sprite(&self.world, f) {
+                out.push(s);
+                continue;
+            }
             // Craftsmen at work on a monument.
             if matches!(f.kind, osiris_sim::monuments::BRICKLAYER | osiris_sim::monuments::STONEMASON | osiris_sim::monuments::CARPENTER)
                 && f.action == 2

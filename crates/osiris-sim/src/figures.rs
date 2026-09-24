@@ -25,6 +25,9 @@ pub enum Travel {
     Water,
     /// Invaders: as on land, but a gatehouse bars the way like a wall.
     Hostile,
+    /// Straight across anything (the original's cross-country moves): laborers going
+    /// to the tile of a monument site they work, craftsmen coming down off one.
+    Any,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -106,6 +109,9 @@ pub struct Figure {
     /// Tile centres reached this tick, for the traffic tally.
     #[serde(skip)]
     pub centres: u8,
+    /// Up on a pyramid or mastaba: the block he stands on or is heading for.
+    #[serde(default)]
+    pub perch: Option<crate::pyramids::Perch>,
 }
 
 impl Figure {
@@ -143,6 +149,7 @@ impl Figure {
             roam_out: false,
             roam_wait: -1,
             centres: 0,
+            perch: None,
         }
     }
 
@@ -218,6 +225,7 @@ pub fn passable(map: &Map, travel: Travel, x: i32, y: i32) -> bool {
         Travel::Roads => ferry || citizen_ground(t).is_some_and(|g| g != Ground::Open),
         Travel::Land | Travel::PreferRoads => ferry || citizen_ground(t).is_some(),
         Travel::Water => crate::water::navigable(map, x, y),
+        Travel::Any => true,
         // Invaders cross trees, scrub, marsh, dunes, rubble, gardens, canals, ramps and
         // dry floodplain (the original's route grid for non-citizens); buildings, walls
         // and gatehouses they must batter down.
@@ -260,7 +268,7 @@ pub fn find_route(map: &Map, travel: Travel, from: (i32, i32), to: (i32, i32)) -
     came[idx(from.0, from.1)] = 8;
     let dirs: &[u8] = match travel {
         Travel::Roads => &[0, 2, 4, 6],
-        Travel::Land | Travel::PreferRoads | Travel::Water | Travel::Hostile => &[0, 2, 4, 6, 1, 3, 5, 7],
+        Travel::Land | Travel::PreferRoads | Travel::Water | Travel::Hostile | Travel::Any => &[0, 2, 4, 6, 1, 3, 5, 7],
     };
     // The destination may be a building entrance off the road network; allow it.
     let ok = |x: i32, y: i32| (x, y) == to || passable(map, travel, x, y);

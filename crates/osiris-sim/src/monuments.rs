@@ -7,7 +7,7 @@
 //! [`crate::pyramids`].
 
 use crate::buildings::{BuildingId, kind};
-use crate::figures::{FigureId, Step, Travel};
+use crate::figures::{Figure, FigureId, Step, Travel};
 use crate::world::World;
 
 /// Progress a block needs in each phase: one worker adds one point a tick.
@@ -469,6 +469,16 @@ pub fn placement_cost(k: u16) -> Option<(u16, i32)> {
         Style::SunTemple => Some((SANDSTONE, SUN_TEMPLE_PLACEMENT)),
         _ => None,
     }
+}
+
+/// What a craftsman at a pyramid or mastaba is doing: walking about it, waiting (for
+/// work, or for the sled with his unit's material), or working the ticks so far of
+/// a job (`laying`: a unit of a course, whose first ticks look different).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TombPose {
+    Walk,
+    Idle,
+    Work { ticks: i32, laying: bool },
 }
 
 /// Phase, finished, and (resource, delivered, needed) for the phase's materials.
@@ -1163,10 +1173,17 @@ impl World {
         best.map(|(p, _)| p)
     }
 
+    /// Where a sled for monument `id` coming from `from` is dragged: the foot of a
+    /// pyramid's or mastaba's way up (the laborer's destination from `FUN_004f3000`),
+    /// else the side of the monument nearest.
+    fn sled_spot(&self, id: BuildingId, from: (i32, i32)) -> Option<(i32, i32)> {
+        if self.tomb_route(id).is_empty() { self.monument_access(id, from) } else { self.tomb_entry(id) }
+    }
+
     /// A monument block a work-camp laborer could level: the first block without a
     /// laborer on it, of the nearest monument still being levelled.
     pub(crate) fn leveling_job(&self, from: (i32, i32)) -> Option<(BuildingId, usize)> {
-        let busy: Vec<(u32, i32)> = self.figures.iter().filter(|f| f.kind == crate::farms::PEASANT && matches!(f.action, 3 | 4)).map(|f| (f.target, f.amount)).collect();
+        let busy: Vec<(u32, i32)> = self.figures.iter().filter(|f| f.kind == crate::farms::PEASANT && matches!(f.action, 3 | 4 | 8)).map(|f| (f.target, f.amount)).collect();
         self.active_monuments()
             .into_iter()
             .filter_map(|id| {
@@ -1197,7 +1214,7 @@ impl World {
         if !def.laborers(m.phase) {
             return None;
         }
-        let busy: Vec<i32> = self.figures.iter().filter(|f| f.kind == crate::farms::PEASANT && matches!(f.action, 3 | 4) && f.target == id && f.id != me).map(|f| f.amount).collect();
+        let busy: Vec<i32> = self.figures.iter().filter(|f| f.kind == crate::farms::PEASANT && matches!(f.action, 3 | 4 | 8) && f.target == id && f.id != me).map(|f| f.amount).collect();
         if crate::pyramids::blockwise(def.style) {
             return self.tomb_site_job(id, &busy);
         }
@@ -1301,26 +1318,36 @@ impl World {
                 self.send_tomb_mason(g, road, target);
                 continue;
             }
-            let Some(spot) = self.monument_access(target, from) else { continue };
+            // A pyramid's or mastaba's craftsmen are sent to a block of their own and
+            // come to the foot of its way up; a mason with no block may be sent to the
+            // site of a part of its complex.
+            let tomb = !self.tomb_route(target).is_empty();
+            let job = if tomb { self.tomb_free_job(target, figure) } else { None };
+            let spot = if tomb { self.tomb_entry(target) } else { self.monument_access(target, from) };
+            let Some(spot) = spot else { continue };
+            let part = match job {
+                Some(crate::pyramids::Job::Part(i)) => self.part_tile(target, i),
+                _ => None,
+            };
             let fid = self.figures.spawn(figure, road.0, road.1, Travel::Land);
             let map = &self.map;
             if let Some(f) = self.figures.get_mut(fid) {
                 f.home = g;
                 f.target = target;
                 f.action = 1;
-                if !f.go_to(map, spot) {
+                f.amount = job.map_or(0, encode_tomb_job);
+                if !part.is_some_and(|p| f.go_to(map, p)) && !f.go_to(map, spot) {
                     f.dead = true;
                     continue;
                 }
             }
-            let blockwise = self.buildings.get(target).and_then(|b| monument_def(b.kind)).is_some_and(|d| crate::pyramids::blockwise(d.style));
             let gb = self.buildings.get_mut(g).expect("present");
             gb.walkers[0] = fid;
             if figure == CARPENTER {
-                // He takes a load of the guild's timber with him (a pyramid's carpenters
-                // draw theirs a ramp at a time), and the guild starts over.
+                // He takes a load of the guild's timber with him, and the guild starts
+                // over.
                 gb.progress = 0;
-                if !blockwise && let Some(t) = gb.stock.get_mut(TIMBER as usize) {
+                if let Some(t) = gb.stock.get_mut(TIMBER as usize) {
                     *t = (*t - CARPENTER_TIMBER).max(0);
                 }
             }
@@ -1363,6 +1390,10 @@ impl World {
             self.update_tomb_worker(fid);
             return;
         }
+        if !self.tomb_route(f.target).is_empty() {
+            self.update_tomb_craftsman(fid);
+            return;
+        }
         let (act, target, figure) = (f.action, f.target, f.kind);
         let listed = self.buildings.get(target).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.craftsmen.contains(&(figure, fid)));
         let busy = f.amount > 0;
@@ -1383,7 +1414,6 @@ impl World {
                     _ => f.dead = true,
                 }
             }
-            2 if self.buildings.get(target).and_then(|b| monument_def(b.kind)).is_some_and(|d| crate::pyramids::blockwise(d.style)) => self.work_on_tomb(fid),
             2 if self.buildings.get(target).and_then(|b| Some(monument_def(b.kind)?.jobs(b.monument.as_ref()?.phase))).is_some_and(|j| !j.is_empty()) => self.work_job(fid),
             2 => {
                 let Some(b) = self.buildings.get(target) else { return };
@@ -1471,53 +1501,277 @@ impl World {
         self.send_home(fid);
     }
 
-    /// A craftsman at a pyramid or mastaba: he takes on a block's next unit (and the
-    /// material for it), a step of polishing, or a ramp (the carpenters' guild giving
-    /// up timber for it), and works it through.
-    fn work_on_tomb(&mut self, fid: FigureId) {
-        use crate::pyramids::Job;
-        let (encode, decode) = (encode_tomb_job, decode_tomb_job);
+    /// A pyramid's or mastaba's craftsman (the original's carpenter, bricklayer and
+    /// stonemason AIs at 0x4a7603, 0x4a7ea4 and 0x4a87fc): he walks to the foot of the
+    /// way up, climbs it to the height the building has reached, crosses to his block
+    /// and works there, and goes home when his work at that height is done.
+    fn update_tomb_craftsman(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
-        let (target, figure, home, held, ticks) = (f.target, f.kind, f.home, f.amount, f.counter);
-        match decode(held) {
-            Some(job) => {
-                let done = ticks + 1 >= Self::tomb_job_work(job) as i32;
-                if let Some(f) = self.figures.get_mut(fid) {
-                    f.counter = if done { 0 } else { ticks + 1 };
-                    f.amount = if done { 0 } else { held };
-                    f.moving = !done;
-                }
-                if done {
-                    self.finish_tomb_job(target, job);
+        let (act, target, figure, busy) = (f.action, f.target, f.kind, f.amount > 0);
+        let listed = self.buildings.get(target).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.craftsmen.contains(&(figure, fid)));
+        match act {
+            1 | 2 if !listed || !busy && !self.wants_craftsman(target, figure) => self.leave_tomb(fid),
+            1 => {
+                let map = &self.map;
+                let f = self.figures.get_mut(fid).expect("present");
+                match f.walk(map) {
+                    Step::Moving => {}
+                    Step::Arrived => {
+                        f.action = 2;
+                        f.moving = false;
+                        f.travel = Travel::Land;
+                    }
+                    _ => f.dead = true,
                 }
             }
-            None => {
-                let crew: Vec<FigureId> = self.buildings.get(target).and_then(|b| b.monument.as_ref()).map_or_else(Vec::new, |m| m.craftsmen.iter().map(|c| c.1).collect());
-                let taken: Vec<Job> = crew.iter().filter(|&&c| c != fid).filter_map(|&c| self.figures.get(c).and_then(|o| decode(o.amount))).collect();
-                let job = self.tomb_job(target, figure, &taken);
-                match job {
-                    Some(Job::Unit(i)) => {
-                        let r = self.tomb_unit_material(target, i);
-                        if let (Some(r), Some(m)) = (r, self.buildings.get_mut(target).and_then(|b| b.monument.as_mut())) {
-                            Monument::add(&mut m.delivered, r, -crate::pyramids::UNIT_MATERIAL);
-                        }
-                    }
-                    Some(Job::Ramp(_)) => {
-                        if let Some(g) = self.buildings.get_mut(home)
-                            && let Some(t) = g.stock.get_mut(TIMBER as usize)
-                        {
-                            *t = (*t - crate::pyramids::RAMP_TIMBER).max(0);
-                        }
-                    }
-                    _ => {}
+            2 => self.work_on_tomb(fid),
+            5 => {
+                // Down off the tomb, then home.
+                let map = &self.map;
+                let f = self.figures.get_mut(fid).expect("present");
+                if f.walk(map) != Step::Moving {
+                    f.travel = Travel::Land;
+                    self.send_home(fid);
                 }
-                if let Some(f) = self.figures.get_mut(fid) {
-                    f.amount = job.map_or(0, encode);
-                    f.counter = 0;
-                    f.moving = job.is_some();
+            }
+            _ => {
+                let map = &self.map;
+                let f = self.figures.get_mut(fid).expect("present");
+                if f.walk(map) != Step::Moving {
+                    f.dead = true;
                 }
             }
         }
+    }
+
+    /// A craftsman at a pyramid or mastaba, with the work he was sent for (or, waiting
+    /// at the foot, work he takes there): a block's next unit, a step of polishing, a
+    /// ramp, or on the ground a part of a complex. Up on the tomb he climbs the way up
+    /// (the original's `FUN_004f04d0`) until he is as high as his work, or for a ramp
+    /// at its block, then crosses to his block (`FUN_004f0ef0`). There a mason waits
+    /// for the unit's material and lays it, and a carpenter builds his ramp.
+    fn work_on_tomb(&mut self, fid: FigureId) {
+        use crate::pyramids::{Job, Perch};
+        let Some(f) = self.figures.get(fid) else { return };
+        let (target, figure, held, perch) = (f.target, f.kind, f.amount, f.perch);
+        if let Some(mut p) = perch
+            && !p.arrived()
+        {
+            p.step += 1;
+            let f = self.figures.get_mut(fid).expect("present");
+            f.perch = Some(p);
+            f.moving = true;
+            f.anim_tick += 1;
+            return;
+        }
+        self.figures.get_mut(fid).expect("present").moving = false;
+        let job = match decode_tomb_job(held) {
+            Some(job) => job,
+            None => {
+                let crew: Vec<FigureId> = self.buildings.get(target).and_then(|b| b.monument.as_ref()).map_or_else(Vec::new, |m| m.craftsmen.iter().map(|c| c.1).collect());
+                let taken: Vec<Job> = crew.iter().filter(|&&c| c != fid).filter_map(|&c| self.figures.get(c).and_then(|o| decode_tomb_job(o.amount))).collect();
+                // Up on the tomb a craftsman always has work; at its foot he may wait
+                // for some while the tomb wants his trade.
+                let Some(job) = self.tomb_job(target, figure, &taken, perch.is_some()) else {
+                    if perch.is_some() || !self.wants_craftsman(target, figure) {
+                        self.leave_tomb(fid);
+                    }
+                    return;
+                };
+                let f = self.figures.get_mut(fid).expect("present");
+                f.amount = encode_tomb_job(job);
+                f.counter = 0;
+                f.cargo = 0;
+                job
+            }
+        };
+        if let Job::Part(i) = job {
+            // Worked on the ground at the part's site.
+            let Some(spot) = self.part_tile(target, i) else {
+                self.leave_tomb(fid);
+                return;
+            };
+            let f = self.figures.get(fid).expect("present");
+            if f.perch.is_some() {
+                self.leave_tomb(fid);
+                return;
+            }
+            if (f.x, f.y) != spot {
+                let map = &self.map;
+                let f = self.figures.get_mut(fid).expect("present");
+                f.action = 1;
+                if !f.go_to(map, spot) {
+                    f.travel = Travel::Any;
+                    f.go_to(map, spot);
+                }
+                return;
+            }
+            self.work_tomb_job(fid, job, 0);
+            return;
+        }
+        let Some((block, height)) = self.job_spot(target, job) else {
+            self.leave_tomb(fid);
+            return;
+        };
+        let Some(p) = perch else {
+            // At the foot: he steps up.
+            let Some(&(first, _)) = self.tomb_route(target).first() else { return };
+            self.figures.get_mut(fid).expect("present").perch = Some(Perch::foot(first as u16));
+            return;
+        };
+        if p.at_foot() || p.block as usize != block || p.height != height {
+            let route = self.tomb_route(target);
+            let next = p.route as usize;
+            let climbing = (p.at_foot() || p.route > 0)
+                && next < route.len()
+                && match job {
+                    Job::Ramp(i) => route[next..].iter().any(|&(b, h)| b as usize == i && h == height),
+                    _ => p.height < height,
+                };
+            if climbing {
+                let (b, h) = route[next];
+                self.perch_move(fid, b as usize, h, next as u8 + 1);
+            } else {
+                self.perch_move(fid, block, height, 0);
+            }
+            return;
+        }
+        // On his block. A mason waits there for the sled with the unit's material.
+        if let Job::Unit(i) = job
+            && self.figures.get(fid).is_some_and(|f| f.cargo == 0)
+        {
+            let r = self.tomb_unit_material(target, i);
+            let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()) else { return };
+            match r {
+                Some(r) if Monument::amount(&m.delivered, r) >= crate::pyramids::UNIT_MATERIAL => {
+                    Monument::add(&mut m.delivered, r, -crate::pyramids::UNIT_MATERIAL);
+                    let f = self.figures.get_mut(fid).expect("present");
+                    f.cargo = 1;
+                    f.counter = 0;
+                }
+                _ => return,
+            }
+        }
+        self.work_tomb_job(fid, job, p.height);
+    }
+
+    /// A tick of a craftsman's work on job `job`, standing at height `height`; when it
+    /// is done, what it made is added to the tomb and he moves on or goes home.
+    fn work_tomb_job(&mut self, fid: FigureId, job: crate::pyramids::Job, height: u8) {
+        use crate::pyramids::Job;
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        f.counter += 1;
+        if f.counter < Self::tomb_job_work(job) as i32 {
+            return;
+        }
+        let (target, figure) = (f.target, f.kind);
+        f.counter = 0;
+        f.amount = 0;
+        f.cargo = 0;
+        self.finish_tomb_job(target, job);
+        // A mason goes on to a free block where he stands, the height the building
+        // is at (`FUN_004f0ef0`), or a polisher to one in the same ring (`FUN_004f2230`);
+        // with none he goes home.
+        let crew: Vec<FigureId> = self.buildings.get(target).and_then(|b| b.monument.as_ref()).map_or_else(Vec::new, |m| m.craftsmen.iter().map(|c| c.1).collect());
+        let taken: Vec<Job> = crew.iter().filter(|&&c| c != fid).filter_map(|&c| self.figures.get(c).and_then(|o| decode_tomb_job(o.amount))).collect();
+        let ring = |i: usize| self.buildings.get(target).and_then(|b| b.monument.as_ref()).and_then(|m| m.blocks.get(i)).map(|b| b.top);
+        let next = match (job, self.tomb_job(target, figure, &taken, true)) {
+            (Job::Unit(_), Some(Job::Unit(j))) if self.block_height(target, j) == height => Some(Job::Unit(j)),
+            (Job::Polish(i), Some(Job::Polish(j))) if ring(i) == ring(j) => Some(Job::Polish(j)),
+            _ => None,
+        };
+        match next {
+            Some(next) => self.figures.get_mut(fid).expect("present").amount = encode_tomb_job(next),
+            None => self.leave_tomb(fid),
+        }
+    }
+
+    /// Starts a craftsman up on a tomb toward block `block` at height `height`,
+    /// fifteen ticks a tile (`FUN_004f02f0`); `route` is the entry of the way up it
+    /// is, plus one, or 0.
+    fn perch_move(&mut self, fid: FigureId, block: usize, height: u8, route: u8) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let (Some(p), target) = (f.perch, f.target) else { return };
+        let (Some(from), Some(to)) = (self.block_tile(target, p.block as usize), self.block_tile(target, block)) else { return };
+        let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+        let tiles = ((dx * dx + dy * dy) as f64).sqrt() as u16;
+        let f = self.figures.get_mut(fid).expect("present");
+        f.perch = Some(crate::pyramids::Perch {
+            from: Some(p.block),
+            from_height: p.height,
+            block: block as u16,
+            height,
+            step: 0,
+            steps: tiles * 15,
+            route,
+        });
+        if let Some(d) = crate::figures::direction_to(from, to) {
+            f.direction = d;
+        }
+        f.x = to.0;
+        f.y = to.1;
+    }
+
+    /// What craftsman `f` is doing at a pyramid or mastaba, for drawing him; `None` if
+    /// he is not there (walking to or from it on the ground).
+    pub fn tomb_pose(&self, f: &Figure) -> Option<TombPose> {
+        use crate::pyramids::Job;
+        if !matches!(f.kind, CARPENTER | BRICKLAYER | STONEMASON) || f.action != 2 || self.tomb_route(f.target).is_empty() {
+            return None;
+        }
+        if f.moving {
+            return Some(TombPose::Walk);
+        }
+        let Some(job) = decode_tomb_job(f.amount) else { return Some(TombPose::Idle) };
+        let there = match job {
+            Job::Part(i) => f.perch.is_none() && self.part_tile(f.target, i) == Some((f.x, f.y)),
+            _ => f.perch.is_some_and(|p| p.arrived() && !p.at_foot() && self.job_spot(f.target, job).is_some_and(|(b, h)| p.block as usize == b && p.height == h)),
+        };
+        Some(match job {
+            _ if !there => TombPose::Idle,
+            Job::Unit(_) if f.cargo == 0 => TombPose::Idle,
+            Job::Unit(_) => TombPose::Work { ticks: f.counter, laying: true },
+            _ => TombPose::Work { ticks: f.counter, laying: false },
+        })
+    }
+
+    /// A tomb craftsman is done there: he gives back a unit's material he has not
+    /// laid, and goes home, first stepping down off the tomb if he is up on it.
+    fn leave_tomb(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let (target, perch, held, paid) = (f.target, f.perch, f.amount, f.cargo != 0);
+        if paid
+            && let Some(crate::pyramids::Job::Unit(i)) = decode_tomb_job(held)
+            && let Some(r) = self.tomb_unit_material(target, i)
+            && let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut())
+        {
+            Monument::add(&mut m.delivered, r, crate::pyramids::UNIT_MATERIAL);
+        }
+        if let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()) {
+            m.craftsmen.retain(|c| c.1 != fid);
+        }
+        let at = perch.and_then(|p| self.block_tile(target, p.block as usize));
+        let spot = at.and_then(|t| self.monument_access(target, t));
+        let map = &self.map;
+        let f = self.figures.get_mut(fid).expect("present");
+        f.amount = 0;
+        f.cargo = 0;
+        f.counter = 0;
+        f.moving = false;
+        f.perch = None;
+        if let (Some(at), Some(spot)) = (at, spot) {
+            f.x = at.0;
+            f.y = at.1;
+            f.progress = 0;
+            f.travel = Travel::Any;
+            f.action = 5;
+            if !f.go_to(map, spot) {
+                f.dead = true;
+            }
+            return;
+        }
+        f.travel = Travel::Land;
+        self.send_home(fid);
     }
 
     fn send_home(&mut self, fid: FigureId) {
@@ -1561,7 +1815,7 @@ impl World {
                     .min_by_key(|y| ((y.x - at.0).abs() + (y.y - at.1).abs(), y.id));
                 let Some(yard) = yard else { continue };
                 let (road, yat) = (yard.road.expect("filtered"), (yard.x, yard.y));
-                let Some(spot) = self.monument_access(id, yat) else { continue };
+                let Some(spot) = self.sled_spot(id, yat) else { continue };
                 if crate::figures::find_route(&self.map, Travel::Land, road, spot).is_none() {
                     continue;
                 }
@@ -1603,7 +1857,7 @@ impl World {
         }
         f.dead = true;
         let road = self.buildings.get(yard).and_then(|y| y.road);
-        let spot = road.and_then(|road| self.monument_access(target, road));
+        let spot = road.and_then(|road| self.sled_spot(target, road));
         let taken = match (road, spot) {
             (Some(_), Some(_)) if step == Step::Arrived && self.monument_wants_sleds(target) => self.take_stored(yard, r, amount),
             _ => 0,
