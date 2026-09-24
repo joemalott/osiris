@@ -38,16 +38,21 @@ mod action {
 
 impl World {
     /// Where a bazaar looks for `r`: the nearest storage building within 40 tiles
-    /// holding some, unless the good is stockpiled or the bazaar doesn't buy it.
+    /// holding some, unless the good is stockpiled or the bazaar doesn't buy it. Food
+    /// comes from granaries, and from storage yards only while it is being imported.
     fn bazaar_source(&self, bazaar: BuildingId, r: u16) -> Option<BuildingId> {
+        use crate::trade::status;
         let b = self.buildings.get(bazaar)?;
         if self.is_stockpiled(r) || !b.bazaar_buys(r) {
             return None;
         }
+        let imported = matches!(self.trade.status.get(r as usize), Some(&status::IMPORT | &status::IMPORT_AS_NEEDED));
+        let yard_ok = !resource::is_food(r) || imported;
         let from = (b.x, b.y);
         self.buildings
             .iter()
             .filter(|s| crate::storage::is_storage(s.kind) && s.road.is_some() && self.stored(s.id, r) > 0)
+            .filter(|s| s.kind != kind::STORAGE_YARD || yard_ok)
             .filter(|s| (s.x - from.0).abs().max((s.y - from.1).abs()) < MAX_SEARCH)
             .min_by_key(|s| ((s.x - from.0).abs().max((s.y - from.1).abs()), s.id))
             .map(|s| s.id)

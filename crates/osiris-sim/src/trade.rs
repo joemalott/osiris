@@ -5,7 +5,9 @@
 //! walking the route on the empire map it arrives at the city's entry point as a
 //! caravan with two donkeys. The caravan visits storage yards, each ten ticks buying one
 //! load of a good the player exports and selling one load of a good the player
-//! imports, until it is full, has nothing left to do, or no yard will deal with it.
+//! imports, up to eight loads each way, until it has nothing left to do or no yard
+//! will deal with it. It keeps selling one good until it can't, then moves on to the
+//! next in turn (the city remembers where it got to for the next caravan).
 //! Each route allows only so much of each good a year (1500, 2500 or 4000 units).
 
 use crate::buildings::{BuildingId, kind};
@@ -26,6 +28,8 @@ const SEA_ENTRY_DELAY: i32 = 30;
 const LAND_MOVE_DELAY: (i32, i32) = (1, 4);
 /// Ticks between a caravan's deals at a storage yard.
 const DEAL_TICKS: i32 = 10;
+/// Loads a caravan buys at most, and sells at most.
+const CARAVAN_LOADS: i32 = 8;
 /// Default prices (buy, sell) per load, used when a scenario has none.
 const DEFAULT_PRICES: [(i32, i32); RESOURCES] = [
     (0, 0),
@@ -151,6 +155,9 @@ pub struct Trade {
     #[serde(default)]
     pub mothballed: Vec<bool>,
     pub traders: Vec<EmpireTrader>,
+    /// The good caravans sell us next, round the resources in turn.
+    #[serde(default)]
+    pub next_import: u16,
     /// Map decorations for the empire window: (kind, x, y, image id).
     pub objects: Vec<(u8, i32, i32, u16)>,
 }
@@ -466,10 +473,7 @@ impl World {
     fn caravan_arrives(&mut self, trader: usize) {
         let (x, y) = self.entry_point;
         let fid = self.figures.spawn(TRADE_CARAVAN, x, y, Travel::Land);
-        let def = self.defs.figure(TRADE_CARAVAN);
-        let min = def.and_then(|d| d.int("min_capacity")).unwrap_or(100) as i32;
-        let spread = def.and_then(|d| d.int("capacity_random")).unwrap_or(701) as i32;
-        let capacity = min + (self.rng.byte() * 256 + self.rng.byte()) % spread;
+        let capacity = CARAVAN_LOADS * LOAD;
         if let Some(f) = self.figures.get_mut(fid) {
             f.target = trader as u32;
             f.roam_left = capacity;
@@ -589,9 +593,12 @@ impl World {
             self.figures.get_mut(fid).expect("present").amount += LOAD;
             dealt = true;
         }
+        let start = self.trade.next_import.max(1) as usize;
+        let mut turn = (0..RESOURCES - 1).map(|i| (1 + (start - 1 + i) % (RESOURCES - 1)) as u16);
         if sold + LOAD <= capacity
-            && let Some(r) = (1..RESOURCES as u16).find(|&r| self.can_import(city, r) && self.storage_room(yard, r) >= LOAD)
+            && let Some(r) = turn.find(|&r| self.can_import(city, r) && self.storage_room(yard, r) >= LOAD)
         {
+            self.trade.next_import = r;
             self.add_stored(yard, r, LOAD);
             let price = self.buy_price(r);
             self.treasury -= price;

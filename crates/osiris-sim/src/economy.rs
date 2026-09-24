@@ -238,10 +238,10 @@ impl World {
         let outputs: Vec<u16> = self.defs.building(b.kind).map_or_else(Vec::new, |d| d.outputs.iter().filter_map(|o| self.resource_id(o)).collect());
         for (i, r) in outputs.into_iter().enumerate().take(2) {
             let Some(b) = self.buildings.get(id) else { return };
-            let slot = if i == 0 { 2 } else { 1 };
             let amount = b.stock[r as usize];
-            if amount > 0 && b.walkers[slot] == 0 {
-                self.spawn_cart_in(id, r, amount, slot);
+            let busy = if i == 0 { b.walkers[2] != 0 } else { self.figures.iter().any(|f| f.kind == CART_PUSHER && f.home == id && f.cargo == r && !f.dead) };
+            if amount > 0 && !busy {
+                self.spawn_cart_in(id, r, amount, (i == 0).then_some(2));
             }
         }
     }
@@ -265,11 +265,11 @@ impl World {
     }
 
     pub fn spawn_cart(&mut self, home: BuildingId, r: u16, amount: i32) {
-        self.spawn_cart_in(home, r, amount, 2);
+        self.spawn_cart_in(home, r, amount, Some(2));
     }
 
     /// Sends a cart of `amount` of `r` out of `home`'s stock, recorded in walker slot `slot`.
-    fn spawn_cart_in(&mut self, home: BuildingId, r: u16, amount: i32, slot: usize) {
+    fn spawn_cart_in(&mut self, home: BuildingId, r: u16, amount: i32, slot: Option<usize>) {
         let Some(b) = self.buildings.get(home) else { return };
         let Some(road) = b.road else { return };
         let fid = self.figures.spawn(CART_PUSHER, road.0, road.1, Travel::Roads);
@@ -281,7 +281,9 @@ impl World {
         }
         if let Some(b) = self.buildings.get_mut(home) {
             b.stock[r as usize] -= amount;
-            b.walkers[slot] = fid;
+            if let Some(slot) = slot {
+                b.walkers[slot] = fid;
+            }
         }
     }
 
