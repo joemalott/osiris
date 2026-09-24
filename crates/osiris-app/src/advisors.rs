@@ -76,6 +76,18 @@ impl Advisor {
     pub fn available(self) -> bool {
         true
     }
+
+    /// The outer panel's height in tiles: most overseers fill the full 40x27, but a
+    /// few with less to show use a shorter panel, per each advisor's
+    /// `outer_panel({size...})` in Akhenaten's ui_advisor_*.js.
+    fn panel_tiles_high(self) -> i32 {
+        match self {
+            Advisor::Health => 18,
+            Advisor::Education => 19,
+            Advisor::Entertainment => 20,
+            _ => 27,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -228,7 +240,7 @@ impl Advisors {
                 ui.label(Font::SmallPlain, &tip, tx, button_y - 20.0);
             }
         }
-        panel::outer_panel(ui.r, panels, px, py, 40, 27);
+        panel::outer_panel(ui.r, panels, px, py, 40, self.current.panel_tiles_high());
         ui.image(img.icons + self.current.index() as u32, px + 10.0, py + 10.0);
         let from_screen = match self.current {
             Advisor::Labor => labor(&mut ui, img.lock, world, [px, py], &mut self.popup),
@@ -418,10 +430,10 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
         draw_text(ui.r, Font::NormalWhiteOnDark, &world.yards_stored(r).to_string(), px + 206.0, y, font::WHITE);
         if world.is_stockpiled(r) {
             let s = ui.t(G, 3);
-            draw_text(ui.r, Font::SmallPlain, &s, px + 246.0, y + 2.0, [0.9, 0.85, 0.6, 1.0]);
+            draw_text(ui.r, Font::SmallPlain, &s, px + 304.0, y + 2.0, [0.9, 0.85, 0.6, 1.0]);
         } else if world.is_mothballed(r) {
             let s = ui.t(18, 5);
-            draw_text(ui.r, Font::NormalYellow, &s, px + 246.0, y, font::WHITE);
+            draw_text(ui.r, Font::NormalYellow, &s, px + 304.0, y, font::WHITE);
         }
         let st = world.trade.status[r as usize];
         let amount = world.trade.amount[r as usize];
@@ -722,9 +734,9 @@ fn ratings(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], selected: &mut us
         let rect = [x, py + 276.0, 120.0, 60.0];
         let hot = ui.hot(rect) || *selected == i + 1;
         panel::button_border(ui.r, ui.panels, rect[0], rect[1], 120, 60, hot);
-        ui.centred(Font::LargeBlackOnLight, &value.to_string(), x, py + 284.0, 120.0);
+        ui.centred(Font::LargeBlackOnLight, &value.to_string(), x, py + 298.0, 120.0);
         let needed = format!("{} {}", if goal.enabled { goal.value } else { 0 }, ui.t(G, 5));
-        ui.centred(Font::NormalBlackOnLight, &needed, x, py + 310.0, 120.0);
+        ui.centred(Font::NormalBlackOnLight, &needed, x, py + 318.0, 120.0);
         if ui.clicked(rect) {
             *selected = i + 1;
         }
@@ -1311,14 +1323,14 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
     for (row, (c, co)) in companies.iter().take(6).enumerate() {
         let ry = py + 78.0 + 44.0 * row as f32;
         let name = ui.t(138, c % 10).trim_matches('"').to_owned();
-        ui.label(Font::NormalWhiteOnDark, &name, px + 44.0, ry + 4.0);
+        ui.label(Font::NormalWhiteOnDark, &name, px + 84.0, ry + 4.0);
         let arm = ui.t(138, match co.kind {
             osiris_sim::military::CHARIOTEER => 33,
             osiris_sim::military::ARCHER => 35,
             _ => 34,
         });
         let count = format!("{} {}", co.soldiers.len(), arm);
-        ui.label(Font::NormalWhiteOnDark, &count, px + 44.0, ry + 22.0);
+        ui.label(Font::NormalWhiteOnDark, &count, px + 84.0, ry + 22.0);
         let morale = ui.t(138, 37 + (co.morale / 5).clamp(0, 20) as usize);
         ui.label(Font::NormalWhiteOnDark, &morale, px + 200.0, ry + 22.0);
         // Experience: its rank's icon and name.
@@ -1351,7 +1363,7 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
     let invaders = world.figures.iter().any(|f| osiris_sim::invasions::is_invader_kind(f.kind));
     let coming = world.invasions.planned.iter().any(|p| p.announced && !p.done);
     let threat = ui.t(G, if invaders { 10 } else if coming { 9 } else { 8 });
-    ui.label(Font::NormalBlackOnLight, &threat, px + 50.0, py + 432.0 - 90.0);
+    ui.label(Font::NormalBlackOnLight, &threat, px + 60.0, py + 432.0 - 80.0);
     let troops_wanted = world.scenario_events.open_requests().any(|(_, e)| e.resource == osiris_sim::scenario_events::TROOPS);
     let abroad = ui.t(G, match &world.military.battle {
         Some(b) if b.fought => 15,
@@ -1359,7 +1371,7 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
         None if troops_wanted => 13,
         None => 12,
     });
-    ui.label(Font::NormalBlackOnLight, &abroad, px + 50.0, py + 432.0 - 70.0);
+    ui.label(Font::NormalBlackOnLight, &abroad, px + 60.0, py + 432.0 - 60.0);
     action
 }
 
