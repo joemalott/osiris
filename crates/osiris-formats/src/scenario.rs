@@ -80,6 +80,8 @@ pub struct ScenarioInfo {
     pub reserved: Vec<i16>,
     pub disembark_points: Vec<TilePoint>,
     pub debt_interest_rate: u32,
+    /// The Kingdom feeds the city grain (bytes 740-743): houses need no food supply.
+    pub kingdom_supplies_grain: bool,
     pub monuments: [u16; 3],
     pub burial_provisions_required: Vec<u32>,
     pub current_pharaoh: u32,
@@ -155,7 +157,8 @@ impl ScenarioInfo {
         s.fishing_points = points_u16(&mut r, 8)?;
         let _alt_predator_type = r.u16()?;
         s.predator_herd_types = (0..4).map(|_| r.u16()).collect::<Result<_>>()?;
-        r.skip(34)?;
+        r.skip(30)?;
+        s.kingdom_supplies_grain = r.i32()? != 0;
         s.invasion_points_land = points_u16(&mut r, 8)?;
         s.invasion_points_sea = points_u16(&mut r, 8)?;
         r.skip(36)?;
