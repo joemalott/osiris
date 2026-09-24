@@ -703,7 +703,7 @@ impl World {
     /// Whether a festival can be ordered now: a festival square, nothing in
     /// preparation, and the city no more than 5000 in debt.
     pub fn can_hold_festival(&self) -> bool {
-        self.buildings.iter().any(|b| b.kind == FESTIVAL_SQUARE) && self.religion.festival.is_none() && self.treasury > -5000
+        self.buildings.iter().any(|b| b.kind == FESTIVAL_SQUARE) && self.religion.festival.is_none() && !self.out_of_money()
     }
 
     /// Orders a festival for `god`, paying for it now. It takes 2, 3 or 4 months by

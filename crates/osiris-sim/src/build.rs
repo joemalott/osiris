@@ -16,7 +16,7 @@ impl World {
     /// complex's or gatehouse's own shape, otherwise its square.
     pub fn footprint_of(&self, k: u16) -> (i32, i32) {
         if crate::temple_complex::is_complex(k) {
-            return crate::temple_complex::SIZE;
+            return crate::temple_complex::footprint(self.complex_facing);
         }
         if k == crate::defenses::GATEHOUSE {
             return crate::defenses::gatehouse_footprint(self.gatehouse_facing);
@@ -208,7 +208,7 @@ impl World {
         if measure {
             return Outcome::Done { items, cost };
         }
-        if cost > self.treasury {
+        if self.out_of_money() {
             return Outcome::NotEnoughMoney;
         }
         self.treasury -= cost;
@@ -232,7 +232,7 @@ impl World {
         let gatehouse = k == crate::defenses::GATEHOUSE;
         let dims = self
             .monument_footprint(k)
-            .or_else(|| crate::temple_complex::is_complex(k).then_some(crate::temple_complex::SIZE))
+            .or_else(|| crate::temple_complex::is_complex(k).then(|| crate::temple_complex::footprint(self.complex_facing)))
             .or_else(|| gatehouse.then(|| crate::defenses::gatehouse_footprint(self.gatehouse_facing)));
         let (fw, fh) = dims.unwrap_or((size, size));
         let image = self.statue_image(k).unwrap_or_else(|| self.defs.building(k).map_or(0, |d| d.image));
@@ -246,7 +246,13 @@ impl World {
             fire_risk: 0,
             damage_risk: 0,
             stock: vec![0; 40],
-            orientation: if gatehouse { self.gatehouse_facing } else { 0 },
+            orientation: if gatehouse {
+                self.gatehouse_facing
+            } else if crate::temple_complex::is_complex(k) {
+                self.complex_facing
+            } else {
+                0
+            },
             ..Default::default()
         };
         if kind::is_house(k) {

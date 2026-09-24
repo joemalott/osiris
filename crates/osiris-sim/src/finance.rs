@@ -110,6 +110,12 @@ impl Default for Finance {
 const DEBT_YEAR_PENALTY: [i32; 10] = [-5, -10, -20, -35, -50, -50, -50, -50, -50, -50];
 
 impl World {
+    /// The original stops all building, whatever it costs, once the treasury is 5000
+    /// or more in debt; until then anything may be built.
+    pub fn out_of_money(&self) -> bool {
+        self.treasury <= -5000
+    }
+
     /// The month's tax on `population` people living at house `level`.
     pub fn house_tax(&self, level: u8, population: i32) -> i32 {
         self.collect_tax(population * self.balance.house(level).tax_multiplier)

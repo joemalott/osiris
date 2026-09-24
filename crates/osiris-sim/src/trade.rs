@@ -324,7 +324,7 @@ impl World {
             _ => return false,
         };
         // Nothing comes in while the treasury is 5000 or more in the red.
-        c.sells[r as usize] && self.treasury > -5000 && !self.limit_reached(city, r) && self.yards_stored(r) < want
+        c.sells[r as usize] && !self.out_of_money() && !self.limit_reached(city, r) && self.yards_stored(r) < want
     }
 
     /// How many kinds of luxury good the city can get, for estates that want a second

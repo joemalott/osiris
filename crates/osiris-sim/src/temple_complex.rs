@@ -13,7 +13,7 @@ use crate::world::World;
 pub const OSIRIS_COMPLEX: u16 = 65;
 pub const BAST_COMPLEX: u16 = 69;
 pub const SIZE: (i32, i32) = (13, 7);
-/// The three parts, 3x3 each, from the complex's corner.
+/// The three parts, 3x3 each, as (column, row) of the laid-out complex.
 const PARTS: [(i32, i32); 3] = [(0, 2), (3, 2), (6, 2)];
 
 /// The gods, by index.
@@ -64,6 +64,19 @@ pub fn is_upgrade(k: u16) -> bool {
     UPGRADES.iter().any(|u| u.0 == k)
 }
 
+/// The tiles a complex covers, across and down, by facing. R turns the complex
+/// between two facings: 0 runs its parts along x (the original's orientation 0),
+/// 1 along y (its orientation 6).
+pub fn footprint(facing: u8) -> (i32, i32) {
+    if facing == 0 { SIZE } else { (SIZE.1, SIZE.0) }
+}
+
+/// The map tile of column `c`, row `r` of a complex whose corner is `(x0, y0)`: the
+/// laid-out 13x7 grid as is, or turned so its columns run down.
+fn tile((x0, y0): (i32, i32), facing: u8, (c, r): (i32, i32)) -> (i32, i32) {
+    if facing == 0 { (x0 + c, y0 + r) } else { (x0 + r, y0 + c) }
+}
+
 /// A decorated tile of the court: a floor (four looks), a statue of the god, or a
 /// sphinx half, with its image offset in the god's pack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,9 +86,18 @@ enum Decor {
     Sphinx(u32),
 }
 
-/// The court's decoration at column `c`, row `r` (none on the parts), facing the
-/// default view.
-fn decor(c: i32, r: i32) -> Option<Decor> {
+/// The court's decoration at column `c`, row `r` (none on the parts). The statues
+/// and sphinxes turned along y use other images of their groups (exe table 0x5df9b0).
+fn decor(c: i32, r: i32, facing: u8) -> Option<Decor> {
+    let d = decor_along_x(c, r)?;
+    Some(match d {
+        Decor::Statue(n) if facing != 0 => Decor::Statue(3 - n),
+        Decor::Sphinx(n) if facing != 0 => Decor::Sphinx(7 - n),
+        d => d,
+    })
+}
+
+fn decor_along_x(c: i32, r: i32) -> Option<Decor> {
     use Decor::*;
     let edge = r == 0 || r == 6;
     Some(match (c, r) {
@@ -116,36 +138,41 @@ impl World {
     /// Lays out a new complex: its three parts and the court about them.
     pub(crate) fn place_temple_complex(&mut self, id: BuildingId) {
         let Some(b) = self.buildings.get(id) else { return };
-        let (x0, y0, k, upgrades) = (b.x, b.y, b.kind, b.upgrades);
+        let (corner, k, upgrades, facing) = ((b.x, b.y), b.kind, b.upgrades, b.orientation);
         let Some(def) = self.defs.building(k) else { return };
         let img = |key: &str| def.anims.get(key).map(|a| a.image);
+        // Turned along y, each part shows the other view of its art: the next
+        // image for a built altar or oracle, three on for the rest.
+        let (turn, built_turn) = if facing == 0 { (0, 0) } else { (3, 1) };
         let parts = [
-            img("main_e"),
-            if upgrades & ORACLE != 0 { img("oracle_built") } else { img("oracle_n") },
-            if upgrades & ALTAR != 0 { img("altar_built") } else { img("altar_n") },
+            img("main_e").map(|i| i + turn),
+            if upgrades & ORACLE != 0 { img("oracle_built").map(|i| i + built_turn) } else { img("oracle_n").map(|i| i + turn) },
+            if upgrades & ALTAR != 0 { img("altar_built").map(|i| i + built_turn) } else { img("altar_n").map(|i| i + turn) },
         ];
         let (floor, statue, sphinx) = (img("tiles_0"), img("statue_1"), img("statue_2n"));
         let (w, h) = SIZE;
         let mut singles = Vec::new();
         for r in 0..h {
             for c in 0..w {
-                let image = match decor(c, r) {
+                let image = match decor(c, r, facing) {
                     Some(Decor::Floor(n)) => floor.map(|f| f + n),
                     Some(Decor::Statue(n)) => statue.map(|s| s + n),
                     Some(Decor::Sphinx(n)) => sphinx.map(|s| s + n),
                     None => continue,
                 };
                 if let Some(image) = image {
-                    singles.push((x0 + c, y0 + r, image));
+                    let (x, y) = tile(corner, facing, (c, r));
+                    singles.push((x, y, image));
                 }
             }
         }
         for (x, y, image) in singles {
             self.map.set_single_image(x, y, image);
         }
-        for (&(px, py), image) in PARTS.iter().zip(parts) {
+        for (&part, image) in PARTS.iter().zip(parts) {
             if let Some(image) = image {
-                self.map.set_footprint(x0 + px, y0 + py, 3, image);
+                let (x, y) = tile(corner, facing, part);
+                self.map.set_footprint(x, y, 3, image);
             }
         }
     }
@@ -165,8 +192,7 @@ impl World {
         if measure {
             return Outcome::Done { items: 1, cost };
         }
-        // The original allows it while the city is no more than 5000 in debt.
-        if self.treasury - cost < -5000 {
+        if self.out_of_money() {
             return Outcome::NotEnoughMoney;
         }
         self.treasury -= cost;

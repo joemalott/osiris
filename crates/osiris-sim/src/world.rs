@@ -193,6 +193,9 @@ pub struct World {
     /// each gatehouse at 1.
     #[serde(skip, default = "default_statue_facing")]
     pub gatehouse_facing: u8,
+    /// The build tool's temple complex facing (0 along x, 1 along y; R turns it).
+    #[serde(skip)]
+    pub complex_facing: u8,
     /// Rotating variant counters of the road/earthquake context tables. Saved so a
     /// reloaded game re-images roads exactly as the running one would.
     #[serde(default)]
@@ -313,6 +316,7 @@ impl World {
             statue_variant: 0,
             statue_facing: 1,
             gatehouse_facing: 1,
+            complex_facing: 0,
             exit_point: (info.exit_point.x, info.exit_point.y),
             counters: ContextCounters::default(),
             wind: 0,
@@ -416,7 +420,7 @@ impl World {
         if measure || items == 0 {
             return Outcome::Done { items, cost };
         }
-        if cost > self.treasury {
+        if self.out_of_money() {
             return Outcome::NotEnoughMoney;
         }
         self.treasury -= cost;
@@ -526,7 +530,7 @@ impl World {
         if measure {
             return Outcome::Done { items, cost };
         }
-        if cost > self.treasury {
+        if self.out_of_money() {
             return Outcome::NotEnoughMoney;
         }
         self.treasury -= cost;

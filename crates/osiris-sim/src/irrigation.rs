@@ -324,7 +324,7 @@ impl World {
         if measure {
             return Outcome::Done { items, cost };
         }
-        if cost > self.treasury {
+        if self.out_of_money() {
             return Outcome::NotEnoughMoney;
         }
         self.treasury -= cost;

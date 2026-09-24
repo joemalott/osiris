@@ -160,6 +160,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 world.statue_facing = (n / 4 % 4 + 1) % 4;
             }
             ["gateface", f] => world.gatehouse_facing = f.parse::<u8>()? & 1,
+            // The temple complex facing for the next build (0 along x, 1 along y).
+            ["complexface", f] => world.complex_facing = f.parse::<u8>()? & 1,
             ["treasury", n] => world.treasury = n.parse()?,
             ["gatefacing", n] => world.gatehouse_facing = n.parse::<u8>()?.min(1),
             // The placement preview of building K with the cursor on x,y: each tile's verdict.

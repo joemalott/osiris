@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 /// What a placement ghost was worked out for: the tool, where it goes, the statue
 /// and gatehouse choices, and the day (the city under it may have changed since).
-type GhostKey = (u16, i32, i32, u8, u8, u8, u64);
+type GhostKey = (u16, i32, i32, u8, u8, u8, u8, u64);
 
 /// Game speeds in percent. Up to 100% these follow the original's ladder; above it
 /// they are multiples of normal speed, up to 200x.
@@ -845,6 +845,7 @@ impl Game {
         }
         self.world.statue_variant = 0;
         self.world.statue_facing = 1;
+        self.world.complex_facing = 0;
     }
 
     fn holding_statue(&self) -> bool {
@@ -853,7 +854,7 @@ impl Game {
 
     /// R while holding a statue: its next look, and after the last look the first
     /// one turned a quarter (the original's one counter through all sixteen);
-    /// while holding a gatehouse: turn it across the other way.
+    /// while holding a gatehouse or temple complex: turn it across the other way.
     pub fn rotate_statue(&mut self) {
         if let Tool::Build(k) = self.tool
             && let Some(n) = self.world.defs.building(k).filter(|d| d.has_flag("is_statue")).map(|d| d.variants.len().max(1))
@@ -865,6 +866,9 @@ impl Game {
         }
         if self.tool == Tool::Build(osiris_sim::defenses::GATEHOUSE) {
             self.world.gatehouse_facing ^= 1;
+        }
+        if matches!(self.tool, Tool::Build(k) if osiris_sim::temple_complex::is_complex(k)) {
+            self.world.complex_facing ^= 1;
         }
     }
 
@@ -962,7 +966,7 @@ impl Game {
             let snapshot = self.world.save().ok();
             self.ghost = None;
             match self.world.apply(&cmd) {
-                Outcome::NotEnoughMoney => self.say("Not enough money"),
+                Outcome::NotEnoughMoney => self.say("Out of credit!"),
                 Outcome::Blocked => self.say("Can't build there"),
                 Outcome::Invalid(why) => self.say(why),
                 Outcome::Done { items, .. } => {
@@ -1090,7 +1094,7 @@ impl Game {
             Outcome::Done { cost, .. } => Some(cost),
             _ => None,
         };
-        let affordable = cost.is_some_and(|c| c <= self.world.treasury);
+        let affordable = cost.is_some() && !self.world.out_of_money();
         let paint = if affordable { ok } else { bad };
         let rect = |x0: i32, y0: i32, x1: i32, y1: i32| {
             let mut v = Vec::new();
@@ -1115,7 +1119,7 @@ impl Game {
                 }
                 let why = match est {
                     Outcome::Invalid(why) => Some(why),
-                    _ => Some("Not enough money"),
+                    _ => Some("Out of credit!"),
                 };
                 return (rect(x - 1, y - 1, x + 1, y + 1).into_iter().map(|t| mark(t, bad)).collect(), Vec::new(), cost, why);
             }
@@ -1123,7 +1127,7 @@ impl Game {
                 let preview = self.world.placement_preview(k, x, y);
                 // Money only matters once the ground will do.
                 let poor = preview.result.is_ok() && !affordable;
-                let why = preview.result.err().or(poor.then_some("Not enough money"));
+                let why = preview.result.err().or(poor.then_some("Out of credit!"));
                 if why.is_none() && self.world.has_ghost(k) {
                     let ghost = self.ghost(k, x, y);
                     if !ghost.is_empty() {
@@ -1141,7 +1145,7 @@ impl Game {
     /// something it depends on changes.
     fn ghost(&mut self, k: u16, x: i32, y: i32) -> Vec<GhostImage> {
         let w = &self.world;
-        let key = (k, x, y, w.statue_variant, w.statue_facing, w.gatehouse_facing, w.time.total_ticks / 51);
+        let key = (k, x, y, w.statue_variant, w.statue_facing, w.gatehouse_facing, w.complex_facing, w.time.total_ticks / 51);
         match &self.ghost {
             Some((have, images)) if *have == key => images.clone(),
             _ => {
