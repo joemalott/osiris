@@ -70,6 +70,14 @@ const DEFAULT_PRICES: [(i32, i32); RESOURCES] = [
     (72, 54),
 ];
 
+/// The luxury good each empire city sells, by city name id: the group 23 text id of
+/// its name (38 jewelry, 40 wine, 42 ivory, 44 ebony, 46 incense, 48 olive oil,
+/// 50 leopard skins, 52 perfume).
+const LUXURY_KIND: [u8; 66] = [
+    38, 38, 40, 38, 38, 38, 38, 42, 38, 44, 38, 46, 48, 50, 46, 38, 38, 38, 44, 38, 38, 46, 38, 44, 42, 38, 48, 40, 38, 38, 38, 40, 38, 38,
+    38, 38, 46, 42, 38, 38, 38, 38, 38, 44, 46, 42, 52, 38, 52, 38, 46, 38, 52, 40, 46, 38, 38, 48, 40, 38, 38, 44, 38, 38, 40, 40,
+];
+
 /// What the player does with a resource.
 pub mod status {
     pub const NONE: u8 = 0;
@@ -316,6 +324,25 @@ impl World {
             _ => return false,
         };
         c.sells[r as usize] && !self.limit_reached(city, r) && self.yards_stored(r) < want
+    }
+
+    /// How many kinds of luxury good the city can get, for estates that want a second
+    /// one: jewelry if any jeweler stands, plus the kind each open route sells when
+    /// luxury goods are imported and the route's allowance is not nil. Cities selling
+    /// the same kind (and jewelry from a city) count once.
+    pub fn luxury_sources(&self) -> i32 {
+        let lux = crate::economy::resource::LUXURY_GOODS;
+        let mut kinds = [false; 16];
+        kinds[0] = self.buildings.iter().any(|b| b.kind == kind::JEWELER);
+        if matches!(self.trade.status.get(lux as usize), Some(&status::IMPORT) | Some(&status::IMPORT_AS_NEEDED)) {
+            for (i, c) in self.trade.cities.iter().enumerate() {
+                if c.open && c.sells.get(lux as usize).copied().unwrap_or(false) && self.trade_limit(i, lux) > 0 {
+                    let k = LUXURY_KIND.get(c.name_id as usize).copied().unwrap_or(38);
+                    kinds[(k - 38) as usize] = true;
+                }
+            }
+        }
+        kinds.iter().filter(|&&k| k).count() as i32
     }
 
     /// Whether any trading city sells (or buys) `r`, and whether its route is open.

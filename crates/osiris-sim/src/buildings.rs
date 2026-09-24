@@ -36,6 +36,7 @@ pub mod kind {
     pub const BURNING_RUIN: u16 = 99;
     pub const FARM_FIRST: u16 = 100;
     pub const FARM_LAST: u16 = 105;
+    pub const JEWELER: u16 = 113;
     pub const HUNTING_LODGE: u16 = 115;
     pub const SHRINE_OSIRIS: u16 = 140;
     pub const SHRINE_BAST: u16 = 144;

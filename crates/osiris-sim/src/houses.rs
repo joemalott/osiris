@@ -135,6 +135,8 @@ pub enum Need {
     Pottery,
     Linen,
     Jewelry,
+    /// Wants a second kind of luxury good (see `World::luxury_sources`).
+    SecondLuxury,
     Beer,
 }
 
@@ -178,7 +180,8 @@ impl House {
     }
 
     /// Whether this house has what `model` asks for; the first unmet need otherwise.
-    pub fn meets(&self, model: &HouseModel, rules: &Rules) -> Result<(), Need> {
+    /// A level wanting more than one jewelry also needs two luxury sources in the city.
+    pub fn meets(&self, model: &HouseModel, rules: &Rules, luxury_sources: i32) -> Result<(), Need> {
         let has_water_supply = self.coverage.water_supply > 0;
         if !has_water_supply {
             if model.water >= 2 {
@@ -222,11 +225,14 @@ impl House {
         if self.goods[1] < model.jewelry {
             return Err(Need::Jewelry);
         }
+        if model.jewelry > 1 && luxury_sources < 2 {
+            return Err(Need::SecondLuxury);
+        }
         Ok(())
     }
 
     /// Decides whether the house evolves, stays or devolves.
-    pub fn progress(&mut self, models: &[HouseModel], desirability: i32, rules: &Rules) -> Progress {
+    pub fn progress(&mut self, models: &[HouseModel], desirability: i32, rules: &Rules, luxury_sources: i32) -> Progress {
         let level = self.level as usize;
         let model = &models[level];
         let evolve_des = if level + 1 >= models.len() { 1000 } else { model.evolve_desirability };
@@ -240,14 +246,14 @@ impl House {
             self.blocked_by = Some(Need::Desirability);
             Progress::Stay
         };
-        if let Err(need) = self.meets(model, rules) {
+        if let Err(need) = self.meets(model, rules, luxury_sources) {
             self.blocked_by = Some(need);
             status = Progress::Decay;
         }
         if status == Progress::Decay {
             self.decaying = true;
         } else if status == Progress::Evolve {
-            match models.get(level + 1).map(|next| self.meets(next, rules)) {
+            match models.get(level + 1).map(|next| self.meets(next, rules, luxury_sources)) {
                 Some(Ok(())) => self.blocked_by = None,
                 Some(Err(need)) => {
                     self.blocked_by = Some(need);
@@ -368,6 +374,7 @@ impl World {
     /// to merge with their neighbours; houses outgrowing their footprint expand.
     pub(crate) fn evolve_houses(&mut self) {
         let ids: Vec<BuildingId> = self.buildings.iter().filter(|b| b.is_house()).map(|b| b.id).collect();
+        let luxury_sources = self.luxury_sources();
         for id in ids {
             let occupied = self.buildings.get(id).and_then(|b| b.house.as_ref()).filter(|h| h.population > 0);
             let Some(level) = occupied.map(|h| h.level) else { continue };
@@ -377,7 +384,7 @@ impl World {
             let Some(b) = self.buildings.get_mut(id) else { continue };
             let des = b.desirability;
             let Some(h) = b.house.as_mut() else { continue };
-            match h.progress(&self.balance.houses, des, &self.rules) {
+            match h.progress(&self.balance.houses, des, &self.rules, luxury_sources) {
                 Progress::Evolve if (level as usize) + 1 < self.balance.houses.len() => {
                     h.devolve_delay = 0;
                     match expands_to(level) {
@@ -681,6 +688,35 @@ mod tests {
     fn get(world: &World, id: BuildingId) -> (&crate::buildings::Building, &House) {
         let b = world.buildings.get(id).expect("building");
         (b, b.house.as_ref().expect("house"))
+    }
+
+    #[test]
+    fn estates_want_two_kinds_of_luxury_goods() {
+        use crate::trade::{RESOURCES, TradeCity, TradeRoute, status};
+        let Some((mut world, x, y)) = sandbox() else { return };
+        let lux = crate::economy::resource::LUXURY_GOODS as usize;
+        world.trade.cities.clear();
+        assert_eq!(world.luxury_sources(), 0);
+        world.create_building(kind::JEWELER, x, y);
+        assert_eq!(world.luxury_sources(), 1);
+        let route = world.trade.routes.len() as u8;
+        let mut limit = vec![0; RESOURCES];
+        limit[lux] = 1500;
+        world.trade.routes.push(TradeRoute { limit, traded: vec![0; RESOURCES], ..Default::default() });
+        let mut sells = vec![false; RESOURCES];
+        sells[lux] = true;
+        // Name 0 sells jewelry (same kind as our jewelers); names 2 and 27 both sell wine.
+        for name_id in [0, 2, 27] {
+            world.trade.cities.push(TradeCity { name_id, city_type: 1, route, open: true, sells: sells.clone(), buys: vec![false; RESOURCES], ..Default::default() });
+        }
+        assert_eq!(world.luxury_sources(), 1, "only while luxury goods are imported");
+        world.trade.status[lux] = status::IMPORT_AS_NEEDED;
+        assert_eq!(world.luxury_sources(), 2);
+        let model = HouseModel { jewelry: 2, ..Default::default() };
+        let h = House { goods: [0, 2, 0, 0], coverage: Coverage { water_supply: 1, ..Default::default() }, ..Default::default() };
+        let rules = Rules::default();
+        assert_eq!(h.meets(&model, &rules, 1), Err(Need::SecondLuxury));
+        assert_eq!(h.meets(&model, &rules, 2), Ok(()));
     }
 
     #[test]
