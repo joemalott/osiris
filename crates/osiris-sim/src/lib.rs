@@ -8,6 +8,7 @@ pub mod bridges;
 pub mod build;
 pub mod buildings;
 pub mod census;
+pub mod cheats;
 pub mod city;
 pub mod crime;
 pub mod defenses;

@@ -165,6 +165,12 @@ pub struct Game {
     /// Build categories with nothing to build, refreshed daily.
     empty: Vec<Category>,
     empty_day: Option<(u32, u32)>,
+    /// The cheat box opened with Ctrl+Alt+C, and what has been typed into it so far.
+    /// See notes/cheats.md.
+    cheat_entry: Option<String>,
+    /// Set when the "Unlock All Missions" cheat fires, for the app to mark every
+    /// campaign mission won in the family's saved progress (not in the original).
+    pub cheat_unlock_missions: bool,
 }
 
 impl Game {
@@ -223,6 +229,8 @@ impl Game {
             problem_cursor: 0,
             empty: Vec::new(),
             empty_day: None,
+            cheat_entry: None,
+            cheat_unlock_missions: false,
         }
     }
 
@@ -1064,6 +1072,56 @@ impl Game {
         self.message = Some((text.to_owned(), 3.0));
     }
 
+    /// The cheat box opened with Ctrl+Alt+C is showing, and typed keys go to it.
+    pub fn wants_cheat_text(&self) -> bool {
+        self.cheat_entry.is_some()
+    }
+
+    /// Ctrl+Alt+C: opens the cheat box, or closes it without effect if already open.
+    pub fn toggle_cheat_entry(&mut self) {
+        self.cheat_entry = if self.cheat_entry.is_some() { None } else { Some(String::new()) };
+        self.sound("BUTTON.WAV");
+    }
+
+    /// Escape while the cheat box is open: closes it without effect.
+    pub fn cancel_cheat_entry(&mut self) {
+        self.cheat_entry = None;
+    }
+
+    /// Typing into the open cheat box: a character, backspace, or Enter to submit it.
+    pub fn type_cheat_text(&mut self, text: &str) {
+        let Some(buf) = &mut self.cheat_entry else { return };
+        for c in text.chars() {
+            match c {
+                '\u{8}' | '\u{7f}' => {
+                    buf.pop();
+                }
+                '\r' | '\n' => {
+                    let code = std::mem::take(buf);
+                    self.cheat_entry = None;
+                    self.run_cheat(&code);
+                    return;
+                }
+                c if !c.is_control() && buf.chars().count() < 40 => buf.push(c),
+                _ => {}
+            }
+        }
+    }
+
+    /// Runs a typed cheat code, exactly as spelled (case sensitive) in the original.
+    /// See notes/cheats.md for the source list and Osiris's own additions, which are
+    /// clearly marked there.
+    fn run_cheat(&mut self, code: &str) {
+        use osiris_sim::cheats::Outcome;
+        match osiris_sim::cheats::apply(&mut self.world, code) {
+            Outcome::Applied => {}
+            Outcome::NeedsGod(g) => self.say(&format!("{} is not worshipped here", osiris_sim::religion::NAMES[g])),
+            Outcome::NotModeled => self.say("Not modeled in Osiris"),
+            Outcome::NeedsApp if code == "Unlock All Missions" => self.cheat_unlock_missions = true,
+            Outcome::NeedsApp | Outcome::Unknown => self.say("Unknown cheat"),
+        }
+    }
+
     /// The tiles to mark under the cursor, the held building's ghost, what the held
     /// tool would cost, and (for a building that can't go there) why not. As in the
     /// original, a building that may go where the cursor is shows its ghost, tinted
@@ -1391,6 +1449,13 @@ impl Game {
             let w = r.screen[0] - crate::sidebar::width();
             let mw = osiris_ui::text_width(r, Font::LargeBlackOnDark, m) as f32;
             draw_text(r, Font::LargeBlackOnDark, m, (w - mw) / 2.0, 70.0, font::WHITE);
+        }
+        // The cheat box: Ctrl+Alt+C, as in the original (see notes/cheats.md).
+        if let Some(buf) = &self.cheat_entry {
+            let line = format!("Cheat: {buf}_");
+            let w = r.screen[0] - crate::sidebar::width();
+            let mw = osiris_ui::text_width(r, Font::LargeBlackOnDark, &line) as f32;
+            draw_text(r, Font::LargeBlackOnDark, &line, (w - mw) / 2.0, 70.0, font::WHITE);
         }
         let overlay_name = self.view_overlay.and_then(|o| crate::overlay::MENU.iter().find(|(v, _)| *v == o)).and_then(|(_, id)| self.text.get(14, *id));
         let paused = self.paused.then_some("Paused");

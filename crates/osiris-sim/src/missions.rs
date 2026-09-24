@@ -344,6 +344,16 @@ impl World {
         }
     }
 
+    /// "Pharaohs Tomb": wins the mission on the spot, the same way meeting every goal
+    /// does (see [`Self::check_victory`]).
+    pub fn win_now(&mut self) {
+        if self.won || self.lost {
+            return;
+        }
+        self.won = true;
+        self.messages.push_back("victory".to_owned());
+    }
+
     /// Monthly: the original's verdict on the mission. Meeting the goals wins, except
     /// that a survival scenario is only judged when its time is up: won if the goals
     /// are met then, lost if not (or if it also has a time limit). A time limit

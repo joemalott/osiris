@@ -314,6 +314,13 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 eprintln!("  log {log:?}");
             }
             ["invade", invader, n, point] => world.invade_now(invader.parse()?, n.parse()?, point.parse()?),
+            // Runs the original's cheat code C (spaces and all; see notes/cheats.md),
+            // as if typed into the cheat box, without the app's UI around it.
+            ["cheat", rest @ ..] if !rest.is_empty() => {
+                let code = rest.join(" ");
+                let outcome = osiris_sim::cheats::apply(world, &code);
+                eprintln!("cheat {code:?}: {outcome:?}");
+            }
             ["company", c, p] => {
                 let p = parse_point(p)?;
                 world.move_company(c.parse()?, p);
