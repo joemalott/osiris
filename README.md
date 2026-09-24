@@ -53,20 +53,25 @@ find them. By default everything plays as in the original.
 
 ## Playing
 
-You need the original game data. The GOG release, *Pharaoh + Cleopatra*, works. Osiris
-looks for a folder named `PharaohData` holding the game's `Data/` folder, maps and
-`mission1.pak`. It checks, in order:
+You need the original game data. The GOG or Steam release, *Pharaoh + Cleopatra*, works,
+as does the original CD install. Osiris looks for the Pharaoh install (the folder
+holding the game's `Data/` folder, maps and `mission1.pak`):
 
-1. next to the Osiris program, or next to `Osiris.app` on macOS
-2. your user folder for Osiris: `~/Library/Application Support/Osiris` on macOS,
-   `%APPDATA%\Osiris` on Windows, `~/.local/share/osiris` on Linux
-3. the current directory
+1. the folder you picked before
+2. the folder Osiris sits in, or a `PharaohData` folder next to it (next to `Osiris.app`
+   on macOS)
+3. a `PharaohData` folder in your user folder for Osiris: `~/Library/Application
+   Support/Osiris` on macOS, `%APPDATA%\Osiris` on Windows, `~/.local/share/osiris` on Linux
+4. the usual GOG and Steam install folders
+
+If it finds none, it asks you to choose the Pharaoh folder and remembers it.
 
 Or pass it directly: `osiris --data /path/to/PharaohData`.
 
 Builds for macOS (Apple Silicon), Windows and Linux are linked under
 [Download](#download). They are unsigned.
-On macOS, right-click `Osiris.app` and choose Open the first time.
+On macOS, right-click `Osiris.app` and choose Open the first time. On Windows,
+SmartScreen warns about an unrecognised app: click More info, then Run anyway.
 
 ## Building
 

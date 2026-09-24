@@ -6,6 +6,7 @@ mod anims;
 mod popup;
 mod army_view;
 mod city_view;
+mod data_dir;
 mod empire_window;
 mod game;
 mod gfx;
@@ -38,7 +39,8 @@ use winit::window::{Window, WindowId};
 const USAGE: &str = "usage: osiris [--data DIR] [--map FILE | --mission N] [--screenshot OUT.png] [--size WxH] [--script STEPS]";
 
 struct Args {
-    data: PathBuf,
+    /// The game data from `--data`; otherwise found or asked for at startup.
+    data: Option<PathBuf>,
     map: Option<PathBuf>,
     mission: Option<usize>,
     screenshot: Option<PathBuf>,
@@ -48,7 +50,7 @@ struct Args {
 
 fn parse_args() -> Result<Args> {
     let mut args = Args {
-        data: default_data_dir(),
+        data: None,
         map: None,
         mission: None,
         screenshot: None,
@@ -59,7 +61,7 @@ fn parse_args() -> Result<Args> {
     while let Some(a) = it.next() {
         let mut val = || it.next().with_context(|| format!("{a} needs a value\n{USAGE}"));
         match a.as_str() {
-            "--data" => args.data = val()?.into(),
+            "--data" => args.data = Some(val()?.into()),
             "--map" => args.map = Some(val()?.into()),
             "--mission" => args.mission = Some(val()?.parse()?),
             "--screenshot" => args.screenshot = Some(val()?.into()),
@@ -90,23 +92,6 @@ fn user_dir() -> PathBuf {
     };
     let _ = std::fs::create_dir_all(dir.join("saves"));
     dir
-}
-
-/// The game data: `PharaohData` next to the executable or app bundle, in the user
-/// directory, or in the current directory.
-fn default_data_dir() -> PathBuf {
-    let mut candidates = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
-        for dir in exe.ancestors().skip(1).take(5) {
-            candidates.push(dir.join("PharaohData"));
-        }
-    }
-    candidates.push(user_dir().join("PharaohData"));
-    candidates.push(PathBuf::from("PharaohData"));
-    candidates
-        .into_iter()
-        .find(|p| p.join("Data").is_dir())
-        .unwrap_or_else(|| PathBuf::from("PharaohData"))
 }
 
 /// Everything loaded once at startup and shared by every game.
@@ -1197,14 +1182,38 @@ fn load_assets(data: &Path, library: &ImageLibrary) -> Result<Assets> {
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let args = parse_args()?;
-    let library = ImageLibrary::open(&args.data.join("Data")).with_context(|| {
+    let headless = args.screenshot.is_some();
+    let result = run(args);
+    // Launched by a double-click there is no console to read an error in.
+    if let Err(e) = &result
+        && !headless
+    {
+        data_dir::show_error(&format!("{e:#}"));
+    }
+    result
+}
+
+fn run(mut args: Args) -> Result<()> {
+    let data = match args.data.take() {
+        Some(d) => d,
+        None => match data_dir::find(&user_dir()) {
+            Some(d) => d,
+            None if args.screenshot.is_some() => PathBuf::from("PharaohData"),
+            None => match data_dir::pick(&user_dir()) {
+                Some(d) => d,
+                None => return Ok(()),
+            },
+        },
+    };
+    let args = Args { data: Some(data.clone()), ..args };
+    let library = ImageLibrary::open(&data.join("Data")).with_context(|| {
         format!(
-            "Could not find the Pharaoh game data at {}. Put your PharaohData folder (from the GOG \
-             Pharaoh Gold install) next to Osiris, or pass --data <dir>.",
-            args.data.display()
+            "Could not read the Pharaoh game data at {}. Choose the folder Pharaoh is installed in \
+             (the GOG or Steam Pharaoh + Cleopatra), or pass --data <dir>.",
+            data.display()
         )
     })?;
-    let assets = load_assets(&args.data, &library)?;
+    let assets = load_assets(&data, &library)?;
     migrate_legacy_family();
 
     if let Some(out) = &args.screenshot {
@@ -1357,7 +1366,7 @@ fn main() -> Result<()> {
         });
     }
 
-    let audio = osiris_audio::Audio::new(&args.data).ok().map(Arc::new);
+    let audio = osiris_audio::Audio::new(args.data.as_deref().unwrap_or(Path::new("PharaohData"))).ok().map(Arc::new);
     let event_loop = EventLoop::new()?;
     let mut app = App {
         args,
