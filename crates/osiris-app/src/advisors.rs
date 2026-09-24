@@ -1516,23 +1516,22 @@ fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
         };
         ui.wrapped(Font::NormalWhiteOnDark, &lines.join(" "), px + 60.0, y + 16.0, 33.0 * 16.0);
     }
-    // Burial provisions: what is needed, what has been sent, and what is in storage.
-    // Akhenaten's ui_advisor_monuments.js has burial_title at [60,200], burial_hint at
-    // [60,218] and burial_panel at [32,238] size[36,8], right under its monuments_panel
-    // (8 tiles); Osiris's monuments_panel is 10 tiles for its wordier lines (see above),
-    // so this whole block is pushed down 32px to clear it instead.
+    // Burial provisions: what is needed, what has been sent, and what is in storage
+    // (ui_advisor_monuments.js: burial_title at [60,200], burial_hint at [60,218],
+    // burial_panel at [32,238] size[36,8]). Now that monuments_panel above is back to
+    // the original's 8 tiles (ending at py+192), these sit at their original y's again.
     let burial_title = ui.t(G, 10);
-    ui.label(Font::NormalBlackOnLight, &burial_title, px + 60.0, py + 232.0);
+    ui.label(Font::NormalBlackOnLight, &burial_title, px + 60.0, py + 200.0);
     let hint = ui.t(G, 3);
-    ui.label(Font::NormalBlackOnLight, &hint, px + 60.0, py + 250.0);
-    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 270.0, 36, 8);
+    ui.label(Font::NormalBlackOnLight, &hint, px + 60.0, py + 218.0);
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 238.0, 36, 8);
     let needs = world.burial_needs();
     if needs.is_empty() {
         let none = ui.t(G, 12);
-        ui.centred(Font::NormalWhiteOnDark, &none, px + 32.0, py + 326.0, 36.0 * 16.0);
+        ui.centred(Font::NormalWhiteOnDark, &none, px + 32.0, py + 294.0, 36.0 * 16.0);
     }
     for (i, &(r, need, sent)) in needs.iter().take(6).enumerate() {
-        let (cx, cy) = (px + 48.0 + 280.0 * (i % 2) as f32, py + 300.0 + 34.0 * (i / 2) as f32);
+        let (cx, cy) = (px + 48.0 + 280.0 * (i % 2) as f32, py + 268.0 + 34.0 * (i / 2) as f32);
         let rect = [cx - 4.0, cy - 4.0, 270.0, 32.0];
         ui.icon(r, cx, cy);
         let line = format!("{} / {} {}", sent / 100, need / 100, ui.t(RESOURCE_NAMES, r as usize));
