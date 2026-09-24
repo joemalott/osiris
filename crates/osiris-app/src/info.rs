@@ -556,14 +556,16 @@ impl InfoPanel {
         if h.population <= 0 {
             // A vacant lot, 21 blocks tall (notes/building_info.md 2.2, from Akhenaten's
             // ui_house_window.js): whether a road is near enough for anyone to move in.
+            // The panel holds only that one description, at (36,114); it does not also
+            // carry a separate "No people in this locality" line (that line isn't in
+            // the doc's spec for this window, and it was drawn at the same y as the
+            // description, so the two overlapped).
             let title = ui.t(TEXT_VACANT, 0);
             let ([x, y], closed) = self.frame(ui, 29, 21, &title);
             panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 40.0, 27, 13);
-            let nobody = ui.t(TEXT_TERRAIN, 0);
-            ui.centred(Font::NormalWhiteOnDark, &nobody, x, y + 120.0, 29.0 * 16.0);
             let near = osiris_sim::buildings::road_within(&world.map, b.x, b.y, b.size, 2).is_some();
             let line = ui.t(TEXT_VACANT, if near { 1 } else { 2 });
-            ui.wrapped(Font::NormalBlackOnLight, &line, x + 36.0, y + 114.0, 25.0 * 16.0);
+            ui.wrapped(Font::NormalWhiteOnDark, &line, x + 36.0, y + 114.0, 25.0 * 16.0);
             return closed.then_some(InfoAction::Close);
         }
         // 23 blocks tall (notes/building_info.md 2.1).
