@@ -15,6 +15,7 @@ mod info;
 mod menu;
 mod message_list;
 mod rules_panel;
+mod sound_options;
 mod minimap;
 mod overlay;
 mod mission_brief;
@@ -444,6 +445,11 @@ struct App {
     /// screen's edge scroll the city.
     cursor_in: bool,
     focused: bool,
+    /// The player's sound settings, and the Sound options window open over the menu
+    /// with a click on it waiting to be handled.
+    sound: sound_options::SoundPrefs,
+    sound_window: Option<sound_options::SoundWindow>,
+    sound_click: Option<[f32; 2]>,
     keys: std::collections::HashSet<KeyCode>,
     last_frame: std::time::Instant,
     status: Option<(String, f32)>,
@@ -499,6 +505,7 @@ impl App {
         game.player_name = player_name();
         game.victory_text = mission.and_then(|m| progress::mission_entry(&self.assets.campaign, m)).map_or(37, |e| e.victory_text as usize);
         game.set_autosave(load_autosave());
+        game.sound_prefs = self.sound;
         self.autosaved = None;
         start_camera(&mut gfx.renderer, &mut game);
         self.screen = Some(Screen::Playing(Box::new(game), mission));
@@ -507,6 +514,10 @@ impl App {
     fn choose(&mut self, choice: menu::Choice, event_loop: &ActiveEventLoop) {
         let c = self.assets.campaign.clone();
         let result = match &choice {
+            menu::Choice::Sound => {
+                self.sound_window = Some(sound_options::SoundWindow::new(self.sound));
+                return;
+            }
             menu::Choice::Quit => {
                 event_loop.exit();
                 return;
@@ -946,6 +957,18 @@ impl ApplicationHandler for App {
                 let mut chosen = None;
                 let mut request = None;
                 match &mut self.screen {
+                    Some(Screen::Menu(_)) if self.sound_window.is_some() => match (button, state) {
+                        (MouseButton::Left, ElementState::Pressed) => self.sound_click = Some(at),
+                        (MouseButton::Right, ElementState::Pressed) => {
+                            if let Some(w) = self.sound_window.take() {
+                                self.sound = w.before();
+                                if let Some(a) = &self.audio {
+                                    self.sound.apply(a);
+                                }
+                            }
+                        }
+                        _ => {}
+                    },
                     Some(Screen::Menu(m)) => match (button, state) {
                         (MouseButton::Left, ElementState::Pressed) => {
                             chosen = m.click(screen, at);
@@ -1045,9 +1068,23 @@ impl App {
         match &mut self.screen {
             Some(Screen::Menu(m)) => {
                 let panels = self.images.as_ref().map(|i| &i.panels);
+                let (sound, window, click, audio) = (&mut self.sound, &mut self.sound_window, self.sound_click.take(), self.audio.as_deref());
+                let cursor = [(self.cursor.0 / gfx.window.scale_factor()) as f32, (self.cursor.1 / gfx.window.scale_factor()) as f32];
+                let text = self.assets.text.clone();
                 gfx.frame(|r| {
                     if let Some(p) = panels {
                         m.draw(r, p);
+                        if let Some(w) = window {
+                            let img = crate::widgets::UiImages::load(&r.library).expect("ui images");
+                            match w.draw(r, p, img, &text, cursor, click, sound, audio) {
+                                sound_options::Outcome::Open => {}
+                                sound_options::Outcome::Keep => {
+                                    sound.save(&user_dir());
+                                    *window = None;
+                                }
+                                sound_options::Outcome::Cancelled => *window = None,
+                            }
+                        }
                     }
                     if let Some(s) = &status {
                         osiris_ui::draw_text(r, osiris_ui::Font::NormalYellow, s, 20.0, 20.0, osiris_ui::font::WHITE);
@@ -1097,6 +1134,10 @@ impl App {
                 });
                 if std::mem::take(&mut game.difficulty_changed) {
                     save_difficulty(game.world.difficulty);
+                }
+                if std::mem::take(&mut game.sound_changed) {
+                    self.sound = game.sound_prefs;
+                    self.sound.save(&user_dir());
                 }
                 if std::mem::take(&mut game.autosave_changed) {
                     save_autosave(game.autosave);
@@ -1370,6 +1411,9 @@ fn run(mut args: Args) -> Result<()> {
             });
             game.empire = Some(e);
         }
+        if view.sound {
+            game.sound_window = Some(sound_options::SoundWindow::new(game.sound_prefs));
+        }
         if view.difficulty {
             game.difficulty_panel = true;
         }
@@ -1415,6 +1459,10 @@ fn run(mut args: Args) -> Result<()> {
     }
 
     let audio = osiris_audio::Audio::new(args.data.as_deref().unwrap_or(Path::new("PharaohData"))).ok().map(Arc::new);
+    let sound = sound_options::SoundPrefs::load(&user_dir());
+    if let Some(a) = &audio {
+        sound.apply(a);
+    }
     let event_loop = EventLoop::new()?;
     let mut app = App {
         args,
@@ -1429,6 +1477,9 @@ fn run(mut args: Args) -> Result<()> {
         cursor: (0.0, 0.0),
         cursor_in: false,
         focused: true,
+        sound,
+        sound_window: None,
+        sound_click: None,
         keys: Default::default(),
         last_frame: std::time::Instant::now(),
         status: None,

@@ -15,6 +15,7 @@ pub enum MenuAction {
     Quit,
     Rules,
     Difficulty,
+    Sound,
     Autosave,
     /// Out of time: play on at a lower difficulty.
     LowerDifficulty,
@@ -95,6 +96,7 @@ impl TopMenu {
             (
                 t(2, 0, "Options"),
                 vec![
+                    e(t(46, 0, "Sound options"), MenuAction::Sound),
                     e(t(2, 6, "Difficulty"), MenuAction::Difficulty),
                     e(t(2, 9, "Autosave - ON"), MenuAction::Autosave),
                     e("Game rules...".into(), MenuAction::Rules),

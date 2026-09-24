@@ -61,6 +61,8 @@ struct Inner {
     city_channels: Mutex<HashMap<u32, rodio::Player>>,
 
     effects_volume: Mutex<f32>,
+    /// Scales every city sound's own volume.
+    city_volume: Mutex<f32>,
 }
 
 impl Audio {
@@ -111,6 +113,7 @@ impl Audio {
                 city_sound_table,
                 city_channels: Mutex::new(HashMap::new()),
                 effects_volume: Mutex::new(1.0),
+                city_volume: Mutex::new(1.0),
             }),
         })
     }
@@ -181,6 +184,13 @@ impl Audio {
     pub fn set_effects_volume(&self, volume: f32) {
         if let Some(inner) = &self.inner {
             *inner.effects_volume.lock().unwrap() = volume.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Sets the volume the city's ambient sounds are scaled by (`0.0` .. `1.0`).
+    pub fn set_city_volume(&self, volume: f32) {
+        if let Some(inner) = &self.inner {
+            *inner.city_volume.lock().unwrap() = volume.clamp(0.0, 1.0);
         }
     }
 
@@ -287,6 +297,9 @@ impl Inner {
 
     fn set_city_sounds(&self, active: &[(u32, f32)]) {
         let mut channels = self.city_channels.lock().unwrap();
+        let scale = *self.city_volume.lock().unwrap();
+        let scaled: Vec<(u32, f32)> = active.iter().map(|&(id, v)| (id, v * scale)).collect();
+        let active = &scaled[..];
 
         for &(id, volume) in active {
             if volume <= 0.0 {

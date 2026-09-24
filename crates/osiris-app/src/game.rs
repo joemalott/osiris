@@ -154,6 +154,13 @@ pub struct Game {
     /// A yes/no popup open, and what a yes asks for; a click on it waits to be handled.
     confirm: Option<(crate::popup::Confirm, MenuAction)>,
     confirm_click: Option<[f32; 2]>,
+    /// The Sound options window, the player's sound settings, and a click on the
+    /// window waiting to be handled.
+    pub sound_window: Option<crate::sound_options::SoundWindow>,
+    pub sound_prefs: crate::sound_options::SoundPrefs,
+    sound_click: Option<[f32; 2]>,
+    /// Set when the player keeps new sound settings, so the caller can store them.
+    pub sound_changed: bool,
     /// The Difficulty window is open, and a click on it waits to be handled.
     pub difficulty_panel: bool,
     difficulty_click: Option<[f32; 2]>,
@@ -241,6 +248,10 @@ impl Game {
             confirm: None,
             confirm_click: None,
             difficulty_panel: false,
+            sound_window: None,
+            sound_prefs: Default::default(),
+            sound_click: None,
+            sound_changed: false,
             difficulty_click: None,
             difficulty_changed: false,
             autosave: true,
@@ -309,7 +320,7 @@ impl Game {
 
     /// Nothing modal is open and no tool is in hand.
     pub fn idle(&self) -> bool {
-        self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.empire.is_none() && self.advisors.is_none() && self.rules_panel.is_none() && !self.difficulty_panel && self.confirm.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
+        self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.empire.is_none() && self.advisors.is_none() && self.rules_panel.is_none() && !self.difficulty_panel && self.sound_window.is_none() && self.confirm.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
     }
 
     pub fn close_dialog(&mut self) {
@@ -432,6 +443,7 @@ impl Game {
             || self.message_list.is_some()
             || self.rules_panel.is_some()
             || self.difficulty_panel
+            || self.sound_window.is_some()
             || self.confirm.is_some()
             || self.custom_dialog.is_some()
     }
@@ -690,6 +702,10 @@ impl Game {
             self.confirm_click = Some(self.cursor);
             return None;
         }
+        if self.sound_window.is_some() {
+            self.sound_click = Some(self.cursor);
+            return None;
+        }
         if self.difficulty_panel {
             self.difficulty_click = Some(self.cursor);
             return None;
@@ -868,6 +884,7 @@ impl Game {
                 self.set_autosave(on);
                 self.autosave_changed = true;
             }
+            MenuAction::Sound => self.sound_window = Some(crate::sound_options::SoundWindow::new(self.sound_prefs)),
             MenuAction::Difficulty => {
                 self.difficulty_panel = true;
                 self.sound("BUTTON.WAV");
@@ -1097,7 +1114,7 @@ impl Game {
             e.right_click();
             return;
         }
-        if self.dialog.take().is_some() || self.empire.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() || std::mem::take(&mut self.difficulty_panel) || self.confirm.take().is_some() {
+        if self.dialog.take().is_some() || self.empire.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() || std::mem::take(&mut self.difficulty_panel) || self.cancel_sound_window() || self.confirm.take().is_some() {
             return;
         }
         if self.selected_company.take().is_some() {
@@ -1581,6 +1598,9 @@ impl Game {
         if let Some(p) = &self.rules_panel {
             p.draw(r, &self.images.panels, &self.world.rules, sidebar::panel_left(r.screen[0]), "Changes apply now, and to every game you play.");
         }
+        if self.sound_window.is_some() {
+            self.draw_sound(r);
+        }
         if self.difficulty_panel {
             self.draw_difficulty(r);
         }
@@ -1609,6 +1629,30 @@ impl Game {
         if let Some(d) = &mut self.dialog {
             d.draw(r);
         }
+    }
+
+    fn draw_sound(&mut self, r: &mut Renderer) {
+        let img = *self.ui_images.get_or_insert_with(|| crate::widgets::UiImages::load(&r.library).expect("ui images"));
+        let Some(w) = &mut self.sound_window else { return };
+        let click = self.sound_click.take();
+        match w.draw(r, &self.images.panels, img, &self.text, self.cursor, click, &mut self.sound_prefs, self.audio.as_deref()) {
+            crate::sound_options::Outcome::Open => {}
+            crate::sound_options::Outcome::Keep => {
+                self.sound_window = None;
+                self.sound_changed = true;
+            }
+            crate::sound_options::Outcome::Cancelled => self.sound_window = None,
+        }
+    }
+
+    /// Closes the Sound options window as Cancel does; whether it was open.
+    fn cancel_sound_window(&mut self) -> bool {
+        let Some(w) = self.sound_window.take() else { return false };
+        self.sound_prefs = w.before();
+        if let Some(a) = &self.audio {
+            self.sound_prefs.apply(a);
+        }
+        true
     }
 
     /// The original's Difficulty window (Options menu): the level between arrows. A
