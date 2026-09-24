@@ -139,7 +139,10 @@ impl InfoPanel {
         let y = ((screen[1] - h) / 2.0).max(40.0).floor();
         self.rect = [x, y, w, h];
         panel::outer_panel(ui.r, ui.panels, x, y, wb, hb);
-        ui.centred(Font::LargeBlackOnLight, title, x, y + 14.0, w);
+        // The original's building window title is centred at y+10 (checked against the
+        // exe: notes/building_info.md "Decompile facts", which supersedes Akhenaten's
+        // pos[0,16] where the two differ).
+        ui.centred(Font::LargeBlackOnLight, title, x, y + 10.0, w);
         let ctx = ui.img.context_icons;
         ui.image(ctx, x + 14.0, y + h - 40.0);
         let closed = ui.image_button(ctx + 4, x + w - 40.0, y + h - 40.0, 27.0, 27.0);
@@ -152,8 +155,7 @@ impl InfoPanel {
     fn fort_window(&mut self, ui: &mut Ui) -> Option<InfoAction> {
         const G: usize = 89;
         let title = ui.t(G, 0);
-        let ([x, y], closed) = self.frame(ui, 29, 16, "");
-        ui.centred(Font::LargeBlackOnLight, &title, x, y + 10.0, 29.0 * 16.0);
+        let ([x, y], closed) = self.frame(ui, 29, 16, &title);
         let text = ui.t(G, 2);
         ui.wrapped(Font::NormalBlackOnLight, &text, x + 32.0, y + 16.0 * 16.0 - 158.0, 25.0 * 16.0);
         closed.then_some(InfoAction::Close)
@@ -164,8 +166,7 @@ impl InfoPanel {
     fn recruiter_window(&mut self, ui: &mut Ui, world: &World, b: &Building) -> Option<InfoAction> {
         const G: usize = 136;
         let title = ui.t(G, 0);
-        let ([x, y], closed) = self.frame(ui, 29, 16, "");
-        ui.centred(Font::LargeBlackOnLight, &title, x, y + 10.0, 29.0 * 16.0);
+        let ([x, y], closed) = self.frame(ui, 29, 16, &title);
         let stored = |r: u16| b.stock.get(r as usize).copied().unwrap_or(0);
         let (weapons, chariots) = (osiris_sim::military::WEAPONS, osiris_sim::military::CHARIOTS);
         let mut rows = vec![(weapons, stored(weapons) / resource_load(), if stored(weapons) / resource_load() == 1 { 15 } else { 2 })];
@@ -547,26 +548,29 @@ impl InfoPanel {
         }
     }
 
-    /// A house, 22 blocks tall as in the original: what keeps it from evolving (or
-    /// makes it devolve), its food and goods, then its people, taxes and crime.
+    /// A house, 23 blocks tall as in the original (21 for a vacant lot): what keeps it
+    /// from evolving (or makes it devolve), its food and goods, then its people, taxes
+    /// and crime.
     fn house_window(&mut self, ui: &mut Ui, world: &World, b: &Building) -> Option<InfoAction> {
         let h = b.house.clone().expect("house");
         if h.population <= 0 {
-            // A vacant lot: whether a road is near enough for anyone to move in.
-            let ([x, y], closed) = self.frame(ui, 29, 22, "");
+            // A vacant lot, 21 blocks tall (notes/building_info.md 2.2, from Akhenaten's
+            // ui_house_window.js): whether a road is near enough for anyone to move in.
+            // The panel holds only that one description, at (36,114); it does not also
+            // carry a separate "No people in this locality" line (that line isn't in
+            // the doc's spec for this window, and it was drawn at the same y as the
+            // description, so the two overlapped).
             let title = ui.t(TEXT_VACANT, 0);
-            ui.centred(Font::LargeBlackOnLight, &title, x, y + 8.0, 29.0 * 16.0);
-            panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 40.0, 27, 12);
-            let nobody = ui.t(TEXT_TERRAIN, 0);
-            ui.centred(Font::NormalWhiteOnDark, &nobody, x, y + 120.0, 29.0 * 16.0);
+            let ([x, y], closed) = self.frame(ui, 29, 21, &title);
+            panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 40.0, 27, 13);
             let near = osiris_sim::buildings::road_within(&world.map, b.x, b.y, b.size, 2).is_some();
             let line = ui.t(TEXT_VACANT, if near { 1 } else { 2 });
-            ui.wrapped(Font::NormalBlackOnLight, &line, x + 32.0, y + 22.0 * 16.0 - 113.0, 25.0 * 16.0);
+            ui.wrapped(Font::NormalWhiteOnDark, &line, x + 36.0, y + 114.0, 25.0 * 16.0);
             return closed.then_some(InfoAction::Close);
         }
-        let ([x, y], closed) = self.frame(ui, 29, 22, "");
+        // 23 blocks tall (notes/building_info.md 2.1).
         let title = ui.t(TEXT_HOUSE_LEVELS, h.level as usize);
-        ui.centred(Font::LargeBlackOnLight, &title, x, y + 10.0, 29.0 * 16.0);
+        let ([x, y], closed) = self.frame(ui, 29, 23, &title);
         let food_types = h.foods.iter().filter(|&&f| f > 0).count() as i32;
         let advice = if h.level as usize + 1 >= world.balance.houses.len() && h.blocked_by.is_none() {
             100
@@ -574,23 +578,23 @@ impl InfoPanel {
             house_advice(h.blocked_by, h.decaying, food_types)
         };
         let line = ui.t(TEXT_HOUSE, advice);
-        ui.wrapped(Font::NormalBlackOnLight, &line, x + 32.0, y + 36.0, 25.0 * 16.0);
+        ui.wrapped(Font::NormalBlackOnLight, &line, x + 32.0, y + 40.0, 27.0 * 16.0);
         // The first four of the city's foods (those houses eat, in order) and the four
         // goods, with this house's stock of each.
         let foods: Vec<u16> = world.city_foods().into_iter().take(4).collect();
         let food_stock = |r: u16| resource::food_slot(r).map_or(0, |s| h.foods[s]);
         for (i, &r) in foods.iter().enumerate() {
             let cx = x + 32.0 + 110.0 * i as f32;
-            ui.icon(r, cx, y + 110.0);
-            ui.label(Font::NormalBlackOnLight, &food_stock(r).to_string(), cx + 32.0, y + 112.0);
+            ui.icon(r, cx, y + 95.0);
+            ui.label(Font::NormalBlackOnLight, &food_stock(r).to_string(), cx + 32.0, y + 100.0);
         }
         for (i, &r) in resource::HOUSE_GOODS.iter().enumerate() {
             let cx = x + 32.0 + 110.0 * i as f32;
-            ui.icon(r, cx, y + 130.0);
-            ui.label(Font::NormalBlackOnLight, &h.goods[i].to_string(), cx + 32.0, y + 132.0);
+            ui.icon(r, cx, y + 120.0);
+            ui.label(Font::NormalBlackOnLight, &h.goods[i].to_string(), cx + 32.0, y + 124.0);
         }
         panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 148.0, 27, 10);
-        ui.image(ui.img.context_icons + 13, x + 34.0, y + 158.0);
+        ui.image(ui.img.context_icons + 13, x + 34.0, y + 154.0);
         let cap = world.house_capacity(b.id);
         let room = if h.population > cap {
             format!("{}{}", h.population - cap, ui.t(TEXT_HOUSE, 21))
@@ -598,7 +602,7 @@ impl InfoPanel {
             format!("{} {}", ui.t(TEXT_HOUSE, 22), cap - h.population)
         };
         let people = format!("{} {} ( {} )", h.population, ui.t(TEXT_HOUSE, 20), room);
-        ui.label(Font::NormalWhiteOnDark, &people, x + 64.0, y + 168.0);
+        ui.label(Font::NormalWhiteOnDark, &people, x + 64.0, y + 164.0);
         let tax = if h.coverage.tax <= 0 {
             ui.t(TEXT_HOUSE, 23)
         } else {
@@ -607,10 +611,10 @@ impl InfoPanel {
         };
         ui.wrapped(Font::NormalWhiteOnDark, &tax, x + 36.0, y + 194.0, 23.0 * 16.0);
         let crime = ui.t(TEXT_HOUSE, crime_line(h.happiness));
-        ui.wrapped(Font::NormalWhiteOnDark, &crime, x + 36.0, y + 214.0, 23.0 * 16.0);
+        ui.wrapped(Font::NormalWhiteOnDark, &crime, x + 36.0, y + 214.0, 27.0 * 16.0);
         if world.balance.house(h.level).food_types <= 0 {
             let s = ui.t(TEXT_HOUSE, 33);
-            ui.wrapped(Font::NormalWhiteOnDark, &s, x + 36.0, y + 234.0, 23.0 * 16.0);
+            ui.wrapped(Font::NormalWhiteOnDark, &s, x + 36.0, y + 234.0, 27.0 * 16.0);
         }
         closed.then_some(InfoAction::Close)
     }
@@ -636,13 +640,18 @@ impl InfoPanel {
         } else {
             scenario_resources(world)
         };
-        let screen = ui.r.screen;
         let rows = if bazaar { 10 } else { 8 };
-        // The list's panel, then one or two buttons below it.
-        let list_blocks = (rows as i32 * 25 + 8 + 15) / 16;
-        let hb = (42 + list_blocks * 16 + if bazaar { 50 } else { 76 } + 15) / 16;
+        // Fixed window and list sizes, as the original's granary, storage yard and
+        // bazaar orders windows use (notes/building_info.md 5.3, 6.1: granary and
+        // storage yard orders are both 29x17, with an 11-block list for the yard and a
+        // 10-block list for the granary; bazaar orders is 29x24 with a 14-block list).
+        let (hb, list_blocks) = if bazaar { (24, 14) } else if granary { (17, 10) } else { (17, 11) };
         let (w, h) = (29.0 * 16.0, hb as f32 * 16.0);
-        let (x, y) = (((screen[0] - crate::sidebar::width() - w) / 2.0).max(0.0).floor(), ((screen[1] - h) / 2.0).max(40.0).floor());
+        // The orders window keeps the parent building window's left edge, and its
+        // bottom edge lines up with the parent's, rather than recentring on its own,
+        // different, height.
+        let [px, py, _, ph] = self.rect;
+        let (x, y) = (px, py + ph - h);
         panel::outer_panel(ui.r, ui.panels, x, y, 29, hb);
         let title = if bazaar { ui.t(TEXT_BAZAAR, 7) } else if granary { ui.t(TEXT_GRANARY, 6) } else { ui.t(TEXT_YARD, 3) };
         ui.centred(Font::LargeBlackOnLight, &title, x, y + 12.0, w);
