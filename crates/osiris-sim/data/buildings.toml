@@ -30,7 +30,7 @@ flags = ["is_wall", "is_defense"]
 id = 7
 key = "water_lift"
 size = 2
-labor = "infrastructure"
+labor = "food_production"
 image = { pack = "Pharaoh_Terrain", group = 50, offset = 0 }
 anims = { preview = { pack = "Pharaoh_Terrain", group = 50, offset = 0 }, work_n = { pack = "SprAmbient", group = 1, offset = 1, frames = 12, x = 50, y = 15, duration = 8 }, work_e = { pack = "SprAmbient", group = 2, offset = 1, frames = 12, x = 54, y = 14, duration = 8 }, work_s = { pack = "SprAmbient", group = 3, offset = 1, frames = 12, x = 60, y = 15, duration = 8 }, work_w = { pack = "SprAmbient", group = 4, offset = 1, frames = 12, x = 68, y = 20, duration = 8 } }
 needs = ["water_access", "shoreline", "floodplain_shoreline"]
@@ -976,6 +976,7 @@ labor = "government"
 figure = "governor"
 image = { pack = "Pharaoh_General", group = 85, offset = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 85, offset = 0 }, work = { pack = "Pharaoh_General", group = 85, offset = 1, frames = 12, x = 30, y = -70, duration = 3 } }
+needs = ["groundwater"]
 flags = ["is_administration"]
 text_id = 103
 help = "message_building_mansion"
@@ -990,6 +991,7 @@ labor = "government"
 figure = "governor"
 image = { pack = "Pharaoh_General", group = 86, offset = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 86, offset = 0 }, work = { pack = "Pharaoh_General", group = 86, offset = 1, frames = 12, x = -1, y = -1 } }
+needs = ["groundwater"]
 flags = ["is_administration"]
 text_id = 103
 help = "message_building_mansion"
@@ -1004,6 +1006,7 @@ labor = "government"
 figure = "governor"
 image = { pack = "Pharaoh_General", group = 87, offset = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 87, offset = 0 }, work = { pack = "Pharaoh_General", group = 87, offset = 1, frames = 12, x = -1, y = -1 } }
+needs = ["groundwater"]
 flags = ["is_administration"]
 info_sound = "Wavs/GOV_MAN3.WAV"
 min_houses_coverage = 50

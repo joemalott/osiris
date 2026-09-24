@@ -4,6 +4,9 @@ use crate::buildings::{Building, BuildingId, kind};
 use crate::map::{mask, terrain};
 use crate::world::{Outcome, World};
 
+/// The original's warning 19:74, for a building placed with no groundwater under it.
+pub const NEEDS_GROUNDWATER: &str = "This structure needs groundwater. Build on a grassy area.";
+
 impl World {
     pub fn size_of(&self, k: u16) -> i32 {
         self.defs.building(k).map_or(1, |d| d.size.max(1))
@@ -68,8 +71,10 @@ impl World {
         if crate::military::fort_soldier(k).is_some() && crate::military::fort_ground(x, y).any(|(xx, yy)| !self.fort_ground_tile_clear(xx, yy)) {
             return Err("No room for the parade ground");
         }
-        if def.needs("groundwater") && !self.map.terrain_is(x, y, terrain::GROUNDWATER) {
-            return Err("Needs groundwater");
+        // The original wants groundwater under at least one tile of the footprint
+        // (wells, water supplies, mansions and palaces), warning 19:74 if none.
+        if def.needs("groundwater") && !(y..y + size).any(|yy| (x..x + size).any(|xx| self.map.terrain_is(xx, yy, terrain::GROUNDWATER))) {
+            return Err(NEEDS_GROUNDWATER);
         }
         if def.needs("floodplain") {
             let all = (y..y + size).all(|yy| (x..x + size).all(|xx| self.map.terrain_is(xx, yy, terrain::FLOODPLAIN)));
