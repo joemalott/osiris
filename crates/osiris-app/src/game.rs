@@ -371,9 +371,20 @@ impl Game {
             .unwrap_or_else(|| format!("#{k}"))
     }
 
+    /// Whether a drop-down menu or a window over the city is open, which holds time
+    /// still. Building info windows leave the city running.
+    pub fn menu_open(&self) -> bool {
+        self.top_menu.open.is_some()
+            || self.advisors.is_some()
+            || self.empire.is_some()
+            || self.message_list.is_some()
+            || self.rules_panel.is_some()
+            || self.custom_dialog.is_some()
+    }
+
     pub fn update(&mut self, dt: f32) {
         self.sidebar.update(dt);
-        if !self.paused {
+        if !self.paused && !self.menu_open() {
             self.anim_clock += dt;
         }
         if let Some((_, t)) = &mut self.message {
@@ -395,8 +406,9 @@ impl Game {
                 self.music_timer = 5.0;
             }
         }
-        // A lost city stands still behind the lost-mission screen.
-        if self.paused || self.dialog.is_some() || self.world.lost {
+        // A lost city stands still behind the lost-mission screen, and the city waits
+        // while a menu or a full window (overseers, empire, messages, rules) is open.
+        if self.paused || self.dialog.is_some() || self.world.lost || self.menu_open() {
             return;
         }
         let ms = ms_per_tick(self.speed);
