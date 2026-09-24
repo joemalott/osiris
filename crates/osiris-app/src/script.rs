@@ -405,7 +405,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             // Lets the city raise a temple complex to god g (0 Osiris .. 4 Bast).
             ["complexgod", g] => world.complex_gods[g.parse::<usize>()?.min(4)] = true,
-            ["monlist"] => eprintln!("monuments {:?} complex gods {:?} debt rate {}", world.scenario_monuments, world.complex_gods, world.debt_rate),
+            ["monlist"] => eprintln!("monuments {:?} complex gods {:?} debt rate {} burial {:?}", world.scenario_monuments, world.complex_gods, world.debt_rate, world.burial_needs()),
             ["taxrate", n] => world.finance.tax_rate = n.parse::<i32>()?.clamp(0, 25),
             ["ratings"] => {
                 let (r, f, l) = (&world.ratings, &world.finance, &world.labor);
