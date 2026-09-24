@@ -575,8 +575,9 @@ impl InfoPanel {
         };
         let line = ui.t(TEXT_HOUSE, advice);
         ui.wrapped(Font::NormalBlackOnLight, &line, x + 32.0, y + 36.0, 25.0 * 16.0);
-        // The city's first four foods and the four goods, with this house's stock.
-        let foods = city_foods(world);
+        // The first four of the city's foods (those houses eat, in order) and the four
+        // goods, with this house's stock of each.
+        let foods: Vec<u16> = world.city_foods().into_iter().take(4).collect();
         let food_stock = |r: u16| resource::food_slot(r).map_or(0, |s| h.foods[s]);
         for (i, &r) in foods.iter().enumerate() {
             let cx = x + 32.0 + 110.0 * i as f32;

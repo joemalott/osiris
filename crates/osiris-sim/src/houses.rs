@@ -69,7 +69,25 @@ pub struct Coverage {
     pub tax: i32,
 }
 
-pub const FOOD_TYPES: usize = 4;
+/// A house keeps each of the eight foods apart, in resource order.
+pub const FOOD_TYPES: usize = 8;
+
+/// Reads a house's foods, including saves from when they were four groups (grain,
+/// meat, fish, fruit and vegetables), which go to grain, meat, fish and lettuce.
+fn foods_compat<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[i32; FOOD_TYPES], D::Error> {
+    let v: Vec<i32> = serde::Deserialize::deserialize(d)?;
+    let mut out = [0; FOOD_TYPES];
+    if v.len() == 4 {
+        for (slot, n) in [0, 1, 6, 2].into_iter().zip(v) {
+            out[slot] = n;
+        }
+    } else {
+        for (o, n) in out.iter_mut().zip(v) {
+            *o = n;
+        }
+    }
+    Ok(out)
+}
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct House {
@@ -86,6 +104,8 @@ pub struct House {
     pub education: i32,
     pub health: i32,
     pub gods: i32,
+    /// Food stored, per food (see `resource::food_slot`).
+    #[serde(deserialize_with = "foods_compat")]
     pub foods: [i32; FOOD_TYPES],
     /// Pottery, jewelry, linen, beer.
     pub goods: [i32; 4],
@@ -720,6 +740,90 @@ mod tests {
         let rules = Rules::default();
         assert_eq!(h.meets(&model, &rules, 1), Err(Need::SecondLuxury));
         assert_eq!(h.meets(&model, &rules, 2), Ok(()));
+    }
+
+    #[test]
+    fn old_saves_with_four_food_groups_load() {
+        #[derive(serde::Serialize)]
+        struct Old {
+            foods: [i32; 4],
+        }
+        #[derive(serde::Deserialize)]
+        struct New {
+            #[serde(deserialize_with = "foods_compat")]
+            foods: [i32; FOOD_TYPES],
+        }
+        let bytes = rmp_serde::to_vec_named(&Old { foods: [10, 20, 30, 40] }).unwrap();
+        let new: New = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(new.foods, [10, 20, 40, 0, 0, 0, 30, 0]);
+        let bytes = rmp_serde::to_vec_named(&House { foods: [1, 2, 3, 4, 5, 6, 7, 8], ..Default::default() }).unwrap();
+        let h: House = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(h.foods, [1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn each_food_counts_as_its_own_kind() {
+        let rules = Rules::default();
+        let water = Coverage { water_supply: 1, ..Default::default() };
+        let mut h = House { coverage: water, ..Default::default() };
+        let two = HouseModel { food_types: 2, ..Default::default() };
+        let three = HouseModel { food_types: 3, ..Default::default() };
+        // Lettuce and figs used to share one slot; now they are two kinds.
+        h.foods[2] = 10;
+        assert_eq!(h.meets(&two, &rules, 0), Err(Need::Food));
+        h.foods[5] = 10;
+        assert_eq!(h.meets(&two, &rules, 0), Ok(()));
+        assert_eq!(h.meets(&three, &rules, 0), Err(Need::Food));
+        h.foods[3] = 10;
+        assert_eq!(h.meets(&three, &rules, 0), Ok(()));
+    }
+
+    #[test]
+    fn bazaar_trader_fills_food_and_goods_for_the_next_level() {
+        use crate::economy::resource::*;
+        let Some((mut world, x, y)) = sandbox() else { return };
+        let bazaar = world.create_building(kind::BAZAAR, x + 4, y + 4);
+        let stock = &mut world.buildings.get_mut(bazaar).unwrap().stock;
+        stock[GRAIN as usize] = 1000;
+        stock[LETTUCE as usize] = 1000;
+        stock[FIGS as usize] = 1000;
+        stock[POTTERY as usize] = 100;
+        stock[BEER as usize] = 100;
+        // A small homestead growing into a large one: one food (so two kinds taken),
+        // pottery, no beer.
+        let id = house(&mut world, 6, x, y, 10);
+        world.deliver_to_house(bazaar, id);
+        let (_, h) = get(&world, id);
+        assert_eq!(h.foods[food_slot(GRAIN).unwrap()], 20, "two meals a head of grain");
+        assert_eq!(h.foods[food_slot(LETTUCE).unwrap()], 10, "half as much of other foods");
+        assert_eq!(h.foods[food_slot(FIGS).unwrap()], 0, "only two kinds");
+        assert_eq!(h.goods, [2, 0, 0, 0], "twice the pottery need, no beer");
+        let m = world.buildings.get(bazaar).unwrap();
+        assert_eq!(m.goods_demand, [10, 0, 0, 0]);
+        // Grain tops up to six meals a head, and a full food doesn't count as taken.
+        for _ in 0..4 {
+            world.deliver_to_house(bazaar, id);
+        }
+        let (_, h) = get(&world, id);
+        assert_eq!(h.foods[food_slot(GRAIN).unwrap()], 60);
+        assert_eq!(h.goods[0], 2);
+        // With grain full, the trader moves on to figs.
+        assert!(h.foods[food_slot(FIGS).unwrap()] > 0);
+        assert_eq!(h.foods.iter().filter(|&&f| f > 0).count(), 3);
+    }
+
+    #[test]
+    fn bazaars_buy_only_goods_nearby_houses_want() {
+        let Some((mut world, x, y)) = sandbox() else { return };
+        let bazaar = world.create_building(kind::BAZAAR, x + 4, y + 4);
+        assert_eq!(world.unwanted_goods(bazaar), [true; 4], "a new bazaar wants nothing");
+        house(&mut world, 6, x, y, 10);
+        world.refresh_goods_demand(bazaar);
+        assert_eq!(world.buildings.get(bazaar).unwrap().goods_demand, [10, 0, 0, 0]);
+        for _ in 0..10 {
+            assert_eq!(world.unwanted_goods(bazaar), [false, true, true, true]);
+        }
+        assert_eq!(world.unwanted_goods(bazaar), [true; 4], "demand runs out");
     }
 
     #[test]

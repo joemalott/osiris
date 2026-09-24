@@ -135,6 +135,10 @@ pub struct Building {
     /// A water lift's water: 0 none, 2 reached but not yet pumped, 1 pumping.
     #[serde(default)]
     pub water: u8,
+    /// A bazaar's demand for pottery, luxury goods, linen and beer: raised when houses
+    /// nearby want the good, run down by each buyer decision.
+    #[serde(default)]
+    pub goods_demand: [i32; 4],
     /// The image drawn for this building (global id).
     pub image: u32,
 }

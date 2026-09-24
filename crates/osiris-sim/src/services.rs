@@ -295,13 +295,17 @@ impl World {
         }
         let home_kind = self.buildings.get(home).map_or(0, |b| b.kind);
         if kind == crate::food::MARKET_TRADER {
-            for &id in &seen {
-                if self.buildings.get(id).is_some_and(|b| b.house.as_ref().is_some_and(|h| h.population > 0)) {
-                    self.deliver_food(home, id);
-                    self.deliver_goods(home, id);
-                    served += 1;
+            // The trader serves each house tile around him, so a big house is served
+            // once for each of its tiles in reach.
+            for yy in y - SERVICE_RADIUS..=y + SERVICE_RADIUS {
+                for xx in x - SERVICE_RADIUS..=x + SERVICE_RADIUS {
+                    let id = self.map.building.at_or(xx, yy, 0);
+                    if self.buildings.get(id).is_some_and(|b| b.house.as_ref().is_some_and(|h| h.population > 0)) {
+                        self.deliver_to_house(home, id);
+                    }
                 }
             }
+            served += seen.iter().filter(|&&id| self.buildings.get(id).is_some_and(|b| b.house.as_ref().is_some_and(|h| h.population > 0))).count() as i32;
         }
         match kind {
             crate::crime::CONSTABLE | crate::crime::MAGISTRATE => {

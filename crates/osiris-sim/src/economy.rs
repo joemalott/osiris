@@ -40,15 +40,10 @@ pub mod resource {
         (GRAIN..=GAMEMEAT).contains(&r)
     }
 
-    /// The house food slot a food fills: grain, meat, fish, fruit and vegetables.
+    /// The house food slot a food fills: one per food, in resource order (grain, meat,
+    /// lettuce, chickpeas, pomegranates, figs, fish, game meat).
     pub fn food_slot(r: u16) -> Option<usize> {
-        match r {
-            GRAIN => Some(0),
-            MEAT | GAMEMEAT => Some(1),
-            FISH => Some(2),
-            LETTUCE | CHICKPEAS | POMEGRANATES | FIGS => Some(3),
-            _ => None,
-        }
+        is_food(r).then(|| (r - GRAIN) as usize)
     }
 }
 
