@@ -1648,7 +1648,9 @@ impl Game {
     }
 
     /// The original's Difficulty window (Options menu): the level between arrows. A
-    /// change applies at once; a right-click or a click outside closes it.
+    /// change applies at once; a right-click or a click outside closes it. Panel,
+    /// title, level text, arrows and footer all match the original's own placing
+    /// (FUN_00531be0, arrow table at 0x5c8ee8) pixel for pixel.
     fn draw_difficulty(&mut self, r: &mut Renderer) {
         let img = *self.ui_images.get_or_insert_with(|| crate::widgets::UiImages::load(&r.library).expect("ui images"));
         let ox = ((r.screen[0] - 640.0) / 2.0).floor();

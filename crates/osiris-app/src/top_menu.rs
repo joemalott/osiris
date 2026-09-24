@@ -55,7 +55,8 @@ pub struct TopMenu {
     cursor: [f32; 2],
 }
 
-const BAR_Y: f32 = 6.0;
+/// The original draws the header labels and the status text at y=5 (FUN_0051f0a0).
+const BAR_Y: f32 = 5.0;
 const ITEM_H: f32 = 20.0;
 const DROP_W: f32 = 240.0;
 
@@ -206,7 +207,8 @@ impl TopMenu {
             draw_text(r, f, &h.label, h.x, BAR_Y, font::BLACK);
         }
         // The treasury, population and date at the original's places for its 640, 800
-        // and 1024 wide screens, kept that far from the right edge on wider ones.
+        // and 1024 wide screens (FUN_0051f0a0), kept that far from the right edge on
+        // wider ones.
         let w = r.screen[0];
         let (xs, shift) = if w < 800.0 {
             ([250.0, 375.0, 515.0], w - 640.0)
