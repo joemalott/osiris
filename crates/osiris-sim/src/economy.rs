@@ -1,12 +1,12 @@
 //! Goods: production, cart pushers, storage-yard carts and the wood and reed gatherers.
 //!
-//! Industries gain progress each day at tick 20 (by default one point per worker); a
-//! raw-material producer finishes a batch at 200 points and a workshop at 400, and the
-//! batch is stored at the next day's start. Workshops need 100 units of each input to
-//! begin a batch. Once a building holds a batch, a cart pusher takes it (tick 31): gold
-//! to the palace, food to a granary, raw materials to a workshop that needs them, and
-//! everything else to a storage yard. A cart with nowhere to go waits at home, and the
-//! building sends no other until it has gone.
+//! Industries gain progress each day at tick 20, one point per worker, while they hold
+//! a load (100) of each input. A raw-material producer is done at 200 points and a
+//! workshop at 400; at tick 31 a finished building with no cart out sends a cart of 100
+//! units, using up its inputs and starting again from nothing. Carts take goods where
+//! they're needed: weapons to the recruiter, raw materials to the least stocked
+//! workshop using them, then a fully staffed storage yard, then a granary. A cart with
+//! nowhere to go waits at home, and the building sends no other until it has gone.
 
 use crate::buildings::{BuildingId, kind};
 use crate::figures::{FigureId, Step, Travel};
@@ -54,12 +54,12 @@ pub mod resource {
 
 pub const LOAD: i32 = 100;
 pub const GRANARY_CAPACITY: i32 = storage::CAPACITY;
-/// What an industry keeps on site of each input and of its output.
+/// What an industry keeps on site of each input.
 const SITE_CAP: i32 = 200;
 const RAW_MAX_PROGRESS: i32 = 200;
 const WORKSHOP_MAX_PROGRESS: i32 = 400;
-/// The difficulty used for per-difficulty tables (Normal).
-const DIFFICULTY: usize = 2;
+/// What a gatherer's building stores before its gatherers stay home.
+const GATHER_CAP: i32 = 500;
 /// Ticks a cart with nowhere to go waits before looking again.
 const CART_RETRY_TICKS: i32 = 30;
 /// Most a storage-yard cart fetches at once, and most it delivers.
@@ -76,10 +76,12 @@ const REED_GATHERERS: u16 = 195;
 const FISHING_WHARF: u16 = 76;
 const SENET_HOUSE: u16 = 32;
 const PALACES: [u16; 3] = [kind::VILLAGE_PALACE, 85, 189];
+const BRICKWORKS: u16 = 204;
 /// Ticks a gatherer spends cutting once it reaches its tree or reeds.
 const GATHER_TICKS: i32 = 300;
-/// What a gatherer brings back per trip.
-const GATHER_AMOUNT: i32 = 25;
+/// What a lumberjack brings back per trip, and a reed gatherer.
+const TIMBER_PER_TRIP: i32 = 25;
+const REEDS_PER_TRIP: i32 = 50;
 
 mod action {
     /// Loaded and walking to its destination.
@@ -109,11 +111,6 @@ fn site_cap(k: u16) -> i32 {
     }
 }
 
-/// Quarries: stone, limestone, granite and sandstone.
-fn is_quarry(k: u16) -> bool {
-    matches!(k, 106 | 107 | 216 | 221)
-}
-
 impl World {
     pub fn resource_id(&self, key: &str) -> Option<u16> {
         self.defs.resources.iter().position(|k| k == key).map(|i| i as u16)
@@ -121,17 +118,6 @@ impl World {
 
     fn distance(&self, id: BuildingId, from: (i32, i32)) -> i32 {
         self.buildings.get(id).map_or(i32::MAX, |b| (b.x - from.0).abs().max((b.y - from.1).abs()))
-    }
-
-    /// The units in one finished batch of building `k`'s output.
-    pub fn batch_size(&self, k: u16) -> i32 {
-        let Some(def) = self.defs.building(k) else { return LOAD };
-        if let Some(toml::Value::Array(table)) = def.extra.get("production_rate_dcy")
-            && let Some(v) = table.get(DIFFICULTY).and_then(|v| v.as_integer())
-        {
-            return v as i32;
-        }
-        def.int("production_rate").map_or(LOAD, |v| v as i32)
     }
 
     /// Whether building `k` produces through the daily progress of an industry (farms,
@@ -143,9 +129,9 @@ impl World {
             && !matches!(k, kind::HUNTING_LODGE | WOOD_CUTTERS | REED_GATHERERS | FISHING_WHARF)
     }
 
-    /// Progress a batch takes: 400 in a workshop, 200 in a raw-material producer.
+    /// Progress a load takes: 400 where it is made from inputs, 200 where it is dug up.
     pub fn max_progress(&self, k: u16) -> i32 {
-        if self.defs.building(k).is_some_and(|d| d.has_flag("is_workshop")) { WORKSHOP_MAX_PROGRESS } else { RAW_MAX_PROGRESS }
+        if self.inputs_of(k).is_empty() { RAW_MAX_PROGRESS } else { WORKSHOP_MAX_PROGRESS }
     }
 
     fn output_of(&self, k: u16) -> Option<u16> {
@@ -156,19 +142,10 @@ impl World {
         self.defs.building(k).map_or_else(Vec::new, |d| d.inputs.iter().filter_map(|i| self.resource_id(i)).collect())
     }
 
-    /// A day's progress with `workers` staff: quarries and mines dig slower than
-    /// workshops work.
-    fn daily_progress(k: u16, workers: i32) -> i32 {
-        if workers <= 0 {
-            return 0;
-        }
-        match k {
-            k if is_quarry(k) => (workers / 2).max(1),
-            161 => (workers / 10).max(1),
-            217 => (workers / 2).max(1),
-            162 => (workers / 3).max(1),
-            _ => workers,
-        }
+    /// What building `k` needs of input `r` on hand to work, and uses up per load: a
+    /// load of each, but the brickworks only a quarter load of straw.
+    fn input_need(k: u16, r: u16) -> i32 {
+        if k == BRICKWORKS && r == resource::STRAW { LOAD / 4 } else { LOAD }
     }
 
     /// Whether Ptah speeds building type `k` by half: his complex the mines, clay pits,
@@ -182,7 +159,8 @@ impl World {
         }
     }
 
-    /// Tick 20: industries make progress, starting a new batch when they can.
+    /// Tick 20: industries holding their inputs make a day's progress, one point per
+    /// worker, and stop when done.
     pub(crate) fn update_production(&mut self) {
         for id in self.buildings.ids() {
             let Some(b) = self.buildings.get(id) else { continue };
@@ -190,80 +168,108 @@ impl World {
             if !self.is_industry(k) || b.workers <= 0 || self.output_of(k).is_some_and(|r| self.is_mothballed(r)) {
                 continue;
             }
-            let inputs = self.inputs_of(k);
-            let max = self.max_progress(k);
-            let gain = Self::daily_progress(k, b.workers);
-            let gain = if self.ptah_speeds(k) { gain * 3 / 2 } else { gain };
-            let b = self.buildings.get_mut(id).expect("present");
-            if b.progress == 0 {
-                // A batch starts with a load of each input.
-                if !inputs.iter().all(|&r| b.stock[r as usize] >= LOAD) {
-                    continue;
-                }
-                for &r in &inputs {
-                    b.stock[r as usize] -= LOAD;
-                }
-                b.progress = 1;
+            if !self.inputs_of(k).iter().all(|&r| b.stock[r as usize] >= Self::input_need(k, r)) {
+                continue;
             }
+            let gain = b.workers;
+            let gain = if self.ptah_speeds(k) { gain + gain / 2 } else { gain };
+            let max = self.max_progress(k);
+            let b = self.buildings.get_mut(id).expect("present");
             b.progress = (b.progress + gain).min(max);
         }
     }
 
-    /// The start of each day: finished batches go into the building's stock, if it
-    /// has room for them.
-    pub(crate) fn finish_production(&mut self) {
-        for id in self.buildings.ids() {
-            let Some(b) = self.buildings.get(id) else { continue };
-            let k = b.kind;
-            if !self.is_industry(k) {
-                continue;
-            }
-            let max = self.max_progress(k);
-            let (Some(out), batch) = (self.output_of(k), self.batch_size(k)) else { continue };
-            let b = self.buildings.get_mut(id).expect("present");
-            if b.progress >= max && b.stock[out as usize] < SITE_CAP {
-                b.stock[out as usize] += batch;
-                b.progress = 0;
-            }
-        }
-    }
-
-    /// Tick 31 (with walkers): full batches leave by cart, and storage yards send carts
-    /// on their errands.
+    /// Tick 31 (with walkers): finished industries and farms with a harvest send a
+    /// cart, and storage yards send carts on their errands.
     pub(crate) fn send_carts(&mut self) {
         for id in self.buildings.ids() {
             let Some(b) = self.buildings.get(id) else { continue };
-            if b.walkers[2] != 0 || b.road.is_none() {
-                continue;
-            }
-            if b.kind == kind::STORAGE_YARD {
-                self.yard_errand(id);
-                continue;
-            }
-            if b.kind == kind::GRANARY {
+            if b.road.is_none() {
                 continue;
             }
             let k = b.kind;
-            let Some(r) = self.output_of(k) else { continue };
-            let amount = b.stock[r as usize];
-            let farm = self.defs.building(k).is_some_and(|d| d.has_flag("is_farm"));
-            let batch = if self.is_industry(k) { self.batch_size(k) } else { LOAD };
-            if amount <= 0 || (!farm && amount < batch) {
+            if k == kind::STORAGE_YARD {
+                if b.walkers[2] == 0 {
+                    self.yard_errand(id);
+                }
                 continue;
             }
-            // Farms send their whole harvest; everything else one batch at a time.
-            let carry = if farm { amount.min(LOAD * 8) } else { batch };
-            self.spawn_cart(id, r, carry);
+            if self.is_farm(k) {
+                self.send_farm_carts(id);
+                continue;
+            }
+            if b.walkers[2] != 0 || matches!(k, WOOD_CUTTERS | REED_GATHERERS) {
+                continue;
+            }
+            let Some(r) = self.output_of(k) else { continue };
+            if self.is_industry(k) {
+                if b.progress < self.max_progress(k) {
+                    continue;
+                }
+                // The cart takes the load, and the inputs it was made from are used up.
+                let inputs = self.inputs_of(k);
+                let b = self.buildings.get_mut(id).expect("present");
+                b.progress = 0;
+                for i in inputs {
+                    b.stock[i as usize] = (b.stock[i as usize] - Self::input_need(k, i)).max(0);
+                }
+                b.stock[r as usize] += LOAD;
+                self.spawn_cart(id, r, LOAD);
+                continue;
+            }
+            let amount = b.stock[r as usize];
+            if amount < LOAD {
+                continue;
+            }
+            self.spawn_cart(id, r, LOAD);
             // Min's oracle doubles what fishermen and hunters bring in.
             let rich = matches!(k, crate::water::FISHING_WHARF | kind::HUNTING_LODGE) && self.complex_blessing(crate::temple_complex::OSIRIS, crate::temple_complex::ORACLE);
             if rich && let Some(f) = self.buildings.get(id).map(|b| b.walkers[2]).and_then(|c| self.figures.get_mut(c)) {
                 f.amount *= 2;
             }
         }
+        self.send_gathered();
         self.send_gatherers();
     }
 
+    /// A farm sends its whole harvest in one cart, and a grain farm its straw in another.
+    fn send_farm_carts(&mut self, id: BuildingId) {
+        let Some(b) = self.buildings.get(id) else { return };
+        let outputs: Vec<u16> = self.defs.building(b.kind).map_or_else(Vec::new, |d| d.outputs.iter().filter_map(|o| self.resource_id(o)).collect());
+        for (i, r) in outputs.into_iter().enumerate().take(2) {
+            let Some(b) = self.buildings.get(id) else { return };
+            let amount = b.stock[r as usize];
+            let busy = if i == 0 { b.walkers[2] != 0 } else { self.figures.iter().any(|f| f.kind == CART_PUSHER && f.home == id && f.cargo == r && !f.dead) };
+            if amount > 0 && !busy {
+                self.spawn_cart_in(id, r, amount, (i == 0).then_some(2));
+            }
+        }
+    }
+
+    /// Wood cutters and reed gatherers send a cart of 100 from what their gatherers
+    /// brought in: wood cutters once they hold 100, reed gatherers once they hold more
+    /// than 50 (the load is made up from what comes in next).
+    fn send_gathered(&mut self) {
+        for id in self.buildings.ids() {
+            let Some(b) = self.buildings.get(id) else { continue };
+            let (r, min) = match b.kind {
+                WOOD_CUTTERS => (resource::TIMBER, LOAD),
+                REED_GATHERERS => (resource::REEDS, REEDS_PER_TRIP + 1),
+                _ => continue,
+            };
+            if b.walkers[2] != 0 || b.road.is_none() || b.workers <= 0 || b.stock[r as usize] < min {
+                continue;
+            }
+            self.spawn_cart(id, r, LOAD);
+        }
+    }
+
     pub fn spawn_cart(&mut self, home: BuildingId, r: u16, amount: i32) {
+        self.spawn_cart_in(home, r, amount, Some(2));
+    }
+
+    /// Sends a cart of `amount` of `r` out of `home`'s stock, recorded in walker slot `slot`.
+    fn spawn_cart_in(&mut self, home: BuildingId, r: u16, amount: i32, slot: Option<usize>) {
         let Some(b) = self.buildings.get(home) else { return };
         let Some(road) = b.road else { return };
         let fid = self.figures.spawn(CART_PUSHER, road.0, road.1, Travel::Roads);
@@ -275,7 +281,9 @@ impl World {
         }
         if let Some(b) = self.buildings.get_mut(home) {
             b.stock[r as usize] -= amount;
-            b.walkers[2] = fid;
+            if let Some(slot) = slot {
+                b.walkers[slot] = fid;
+            }
         }
     }
 
@@ -284,45 +292,80 @@ impl World {
         candidates.min_by_key(|&id| (self.distance(id, from), id))
     }
 
-    /// Room building `id` has for `r` as a delivery target (storage by its orders,
-    /// industries and other users up to what they keep on site).
+    /// Room building `id` has for `r` as a delivery target (storage by its orders, a
+    /// palace for any gold, industries and other users up to what they keep on site).
     fn room_for(&self, id: BuildingId, r: u16) -> i32 {
         let Some(b) = self.buildings.get(id) else { return 0 };
         if storage::is_storage(b.kind) {
             return self.storage_room(id, r);
         }
-        if b.road.is_none() || b.workers <= 0 || !self.inputs_of(b.kind).contains(&r) {
+        if r == resource::GOLD && PALACES.contains(&b.kind) {
+            return i32::MAX;
+        }
+        if b.road.is_none() || !self.inputs_of(b.kind).contains(&r) {
             return 0;
         }
         site_cap(b.kind) - b.stock[r as usize]
     }
 
-    /// Where a producer's cart takes `r`, in the original's order of preference: gold
-    /// to the palace, food to a granary, raw materials to a workshop that uses them,
-    /// then any storage yard.
+    /// What carts already on their way are bringing building `id` of `r`.
+    fn incoming(&self, id: BuildingId, r: u16) -> i32 {
+        self.figures
+            .iter()
+            .filter(|f| matches!(f.kind, CART_PUSHER | STORAGEYARD_CART) && f.action == action::DELIVERING && f.target == id && f.cargo == r && !f.dead)
+            .map(|f| f.amount)
+            .sum()
+    }
+
+    /// Whether building `id` has all the staff it can hire.
+    fn fully_staffed(&self, id: BuildingId) -> bool {
+        self.buildings.get(id).is_some_and(|b| b.workers >= self.workers_needed(b.kind).max(1))
+    }
+
+    /// The building using `r` that a load of it should go to: the one holding least,
+    /// then with least on its way, then the nearest. It must have room for a whole
+    /// load beyond what it holds, and more than what is on its way.
+    fn user_for(&self, r: u16, from: (i32, i32), staffed: bool) -> Option<BuildingId> {
+        self.buildings
+            .iter()
+            .filter(|b| !storage::is_storage(b.kind) && (!staffed || b.workers > 0) && self.inputs_of(b.kind).contains(&r) && b.road.is_some())
+            .filter_map(|b| {
+                let (stock, cap) = (b.stock[r as usize], site_cap(b.kind));
+                let coming = self.incoming(b.id, r);
+                (stock + LOAD <= cap && stock + coming < cap).then_some((stock, coming, self.distance(b.id, from), b.id))
+            })
+            .min()
+            .map(|t| t.3)
+    }
+
+    /// Where a producer's cart takes `r`, in the original's order: gold to a staffed
+    /// palace; unless the good is stockpiled, a building that uses it; a fully staffed
+    /// storage yard that takes it; then, for food, a fully staffed granary with room
+    /// for a load (skipped for stockpiled food until nothing else will take it).
     pub fn cart_destination(&self, r: u16, from: (i32, i32)) -> Option<BuildingId> {
-        let with_room = |k: u16| self.buildings.iter().filter(move |b| b.kind == k && self.room_for(b.id, r) > 0).map(|b| b.id);
         if r == resource::GOLD {
             return self.nearest(
-                self.buildings.iter().filter(|b| PALACES.contains(&b.kind) && b.workers >= 5 && b.road.is_some()).map(|b| b.id),
+                self.buildings.iter().filter(|b| PALACES.contains(&b.kind) && b.workers > 0 && b.road.is_some()).map(|b| b.id),
                 from,
             );
         }
-        if self.is_stockpiled(r)
-            && let Some(y) = self.nearest(with_room(kind::STORAGE_YARD), from)
-        {
+        let stockpiled = self.is_stockpiled(r);
+        if !stockpiled && let Some(u) = self.user_for(r, from, false) {
+            return Some(u);
+        }
+        let yards = self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD && self.fully_staffed(b.id) && self.storage_room(b.id, r) > 0).map(|b| b.id);
+        if let Some(y) = self.nearest(yards, from) {
             return Some(y);
         }
-        if resource::is_food(r)
-            && let Some(g) = self.nearest(with_room(kind::GRANARY), from)
-        {
-            return Some(g);
+        if !resource::is_food(r) {
+            return None;
         }
-        let workshops = self.buildings.iter().filter(|b| self.is_industry(b.kind) && self.room_for(b.id, r) > 0).map(|b| b.id);
-        if let Some(w) = self.nearest(workshops, from) {
-            return Some(w);
-        }
-        self.nearest(with_room(kind::STORAGE_YARD), from)
+        let granaries = self
+            .buildings
+            .iter()
+            .filter(|b| b.kind == kind::GRANARY && self.fully_staffed(b.id) && self.storage_room(b.id, r) - self.incoming(b.id, r) >= LOAD)
+            .map(|b| b.id);
+        self.nearest(granaries, from)
     }
 
     /// Unloads what building `target` takes of a cart's goods and returns what is left.
@@ -452,9 +495,9 @@ impl World {
         }
     }
 
-    /// A storage yard's next errand, in the original's order: fetch goods it is set to
-    /// get, supply buildings that use its goods, move food to granaries, then empty out
-    /// goods it is set to empty. Needs half its staff.
+    /// A storage yard's next errand, in the original's order: fetch the good on "get"
+    /// it holds least of (by share of its limit), supply buildings that use goods it
+    /// holds, send out goods on "empty", then haul for monuments. Needs half its staff.
     fn yard_errand(&mut self, yard: BuildingId) {
         let Some(b) = self.buildings.get(yard) else { return };
         let needed = self.workers_needed(b.kind).max(1);
@@ -476,8 +519,9 @@ impl World {
             v
         };
         // 1. Goods on "get": fetch from another storage building.
+        let mut gets: Vec<(i32, u16, BuildingId)> = Vec::new();
         for r in 1..resource::COUNT as u16 {
-            if b.order(r) != order::GET || self.storage_room(yard, r) <= 0 {
+            if b.order(r) != order::GET || self.is_stockpiled(r) || self.storage_room(yard, r) <= 0 {
                 continue;
             }
             let sources = self
@@ -486,47 +530,49 @@ impl World {
                 .filter(|s| s.id != yard && storage::is_storage(s.kind) && s.order(r) != order::GET && self.stored(s.id, r) >= LOAD)
                 .map(|s| s.id);
             if let Some(src) = self.nearest(sources, from) {
-                self.yard_cart(yard, r, 0, src, action::FETCHING);
-                return;
+                let share = self.stored(yard, r) * 100 / b.order_cap(r).max(1);
+                gets.push((share, r, src));
             }
         }
-        // 2. Buildings that use goods it holds: workshops, schools, libraries,
-        // mortuaries, venues, guilds. A cart brings them one load.
-        let users: Vec<(BuildingId, u16)> = self
-            .buildings
-            .iter()
-            .filter(|u| !storage::is_storage(u.kind))
-            .flat_map(|u| held.iter().filter(|h| h.1 >= LOAD && !self.is_stockpiled(h.0) && self.room_for(u.id, h.0) >= LOAD).map(move |h| (u.id, h.0)))
-            .collect();
-        if let Some(&(user, r)) = users.iter().min_by_key(|(u, _)| (self.distance(*u, from), *u)) {
-            let taken = self.take_stored(yard, r, LOAD);
-            self.yard_cart(yard, r, taken, user, action::DELIVERING);
+        if let Some(&(_, r, src)) = gets.iter().min() {
+            self.yard_cart(yard, r, 0, src, action::FETCHING);
             return;
         }
-        // 3. Food to a granary.
+        // 2. A load for a staffed building that uses a good it holds: workshops, schools,
+        // libraries, mortuaries, venues, guilds, the recruiter.
         for &(r, n) in &held {
-            if !resource::is_food(r) {
+            if self.is_stockpiled(r) {
                 continue;
             }
-            let granaries = self.buildings.iter().filter(|g| g.kind == kind::GRANARY && self.storage_room(g.id, r) > 0);
-            if let Some(g) = self.nearest(granaries.map(|g| g.id), from) {
-                let taken = self.take_stored(yard, r, n.min(YARD_DELIVER));
-                self.yard_cart(yard, r, taken, g, action::DELIVERING);
+            if let Some(user) = self.user_for(r, from, true) {
+                let taken = self.take_stored(yard, r, n.min(LOAD));
+                self.yard_cart(yard, r, taken, user, action::DELIVERING);
                 return;
             }
         }
-        // 4. Goods on "empty": to any other storage that takes them. (Monument material
+        // 3. Goods on "empty": a cart of 400 (100 of heavy goods) to a building that uses
+        // them, a granary for food, or another storage yard. (Monument material
         // leaves on work-camp laborers' sleds, not the yard's carts.)
         let b = self.buildings.get(yard).expect("present").clone();
         for &(r, n) in &held {
             if b.order(r) != order::EMPTY {
                 continue;
             }
-            let others = self.buildings.iter().filter(|s| s.id != yard && storage::is_storage(s.kind) && self.storage_room(s.id, r) > 0);
-            if let Some(o) = self.nearest(others.map(|s| s.id), from) {
-                let taken = self.take_stored(yard, r, n.min(YARD_DELIVER));
-                self.yard_cart(yard, r, taken, o, action::DELIVERING);
-                break;
+            let heavy = matches!(self.defs.resources.get(r as usize).map(String::as_str), Some("stone" | "limestone" | "granite" | "sandstone" | "marble" | "bricks" | "weapons" | "chariots"));
+            let load = if heavy { LOAD } else { YARD_DELIVER };
+            let granary = || {
+                let g = self.buildings.iter().filter(|g| g.kind == kind::GRANARY && self.fully_staffed(g.id) && self.storage_room(g.id, r) >= LOAD);
+                self.nearest(g.map(|g| g.id), from)
+            };
+            let yards = || {
+                let y = self.buildings.iter().filter(|s| s.id != yard && s.kind == kind::STORAGE_YARD && self.fully_staffed(s.id) && self.storage_room(s.id, r) > 0);
+                self.nearest(y.map(|s| s.id), from)
+            };
+            let target = self.user_for(r, from, false).or_else(|| if resource::is_food(r) { granary() } else { None }).or_else(yards);
+            if let Some(t) = target {
+                let taken = self.take_stored(yard, r, n.min(load));
+                self.yard_cart(yard, r, taken, t, action::DELIVERING);
+                return;
             }
         }
     }
@@ -583,31 +629,46 @@ impl World {
         }
     }
 
-    /// Tick 31: wood cutters and reed gatherers send their gatherer when they have room.
+    /// Tick 31: wood cutters and reed gatherers send out gatherers by their staffing
+    /// (up to three lumberjacks or five reed gatherers at full staff), no more than
+    /// the room left under 500 stored allows.
     fn send_gatherers(&mut self) {
         for id in self.buildings.ids() {
             let Some(b) = self.buildings.get(id) else { continue };
-            let (figure, r) = match b.kind {
-                WOOD_CUTTERS => (LUMBERJACK, resource::TIMBER),
-                REED_GATHERERS => (REED_GATHERER, resource::REEDS),
+            let (figure, r, per_trip) = match b.kind {
+                WOOD_CUTTERS => (LUMBERJACK, resource::TIMBER, TIMBER_PER_TRIP),
+                REED_GATHERERS => (REED_GATHERER, resource::REEDS, REEDS_PER_TRIP),
                 _ => continue,
             };
-            if b.workers <= 0 || b.walkers[0] != 0 || b.stock[r as usize] >= SITE_CAP {
-                continue;
-            }
             let Some(road) = b.road else { continue };
-            let Some(spot) = self.harvest_spot(b.kind, road) else { continue };
-            let fid = self.figures.spawn(figure, road.0, road.1, Travel::Land);
-            let map = &self.map;
-            if let Some(f) = self.figures.get_mut(fid) {
-                f.home = id;
-                f.cargo = r;
-                f.action = action::TO_HARVEST;
-                if !f.go_to(map, spot) {
-                    f.dead = true;
+            let (k, stock) = (b.kind, b.stock[r as usize]);
+            let pct = b.workers * 100 / self.workers_needed(k).max(1);
+            let wanted = match (k, pct) {
+                (_, p) if p <= 0 => continue,
+                (WOOD_CUTTERS, p) if p >= 100 => 3,
+                (WOOD_CUTTERS, p) if p >= 50 => 2,
+                (REED_GATHERERS, p) if p >= 100 => 5,
+                (REED_GATHERERS, p) if p >= 75 => 4,
+                (REED_GATHERERS, p) if p >= 50 => 2,
+                _ => 1,
+            };
+            let wanted = wanted.min((GATHER_CAP - stock).max(0) / per_trip);
+            let mut out = self.figures.iter().filter(|f| f.kind == figure && f.home == id && !f.dead).count() as i32;
+            while out < wanted {
+                let Some(spot) = self.harvest_spot(k, road) else { break };
+                let fid = self.figures.spawn(figure, road.0, road.1, Travel::Land);
+                let map = &self.map;
+                if let Some(f) = self.figures.get_mut(fid) {
+                    f.home = id;
+                    f.cargo = r;
+                    f.action = action::TO_HARVEST;
+                    if !f.go_to(map, spot) {
+                        f.dead = true;
+                        break;
+                    }
                 }
+                out += 1;
             }
-            self.buildings.get_mut(id).expect("present").walkers[0] = fid;
         }
     }
 
@@ -671,7 +732,7 @@ impl World {
                     return;
                 }
                 let (x, y) = (f.x, f.y);
-                f.amount = GATHER_AMOUNT;
+                f.amount = if f.kind == REED_GATHERER { REEDS_PER_TRIP } else { TIMBER_PER_TRIP };
                 self.set_vegetation_growth(x, y, 0);
                 self.head_home(fid, action::RETURNING);
             }
@@ -688,5 +749,17 @@ impl World {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn brickworks_use_a_quarter_load_of_straw() {
+        assert_eq!(World::input_need(BRICKWORKS, resource::STRAW), 25);
+        assert_eq!(World::input_need(BRICKWORKS, 11), LOAD);
+        assert_eq!(World::input_need(114, 11), LOAD);
     }
 }

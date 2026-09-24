@@ -1,7 +1,8 @@
 //! Farms. Floodplain farms have no staff of their own: work camps send peasants who
-//! tend a farm for 96 days, during which its crop grows by fertility x 0.16 a day. The
-//! crop is harvested when the flood approaches. Meadow farms hire like other buildings
-//! and grow in proportion to their workers, harvesting when the crop is ripe.
+//! tend a farm for 96 days, during which it counts as fully staffed. A farm's crop
+//! grows each day by fertility x 0.16 / 99 x workers x 10 (at least 1), toward 2000.
+//! Floodplain crops are harvested when the flood approaches, meadow crops on the first
+//! day of their harvest months; a harvest yields 8 per percent of the crop grown.
 
 use crate::buildings::{BuildingId, kind};
 use crate::economy::LOAD;
@@ -11,7 +12,13 @@ use crate::map::terrain;
 use crate::world::World;
 
 pub const PROGRESS_MAX: i32 = 2000;
-const GROWTH_PER_FERTILITY: f32 = 0.16;
+const GROWTH_PER_FERTILITY: f64 = 0.16;
+/// Meadow harvest months (0 = the first month) by farm type.
+const HARVEST_MONTHS: [(u16, &[u32]); 8] = [(100, &[1, 7]), (101, &[11]), (102, &[4, 0]), (103, &[3]), (104, &[5, 10]), (105, &[3]), (196, &[8]), (224, &[11])];
+/// A floodplain harvest leaves a fifth of each tile's fertility.
+const HARVEST_FERTILITY_KEPT: i32 = 20;
+/// Straw a grain farm sends out with each harvest.
+const STRAW_PER_HARVEST: i32 = 100;
 const LABOR_DAYS: i32 = 96;
 /// Farms ask for peasants again once this many labor days remain.
 const RELABOR_BELOW: i32 = 47;
@@ -29,77 +36,80 @@ impl World {
         self.is_farm(b.kind) && self.map.terrain_is(b.x, b.y, terrain::FLOODPLAIN)
     }
 
-    /// Average soil fertility under a building, 0..=100.
+    /// A farm's soil fertility: its tiles' average plus 2, at most 99.
     pub fn fertility(&self, id: BuildingId) -> i32 {
         let Some(b) = self.buildings.get(id) else { return 0 };
-        let tiles: Vec<i32> = b.tiles().map(|(x, y)| self.map.fertility.at_or(x, y, 0) as i32).collect();
-        (tiles.iter().sum::<i32>() / tiles.len().max(1) as i32).min(100)
+        let tiles: Vec<i32> = b.tiles().map(|(x, y)| self.map.fertility.at_or(x, y, 0) as i32 + 1).collect();
+        (tiles.iter().sum::<i32>() / tiles.len().max(1) as i32 + 1).min(99)
     }
 
-    /// Tick 33: crops grow.
+    /// A day's crop growth at `fertility` with `workers` tending it.
+    fn crop_growth(fertility: i32, workers: i32) -> i32 {
+        ((fertility as f64 * GROWTH_PER_FERTILITY / 99.0 * workers as f64 * 10.0) as i32).max(1)
+    }
+
+    /// Tick 33: crops grow. Floodplain farms count as fully staffed while tended.
     pub(crate) fn update_farms(&mut self) {
         for id in self.buildings.ids() {
             let Some(b) = self.buildings.get(id) else { continue };
             if !self.is_farm(b.kind) {
                 continue;
             }
-            let step = (self.fertility(id) as f32 * GROWTH_PER_FERTILITY) as i32;
             let floodplain = self.is_floodplain_farm(id);
+            let full = self.workers_needed(b.kind);
+            let mothballed = self.defs.building(b.kind).and_then(|d| d.outputs.first()).and_then(|o| self.resource_id(o)).is_some_and(|r| self.is_mothballed(r));
+            let fertility = self.fertility(id);
             let Some(b) = self.buildings.get_mut(id) else { continue };
             if floodplain {
-                if b.labor_days > 0 {
-                    b.progress += step;
-                    b.labor_days -= 1;
-                }
-                if b.labor_days <= 0 {
-                    b.workers = 0;
-                }
-            } else if b.workers > 0 {
-                b.progress += (step as f32 * b.workers as f32 / 10.0) as i32;
+                b.workers = if b.labor_days > 0 && !mothballed { full } else { 0 };
+                b.labor_days = (b.labor_days - 1).max(0);
             }
-            b.progress = b.progress.min(PROGRESS_MAX);
+            if b.workers > 0 {
+                b.progress = (b.progress + Self::crop_growth(fertility, b.workers)).min(PROGRESS_MAX);
+            }
         }
-        // Ripe meadow crops are harvested straight away.
-        for id in self.buildings.ids() {
-            let ripe = self
-                .buildings
-                .get(id)
-                .is_some_and(|b| self.is_farm(b.kind) && b.progress >= PROGRESS_MAX && b.walkers[2] == 0);
-            if ripe && !self.is_floodplain_farm(id) {
-                self.harvest(id, false);
+        // Meadow crops are brought in on the first day of their harvest months.
+        if self.time.day == 0 {
+            let month = self.time.month;
+            for id in self.buildings.ids() {
+                let due = self.buildings.get(id).is_some_and(|b| HARVEST_MONTHS.iter().any(|&(k, m)| k == b.kind && m.contains(&month)));
+                if due && !self.is_floodplain_farm(id) {
+                    self.harvest(id, false);
+                }
             }
         }
     }
 
-    /// Moves a farm's crop into its store as produce, ready to be carted away.
+    /// Brings in a farm's crop as produce, ready to be carted away: 8 per percent of the
+    /// crop grown, doubled on the floodplain by Osiris's blessing, and a load of straw
+    /// from a grain farm. The floodplain's soil is worn down by the harvest.
     fn harvest(&mut self, id: BuildingId, floodplain: bool) {
-        let fertility = self.fertility(id);
         let Some(b) = self.buildings.get(id) else { return };
         let Some(def) = self.defs.building(b.kind) else { return };
         let outputs: Vec<u16> = def.outputs.iter().filter_map(|k| self.resource_id(k)).collect();
         let Some(&main) = outputs.first() else { return };
-        let mut progress = b.progress;
-        if floodplain {
-            progress = progress * fertility / 100;
-        }
-        // The original counts progress in steps of 20.
-        let mut produce = ((progress / 20 * 20) as f32 / 2.5) as i32;
-        // Osiris's blessing doubles the harvest.
-        if self.religion.osiris_double_harvest_days > 0 {
+        let mut produce = b.progress * 100 / PROGRESS_MAX * 8;
+        if floodplain && self.religion.osiris_double_harvest_days > 0 {
             produce *= 2;
         }
+        let tiles: Vec<(i32, i32)> = b.tiles().collect();
+        let straw = outputs.get(1).copied().filter(|&r| !self.is_mothballed(r));
         let Some(b) = self.buildings.get_mut(id) else { return };
         b.progress = 0;
         if produce <= 0 {
             return;
         }
         b.stock[main as usize] += produce;
-        if let Some(&second) = outputs.get(1) {
-            b.stock[second as usize] += produce / 10;
+        if let Some(second) = straw {
+            b.stock[second as usize] += STRAW_PER_HARVEST;
         }
         if floodplain {
             b.labor_days = 0;
             b.workers = 0;
+            for (x, y) in tiles {
+                let f = self.map.fertility.at_or(x, y, 0) as i32;
+                self.map.fertility.set(x, y, (f * HARVEST_FERTILITY_KEPT / 100).max(1) as u8);
+            }
         }
     }
 
@@ -281,14 +291,13 @@ impl World {
                 self.figures.get_mut(fid).expect("present").action = 4;
             }
             (1, Step::Arrived) => {
-                let camp = self.buildings.get(home).map(|b| (b.x, b.y));
-                let Some((cx, cy)) = camp else {
+                if self.buildings.get(home).is_none() {
                     self.figures.get_mut(fid).expect("present").dead = true;
                     return;
-                };
+                }
+                let full = self.buildings.get(farm).map_or(0, |b| self.workers_needed(b.kind));
                 if let Some(b) = self.buildings.get_mut(farm) {
-                    let dist = (((b.x - cx).pow(2) + (b.y - cy).pow(2)) as f32).sqrt();
-                    b.workers = (((1.0 - dist / 20.0) * 12.0) as i32).clamp(2, 10);
+                    b.workers = full;
                     b.labor_days = LABOR_DAYS;
                 }
                 let back = self.buildings.get(home).and_then(|b| b.road);
@@ -332,5 +341,27 @@ impl World {
     /// Whole loads a farm has ready.
     pub fn farm_loads(&self, id: BuildingId, r: u16) -> i32 {
         self.stored(id, r) / LOAD
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crops_grow_by_fertility_and_workers() {
+        // Rich soil, full staff: 16 a day, a full crop in about four months.
+        assert_eq!(World::crop_growth(99, 10), 16);
+        assert_eq!(World::crop_growth(50, 10), 8);
+        // Half staff grows half as fast; poor soil still grows a little.
+        assert_eq!(World::crop_growth(99, 5), 8);
+        assert_eq!(World::crop_growth(2, 1), 1);
+    }
+
+    #[test]
+    fn every_meadow_farm_has_harvest_months() {
+        for k in [100, 101, 102, 103, 104, 105, 196, 224] {
+            assert!(HARVEST_MONTHS.iter().any(|&(f, m)| f == k && !m.is_empty() && m.iter().all(|&m| m < 12)));
+        }
     }
 }

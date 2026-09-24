@@ -172,27 +172,22 @@ impl World {
             if b.workers <= 0 || b.stock[resource::GAMEMEAT as usize] >= STOP_HUNTING_AT {
                 continue;
             }
-            let out = self.figures.iter().filter(|f| f.home == id && is_hunter(f.kind)).count();
-            if out >= MAX_HUNTERS || b.spawn_delay > 0 {
-                if let Some(b) = self.buildings.get_mut(id) {
-                    b.spawn_delay = (b.spawn_delay - 1).max(0);
-                }
-                continue;
-            }
-            let delay = match b.workers * 100 / self.workers_needed(b.kind).max(1) {
-                p if p >= 100 => 1,
-                p if p >= 75 => 5,
-                p if p >= 50 => 10,
-                p if p >= 25 => 15,
-                _ => 30,
+            // Hunters out at once by staffing: three at full staff, two from three
+            // quarters, one from a quarter; no more than the room under 500 allows.
+            let wanted = match b.workers * 100 / self.workers_needed(b.kind).max(1) {
+                p if p >= 100 => MAX_HUNTERS,
+                p if p >= 75 => 2,
+                p if p >= 25 => 1,
+                _ => 0,
             };
-            if let Some(b) = self.buildings.get_mut(id) {
-                b.spawn_delay = delay;
-            }
-            let fid = self.figures.spawn(hunter, road.0, road.1, Travel::Land);
-            if let Some(f) = self.figures.get_mut(fid) {
-                f.home = id;
-                f.action = action::CHASING;
+            let wanted = wanted.min(((STOP_HUNTING_AT - b.stock[resource::GAMEMEAT as usize]) / 100).max(0) as usize);
+            let out = self.figures.iter().filter(|f| f.home == id && is_hunter(f.kind) && !f.dead).count();
+            for _ in out..wanted {
+                let fid = self.figures.spawn(hunter, road.0, road.1, Travel::Land);
+                if let Some(f) = self.figures.get_mut(fid) {
+                    f.home = id;
+                    f.action = action::CHASING;
+                }
             }
         }
     }

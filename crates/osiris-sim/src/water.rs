@@ -570,7 +570,7 @@ mod tests {
         let city = world.trade.cities.iter().position(|c| c.sea && c.sells[13]).expect("a sea city selling pottery");
         world.trade.cities[city].open = true;
         world.set_trade(13, crate::trade::status::IMPORT, 1000);
-        for _ in 0..7500 {
+        for _ in 0..9000 {
             world.tick();
         }
         let granary = world.map.building.at_or(152, 127, 0);

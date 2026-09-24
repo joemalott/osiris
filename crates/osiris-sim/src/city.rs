@@ -17,7 +17,6 @@ impl World {
         self.update_earthquakes();
         match self.time.tick {
             1 => {
-                self.finish_production();
                 self.check_unlocks();
                 self.check_milestones();
                 self.update_trade_problems();
