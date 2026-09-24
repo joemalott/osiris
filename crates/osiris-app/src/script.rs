@@ -362,6 +362,10 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let c: usize = c.parse()?;
                 world.trade.cities.get_mut(c).context("no such trade city")?.open = true;
             }
+            // Makes city C a trading city of type T (osiris_formats::empire::city
+            // constants: 1 pharaoh_trading, 3 egyptian_trading, 5 foreign_trading),
+            // for screenshot testing the empire window's trade panel.
+            ["citytype", c, t] => world.change_trade_city(c.parse()?, t.parse()?, false),
             ["traded", c, r, n] => {
                 let route = world.trade.cities.get(c.parse::<usize>()?).context("no such trade city")?.route as usize;
                 *world.trade.routes.get_mut(route).context("no route")?.traded.get_mut(r.parse::<usize>()?).context("no such resource")? = n.parse()?;

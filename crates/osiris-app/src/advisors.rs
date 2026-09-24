@@ -76,6 +76,18 @@ impl Advisor {
     pub fn available(self) -> bool {
         true
     }
+
+    /// The outer panel's height in tiles: most overseers fill the full 40x27, but a
+    /// few with less to show use a shorter panel, per each advisor's
+    /// `outer_panel({size...})` in Akhenaten's ui_advisor_*.js.
+    fn panel_tiles_high(self) -> i32 {
+        match self {
+            Advisor::Health => 18,
+            Advisor::Education => 19,
+            Advisor::Entertainment => 20,
+            _ => 27,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -130,13 +142,21 @@ enum Popup {
 }
 
 impl Advisors {
-    /// Opens a named popup (for scripted screenshots).
+    /// Opens a named popup (for scripted screenshots). "resource:R", "priority:C" and
+    /// "request:I" take a number after the colon.
     pub fn open_popup(&mut self, name: &str) {
-        self.popup = match name {
-            "salary" => Some(Popup::Salary),
-            "gift" => Some(Popup::Gift),
-            "donate" => Some(Popup::Donate(0)),
-            "burial" => Some(Popup::Burial(13, 0)),
+        let (head, arg) = name.split_once(':').map_or((name, None), |(h, a)| (h, a.parse::<usize>().ok()));
+        self.popup = match (head, arg) {
+            ("salary", _) => Some(Popup::Salary),
+            ("gift", _) => Some(Popup::Gift),
+            ("donate", _) => Some(Popup::Donate(0)),
+            ("burial", _) => Some(Popup::Burial(13, 0)),
+            ("prices", _) => Some(Popup::Prices),
+            ("festival", None) => Some(Popup::Festival(None)),
+            ("festival", Some(g)) => Some(Popup::Festival(Some(g))),
+            ("resource", Some(r)) => Some(Popup::Resource(r as u16)),
+            ("priority", Some(c)) => Some(Popup::Priority(c)),
+            ("request", Some(i)) => Some(Popup::Request(i, true)),
             _ => None,
         };
     }
@@ -220,7 +240,7 @@ impl Advisors {
                 ui.label(Font::SmallPlain, &tip, tx, button_y - 20.0);
             }
         }
-        panel::outer_panel(ui.r, panels, px, py, 40, 27);
+        panel::outer_panel(ui.r, panels, px, py, 40, self.current.panel_tiles_high());
         ui.image(img.icons + self.current.index() as u32, px + 10.0, py + 10.0);
         let from_screen = match self.current {
             Advisor::Labor => labor(&mut ui, img.lock, world, [px, py], &mut self.popup),
@@ -314,15 +334,15 @@ fn labor(ui: &mut Ui, lock: u32, world: &mut World, [px, py]: [f32; 2], popup: &
         let (need, have) = world.labor.by_category.get(ci).copied().unwrap_or((0, 0));
         let prio = world.labor.priorities.get(ci).copied().unwrap_or(0);
         if prio > 0 {
-            ui.image(lock, row[0], y + 4.0);
-            draw_text(ui.r, Font::NormalWhiteOnDark, &prio.to_string(), row[0] + 15.0, y + 5.0, font::WHITE);
+            ui.image(lock, row[0] + 40.0, y + 4.0);
+            draw_text(ui.r, Font::NormalWhiteOnDark, &prio.to_string(), row[0] + 55.0, y + 5.0, font::WHITE);
         }
         let name = ui.t(G, id);
         let f = if ui.hot(row) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
-        draw_text(ui.r, f, &name, row[0] + 60.0, y + 5.0, font::WHITE);
-        draw_text(ui.r, Font::NormalWhiteOnDark, &need.to_string(), row[0] + 330.0, y + 5.0, font::WHITE);
+        draw_text(ui.r, f, &name, row[0] + 100.0, y + 5.0, font::WHITE);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &need.to_string(), row[0] + 370.0, y + 5.0, font::WHITE);
         let hf = if have == need { Font::NormalWhiteOnDark } else { Font::NormalYellow };
-        draw_text(ui.r, hf, &have.to_string(), row[0] + 430.0, y + 5.0, font::WHITE);
+        draw_text(ui.r, hf, &have.to_string(), row[0] + 470.0, y + 5.0, font::WHITE);
         if ui.clicked(row) {
             *popup = Some(Popup::Priority(ci));
         }
@@ -354,17 +374,22 @@ fn priority_popup(ui: &mut Ui, world: &mut World, category: usize) -> bool {
     let title = ui.t(G, 25);
     let tw = ui.width(Font::LargeBlackOnLight, &title);
     ui.label(Font::LargeBlackOnLight, &title, x + (w - tw) / 2.0, y + 16.0);
+    // The rank buttons sit at a fixed left margin (24), not centred: Akhenaten's
+    // ui_labor_priority_window.js has btn_areas at [24, 60], btn_priority at [34, 0]
+    // size [30, 30], for priority_rank_max() (9, the same as MAX_PRIORITY) ranks.
     let ranks = osiris_sim::labor::MAX_PRIORITY as usize;
-    let x0 = x + (w - 34.0 * ranks as f32) / 2.0;
+    let x0 = x + 24.0;
     for i in 0..ranks {
-        let rect = [x0 + 34.0 * i as f32, y + 50.0, 30.0, 30.0];
+        let rect = [x0 + 34.0 * i as f32, y + 60.0, 30.0, 30.0];
         if ui.button(rect, &(i + 1).to_string(), Font::LargeBlackOnLight) {
             world.set_labor_priority(category, i as u8 + 1);
             return true;
         }
     }
+    // The "no priority" button is centred (margin centerx:-140, matching half its own
+    // 280 width), its top 40 pixels above the panel's bottom edge.
     let none = ui.t(G, 26);
-    if ui.button([x + (w - 200.0) / 2.0, y + 100.0, 200.0, 25.0], &none, Font::NormalBlackOnLight) {
+    if ui.button([x + (w - 280.0) / 2.0, y + h - 40.0, 280.0, 25.0], &none, Font::NormalBlackOnLight) {
         world.set_labor_priority(category, 0);
         return true;
     }
@@ -405,10 +430,10 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
         draw_text(ui.r, Font::NormalWhiteOnDark, &world.yards_stored(r).to_string(), px + 206.0, y, font::WHITE);
         if world.is_stockpiled(r) {
             let s = ui.t(G, 3);
-            draw_text(ui.r, Font::SmallPlain, &s, px + 246.0, y + 2.0, [0.9, 0.85, 0.6, 1.0]);
+            draw_text(ui.r, Font::SmallPlain, &s, px + 304.0, y + 2.0, [0.9, 0.85, 0.6, 1.0]);
         } else if world.is_mothballed(r) {
             let s = ui.t(18, 5);
-            draw_text(ui.r, Font::NormalYellow, &s, px + 246.0, y, font::WHITE);
+            draw_text(ui.r, Font::NormalYellow, &s, px + 304.0, y, font::WHITE);
         }
         let st = world.trade.status[r as usize];
         let amount = world.trade.amount[r as usize];
@@ -432,11 +457,13 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
                 (id.map(|i| ui.t(G, i)).unwrap_or_default(), !(imp_open || exp_open))
             }
         };
-        let sx = px + 330.0;
+        // Akhenaten's advisor_trade_render_row draws this at row-x + 254 (row-x + 3 for
+        // Osiris's slightly wider row inset), y - 2.
+        let sx = px + 274.0;
         if dull {
-            draw_text_tinted(ui.r, Font::NormalWhiteOnDark, &s, sx, y, [0.65, 0.65, 0.6, 1.0]);
+            draw_text_tinted(ui.r, Font::NormalWhiteOnDark, &s, sx, y - 2.0, [0.65, 0.65, 0.6, 1.0]);
         } else {
-            draw_text(ui.r, Font::NormalWhiteOnDark, &s, sx, y, font::WHITE);
+            draw_text(ui.r, Font::NormalWhiteOnDark, &s, sx, y - 2.0, font::WHITE);
         }
         if ui.clicked(rect) {
             *popup = Some(Popup::Resource(r));
@@ -462,28 +489,37 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
 }
 
 /// Prices throughout Egypt: what buyers pay and sellers receive for each good.
+///
+/// Akhenaten's trade_prices_window is 56x16 tiles, with up to 18 icons a row 42
+/// pixels apart starting at (156, 44), a 90-pixel row pitch, buy/sell prices 30 and
+/// 50 pixels under each icon, and the "Buyers pay"/"Sellers receive" labels at a
+/// fixed x of 26 (28 and 48 pixels under the row, level with the numbers).
 fn prices_popup(ui: &mut Ui, world: &World) -> bool {
     const G: usize = 54;
     let screen = ui.r.screen;
     let list: Vec<u16> = (1..osiris_sim::trade::RESOURCES as u16).filter(|&r| world.buy_price(r) > 0).collect();
     let per_row = 18;
-    let (w, h) = (608.0, 176.0);
+    let (w, h) = (896.0, 256.0);
     let (x, y) = (((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor());
-    panel::outer_panel(ui.r, ui.panels, x, y, 38, 11);
+    panel::outer_panel(ui.r, ui.panels, x, y, 56, 16);
     let title = ui.t(G, 21);
     let tw = ui.width(Font::LargeBlackOnLight, &title);
     ui.label(Font::LargeBlackOnLight, &title, x + (w - tw) / 2.0, y + 12.0);
     for (row, chunk) in list.chunks(per_row).enumerate() {
-        let ry = y + 44.0 + 64.0 * row as f32;
+        let ry = y + 44.0 + 90.0 * row as f32;
         let (buy, sell) = (ui.t(G, 22), ui.t(G, 23));
-        ui.label(Font::SmallPlain, &buy, x + 14.0, ry + 22.0);
-        ui.label(Font::SmallPlain, &sell, x + 14.0, ry + 38.0);
+        ui.label(Font::NormalBlackOnLight, &buy, x + 26.0, ry + 28.0);
+        ui.label(Font::NormalBlackOnLight, &sell, x + 26.0, ry + 48.0);
         for (i, &r) in chunk.iter().enumerate() {
-            let cx = x + 104.0 + 27.0 * i as f32;
+            let cx = x + 156.0 + 42.0 * i as f32;
             ui.icon(r, cx, ry);
             let (b, s) = (world.buy_price(r).to_string(), world.sell_price(r).to_string());
-            ui.label(Font::SmallPlain, &b, cx, ry + 22.0);
-            ui.label(Font::SmallPlain, &s, cx, ry + 38.0);
+            // Right-aligned to the next icon's column so a 3-digit price never runs
+            // into it (the original's plain left-aligned label can, at this pitch).
+            let bw = ui.width(Font::NormalBlackOnLight, &b);
+            ui.label(Font::NormalBlackOnLight, &b, cx + 38.0 - bw, ry + 30.0);
+            let sw = ui.width(Font::NormalBlackOnLight, &s);
+            ui.label(Font::NormalBlackOnLight, &s, cx + 38.0 - sw, ry + 50.0);
         }
     }
     ui.click.take().is_some()
@@ -502,12 +538,12 @@ fn resource_popup(ui: &mut Ui, world: &mut World, r: u16) -> bool {
     let nw = ui.width(Font::LargeBlackOnLight, &name);
     ui.label(Font::LargeBlackOnLight, &name, x + (w - nw) / 2.0, y + 16.0);
     let stored = format!("{} {}", world.yards_stored(r), ui.t(G, 15));
-    ui.label(Font::NormalBlackOnLight, &stored, x + 48.0, y + 50.0);
+    ui.centred(Font::NormalBlackOnLight, &stored, x + 48.0, y + 62.0, 128.0);
     let st = world.trade.status[r as usize];
     let amount = world.trade.amount[r as usize];
     // Import on the left, export on the right.
     for (col, buying) in [(0.0, true), (w / 2.0, false)] {
-        let rect = [x + 32.0 + col, y + 80.0, 256.0, 30.0];
+        let rect = [x + 32.0 + col, y + 92.0, 256.0, 30.0];
         let (_, open) = world.trade_partners(r, buying);
         let label = if !open {
             ui.t(G, if buying { 41 } else { 42 })
@@ -552,7 +588,8 @@ fn resource_popup(ui: &mut Ui, world: &mut World, r: u16) -> bool {
         }
     }
     let stock = if world.is_stockpiled(r) { format!("{} - {}", ui.t(G, 26), ui.t(G, 27)) } else { format!("{} - {}", ui.t(G, 28), ui.t(G, 29)) };
-    if ui.button([x + (w - 400.0) / 2.0, y + 168.0, 400.0, 30.0], &stock, Font::NormalBlackOnLight) {
+    // The original's stockpile_industry button is a two-line, 50-pixel-tall split button.
+    if ui.button([x + (w - 400.0) / 2.0, y + 168.0, 400.0, 50.0], &stock, Font::NormalBlackOnLight) {
         world.toggle_stockpiled(r);
     }
     ui.click.take().is_some_and(|c| !inside([x, y, w, h], c))
@@ -605,11 +642,13 @@ fn financial(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Advis
         // Space before each total and after the income block.
         let gap = [0.0, 0.0, 0.0, 6.0, 14.0, 14.0, 14.0, 14.0, 20.0, 26.0][i];
         let y = py + 150.0 + 18.0 * i as f32 + gap;
+        // The original left-aligns the two year columns at fixed x's (incomes_base/
+        // expenses_base + 290 and + 430, ui_advisor_finance.js draw_row), not
+        // right-aligned as before.
         let f = Font::NormalBlackOnLight;
-        ui.label(f, name, px + 80.0, y);
-        let (aw, bw) = (ui.width(f, &a.to_string()), ui.width(f, &b.to_string()));
-        ui.label(f, &a.to_string(), px + 330.0 - aw, y);
-        ui.label(f, &b.to_string(), px + 470.0 - bw, y);
+        ui.label(f, name, px + 90.0, y);
+        ui.label(f, &a.to_string(), px + 300.0, y);
+        ui.label(f, &b.to_string(), px + 440.0, y);
     }
     None
 }
@@ -671,11 +710,13 @@ fn chief(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAc
         }
     };
     lines.push((ui.t(G, 8), finance.0, finance.1));
+    // Section title and body both sit at the list's own x + 35 (ui_advisor_chief.js
+    // chief_report_list at [26, 66], advisor_chief_report_on_render_item).
     for (i, (head, body, warn)) in lines.iter().enumerate() {
         let y = py + 76.0 + 40.0 * i as f32;
-        draw_text(ui.r, Font::NormalWhiteOnDark, head, px + 40.0, y, font::WHITE);
+        draw_text(ui.r, Font::NormalWhiteOnDark, head, px + 61.0, y, font::WHITE);
         let f = if *warn { Font::NormalYellow } else { Font::NormalWhiteOnDark };
-        draw_text(ui.r, f, body, px + 60.0, y + 18.0, font::WHITE);
+        draw_text(ui.r, f, body, px + 61.0, y + 18.0, font::WHITE);
     }
     None
 }
@@ -697,21 +738,23 @@ fn ratings(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], selected: &mut us
     for (i, (value, goal)) in values.iter().enumerate() {
         let x = px + 80.0 + 120.0 * i as f32;
         let base_y = py + 256.0;
-        // The column rises one step per point and a half.
+        // The column rises one step per point and a half. The original draws the
+        // pedestal 4px left and the rising body 11px right of the column's centre
+        // (elm.x + 30): FUN_ akhenaten ui_advisor_ratings.js advisor_ratings_draw_column.
         let steps = 2 * (*value as f32 * 0.75) as i32;
-        ui.image(column, x + 45.0, base_y);
+        ui.image(column, x + 26.0, base_y);
         for k in 0..steps {
-            ui.image(column + 1, x + 45.0, base_y - 1.0 - k as f32);
+            ui.image(column + 1, x + 41.0, base_y - 1.0 - k as f32);
         }
         if goal.enabled && *value >= goal.value {
-            ui.image(column + 2, x + 45.0, base_y - steps as f32 - 12.0);
+            ui.image(column + 2, x + 24.0, base_y - steps as f32 - 50.0);
         }
         let rect = [x, py + 276.0, 120.0, 60.0];
         let hot = ui.hot(rect) || *selected == i + 1;
         panel::button_border(ui.r, ui.panels, rect[0], rect[1], 120, 60, hot);
-        ui.centred(Font::LargeBlackOnLight, &value.to_string(), x, py + 284.0, 120.0);
+        ui.centred(Font::LargeBlackOnLight, &value.to_string(), x, py + 298.0, 120.0);
         let needed = format!("{} {}", if goal.enabled { goal.value } else { 0 }, ui.t(G, 5));
-        ui.centred(Font::NormalBlackOnLight, &needed, x, py + 310.0, 120.0);
+        ui.centred(Font::NormalBlackOnLight, &needed, x, py + 318.0, 120.0);
         if ui.clicked(rect) {
             *selected = i + 1;
         }
@@ -798,27 +841,30 @@ fn religion(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opti
             let mood = ui.t(G, 20 + (god.mood / 10).clamp(0, 10) as usize);
             draw_text(ui.r, Font::NormalWhiteOnDark, &mood, x + 422.0, y, font::WHITE);
             for k in 0..(god.wrath / 20).min(5) {
-                ui.image(icons + 34, x + 500.0 + 12.0 * k as f32, y);
+                ui.image(icons + 34, x + 502.0 + 10.0 * k as f32, y - 3.0);
             }
             for k in 0..(god.favour / 20).min(5) {
-                ui.image(icons + 33, x + 500.0 + 12.0 * k as f32, y);
+                ui.image(icons + 33, x + 502.0 + 10.0 * k as f32, y - 3.0);
             }
         }
         let epithet = ui.t(158, i);
         draw_text(ui.r, Font::NormalBlackOnDark, &epithet, x, y + 18.0, font::BLACK);
     }
-    let advice = if !world.rules.gods_enabled {
-        ui.t(G, 43)
+    // The original's nogods_text sits higher and wraps a touch wider than advice_text
+    // (ui_advisor_religion.js: pos[60,256] wrap:520 vs pos[60,273] wrap:512).
+    if !world.rules.gods_enabled {
+        let advice = ui.t(G, 43);
+        ui.wrapped(Font::NormalBlackOnLight, &advice, px + 60.0, py + 256.0, 520.0);
     } else {
         let least = world.religion.known().min_by_key(|(_, g)| g.mood).map(|(i, g)| (i, g.wrath));
-        match least {
+        let advice = match least {
             Some((i, wrath)) if wrath > 4 => ui.t(G, 15 + i),
             _ if world.religion.coverage_common >= 100 => ui.t(G, 14),
             _ if world.population < 150 => ui.t(G, 13),
             _ => ui.t(G, 9),
-        }
+        };
+        ui.wrapped(Font::NormalBlackOnLight, &advice, px + 60.0, py + 273.0, 512.0);
     };
-    ui.wrapped(Font::NormalBlackOnLight, &advice, px + 60.0, py + 273.0, 512.0);
     // Festivals, as the original lays them out: a six-block panel with the festival
     // picture, the months since the last one, the order button or what is being
     // prepared, and the organizers' word (group 295) by the months since or to go.
@@ -844,7 +890,7 @@ fn religion(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opti
         None => {
             let square = world.buildings.iter().any(|b| b.kind == osiris_sim::religion::FESTIVAL_SQUARE);
             let label = ui.t(58, if square { 52 } else { 16 });
-            if ui.button([px + 102.0, py + 348.0, 300.0, 20.0], &label, Font::NormalBlackOnLight) && square {
+            if ui.button([px + 102.0, py + 346.0, 300.0, 24.0], &label, Font::NormalBlackOnLight) && square {
                 *popup = Some(Popup::Festival(None));
             }
             if square {
@@ -867,7 +913,7 @@ fn religion(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opti
         }
     };
     let advice = ui.t(295, word);
-    ui.wrapped(Font::NormalWhiteOnDark, &advice, px + 56.0, py + 373.0, 380.0);
+    ui.wrapped(Font::NormalWhiteOnDark, &advice, px + 56.0, py + 373.0, 400.0);
     None
 }
 
@@ -938,11 +984,11 @@ fn entertainment(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<A
         draw_text(ui.r, Font::NormalWhiteOnDark, &name, x, y, font::WHITE);
         let (total, active) = staffed(world, k);
         let shows = world.buildings.iter().filter(|b| b.kind == k && b.shows.get(slot).copied().unwrap_or(0) > 0).count();
-        for (dx, v) in [(140.0, format!("{active} ({total})")), (240.0, shows.to_string()), (310.0, format!("{} {}", serves * active as i32, ui.t(G, 5)))] {
+        for (dx, v) in [(172.0, format!("{active} ({total})")), (252.0, shows.to_string()), (302.0, format!("{} {}", serves * active as i32, ui.t(G, 5)))] {
             draw_text(ui.r, Font::NormalWhiteOnDark, &v, x + dx, y, font::WHITE);
         }
         let word = coverage_word(ui, cov);
-        draw_text(ui.r, Font::NormalWhiteOnDark, &word, x + 430.0, y, font::WHITE);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &word, x + 452.0, y, font::WHITE);
     }
     let avg: i32 = {
         let houses: Vec<i32> = world.buildings.iter().filter_map(|b| b.house.as_ref()).filter(|h| h.population > 0).map(|h| h.entertainment).collect();
@@ -962,24 +1008,26 @@ fn education(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Advis
     for (x, v) in [(20.0, format!("{} {}", world.population, ui.t(G, 6))), (220.0, format!("{} {}", kids, ui.t(G, 4))), (420.0, format!("{} {}", young, ui.t(G, 5)))] {
         ui.centred(Font::NormalBlackOnLight, &v, px + x, py + 50.0, 200.0);
     }
-    for (x, id) in [(180.0, 1), (290.0, 2), (440.0, 3)] {
+    for (x, id) in [(180.0, 1), (290.0, 2), (478.0, 3)] {
         let s = ui.t(G, id);
         ui.label(Font::SmallPlain, &s, px + x, py + 86.0);
     }
-    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 108.0, 36, 6);
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 108.0, 36, 8);
     let c = world.ratings.coverage.clone();
     let rows = [(18, osiris_sim::ratings::SCHOOL, osiris_sim::ratings::SCHOOL_SERVES, c.school, 4), (20, osiris_sim::ratings::ACADEMY, 100, c.academy, 5), (22, osiris_sim::ratings::LIBRARY, 800, c.library, 6)];
     for (i, &(name_id, k, serves, cov, who)) in rows.iter().enumerate() {
+        // Row base at list.y(108) + margin_y(10) + 25*i; count/care/coverage cells are
+        // centred in their own boxes (ui_advisor_education.js facilities_on_render_item).
         let y = py + 118.0 + 25.0 * i as f32;
-        let x = px + 40.0;
+        let x = px + 32.0;
         let (total, active) = staffed(world, k);
         let name = format!("{} {}", total, ui.t(8, name_id));
-        draw_text(ui.r, Font::NormalWhiteOnDark, &name, x, y, font::WHITE);
-        draw_text(ui.r, Font::NormalWhiteOnDark, &active.to_string(), x + 140.0, y, font::WHITE);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &name, x + 5.0, y, font::WHITE);
+        ui.centred(Font::NormalWhiteOnDark, &active.to_string(), x + 100.0, y, 150.0);
         let care = format!("{} {}", serves * active as i32, ui.t(G, who));
-        draw_text(ui.r, Font::NormalWhiteOnDark, &care, x + 250.0, y, font::WHITE);
+        ui.centred(Font::NormalWhiteOnDark, &care, x + 280.0, y, 40.0);
         let word = coverage_word(ui, cov);
-        draw_text(ui.r, Font::NormalWhiteOnDark, &word, x + 400.0, y, font::WHITE);
+        ui.centred(Font::NormalWhiteOnDark, &word, x + 440.0, y, 60.0);
     }
     let advice = ui.t(G, if c.school <= 0 && world.population < 300 { 23 } else if c.school >= 100 && c.library >= 100 { 25 } else { 19 });
     ui.wrapped(Font::NormalBlackOnLight, &advice, px + 30.0, py + 250.0, 37.0 * 16.0);
@@ -993,24 +1041,29 @@ fn health(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorA
     let h = world.ratings.health;
     let state = if world.population >= 200 { ui.t(G, (h / 10).clamp(0, 10) as usize + 16) } else { ui.t(G, 15) };
     ui.wrapped(Font::NormalBlackOnLight, &state, px + 60.0, py + 46.0, 500.0);
-    for (x, id) in [(180.0, 3), (290.0, 4), (440.0, 5)] {
+    for (x, id) in [(180.0, 3), (290.0, 4)] {
         let s = ui.t(G, id);
         ui.label(Font::SmallPlain, &s, px + x, py + 94.0);
     }
+    // "City coverage" is centred in a 160-wide box (ui_advisor_health.js city_coverage).
+    let coverage_head = ui.t(G, 5);
+    ui.centred(Font::SmallPlain, &coverage_head, px + 440.0, py + 94.0, 160.0);
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 108.0, 36, 6);
     let c = world.ratings.coverage.clone();
     let rows = [(25, osiris_sim::ratings::PHYSICIAN, 1000, c.physician), (27, osiris_sim::ratings::DENTIST, 1000, c.dentist), (29, kind::APOTHECARY, 100, c.apothecary), (31, osiris_sim::ratings::MORTUARY, 1000, c.mortuary)];
     for (i, &(name_id, k, serves, cov)) in rows.iter().enumerate() {
-        let y = py + 116.0 + 20.0 * i as f32;
-        let x = px + 40.0;
+        // Row base at list.y(108) + margin_y(10) + 20*i; the count/care/coverage cells
+        // are centred in their own boxes (ui_advisor_health.js facilities_on_render_item).
+        let y = py + 118.0 + 20.0 * i as f32;
+        let x = px + 32.0;
         let (total, active) = staffed(world, k);
         let name = format!("{} {}", total, ui.t(8, name_id));
-        draw_text(ui.r, Font::NormalWhiteOnDark, &name, x, y, font::WHITE);
-        draw_text(ui.r, Font::NormalWhiteOnDark, &active.to_string(), x + 145.0, y, font::WHITE);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &name, x + 15.0, y, font::WHITE);
+        ui.centred(Font::NormalWhiteOnDark, &active.to_string(), x + 160.0, y, 40.0);
         let care = format!("{} {}", serves * active as i32, ui.t(G, 6));
-        draw_text(ui.r, Font::NormalWhiteOnDark, &care, x + 250.0, y, font::WHITE);
+        ui.centred(Font::NormalWhiteOnDark, &care, x + 290.0, y, 40.0);
         let word = ui.t(G, (cov / 10).clamp(0, 10) as usize + 43);
-        draw_text(ui.r, Font::NormalWhiteOnDark, &word, x + 400.0, y, font::WHITE);
+        ui.centred(Font::NormalWhiteOnDark, &word, x + 440.0, y, 60.0);
     }
     let advice = ui.t(G, if world.population < 200 { 14 } else if c.physician < 100 { 9 } else { 14 });
     ui.wrapped(Font::NormalBlackOnLight, &advice, px + 60.0, py + 218.0, 500.0);
@@ -1046,7 +1099,8 @@ fn population(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], graph: &mut us
         let hgt = (v as f32 / top * gh).max(0.0);
         ui.r.rect([gx + bar * i as f32, gy + gh - hgt], [(bar - 1.0).max(1.0), hgt], [0.72, 0.12, 0.08, 1.0], Space::Screen);
     }
-    ui.label(Font::SmallPlain, &(top as i32).to_string(), gx - 4.0, gy - 22.0);
+    // Just above the graph panel's border (gy - 8), clear of the title above it.
+    ui.label(Font::SmallPlain, &(top as i32).to_string(), gx - 4.0, gy - 16.0);
     // The other two graphs, to switch to.
     for (k, dy) in [(1usize, 61.0), (2, 161.0)] {
         let other = (*graph + k) % 3;
@@ -1064,8 +1118,11 @@ fn population(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], graph: &mut us
         2 => vec![format!("Housing prosperity {}", world.ratings.prosperity_max)],
         _ => vec![format!("{} {}", world.food_supply_months(), ui.t(8, 5))],
     };
+    // The info strip has its own inset panel (ui_advisor_population.js info_lines_list,
+    // pos[48,336] size[34,5]); each line sits 35 in from the list, room left for an icon.
+    panel::inner_panel(ui.r, ui.panels, px + 48.0, py + 336.0, 34, 5);
     for (i, l) in lines.iter().enumerate() {
-        ui.label(Font::NormalBlackOnLight, l, px + 60.0, py + 340.0 + 18.0 * i as f32);
+        ui.label(Font::NormalWhiteOnDark, l, px + 83.0, py + 340.0 + 18.0 * i as f32);
     }
     None
 }
@@ -1132,124 +1189,166 @@ fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
     None
 }
 
-/// A small popup panel centred on the screen, `w` by `h` tiles, with its title.
-fn popup_frame(ui: &mut Ui, w: i32, h: i32, title: &str) -> [f32; 2] {
-    let screen = ui.r.screen;
-    let (pw, ph) = (w as f32 * 16.0, h as f32 * 16.0);
-    let (x, y) = (((screen[0] - pw) / 2.0).floor(), ((screen[1] - ph) / 2.0).floor());
-    panel::outer_panel(ui.r, ui.panels, x, y, w, h);
-    ui.centred(Font::LargeBlackOnLight, title, x, y + 16.0, pw);
-    [x, y]
-}
-
-/// The eleven salaries, one per rank. True when it closes.
+/// The eleven salaries, one per rank. Akhenaten's ui_set_salary_window.js: a 24x25
+/// tile panel (not the 32x22 popup_frame) with a Deben icon beside the title, an
+/// 11-row list at (16,48) with rows `buttons_size_y(20)*rank + buttons_margin_y(12)`
+/// down (scroll_list_panel.cpp's `rebuild_buttons_geometry`: the margin is a one-time
+/// offset, not a per-row gap) and text 32px into each row, explanatory text at
+/// (16,304), and a centred Cancel button 40px above the bottom. True when it closes.
+///
+/// The Deben icon itself is skipped: `osiris_sim::scenario_events::DEBEN` (36) is one
+/// past the resource icon atlas's last loaded frame (0-35), so `ui.icon` there draws
+/// whatever sprite happens to follow it in the pack, not a coin. The same bad call
+/// already existed for the political overseer's Deben requests before this audit.
 fn salary_popup(ui: &mut Ui, world: &mut World) -> bool {
     const G: usize = 52;
+    let screen = ui.r.screen;
+    let (w, h) = (384.0, 400.0);
+    let (x, y) = (((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor());
+    panel::outer_panel(ui.r, ui.panels, x, y, 24, 25);
     let title = ui.t(G, 15);
-    let [x, y] = popup_frame(ui, 32, 22, &title);
-    panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 48.0, 30, 15);
+    ui.centred(Font::LargeBlackOnLight, &title, x, y + 16.0, w);
+    panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 48.0, 22, 15);
     for rank in 0..osiris_sim::kingdom::SALARIES.len() {
-        let rect = [x + 24.0, y + 56.0 + 20.0 * rank as f32, 30.0 * 16.0 - 16.0, 20.0];
+        let rect = [x + 20.0, y + 60.0 + 20.0 * rank as f32, 344.0, 20.0];
         let hot = ui.hot(rect);
         let f = if hot || rank == world.governor.salary_rank as usize { Font::NormalYellow } else { Font::NormalWhiteOnDark };
         let line = format!("{} {} {}", ui.t(G, 4 + rank), osiris_sim::kingdom::SALARIES[rank], ui.t(G, 3));
-        ui.label(f, &line, rect[0] + 8.0, rect[1] + 3.0);
+        ui.label(f, &line, rect[0] + 32.0, rect[1] + 3.0);
         if ui.clicked(rect) {
             world.set_salary_rank(rank as u8);
             return true;
         }
     }
     let note = if world.has_mansion() { ui.t(G, 76) } else { ui.t(G, 78) };
-    ui.wrapped(Font::NormalBlackOnLight, &note, x + 24.0, y + 300.0, 28.0 * 16.0);
-    ui.button([x + 216.0, y + 324.0, 80.0, 24.0], "Cancel", Font::NormalBlackOnLight)
+    ui.wrapped(Font::NormalBlackOnLight, &note, x + 16.0, y + 304.0, 352.0);
+    ui.button([x + 112.0, y + 340.0, 160.0, 20.0], "Cancel", Font::NormalBlackOnLight)
 }
 
-/// Modest, generous and lavish gifts and what they cost. True when it closes.
+/// Modest, generous and lavish gifts and what they cost. Akhenaten's
+/// ui_send_gift_window.js: a 30x15 tile panel, a "Modest/Generous/Lavish" label at
+/// (32, row) beside a cost link at (116, row) 20 pixels per row from y 80, and Cancel
+/// at a margin of 180 from the right, 40 above the bottom. True when it closes.
 fn gift_popup(ui: &mut Ui, world: &mut World) -> bool {
     const G: usize = 52;
+    let screen = ui.r.screen;
+    let (w, h) = (480.0, 240.0);
+    let (x, y) = (((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor());
+    panel::outer_panel(ui.r, ui.panels, x, y, 30, 15);
     let title = ui.t(G, 49);
-    let [x, y] = popup_frame(ui, 32, 17, &title);
+    ui.centred(Font::LargeBlackOnLight, &title, x, y + 15.0, w);
     let savings = format!("{} {} Db", ui.t(G, 1), world.governor.savings);
-    ui.centred(Font::NormalBlackOnLight, &savings, x, y + 46.0, 32.0 * 16.0);
+    ui.centred(Font::NormalBlackOnLight, &savings, x, y + 45.0, w);
+    panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 70.0, 28, 5);
     for size in 0..3 {
-        let ry = y + 76.0 + 48.0 * size as f32;
+        let ry = y + 80.0 + 20.0 * size as f32;
+        let name = ui.t(G, 63 + size);
+        ui.label(Font::NormalWhiteOnDark, &name, x + 32.0, ry + 2.0);
         let cost = world.gift_cost(size);
-        let label = format!("{} {} Db", ui.t(G, 63 + size), cost);
-        ui.label(Font::NormalBlackOnLight, &label, x + 32.0, ry + 4.0);
-        let send = ui.t(G, 66 + size);
+        let send = format!("{} {} Db", ui.t(G, 66 + size), cost);
         let can = cost <= world.governor.savings;
-        if ui.button([x + 240.0, ry, 240.0, 24.0], &send, if can { Font::NormalBlackOnLight } else { Font::SmallPlain }) && can {
+        if ui.button([x + 116.0, ry, 250.0, 18.0], &send, if can { Font::NormalWhiteOnDark } else { Font::SmallPlain }) && can {
             world.send_gift(size);
             return true;
         }
     }
     if world.gift_cost(0) > world.governor.savings {
         let none = ui.t(G, 70);
-        ui.wrapped(Font::NormalBlackOnLight, &none, x + 32.0, y + 220.0, 28.0 * 16.0);
+        ui.wrapped(Font::NormalBlackOnLight, &none, x + 16.0, y + 155.0, 416.0);
     }
-    ui.button([x + 216.0, y + 240.0, 80.0, 24.0], "Cancel", Font::NormalBlackOnLight)
+    ui.button([x + 300.0, y + 200.0, 160.0, 20.0], "Cancel", Font::NormalBlackOnLight)
 }
 
-/// Choosing how much of a burial provision to send: the new amount (in hundreds)
-/// while it stays open, `None` when it closes.
+/// Choosing how much of a burial provision to send. Akhenaten's ui_advisor_monuments.js
+/// `burial_dispatch_window`: a 28x12 tile panel, the resource icon at (16, 16), the
+/// title (group 199 id 4, not id 10 which is the overview's section header) centred in
+/// a box starting at 48, an "All" button inside a 24x4 inner panel, a hint (id 3) and
+/// the amount beside a down-then-up arrow pair, and Dispatch/Cancel at the bottom. The
+/// new amount (in hundreds) while it stays open, `None` when it closes.
 fn burial_popup(ui: &mut Ui, world: &mut World, r: u16, amount: i32) -> Option<i32> {
     const G: usize = 199;
-    let title = ui.t(G, 10);
-    let [x, y] = popup_frame(ui, 26, 12, &title);
+    let screen = ui.r.screen;
+    let (w, h) = (448.0, 192.0);
+    let (x, y) = (((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor());
+    panel::outer_panel(ui.r, ui.panels, x, y, 28, 12);
+    ui.icon(r, x + 16.0, y + 16.0);
+    let title = ui.t(G, 4);
+    ui.centred(Font::LargeBlackOnLight, &title, x + 48.0, y + 16.0, w - 96.0);
     let (need, sent) = world.burial.get(r as usize).copied().unwrap_or((0, 0));
     let most = ((need - sent).min(world.city_stored(r)) / 100).max(0);
-    ui.icon(r, x + 40.0, y + 52.0);
-    let line = format!("{} {}", ui.t(G, 4), amount);
-    ui.label(Font::NormalBlackOnLight, &line, x + 70.0, y + 54.0);
-    let mut amount = amount;
-    if ui.arrow(x + 260.0, y + 48.0, true) {
-        amount = (amount + 1).min(most);
-    }
-    if ui.arrow(x + 286.0, y + 48.0, false) {
-        amount = (amount - 1).max(0);
-    }
+    // A taller inner panel than the original's 24x4 (Osiris's group 199 id 3 hint is
+    // longer than fits on Akhenaten's single line before the arrows): the "All" button
+    // and hint share a row, wrapped into the space right of the button, with the
+    // arrows and amount on their own row below so nothing overlaps.
+    panel::inner_panel(ui.r, ui.panels, x + 32.0, y + 56.0, 24, 5);
     let all = ui.t(G, 5);
-    if ui.button([x + 320.0, y + 50.0, 60.0, 22.0], &all, Font::NormalBlackOnLight) {
+    let mut amount = amount;
+    if ui.button([x + 48.0, y + 66.0, 70.0, 22.0], &all, Font::NormalWhiteOnDark) {
         amount = most;
     }
+    let hint = ui.t(G, 3);
+    ui.wrapped(Font::NormalWhiteOnDark, &hint, x + 128.0, y + 66.0, 272.0);
+    if ui.arrow(x + 160.0, y + 108.0, false) {
+        amount = (amount - 1).max(0);
+    }
+    if ui.arrow(x + 184.0, y + 108.0, true) {
+        amount = (amount + 1).min(most);
+    }
+    draw_text(ui.r, Font::NormalWhiteOnDark, &amount.to_string(), x + 220.0, y + 112.0, font::WHITE);
     let send = ui.t(G, 6);
-    if ui.button([x + 40.0, y + 130.0, 160.0, 24.0], &send, Font::NormalBlackOnLight) {
+    if ui.button([x + 48.0, y + 148.0, 160.0, 24.0], &send, Font::NormalBlackOnLight) {
         world.dispatch_burial(r, amount * 100);
         return None;
     }
     let cancel = ui.t(G, 7);
-    if ui.button([x + 216.0, y + 130.0, 160.0, 24.0], &cancel, Font::NormalBlackOnLight) {
+    if ui.button([x + 240.0, y + 148.0, 160.0, 24.0], &cancel, Font::NormalBlackOnLight) {
         return None;
     }
     Some(amount)
 }
 
-/// Choosing how much of his savings the governor gives the city. The new amount while
-/// it stays open, `None` when it closes.
+/// Choosing how much of his savings the governor gives the city. Akhenaten's
+/// ui_donate_to_city_window.js: a 32x10 tile panel, the Deben icon at (16, 16), fixed
+/// amount buttons (0/500/2000/5000/All) in a 26x4 inner panel, a hint beside a
+/// down-then-up arrow pair and the raw amount, and Give/Cancel at the bottom. The new
+/// amount while it stays open, `None` when it closes.
 fn donate_popup(ui: &mut Ui, world: &mut World, amount: i32) -> Option<i32> {
     const G: usize = 52;
+    let screen = ui.r.screen;
+    let (w, h) = (512.0, 160.0);
+    let (x, y) = (((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor());
+    panel::outer_panel(ui.r, ui.panels, x, y, 32, 10);
     let title = ui.t(G, 16);
-    let [x, y] = popup_frame(ui, 26, 12, &title);
+    ui.centred(Font::LargeBlackOnLight, &title, x, y + 16.0, w);
     let savings = world.governor.savings;
-    let line = format!("{} {} Db", ui.t(G, 17), amount);
-    ui.centred(Font::NormalBlackOnLight, &line, x, y + 56.0, 26.0 * 16.0);
+    panel::inner_panel(ui.r, ui.panels, x + 48.0, y + 48.0, 26, 4);
     let mut amount = amount;
-    for (i, step) in [-100, -10, 10, 100].into_iter().enumerate() {
-        let label = if step > 0 { format!("+{step}") } else { step.to_string() };
-        if ui.button([x + 40.0 + 70.0 * i as f32, y + 90.0, 60.0, 22.0], &label, Font::NormalBlackOnLight) {
-            amount = (amount + step).clamp(0, savings);
+    for (i, preset) in [0, 500, 2000, 5000].into_iter().enumerate() {
+        let rect = [x + 64.0 + 80.0 * i as f32, y + 56.0, 64.0, 20.0];
+        if ui.button(rect, &preset.to_string(), Font::NormalWhiteOnDark) {
+            amount = preset.min(savings);
         }
     }
     let all = ui.t(G, 19);
-    if ui.button([x + 320.0, y + 90.0, 60.0, 22.0], &all, Font::NormalBlackOnLight) {
+    if ui.button([x + 384.0, y + 56.0, 64.0, 20.0], &all, Font::NormalWhiteOnDark) {
         amount = savings;
     }
+    let hint = ui.t(G, 17);
+    ui.label(Font::NormalWhiteOnDark, &hint, x + 64.0, y + 88.0);
+    if ui.arrow(x + 176.0, y + 82.0, false) {
+        amount = (amount - 10).clamp(0, savings);
+    }
+    if ui.arrow(x + 200.0, y + 82.0, true) {
+        amount = (amount + 10).clamp(0, savings);
+    }
+    let value = format!("{amount} Db");
+    draw_text(ui.r, Font::NormalWhiteOnDark, &value, x + 256.0, y + 88.0, font::WHITE);
     let give = ui.t(G, 18);
-    if ui.button([x + 60.0, y + 140.0, 140.0, 24.0], &give, Font::NormalBlackOnLight) {
+    if ui.button([x + 80.0, y + 123.0, 160.0, 20.0], &give, Font::NormalBlackOnLight) {
         world.donate(amount);
         return None;
     }
-    if ui.button([x + 216.0, y + 140.0, 140.0, 24.0], "Cancel", Font::NormalBlackOnLight) {
+    if ui.button([x + 272.0, y + 123.0, 160.0, 20.0], "Cancel", Font::NormalBlackOnLight) {
         return None;
     }
     Some(amount)
@@ -1259,11 +1358,13 @@ fn donate_popup(ui: &mut Ui, world: &mut World, amount: i32) -> Option<i32> {
 /// it closes.
 fn request_popup(ui: &mut Ui, world: &mut World, i: usize, can: bool) -> bool {
     let screen = ui.r.screen;
-    let (w, h) = (400.0, 160.0);
+    // Same yes/no window the empire map uses to confirm a trade route (480x160; see
+    // EmpireWindow::yes_no in empire_window.rs), whose text also comes from group 5.
+    let (w, h) = (480.0, 160.0);
     let (x, y) = (((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor());
-    panel::outer_panel(ui.r, ui.panels, x, y, 25, 10);
+    panel::outer_panel(ui.r, ui.panels, x, y, 30, 10);
     let title = ui.t(5, 6);
-    ui.centred(Font::LargeBlackOnLight, &title, x, y + 16.0, w);
+    ui.centred(Font::LargeBlackOnLight, &title, x, y + 20.0, w);
     let troops = world.scenario_events.list.get(i).is_some_and(|e| e.resource == osiris_sim::scenario_events::TROOPS);
     let line = ui.t(5, match (troops, can) {
         (true, true) => 15,
@@ -1274,13 +1375,13 @@ fn request_popup(ui: &mut Ui, world: &mut World, i: usize, can: bool) -> bool {
     });
     ui.centred(Font::NormalBlackOnLight, &line, x, y + 60.0, w);
     if can {
-        if ui.button([x + 80.0, y + 110.0, 100.0, 24.0], "Yes", Font::NormalBlackOnLight) {
+        if ui.button([x + 140.0, y + 110.0, 100.0, 24.0], "Yes", Font::NormalBlackOnLight) {
             world.dispatch_request(i);
             return true;
         }
-        ui.button([x + 220.0, y + 110.0, 100.0, 24.0], "No", Font::NormalBlackOnLight)
+        ui.button([x + 260.0, y + 110.0, 100.0, 24.0], "No", Font::NormalBlackOnLight)
     } else {
-        ui.button([x + 150.0, y + 110.0, 100.0, 24.0], "OK", Font::NormalBlackOnLight)
+        ui.button([x + 190.0, y + 110.0, 100.0, 24.0], "OK", Font::NormalBlackOnLight)
     }
 }
 
@@ -1298,14 +1399,14 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
     for (row, (c, co)) in companies.iter().take(6).enumerate() {
         let ry = py + 78.0 + 44.0 * row as f32;
         let name = ui.t(138, c % 10).trim_matches('"').to_owned();
-        ui.label(Font::NormalWhiteOnDark, &name, px + 44.0, ry + 4.0);
+        ui.label(Font::NormalWhiteOnDark, &name, px + 84.0, ry + 4.0);
         let arm = ui.t(138, match co.kind {
             osiris_sim::military::CHARIOTEER => 33,
             osiris_sim::military::ARCHER => 35,
             _ => 34,
         });
         let count = format!("{} {}", co.soldiers.len(), arm);
-        ui.label(Font::NormalWhiteOnDark, &count, px + 44.0, ry + 22.0);
+        ui.label(Font::NormalWhiteOnDark, &count, px + 84.0, ry + 22.0);
         let morale = ui.t(138, 37 + (co.morale / 5).clamp(0, 20) as usize);
         ui.label(Font::NormalWhiteOnDark, &morale, px + 200.0, ry + 22.0);
         // Experience: its rank's icon and name.
@@ -1338,7 +1439,7 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
     let invaders = world.figures.iter().any(|f| osiris_sim::invasions::is_invader_kind(f.kind));
     let coming = world.invasions.planned.iter().any(|p| p.announced && !p.done);
     let threat = ui.t(G, if invaders { 10 } else if coming { 9 } else { 8 });
-    ui.label(Font::NormalBlackOnLight, &threat, px + 50.0, py + 432.0 - 90.0);
+    ui.label(Font::NormalBlackOnLight, &threat, px + 60.0, py + 432.0 - 80.0);
     let troops_wanted = world.scenario_events.open_requests().any(|(_, e)| e.resource == osiris_sim::scenario_events::TROOPS);
     let abroad = ui.t(G, match &world.military.battle {
         Some(b) if b.fought => 15,
@@ -1346,7 +1447,7 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
         None if troops_wanted => 13,
         None => 12,
     });
-    ui.label(Font::NormalBlackOnLight, &abroad, px + 50.0, py + 432.0 - 70.0);
+    ui.label(Font::NormalBlackOnLight, &abroad, px + 60.0, py + 432.0 - 60.0);
     action
 }
 
@@ -1380,8 +1481,12 @@ fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
     let rating = format!("{} {}", ui.t(G, 11), world.ratings.monument);
     ui.label(Font::NormalBlackOnLight, &rating, px + 60.0, py + 42.0);
-    // The scenario's monuments, each with how it stands.
-    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 64.0, 36, 13);
+    // The scenario's monuments, each with how it stands. Akhenaten's monuments_panel
+    // is 8 tiles tall (ui_advisor_monuments.js pos[32,60] size[36,8], ending at
+    // py+188, clear of the burial_title at py+200): the original's rows show a
+    // compact "phase/total pct%" that never wraps, but Osiris shows a full sentence
+    // per monument, so rows still get extra height (66px) within this shorter panel.
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 64.0, 36, 8);
     let slots: Vec<u16> = world.scenario_monuments.iter().copied().filter(|&m| m > 0).collect();
     for (i, &code) in slots.iter().enumerate() {
         let y = py + 70.0 + 66.0 * i as f32;
@@ -1411,18 +1516,22 @@ fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
         };
         ui.wrapped(Font::NormalWhiteOnDark, &lines.join(" "), px + 60.0, y + 16.0, 33.0 * 16.0);
     }
-    // Burial provisions: what is needed, what has been sent, and what is in storage.
-    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 280.0, 36, 8);
+    // Burial provisions: what is needed, what has been sent, and what is in storage
+    // (ui_advisor_monuments.js: burial_title at [60,200], burial_hint at [60,218],
+    // burial_panel at [32,238] size[36,8]). Now that monuments_panel above is back to
+    // the original's 8 tiles (ending at py+192), these sit at their original y's again.
+    let burial_title = ui.t(G, 10);
+    ui.label(Font::NormalBlackOnLight, &burial_title, px + 60.0, py + 200.0);
+    let hint = ui.t(G, 3);
+    ui.label(Font::NormalBlackOnLight, &hint, px + 60.0, py + 218.0);
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 238.0, 36, 8);
     let needs = world.burial_needs();
     if needs.is_empty() {
         let none = ui.t(G, 12);
-        ui.centred(Font::NormalWhiteOnDark, &none, px + 32.0, py + 336.0, 36.0 * 16.0);
-    } else {
-        let hint = ui.t(G, 3);
-        ui.label(Font::NormalWhiteOnDark, &hint, px + 48.0, py + 288.0);
+        ui.centred(Font::NormalWhiteOnDark, &none, px + 32.0, py + 294.0, 36.0 * 16.0);
     }
     for (i, &(r, need, sent)) in needs.iter().take(6).enumerate() {
-        let (cx, cy) = (px + 48.0 + 280.0 * (i % 2) as f32, py + 310.0 + 34.0 * (i / 2) as f32);
+        let (cx, cy) = (px + 48.0 + 280.0 * (i % 2) as f32, py + 268.0 + 34.0 * (i / 2) as f32);
         let rect = [cx - 4.0, cy - 4.0, 270.0, 32.0];
         ui.icon(r, cx, cy);
         let line = format!("{} / {} {}", sent / 100, need / 100, ui.t(RESOURCE_NAMES, r as usize));
