@@ -493,3 +493,33 @@ impl Defs {
         self.menus.iter().find(|m| m.key == key)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each building's info window reads its own text group: quarries are not gold
+    /// mines, a ferry landing is not a tower, and walls, gatehouses, towers and the
+    /// carpenters' guild have their own.
+    #[test]
+    fn info_text_groups() {
+        let raw: BuildingsFile = toml::from_str(include_str!("../data/buildings.toml")).unwrap();
+        let group = |key: &str| raw.building.iter().find(|b| b.key == key).and_then(|b| b.text_id);
+        let expect = [
+            ("gold_mine", 162),
+            ("limestone_quarry", 119),
+            ("granite_quarry", 192),
+            ("sandstone_quarry", 194),
+            ("ferry", 159),
+            ("mud_tower", 91),
+            ("mud_wall", 139),
+            ("brick_wall", 166),
+            ("brick_tower", 169),
+            ("carpenters_guild", 171),
+            ("irrigation_ditch", 141),
+        ];
+        for (key, g) in expect {
+            assert_eq!(group(key), Some(g), "{key}");
+        }
+    }
+}

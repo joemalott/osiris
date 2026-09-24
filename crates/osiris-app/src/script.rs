@@ -63,6 +63,56 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     world.tick();
                 }
             }
+            // Places N random buildings from the build menus at valid spots, with roads
+            // and some clearing, from seed S.
+            ["fuzz", n, s] => fuzz(world, n.parse()?, s.parse()?, None),
+            // A town near the entry: a road grid, then N random buildings (half houses) on it.
+            ["town", n, s] => {
+                let c = town_roads(world);
+                fuzz(world, n.parse()?, s.parse()?, Some(c));
+            }
+            // Lets every building type be built.
+            ["allowall"] => {
+                let all: Vec<u16> = (0..world.defs.buildings.len() as u16).filter(|&k| world.defs.building(k).is_some()).collect();
+                if let Some(m) = world.mission.as_mut() {
+                    m.allowed.extend(all);
+                }
+            }
+            // Runs N ticks, reporting the time taken, the slowest tick and figures that never moved.
+            ["timed", n] => {
+                let before: std::collections::HashMap<_, _> = world.figures.iter().map(|f| (f.id, (f.x, f.y, f.kind, f.action))).collect();
+                let start = std::time::Instant::now();
+                let mut worst = std::time::Duration::ZERO;
+                for _ in 0..n.parse::<u32>()? {
+                    let t = std::time::Instant::now();
+                    world.tick();
+                    worst = worst.max(t.elapsed());
+                }
+                let mut still: std::collections::BTreeMap<(u16, u16), u32> = Default::default();
+                for f in world.figures.iter() {
+                    if before.get(&f.id).is_some_and(|b| (b.0, b.1) == (f.x, f.y)) {
+                        *still.entry((f.kind, f.action)).or_default() += 1;
+                    }
+                }
+                let idle = world.buildings.iter().filter(|b| !b.is_house() && b.workers == 0 && world.defs.building(b.kind).is_some_and(|d| d.labor.is_some())).count();
+                eprintln!(
+                    "timed {n}: {:?} total, worst tick {:?}; pop {} treasury {} figures {} buildings {} unstaffed {idle}; unmoved (kind,action) {still:?}",
+                    start.elapsed(), worst, world.population, world.treasury, world.figures.len(), world.buildings.iter().count()
+                );
+            }
+            // Every figure of kind K: where it is, what it is doing and where it is going.
+            ["figs", k] => {
+                let k: u16 = k.parse()?;
+                for f in world.figures.iter().filter(|f| f.kind == k) {
+                    eprintln!("  fig {} at ({},{}) action {} dest {:?} route {} moving {} counter {} stuck {} foe {} target {}", f.id, f.x, f.y, f.action, f.destination, f.route.len(), f.moving, f.counter, f.stuck, f.foe, f.target);
+                }
+            }
+            // A tile's terrain bits and building.
+            ["tile", p] => {
+                let (x, y) = parse_point(p)?;
+                let id = world.map.building.at_or(x, y, 0);
+                eprintln!("  tile {x},{y}: terrain {:#x} building {id} kind {:?}", world.map.terrain.at_or(x, y, 0), world.buildings.get(id).map(|b| b.kind));
+            }
             ["view", p] => view.centre = Some(parse_point(p)?),
             ["info", p] => view.info = Some(parse_point(p)?),
             ["dialogs"] => view.keep_dialogs = true,
@@ -240,8 +290,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["events"] => {
                 for (i, e) in world.scenario_events.list.iter().enumerate() {
                     eprintln!(
-                        "  event {i} kind {} trigger {} at y{} m{} res {} amount {} city {:?} state {} left {} active {} wait {}",
-                        e.kind, e.trigger, e.year, e.month, e.resource, e.amount, e.city, e.state, e.months_left, e.active, e.wait
+                        "  event {i} kind {} trigger {} at y{} m{} res {} amount {} city {:?} state {} left {} active {} wait {} next {}/{}/{}",
+                        e.kind, e.trigger, e.year, e.month, e.resource, e.amount, e.city, e.state, e.months_left, e.active, e.wait, e.on_completed, e.on_refusal, e.on_too_late
                     );
                 }
                 for n in world.notices.log.iter().filter(|n| n.text.is_some()) {
@@ -254,7 +304,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let plagued = houses.iter().filter(|h| h.2 > 0).count();
                 let crime: i32 = houses.iter().map(|h| h.3).max().unwrap_or(0);
                 let wanderers: Vec<u16> = world.figures.iter().filter(|f| matches!(f.kind, 22 | 23 | 98)).map(|f| f.kind).collect();
-                eprintln!("  health {} target {} houses {} plagued {plagued} max crime {crime} sentiment {} wanderers {:?} treasury {}", world.ratings.health, world.ratings.health_target, houses.len(), world.sentiment, wanderers, world.treasury);
+                eprintln!("  health {} target {} houses {} plagued {plagued} max crime {crime} sentiment {} wanderers {:?} treasury {} migration {:?}", world.ratings.health, world.ratings.health_target, houses.len(), world.sentiment, wanderers, world.treasury, world.migration);
                 let log: Vec<&str> = world.notices.log.iter().map(|n| n.key.as_str()).filter(|k| k.contains("plague") || k.contains("disease") || k.contains("malaria") || k.contains("crime")).collect();
                 eprintln!("  log {log:?}");
             }
@@ -491,5 +541,110 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
         }
     }
     Ok(view)
+}
+
+/// Every building type reachable from the build menus, in menu order.
+fn menu_kinds(world: &World) -> Vec<u16> {
+    fn walk(world: &World, key: &str, out: &mut Vec<u16>, depth: u32) {
+        let Some(menu) = world.defs.menu(key) else { return };
+        for item in &menu.items {
+            if let Some(sub) = item.strip_prefix("menu_") {
+                if depth < 4 {
+                    walk(world, sub, out, depth + 1);
+                }
+            } else if let Some(d) = world.defs.building_by_key(item)
+                && !out.contains(&d.id)
+            {
+                out.push(d.id);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for m in &world.defs.menus {
+        walk(world, &m.key, &mut out, 0);
+    }
+    out
+}
+
+/// The `fuzz` step: random buildings at valid spots, roads beside them, some clearing.
+/// Lays a road grid over the most open ground near the entry, joined to the entry,
+/// and returns its centre.
+fn town_roads(world: &mut World) -> (i32, i32) {
+    use osiris_sim::map::mask;
+    let (ex, ey) = world.entry_point;
+    let open = |w: &World, x: i32, y: i32| w.map.contains(x, y) && !w.map.terrain_is(x, y, mask::NOT_CLEAR) && w.map.building.at_or(x, y, 0) == 0;
+    let mut best = ((ex, ey), -1);
+    for cy in (ey - 40..=ey + 40).step_by(4) {
+        for cx in (ex - 40..=ex + 40).step_by(4) {
+            let n = (-15..=15).step_by(3).flat_map(|dy| (-15..=15).step_by(3).map(move |dx| (dx, dy))).filter(|&(dx, dy)| open(world, cx + dx, cy + dy)).count() as i32;
+            if n > best.1 {
+                best = ((cx, cy), n);
+            }
+        }
+    }
+    let (cx, cy) = best.0;
+    for d in (-15..=15).step_by(5) {
+        world.apply(&Command::Road { start: (cx - 15, cy + d), end: (cx + 15, cy + d) });
+        world.apply(&Command::Road { start: (cx + d, cy - 15), end: (cx + d, cy + 15) });
+    }
+    world.apply(&Command::Road { start: (ex, ey), end: (cx, cy) });
+    eprintln!("town at {cx},{cy} (open {})", best.1);
+    (cx, cy)
+}
+
+fn fuzz(world: &mut World, n: u32, seed: u64, town: Option<(i32, i32)>) {
+    let mut state = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+    let mut next = move |m: i32| -> i32 {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state % m.max(1) as u64) as i32
+    };
+    let kinds = menu_kinds(world);
+    let (w, h) = (world.map.width, world.map.height);
+    let (mut built, mut failed) = (0, 0);
+    let mut placed: std::collections::BTreeMap<u16, u32> = Default::default();
+    for _ in 0..n {
+        if next(100) < 5 {
+            let (x, y) = (next(w), next(h));
+            world.apply(&Command::Clear { x0: x, y0: y, x1: x + 2, y1: y + 2 });
+            continue;
+        }
+        let k = if town.is_some() && next(2) == 0 { osiris_sim::buildings::kind::VACANT_LOT } else { kinds[next(kinds.len() as i32) as usize] };
+        if !world.is_allowed(k) {
+            continue;
+        }
+        let mut site = None;
+        for _ in 0..400 {
+            let (x, y) = match town {
+                Some((cx, cy)) => (cx - 17 + next(35), cy - 17 + next(35)),
+                None => (next(w), next(h)),
+            };
+            if world.can_place(k, x, y).is_ok() {
+                site = Some((x, y));
+                break;
+            }
+        }
+        let Some((x, y)) = site else {
+            failed += 1;
+            continue;
+        };
+        let (fw, fh) = world.footprint_of(k);
+        let (x1, y1) = if osiris_sim::buildings::kind::is_house(k) { (x + next(3), y + next(3)) } else { (x, y) };
+        let out = world.apply(&Command::Build { kind: k, x, y, x1, y1 });
+        if matches!(out, osiris_sim::Outcome::Done { .. }) {
+            built += 1;
+            *placed.entry(k).or_default() += 1;
+            if town.is_some() {
+                continue;
+            }
+            // A road along the front, running off towards a random point.
+            let (rx, ry) = (x - 1, y + fh.max(y1 - y + 1));
+            let far = (rx + next(30) - 15, ry + next(30) - 15);
+            world.apply(&Command::Road { start: (rx, ry), end: (x + fw, ry) });
+            world.apply(&Command::Road { start: (rx, ry), end: far });
+        }
+    }
+    eprintln!("fuzz {n} {seed}: built {built}, no site {failed}, treasury {}, kinds {placed:?}", world.treasury);
 }
 

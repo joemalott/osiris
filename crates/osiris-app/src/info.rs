@@ -436,7 +436,9 @@ impl InfoPanel {
     fn building_window(&mut self, ui: &mut Ui, world: &mut World, b: &Building) -> Option<InfoAction> {
         let def = world.defs.building(b.kind).cloned();
         let g = def.as_ref().and_then(|d| d.text_id).filter(|&g| g > 0).map_or(0, |g| g as usize);
-        let t = |ui: &Ui, i: usize| ui.t(g, i);
+        // The shrines share one group: each god's name and words, in pairs.
+        let pair = if (kind::SHRINE_OSIRIS..=kind::SHRINE_BAST).contains(&b.kind) { 2 * (b.kind - kind::SHRINE_OSIRIS) as usize } else { 0 };
+        let t = |ui: &Ui, i: usize| ui.t(g, if i <= 1 { i + pair } else { i });
         let name = if g > 0 { t(ui, 0) } else { ui.t(28, b.kind as usize) };
         if b.house.is_some() {
             return self.house_window(ui, world, b);
@@ -455,6 +457,8 @@ impl InfoPanel {
         }
         let flags = |f: &str| def.as_ref().is_some_and(|d| d.has_flag(f));
         let no_road = ui.t(TEXT_FRAME, 25);
+        // Buildings that need no road (statues, shrines, gardens) never warn of one.
+        let roadless = b.road.is_none() && !flags("no_road_access");
         match b.kind {
             kind::STORAGE_YARD => return self.yard_window(ui, world, b),
             kind::GRANARY => return self.granary_window(ui, world, b),
@@ -535,9 +539,9 @@ impl InfoPanel {
         let ([x, y], closed) = self.frame(ui, 29, if supply.is_some() { 18 } else { 17 }, &name);
         let supplied = supply.map(|r| b.stock.get(r as usize).copied().unwrap_or(0));
         let walker_out = b.walkers[0] != 0;
-        let status = if b.road.is_none() {
+        let status = if roadless {
             no_road
-        } else if temple {
+        } else if temple || world.workers_needed(b.kind) <= 0 {
             String::new()
         } else if b.workers <= 0 {
             let s = t(ui, 9);

@@ -68,6 +68,12 @@ pub struct Invasion {
     recurring: bool,
     /// Comes when the kingdom rating falls to nothing, not on a date.
     pub by_favour: bool,
+    /// Comes only when another event leads to it, not on a date.
+    #[serde(default)]
+    pub via_event: bool,
+    /// The scenario event it was planned from.
+    #[serde(default)]
+    pub event: Option<usize>,
     pub armed: bool,
     pub announced: bool,
     last_warning: i32,
@@ -118,8 +124,9 @@ impl Invasions {
         let planned = s
             .events
             .iter()
-            .filter(|e| e.kind == crate::scenario_events::event::INVASION)
-            .map(|e| Invasion {
+            .enumerate()
+            .filter(|(_, e)| e.kind == crate::scenario_events::event::INVASION)
+            .map(|(i, e)| Invasion {
                 invader: e.item.value.clamp(1, 4) as u8,
                 amount: e.amount.into(),
                 point: osiris_formats::EventValue { value: e.location[0], fixed: e.location[1], min: e.location[2], max: e.location[3] }.into(),
@@ -130,6 +137,8 @@ impl Invasions {
                 interval: (e.time.min, e.time.max),
                 recurring: e.trigger == crate::scenario_events::trigger::RECURRING,
                 by_favour: e.trigger == TRIGGER_BY_FAVOUR,
+                via_event: e.trigger == crate::scenario_events::trigger::ONLY_VIA_EVENT,
+                event: Some(i),
                 ..Default::default()
             })
             .collect();
@@ -217,6 +226,8 @@ impl World {
                     self.post("message_attack_called_off", None, true);
                     continue;
                 }
+            } else if inv.via_event && !inv.armed {
+                continue;
             }
             let left = inv.year * 12 + inv.month - now;
             let group = phrases(inv.invader);
@@ -266,7 +277,7 @@ impl World {
                 let (min, max) = (p.interval.0 as i32, p.interval.1 as i32);
                 let years = if min >= 0 && max > min { min + self.rng.below(max - min + 1) } else { min.max(max) };
                 p.year += years.max(1);
-            } else if p.by_favour {
+            } else if p.by_favour || p.via_event {
                 p.armed = false;
             } else {
                 p.done = true;
@@ -297,6 +308,10 @@ impl World {
         }
         let group = phrases(inv.invader);
         self.post_invasion_text(inv.invader, &format!("{group}_city_attacked_alert"), 0);
+        // The army's arrival leads on to whatever event follows it (the next wave).
+        if let Some(on) = inv.event.and_then(|e| self.scenario_events.list.get(e)).map(|e| e.on_completed) {
+            self.follow(on, inv.event.unwrap_or(0), crate::scenario_events::Outcome::Completed);
+        }
         if let Some(n) = self.notices.log.last_mut() {
             n.tile = Some(spot);
         }
@@ -342,6 +357,19 @@ impl World {
         }
     }
 
+    /// Another event has led to the invasion planned from scenario event `event`: it
+    /// sets out now and arrives when its months of warning have passed.
+    pub(crate) fn arm_invasion(&mut self, event: usize) {
+        let now = self.months_now();
+        if let Some(inv) = self.invasions.planned.iter_mut().find(|p| p.via_event && p.event == Some(event) && !p.armed) {
+            inv.armed = true;
+            inv.announced = false;
+            let arrive = now + inv.warning.max(1);
+            inv.year = arrive / 12;
+            inv.month = arrive % 12;
+        }
+    }
+
     /// Sends an army at once (for tests and the scripted harness).
     pub fn invade_now(&mut self, invader: u8, amount: i32, point: i32) {
         self.invasions.planned.push(Invasion {
@@ -379,6 +407,34 @@ impl World {
                     if (dx.abs() == r || dy.abs() == r) && crate::figures::passable(&self.map, Travel::Land, x, y) {
                         return Some((x, y));
                     }
+                }
+            }
+        }
+        None
+    }
+
+    /// The nearest building an invader at `from` can walk up to, and the tile beside it
+    /// he would stand on: what he batters when his way to the target is shut.
+    fn nearest_reachable_building(&self, from: (i32, i32)) -> Option<(BuildingId, (i32, i32))> {
+        let map = &self.map;
+        let (w, h) = (map.width, map.height);
+        if !map.contains(from.0, from.1) {
+            return None;
+        }
+        let mut seen = vec![false; (w * h) as usize];
+        let mut queue = std::collections::VecDeque::from([from]);
+        seen[(from.1 * w + from.0) as usize] = true;
+        while let Some((x, y)) = queue.pop_front() {
+            for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1)] {
+                let id = map.building.at_or(x + dx, y + dy, 0);
+                if self.buildings.get(id).is_some_and(|b| !matches!(b.kind, crate::military::FORT_GROUND | kind::ROAD | kind::BURNING_RUIN)) {
+                    return Some((id, (x, y)));
+                }
+            }
+            for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if crate::figures::passable(map, Travel::Hostile, nx, ny) && !std::mem::replace(&mut seen[(ny * w + nx) as usize], true) {
+                    queue.push_back((nx, ny));
                 }
             }
         }
@@ -534,7 +590,7 @@ impl World {
             let slot = f.slot as usize;
             let mut ring: Vec<(i32, i32)> = (by - 1..=by + h)
                 .flat_map(|yy| (bx - 1..=bx + w).map(move |xx| (xx, yy)))
-                .filter(|&(xx, yy)| (xx == bx - 1 || yy == by - 1 || xx == bx + w || yy == by + h) && crate::figures::passable(&self.map, Travel::Land, xx, yy))
+                .filter(|&(xx, yy)| (xx == bx - 1 || yy == by - 1 || xx == bx + w || yy == by + h) && crate::figures::passable(&self.map, Travel::Hostile, xx, yy))
                 .collect();
             ring.sort_by_key(|&(xx, yy)| (xx - x).abs() + (yy - y).abs());
             // A wall is attacked from the near side.
@@ -543,19 +599,24 @@ impl World {
             let map = &self.map;
             let f = self.figures.get_mut(fid).expect("present");
             if !f.go_to(map, spot) {
-                // Walled off: batter the nearest part of the wall instead. If there is
-                // none, the target is unreachable for some other reason (an island
-                // across water, say): back off further each consecutive failure so a
-                // permanently unreachable target isn't searched for (a full-map scan)
-                // again every 50 ticks forever.
+                // Hemmed in, by walls or by the city itself: as in the original, they
+                // batter whatever stands in their way, the nearest building they can
+                // get at. If there is none (an island across water, say), back off
+                // further each consecutive failure so a permanently unreachable target
+                // isn't searched for (a full-map scan) again every 50 ticks forever.
                 f.destination = Some(spot);
                 f.counter = stuck_backoff(f.stuck);
                 f.stuck = f.stuck.saturating_add(1);
-                let wall = self.nearest_defense((x, y), i32::MAX);
-                if let (Some(w), Some(a)) = (wall, self.invasions.armies.get_mut(army))
-                    && a.target != w
-                {
-                    a.target = w;
+                if let Some((w, tile)) = self.nearest_reachable_building((x, y)) {
+                    if let Some(a) = self.invasions.armies.get_mut(army) {
+                        a.target = w;
+                    }
+                    let map = &self.map;
+                    if let Some(f) = self.figures.get_mut(fid)
+                        && f.go_to(map, tile)
+                    {
+                        f.counter = 0;
+                    }
                 }
                 return;
             }
@@ -623,5 +684,61 @@ mod tests {
         assert_eq!((stuck_backoff(1), stuck_backoff(2), stuck_backoff(3), stuck_backoff(4)), (100, 200, 400, 800));
         // ...capped so it never stalls forever.
         assert_eq!((stuck_backoff(5), stuck_backoff(6), stuck_backoff(255)), (1600, 1600, 1600));
+    }
+
+    /// Campaign mission 20 (with the real game data, when present).
+    fn mission(n: usize) -> Option<World> {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.join("mission1.pak").is_file() {
+            return None;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).ok()?;
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).ok()?);
+        let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&std::fs::read(data.join("Pharaoh_Model_Normal.txt")).ok()?)).ok()?;
+        let balance = std::sync::Arc::new(crate::balance::Balance::from_model(&model));
+        let scenario = osiris_formats::MissionPak::open(&data.join("mission1.pak")).ok()?.scenario(n).ok()?;
+        let mut world = World::new(&scenario, defs, balance);
+        world.start(&scenario);
+        world.load_mission(n as i32);
+        Some(world)
+    }
+
+    #[test]
+    fn invasions_only_via_event_wait_for_their_event() {
+        let Some(mut world) = mission(20) else { return };
+        // Mission 20's later waves of Pharaoh's army follow the one his lost favour
+        // sends; none comes while the kingdom rating holds.
+        assert!(world.invasions.planned.iter().filter(|p| p.via_event).count() >= 3);
+        for _ in 0..3000 {
+            world.tick();
+        }
+        assert!(world.invasions.armies.is_empty(), "no army without a cause");
+        // Favour gone: the first army comes, and the next wave follows it.
+        for _ in 0..40_000 {
+            world.ratings.kingdom = 0;
+            world.tick();
+            if world.invasions.armies.len() >= 2 {
+                break;
+            }
+        }
+        assert!(world.invasions.armies.len() >= 2, "armies {}", world.invasions.armies.len());
+    }
+
+    #[test]
+    fn hemmed_in_invaders_find_a_building_to_batter() {
+        use crate::map::terrain;
+        let Some(mut world) = mission(1) else { return };
+        let (w, h) = (world.map.width, world.map.height);
+        // A well with open ground for five tiles west of it.
+        let clear = |world: &World, x: i32, y: i32| (x - 6..=x).all(|xx| world.can_place(kind::WELL, xx, y).is_ok());
+        let (x, y) = (6..h - 1).flat_map(|y| (6..w - 1).map(move |x| (x, y))).find(|&(x, y)| clear(&world, x, y)).expect("open ground");
+        assert!(matches!(world.apply(&crate::world::Command::Build { kind: kind::WELL, x, y, x1: x, y1: y }), crate::world::Outcome::Done { .. }));
+        let well = world.map.building.at_or(x, y, 0);
+        // Rubble between the invader and the well is no bar.
+        for xx in x - 4..x - 1 {
+            world.map.terrain.set(xx, y, terrain::RUBBLE);
+        }
+        let found = world.nearest_reachable_building((x - 5, y));
+        assert_eq!(found, Some((well, (x - 1, y))));
     }
 }

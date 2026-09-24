@@ -160,7 +160,21 @@ pub fn passable(map: &Map, travel: Travel, x: i32, y: i32) -> bool {
                 || ferry
         }
         Travel::Water => crate::water::navigable(map, x, y),
-        Travel::Hostile => t & terrain::GATEHOUSE == 0 && passable(map, Travel::Land, x, y),
+        // Invaders cross trees, scrub, marsh, dunes, rubble, gardens, canals, ramps and
+        // dry floodplain (the original's route grid for non-citizens); buildings, walls
+        // and gatehouses they must batter down.
+        Travel::Hostile => {
+            const OPEN: u32 = terrain::TREE
+                | terrain::SHRUB
+                | terrain::MARSHLAND
+                | terrain::DUNE
+                | terrain::RUBBLE
+                | terrain::GARDEN
+                | terrain::CANAL
+                | terrain::ACCESS_RAMP
+                | terrain::FLOODPLAIN;
+            t & terrain::GATEHOUSE == 0 && (t & terrain::ROAD != 0 && t & terrain::WATER == 0 || t & (mask::IMPASSABLE | terrain::BUILDING) & !OPEN == 0 || ferry)
+        }
     }
 }
 
@@ -357,6 +371,19 @@ mod tests {
             vegetation: Grid::new(w, h),
             building: Grid::new(w, h),
             border: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn invaders_cross_rubble_and_trees_but_not_buildings() {
+        let mut map = open_map(5, 1);
+        map.terrain.set(1, 0, terrain::RUBBLE);
+        map.terrain.set(2, 0, terrain::TREE | terrain::SHRUB);
+        map.terrain.set(3, 0, terrain::FLOODPLAIN);
+        assert!(find_route(&map, Travel::Hostile, (0, 0), (4, 0)).is_some());
+        for (bits, open) in [(terrain::BUILDING, false), (terrain::WALL, false), (terrain::ROCK, false), (terrain::WATER | terrain::FLOODPLAIN, false), (terrain::DUNE, true)] {
+            map.terrain.set(3, 0, bits);
+            assert_eq!(passable(&map, Travel::Hostile, 3, 0), open, "{bits:#x}");
         }
     }
 
