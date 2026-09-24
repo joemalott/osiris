@@ -1237,7 +1237,7 @@ impl Game {
             }
             // Craftsmen at work on a monument.
             if matches!(f.kind, osiris_sim::monuments::BRICKLAYER | osiris_sim::monuments::STONEMASON | osiris_sim::monuments::CARPENTER)
-                && f.action == 2
+                && matches!(f.action, 2 | osiris_sim::monuments::AT_SPOT)
                 && f.moving
                 && let Some(work) = defs.figure(f.kind).and_then(|d| d.anims.get("work"))
             {

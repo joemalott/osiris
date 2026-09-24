@@ -1,10 +1,9 @@
 //! Monuments. Each is built in phases, each phase a number of pieces of work:
-//! laborers from work camps level and lay out the site, and guild craftsmen waiting
-//! on site do the rest, as far as the material storage yards drag over on sleds (at
-//! most 400 units a sled, never more than the phase still needs) allows. When every
-//! piece of a phase is done, the next begins; after the last, the monument is
-//! complete. Pyramids and mastabas are built block by block instead: see
-//! [`crate::pyramids`].
+//! laborers from work camps level and lay out the site, and guild craftsmen do the
+//! rest; a mason who lays a block of stone waits for a laborer to drag its sled of
+//! 400 units from a storage yard to him. When every piece of a phase is done, the
+//! next begins; after the last, the monument is complete. Pyramids and mastabas are
+//! built block by block instead: see [`crate::pyramids`].
 
 use crate::buildings::{BuildingId, kind};
 use crate::figures::{Figure, FigureId, Step, Travel};
@@ -31,9 +30,11 @@ pub const SLED: u16 = 86;
 pub const SLED_PULLER: u16 = 96;
 pub const FUNERAL_WALKER: u16 = 94;
 /// A work-camp laborer's actions with a sled: going to the storage yard for it
-/// (the original's state 15), dragging it to the monument (30 and 17), up a tomb's
-/// way up (18), across to his mason (19 and 20), and standing there after (29).
+/// (the original's state 15), loading it there (16), dragging it to the monument
+/// (30 and 17 to a tomb, 23 and 26 to a sun temple or mausoleum), up a tomb's way up
+/// (18), across to his mason (19 and 20), and standing there after (29).
 pub const HAULING: u16 = 7;
+pub const AT_YARD: u16 = 14;
 pub const SLED_TO_TOMB: u16 = 10;
 pub const SLED_CLIMB: u16 = 11;
 pub const SLED_CROSS: u16 = 12;
@@ -41,8 +42,14 @@ pub const SLED_DONE: u16 = 13;
 
 /// Whether a laborer's action is one of his sled's.
 pub(crate) fn is_hauling(action: u16) -> bool {
-    matches!(action, HAULING | SLED_TO_TOMB | SLED_CLIMB | SLED_CROSS | SLED_DONE)
+    matches!(action, HAULING | AT_YARD | SLED_TO_TOMB | SLED_CLIMB | SLED_CROSS | SLED_DONE)
 }
+
+/// A stonemason laying a block of a mausoleum or sun temple: crossing the site to the
+/// tile he lays it from (the original's mason state 9), and there, waiting for its
+/// sled and then working it (10 and 11).
+const SITE_CROSS: u16 = 6;
+pub const AT_SPOT: u16 = 7;
 
 const BRICKS: u16 = 12;
 const TIMBER: u16 = 20;
@@ -710,12 +717,6 @@ impl MonumentDef {
         }
     }
 
-    /// What the current phase still needs of `r`, counting what is on its way.
-    fn needs(&self, m: &Monument, r: u16) -> i32 {
-        let want = Monument::amount(&self.phase(m.phase), r);
-        want - Monument::amount(&m.delivered, r) - Monument::amount(&m.in_flight, r)
-    }
-
     /// How many of the phase's blocks the delivered material pays for.
     fn blocks_paid(&self, m: &Monument) -> usize {
         let blocks = self.units(m.phase);
@@ -725,6 +726,41 @@ impl MonumentDef {
             .min()
             .unwrap_or(blocks)
             .min(blocks)
+    }
+
+    /// Whether phase `p` is laid a block at a time by stonemasons, each block a sled
+    /// of sandstone dragged to the mason who lays it: a mausoleum's two storeys, a sun
+    /// temple's gate, walls and fore temple.
+    pub fn sled_phase(&self, p: u8) -> bool {
+        match self.style {
+            Style::Mausoleum => p == 1 || p == 3,
+            Style::SunTemple => matches!(p, SUN_GATE | SUN_WALLS | SUN_FORE),
+            _ => false,
+        }
+    }
+
+    /// The tile (from the monument's corner) the mason laying block `i` of sled phase
+    /// `p` stands on: at a mausoleum one of the four beside its part, each laying two
+    /// of a storey's eight blocks (the original's part table at 0x5e2ad8); at a sun
+    /// temple the part itself.
+    fn sled_block_spot(&self, p: u8, i: usize) -> Option<(i32, i32)> {
+        match self.style {
+            Style::Mausoleum => {
+                let px = *MAUSOLEUM_PARTS.get(i / MAUSOLEUM_BLOCKS)?;
+                Some([(px, 1), (px + 3, 1), (px, 6), (px + 3, 6)][i % MAUSOLEUM_BLOCKS / 2])
+            }
+            Style::SunTemple => {
+                let parts = sun_temple_parts();
+                let spot = match p {
+                    SUN_GATE => parts.iter().find(|q| q.1 == SunPart::Gate),
+                    SUN_WALLS => parts.iter().filter(|q| q.1.is_wall()).nth(i),
+                    SUN_FORE => parts.iter().find(|q| q.1 == SunPart::Fore),
+                    _ => None,
+                };
+                spot.map(|q| q.0)
+            }
+            _ => None,
+        }
     }
 
     /// Whether the monument is a tomb, which takes burial provisions.
@@ -1187,11 +1223,75 @@ impl World {
         best.map(|(p, _)| p)
     }
 
-    /// Where a sled for monument `id` coming from `from` is dragged: the foot of a
+    /// Where a sled for monument `id` is dragged over the ground: the foot of a
     /// pyramid's or mastaba's way up (the laborer's destination from `FUN_004f3000`),
-    /// else the side of the monument nearest.
-    fn sled_spot(&self, id: BuildingId, from: (i32, i32)) -> Option<(i32, i32)> {
-        if self.tomb_route(id).is_empty() { self.monument_access(id, from) } else { self.tomb_entry(id) }
+    /// else the edge of the site nearest the tile its mason `mason` lays his block
+    /// from, whence it is dragged across the site to him.
+    fn sled_spot(&self, id: BuildingId, mason: FigureId) -> Option<(i32, i32)> {
+        if !self.tomb_route(id).is_empty() {
+            return self.tomb_entry(id);
+        }
+        let at = self.mason_spot(mason)?;
+        self.monument_access(id, at)
+    }
+
+    /// The map tile a mason lays block `i` of monument `id`'s phase from.
+    fn site_spot(&self, id: BuildingId, i: usize) -> Option<(i32, i32)> {
+        let b = self.buildings.get(id)?;
+        let (def, m) = (monument_def(b.kind)?, b.monument.as_ref()?);
+        def.sled_block_spot(m.phase, i).map(|(x, y)| (b.x + x, b.y + y))
+    }
+
+    /// The tile mason `mason` lays his block of a mausoleum or sun temple from.
+    fn mason_spot(&self, mason: FigureId) -> Option<(i32, i32)> {
+        let f = self.figures.get(mason)?;
+        let i = usize::try_from(f.amount - 1).ok()?;
+        self.site_spot(f.target, i)
+    }
+
+    /// The blocks of a mausoleum's or sun temple's sled phase a mason could be sent
+    /// to lay (`FUN_004e05f0`, `FUN_005421d0`): not yet laid, no mason sent for it,
+    /// and the tile it is laid from free of any other mason; each tile lays its
+    /// blocks in turn.
+    fn site_open_blocks(&self, id: BuildingId) -> Vec<usize> {
+        let Some(b) = self.buildings.get(id) else { return Vec::new() };
+        let (Some(def), Some(m)) = (monument_def(b.kind), b.monument.as_ref()) else { return Vec::new() };
+        if !def.sled_phase(m.phase) {
+            return Vec::new();
+        }
+        let work = def.unit_work(m.phase);
+        let held: Vec<usize> = m
+            .craftsmen
+            .iter()
+            .filter_map(|c| self.figures.get(c.1))
+            .filter(|f| !f.dead && f.kind == STONEMASON && f.amount > 0)
+            .map(|f| f.amount as usize - 1)
+            .collect();
+        let mut used: Vec<(i32, i32)> = held.iter().filter_map(|&i| def.sled_block_spot(m.phase, i)).collect();
+        let mut out = Vec::new();
+        for (i, &p) in m.progress.iter().enumerate() {
+            if p >= work {
+                continue;
+            }
+            let Some(spot) = def.sled_block_spot(m.phase, i) else { continue };
+            if used.contains(&spot) {
+                continue;
+            }
+            used.push(spot);
+            out.push(i);
+        }
+        out
+    }
+
+    /// A mason at a mausoleum or sun temple waiting on his tile for his block's sled
+    /// that no laborer is fetching yet.
+    fn site_mason_waiting(&self, id: BuildingId) -> Option<FigureId> {
+        let m = self.buildings.get(id)?.monument.as_ref()?;
+        m.craftsmen.iter().map(|c| c.1).find(|&c| {
+            self.figures
+                .get(c)
+                .is_some_and(|f| !f.dead && f.kind == STONEMASON && f.target == id && f.action == AT_SPOT && f.cargo == 0 && f.amount > 0 && self.sled_laborer(f).is_none())
+        })
     }
 
     /// A monument block a work-camp laborer could level: the first block without a
@@ -1337,7 +1437,15 @@ impl World {
             // site of a part of its complex.
             let tomb = !self.tomb_route(target).is_empty();
             let job = if tomb { self.tomb_free_job(target, figure) } else { None };
-            let spot = if tomb { self.tomb_entry(target) } else { self.monument_access(target, from) };
+            // At a mausoleum or sun temple a mason is sent to lay a block, the one laid
+            // from the tile nearest his guild, and comes to the edge of the site there.
+            let block = self.site_open_blocks(target).into_iter().filter_map(|i| Some((self.site_spot(target, i)?, i))).min_by_key(|&((x, y), i)| ((x - from.0).abs() + (y - from.1).abs(), i));
+            let block = block.filter(|_| figure == STONEMASON);
+            let spot = match block {
+                _ if tomb => self.tomb_entry(target),
+                Some((at, _)) => self.monument_access(target, at),
+                None => self.monument_access(target, from),
+            };
             let Some(spot) = spot else { continue };
             let part = match job {
                 Some(crate::pyramids::Job::Part(i)) => self.part_tile(target, i),
@@ -1349,7 +1457,10 @@ impl World {
                 f.home = g;
                 f.target = target;
                 f.action = 1;
-                f.amount = job.map_or(0, encode_tomb_job);
+                f.amount = match block {
+                    Some((_, i)) => i as i32 + 1,
+                    None => job.map_or(0, encode_tomb_job),
+                };
                 if !part.is_some_and(|p| f.go_to(map, p)) && !f.go_to(map, spot) {
                     f.dead = true;
                     continue;
@@ -1387,6 +1498,9 @@ impl World {
     fn open_jobs(&self, id: BuildingId, figure: u16) -> usize {
         let Some(b) = self.buildings.get(id) else { return 0 };
         let (Some(def), Some(m)) = (monument_def(b.kind), b.monument.as_ref()) else { return 0 };
+        if def.sled_phase(m.phase) {
+            return if figure == STONEMASON { self.site_open_blocks(id).len() } else { 0 };
+        }
         let jobs = def.jobs(m.phase);
         if jobs.is_empty() {
             return usize::from(!m.has_craftsman(figure));
@@ -1409,6 +1523,11 @@ impl World {
             return;
         }
         let (act, target, figure) = (f.action, f.target, f.kind);
+        let sleds = self.buildings.get(target).and_then(|b| Some(monument_def(b.kind)?.sled_phase(b.monument.as_ref()?.phase))).unwrap_or(false);
+        if figure == STONEMASON && matches!(act, 1 | 2 | 5 | SITE_CROSS | AT_SPOT) && (sleds || matches!(act, 5 | SITE_CROSS | AT_SPOT)) {
+            self.update_site_mason(fid);
+            return;
+        }
         let listed = self.buildings.get(target).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.craftsmen.contains(&(figure, fid)));
         let busy = f.amount > 0;
         if act != 3 && !(listed && (busy || self.wants_craftsman(target, figure))) {
@@ -1465,6 +1584,101 @@ impl World {
                 }
             }
         }
+    }
+
+    /// A stonemason laying a block of a mausoleum or sun temple (the original's mason
+    /// states 9-12 there): he crosses the site from its edge to the tile he lays it
+    /// from and waits there for a laborer to drag its sled to him; the sled starts
+    /// him, and when the block is laid he goes home.
+    fn update_site_mason(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let (act, target, held, cargo) = (f.action, f.target, f.amount, f.cargo);
+        if act == 5 {
+            // Off the site, then home.
+            let map = &self.map;
+            let f = self.figures.get_mut(fid).expect("present");
+            if f.walk(map) != Step::Moving {
+                f.travel = Travel::Land;
+                self.send_home(fid);
+            }
+            return;
+        }
+        let listed = self.buildings.get(target).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.craftsmen.contains(&(STONEMASON, fid)));
+        let Some(b) = self.buildings.get(target) else { return self.leave_site(fid) };
+        let (Some(def), Some(m)) = (monument_def(b.kind), b.monument.as_ref()) else { return self.leave_site(fid) };
+        let block = usize::try_from(held - 1).ok().filter(|&i| listed && def.sled_phase(m.phase) && m.progress.get(i).is_some_and(|&p| p < def.unit_work(m.phase)));
+        let (Some(i), Some(spot)) = (block, block.and_then(|i| self.site_spot(target, i))) else { return self.leave_site(fid) };
+        let work = def.unit_work(m.phase);
+        let map = &self.map;
+        let f = self.figures.get_mut(fid).expect("present");
+        match act {
+            1 | SITE_CROSS => match f.walk(map) {
+                Step::Moving => {}
+                Step::Arrived if (f.x, f.y) == spot => {
+                    f.action = AT_SPOT;
+                    f.travel = Travel::Land;
+                    f.moving = false;
+                    f.counter = 0;
+                }
+                Step::Arrived if act == 1 => {
+                    f.action = SITE_CROSS;
+                    f.travel = Travel::Any;
+                    if !f.go_to(map, spot) {
+                        self.leave_site(fid);
+                    }
+                }
+                _ => self.leave_site(fid),
+            },
+            2 => {
+                // (Come to the site before its blocks were laid this way.)
+                f.action = 1;
+                f.travel = Travel::Any;
+                if !f.go_to(map, spot) {
+                    self.leave_site(fid);
+                }
+            }
+            _ if cargo == 0 => {
+                f.moving = false;
+                f.counter += 1;
+            }
+            _ => {
+                f.moving = true;
+                let m = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()).expect("present");
+                m.progress[i] += 1;
+                if m.progress[i] >= work {
+                    self.refresh_monument_images(target);
+                    self.leave_site(fid);
+                }
+            }
+        }
+    }
+
+    /// A mason at a mausoleum or sun temple is done there: he walks off the site and
+    /// goes home.
+    fn leave_site(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let (target, at) = (f.target, (f.x, f.y));
+        if let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()) {
+            m.craftsmen.retain(|c| c.1 != fid);
+        }
+        let on_site = !crate::figures::passable(&self.map, Travel::Land, at.0, at.1);
+        let spot = if on_site { self.monument_access(target, at) } else { None };
+        let map = &self.map;
+        let f = self.figures.get_mut(fid).expect("present");
+        f.amount = 0;
+        f.cargo = 0;
+        f.counter = 0;
+        f.moving = false;
+        f.link = 0;
+        if let Some(spot) = spot {
+            f.travel = Travel::Any;
+            f.action = 5;
+            if f.go_to(map, spot) {
+                return;
+            }
+        }
+        f.travel = Travel::Land;
+        self.send_home(fid);
     }
 
     /// A craftsman at an obelisk, sphinx or sun temple obelisk takes one of the
@@ -1886,11 +2100,13 @@ impl World {
     }
 
     /// A sled a work-camp laborer could fetch for a monument, nearest the camp at
-    /// `from` first: (monument, storage yard, resource, amount, mason). As in the
-    /// original, laborers drag the monuments' material. A pyramid or mastaba gets a
-    /// full sled for a mason waiting on his block for one that no laborer is
-    /// fetching for yet (`FUN_004beeb0`, `FUN_004f29e0`), of what the block's next
-    /// unit is made of; other monuments what the phase still needs, a sled at most.
+    /// `from` first: (monument, storage yard, resource, amount, mason). As the
+    /// original's laborer dispatcher (`FUN_004beeb0`) has it, a sled is fetched only
+    /// for a mason waiting for one that no laborer is fetching for yet: on a pyramid
+    /// or mastaba one waiting on his block (`FUN_004f29e0`), a sled of what the block's
+    /// next unit is made of; at a mausoleum or sun temple one waiting on the tile he
+    /// lays his block from (`FUN_004e05f0`, `FUN_005421d0`), a sled of sandstone.
+    /// Obelisks and the sphinx get no sleds.
     pub(crate) fn haul_job(&self, from: (i32, i32)) -> Option<(BuildingId, BuildingId, u16, i32, FigureId)> {
         let mut monuments: Vec<BuildingId> = self.active_monuments();
         monuments.sort_by_key(|&id| self.buildings.get(id).map_or(i32::MAX, |b| (b.x - from.0).abs() + (b.y - from.1).abs()));
@@ -1898,33 +2114,31 @@ impl World {
             let Some(b) = self.buildings.get(id) else { continue };
             let Some(def) = monument_def(b.kind) else { continue };
             let m = b.monument.as_ref().expect("active");
-            let (wants, mason): (Vec<(u16, i32)>, FigureId) = if crate::pyramids::blockwise(def.style) {
+            let (r, mason) = if crate::pyramids::blockwise(def.style) {
                 let Some(mason) = self.sled_mason(id, false, 0) else { continue };
                 let block = self.figures.get(mason).and_then(|f| self.mason_waiting(f));
                 let Some(r) = block.and_then(|i| self.tomb_unit_material(id, i)) else { continue };
-                (vec![(r, SLED_LOAD)], mason)
+                (r, mason)
+            } else if def.sled_phase(m.phase) {
+                let Some(mason) = self.site_mason_waiting(id) else { continue };
+                let Some(&(r, _)) = def.phase(m.phase).first() else { continue };
+                (r, mason)
             } else {
-                (def.phase(m.phase).into_iter().map(|(r, _)| (r, def.needs(m, r))).collect(), 0)
+                continue;
             };
             let at = (b.x, b.y);
-            for (r, need) in wants {
-                let amount = need.min(SLED_LOAD);
-                if amount <= 0 {
-                    continue;
-                }
-                let yard = self
-                    .buildings
-                    .iter()
-                    .filter(|y| y.kind == kind::STORAGE_YARD && y.road.is_some() && self.stored(y.id, r) >= amount)
-                    .min_by_key(|y| ((y.x - at.0).abs() + (y.y - at.1).abs(), y.id));
-                let Some(yard) = yard else { continue };
-                let (road, yat) = (yard.road.expect("filtered"), (yard.x, yard.y));
-                let Some(spot) = self.sled_spot(id, yat) else { continue };
-                if crate::figures::find_route(&self.map, Travel::Land, road, spot).is_none() {
-                    continue;
-                }
-                return Some((id, yard.id, r, amount, mason));
+            let yard = self
+                .buildings
+                .iter()
+                .filter(|y| y.kind == kind::STORAGE_YARD && y.road.is_some() && self.stored(y.id, r) >= SLED_LOAD)
+                .min_by_key(|y| ((y.x - at.0).abs() + (y.y - at.1).abs(), y.id));
+            let Some(yard) = yard else { continue };
+            let road = yard.road.expect("filtered");
+            let Some(spot) = self.sled_spot(id, mason) else { continue };
+            if crate::figures::find_route(&self.map, Travel::Land, road, spot).is_none() {
+                continue;
             }
+            return Some((id, yard.id, r, SLED_LOAD, mason));
         }
         None
     }
@@ -1936,7 +2150,8 @@ impl World {
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return false };
         f.target = monument;
-        f.counter = yard as i32;
+        f.yard = yard;
+        f.counter = 0;
         f.cargo = r;
         f.amount = amount;
         f.action = HAULING;
@@ -1984,8 +2199,9 @@ impl World {
     /// A mason on tomb `id` a sled can go to (`FUN_004f29e0`): nearest the head of the
     /// way up, one waiting on his block whose sled partner, if it is also to be
     /// laid, waits too (the sled goes to the first of a pair), and whom no laborer is
-    /// fetching for; with `steal`, also one whose laborer has not yet got his sled
-    /// out of the yard. `me` is the laborer asking.
+    /// fetching for; with `steal`, also one whose laborer has not yet loaded his sled
+    /// at the yard (who, finding his mason gone, is gone himself). `me` is the
+    /// laborer asking.
     fn sled_mason(&self, id: BuildingId, steal: bool, me: FigureId) -> Option<FigureId> {
         let front = self.frontier_by_head(id);
         let waiting = |i: usize| self.block_mason(id, i).filter(|&c| self.figures.get(c).is_some_and(|f| self.mason_waiting(f) == Some(i)));
@@ -2001,94 +2217,159 @@ impl World {
             let laborer = self.figures.get(mason).and_then(|f| self.sled_laborer(f)).filter(|l| l.id != me);
             match laborer {
                 None => return Some(mason),
-                Some(l) if steal && l.action == HAULING => return Some(mason),
+                Some(l) if steal && matches!(l.action, HAULING | AT_YARD) => return Some(mason),
                 _ => {}
             }
         }
         None
     }
 
-    /// A sled laborer makes sure of his mason (`FUN_004a9730`): if they no longer name
-    /// each other he takes another waiting for a sled. False once there is none and
-    /// nothing is left to build, when he gives up.
-    fn keep_sled_mason(&mut self, fid: FigureId) -> bool {
-        let Some(f) = self.figures.get(fid) else { return false };
-        let (target, link) = (f.target, f.link);
-        if self.tomb_route(target).is_empty() {
-            return true;
+    /// Laborer `fid` and mason `mason` take each other.
+    fn link_sled(&mut self, fid: FigureId, mason: FigureId) {
+        if let Some(m) = self.figures.get_mut(mason) {
+            m.link = fid;
         }
-        let ours = self.figures.get(link).is_some_and(|m| m.link == fid && !m.dead && m.target == target && decode_tomb_job(m.amount).is_some());
-        if ours {
-            return true;
+        if let Some(f) = self.figures.get_mut(fid) {
+            f.link = mason;
         }
-        if let Some(mason) = self.sled_mason(target, true, fid) {
-            let old = self.figures.get(mason).map_or(0, |m| m.link);
-            if let Some(o) = self.figures.get_mut(old).filter(|o| o.link == mason) {
-                o.link = 0;
-            }
-            self.figures.get_mut(mason).expect("present").link = fid;
-            self.figures.get_mut(fid).expect("present").link = mason;
-            return true;
-        }
-        self.tomb_building(target)
     }
 
-    /// A laborer with a sled (the original's laborer states 15-20, 29 and 30): he goes
-    /// to the storage yard and loads it, and drags it to the monument with five
-    /// pullers, the sled behind them. At a pyramid or mastaba he drags it to the foot
-    /// of the way up, climbs it until he is as high as the building has got, crosses
-    /// to his mason's block and gives him the load, which starts the mason and the
-    /// mason on the partner block; he stands a while and goes home.
+    /// Whether laborer `fid` and the mason his sled is for still name each other.
+    fn sled_link_holds(&self, fid: FigureId) -> bool {
+        let Some(f) = self.figures.get(fid) else { return false };
+        self.figures.get(f.link).is_some_and(|m| m.link == fid && !m.dead && m.target == f.target)
+    }
+
+    /// Whether mason `mason` still has the block of `target` he waits on or lays: up
+    /// on a pyramid or mastaba, a unit of a block (`FUN_004eea10`); at a mausoleum or
+    /// sun temple, a block he goes to, waits at or lays (`FUN_004e0530`, `FUN_00542110`).
+    fn sled_mason_busy(&self, target: BuildingId, mason: FigureId) -> bool {
+        let Some(m) = self.figures.get(mason) else { return false };
+        if m.dead || m.target != target || !matches!(m.kind, STONEMASON | BRICKLAYER) {
+            return false;
+        }
+        if self.tomb_route(target).is_empty() {
+            return m.amount > 0 && matches!(m.action, 1 | SITE_CROSS | AT_SPOT);
+        }
+        m.action == 2 && m.perch.is_some() && matches!(decode_tomb_job(m.amount), Some(crate::pyramids::Job::Unit(_)))
+    }
+
+    /// A sled laborer on the way from his yard, loaded, makes sure of his mason
+    /// (`FUN_004a9730`): he keeps him while the mason still has his block, else takes
+    /// another waiting for a sled. `Some(false)` while there is none but the tomb is
+    /// still building, when he waits; `None` when he gives up, as he does at once if
+    /// his mason is no longer up on the tomb.
+    fn keep_sled_mason(&mut self, fid: FigureId) -> Option<bool> {
+        let f = self.figures.get(fid)?;
+        let (target, link) = (f.target, f.link);
+        let up = self.figures.get(link).is_some_and(|m| !m.dead && m.target == target && m.perch.is_some());
+        if !up {
+            return None;
+        }
+        if self.sled_mason_busy(target, link) {
+            return Some(true);
+        }
+        if let Some(mason) = self.sled_mason(target, true, fid) {
+            self.link_sled(fid, mason);
+            return Some(true);
+        }
+        self.tomb_building(target).then_some(false)
+    }
+
+    /// A sled laborer come to the foot of the way up (`FUN_004f2cf0`): if his mason no
+    /// longer has his block he takes another waiting for a sled; then, if the mason
+    /// of a block nearer the head of the way up waits for a sled of the same material
+    /// that a laborer still on the ground (not yet at the yard, loading, or dragging
+    /// his sled over) is fetching, the two laborers change masons, so the sleds that
+    /// come first go to the blocks first in line.
+    fn swap_sled_mason(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let (target, cargo) = (f.target, f.cargo);
+        if !self.sled_mason_busy(target, f.link) {
+            match self.sled_mason(target, true, fid) {
+                Some(mason) => self.link_sled(fid, mason),
+                None => return,
+            }
+        }
+        let mine = self.figures.get(fid).map_or(0, |f| f.link);
+        let Some(crate::pyramids::Job::Unit(block)) = self.figures.get(mine).and_then(|m| decode_tomb_job(m.amount)) else { return };
+        let front = self.frontier_by_head(target);
+        let Some(at) = front.iter().position(|&i| i == block) else { return };
+        if at == 0 {
+            return;
+        }
+        let blocks = self.buildings.get(target).and_then(|b| b.monument.as_ref()).map_or(0, |m| m.blocks.len());
+        let mut best = at;
+        let mut pick: Option<(FigureId, FigureId)> = None;
+        for i in 0..blocks {
+            if self.sled_partner(target, i).is_some_and(|p| p.1) {
+                continue;
+            }
+            let Some(c) = self.block_mason(target, i) else { continue };
+            let Some(cm) = self.figures.get(c) else { continue };
+            if self.mason_waiting(cm) != Some(i) || cm.link == fid {
+                continue;
+            }
+            let mut other = cm.link;
+            if other != 0 {
+                match self.figures.get(other) {
+                    Some(l) if l.link == c => {
+                        if !(l.kind == crate::farms::PEASANT && !l.dead && matches!(l.action, HAULING | AT_YARD | SLED_TO_TOMB)) {
+                            continue;
+                        }
+                    }
+                    _ => {
+                        self.figures.get_mut(c).expect("present").link = 0;
+                        other = 0;
+                    }
+                }
+            }
+            let k = front.iter().position(|&j| j == i).unwrap_or(999);
+            if k < best && other != 0 && self.figures.get(other).is_some_and(|l| l.cargo == cargo) {
+                best = k;
+                pick = Some((c, other));
+            }
+        }
+        if let Some((c, other)) = pick {
+            self.link_sled(fid, c);
+            self.link_sled(other, mine);
+        }
+    }
+
+    /// A laborer whose mason has been taken by another laborer, or no longer wants the
+    /// sled, before he has loaded it: the original removes him where he is.
+    fn lose_hauler(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let (link, target, r, amount) = (f.link, f.target, f.cargo, f.amount);
+        if let Some(m) = self.figures.get_mut(link).filter(|m| m.link == fid) {
+            m.link = 0;
+        }
+        if amount > 0
+            && let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut())
+        {
+            Monument::add(&mut m.in_flight, r, -amount);
+        }
+        let f = self.figures.get_mut(fid).expect("present");
+        f.amount = 0;
+        f.dead = true;
+    }
+
+    /// A laborer with a sled (the original's laborer states 15-20, 23, 26, 29 and 30):
+    /// he goes to the storage yard and loads it, and drags it to the monument with
+    /// five pullers, the sled behind them. At a pyramid or mastaba he drags it to the
+    /// foot of the way up, climbs it until he is as high as the building has got,
+    /// crosses to his mason's block and gives him the load, which starts the mason and
+    /// the mason on the partner block; at a mausoleum or sun temple he drags it across
+    /// the site to the tile his mason lays from. He stands a while and goes home.
     pub(crate) fn update_hauler(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
         let (act, target) = (f.action, f.target);
         let tomb = !self.tomb_route(target).is_empty();
         match act {
             HAULING => self.haul_to_yard(fid),
-            SLED_TO_TOMB => {
-                if tomb && !self.keep_sled_mason(fid) {
-                    self.drop_sled(fid);
-                    return;
-                }
-                let f = self.figures.get(fid).expect("present");
-                // Before he sets off he lets a sled for the same tomb less than seven
-                // tiles ahead get clear (`FUN_004f2ba0`).
-                if f.counter == 0 {
-                    let mine = f.route.len() as i32;
-                    let crowded = tomb
-                        && self.figures.iter().any(|o| {
-                            o.id != fid && o.kind == crate::farms::PEASANT && o.action == SLED_TO_TOMB && o.counter == 1 && o.target == target && (o.route.len() as i32 - mine).abs() < 7
-                        });
-                    let f = self.figures.get_mut(fid).expect("present");
-                    f.anim_tick += 1;
-                    if crowded {
-                        return;
-                    }
-                    f.counter = 1;
-                }
-                let map = &self.map;
-                let f = self.figures.get_mut(fid).expect("present");
-                match f.walk(map) {
-                    Step::Moving => {}
-                    Step::Arrived if tomb => {
-                        let first = self.tomb_route(target).first().map_or(0, |r| r.0 as u16);
-                        let f = self.figures.get_mut(fid).expect("present");
-                        f.perch = Some(crate::pyramids::Perch::foot(first));
-                        f.action = SLED_CLIMB;
-                        f.moving = false;
-                        self.keep_sled_mason(fid);
-                    }
-                    Step::Arrived => {
-                        // Other monuments take the load where it is dragged to.
-                        let (r, amount) = (f.cargo, f.amount);
-                        if let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()) {
-                            Monument::add(&mut m.delivered, r, amount);
-                        }
-                        self.drop_sled(fid);
-                    }
-                    _ => self.drop_sled(fid),
-                }
-            }
+            AT_YARD => self.load_sled(fid),
+            SLED_TO_TOMB if tomb => self.drag_to_tomb(fid),
+            SLED_TO_TOMB => self.drag_to_site(fid),
             SLED_CLIMB => self.sled_climb(fid),
             SLED_CROSS => {
                 let f = self.figures.get_mut(fid).expect("present");
@@ -2116,47 +2397,70 @@ impl World {
         }
     }
 
-    /// On his way to the storage yard; there he loads the sled (what is left, if less)
-    /// and sets off with it, his pullers and the sled falling in behind him. With
-    /// nothing to load, or no way to the monument, he goes home.
+    /// On his way to the storage yard (the original's state 15). Should his mason no
+    /// longer name him he is gone.
     fn haul_to_yard(&mut self, fid: FigureId) {
-        let map = &self.map;
-        let Some(f) = self.figures.get_mut(fid) else { return };
-        let (target, yard, r, amount) = (f.target, f.counter as BuildingId, f.cargo, f.amount);
-        let step = f.walk(map);
-        if step == Step::Moving {
+        if !self.sled_link_holds(fid) {
+            self.lose_hauler(fid);
             return;
-        }
-        let road = self.buildings.get(yard).and_then(|y| y.road);
-        let spot = road.and_then(|road| self.sled_spot(target, road));
-        let live = self.buildings.get(target).and_then(|b| b.monument.as_ref()).is_some_and(|m| !m.finished);
-        let taken = match (road, spot) {
-            (Some(_), Some(_)) if step == Step::Arrived && live => self.take_stored(yard, r, amount),
-            _ => 0,
-        };
-        if let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()) {
-            Monument::add(&mut m.in_flight, r, taken - amount);
         }
         let map = &self.map;
         let f = self.figures.get_mut(fid).expect("present");
-        f.amount = taken;
-        let set_off = taken > 0 && spot.is_some_and(|s| f.go_to(map, s));
-        if !set_off {
-            if taken > 0 {
-                self.add_stored(yard, r, taken);
-                if let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()) {
-                    Monument::add(&mut m.in_flight, r, -taken);
-                }
+        if f.yard == 0 {
+            // (Saved before laborers kept their yard apart.)
+            f.yard = f.counter.max(0) as u32;
+            f.counter = 0;
+        }
+        match f.walk(map) {
+            Step::Moving => {}
+            Step::Arrived => {
+                f.action = AT_YARD;
+                f.counter = 0;
+                f.moving = false;
             }
-            let f = self.figures.get_mut(fid).expect("present");
-            f.amount = 0;
-            f.cargo = 0;
+            _ => self.lose_hauler(fid),
+        }
+    }
+
+    /// At the storage yard (the original's state 16): if his mason no longer names him
+    /// or no longer has his block, he is gone. After four ticks he takes a full sled,
+    /// if the yard still holds one, and sets off with it, five pullers and the sled
+    /// falling in behind him. With nothing to load, or no way to the monument, he
+    /// goes home.
+    fn load_sled(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let (target, link, yard, r, amount) = (f.target, f.link, f.yard, f.cargo, f.amount);
+        if !self.sled_link_holds(fid) || !self.sled_mason_busy(target, link) {
+            self.lose_hauler(fid);
+            return;
+        }
+        let f = self.figures.get_mut(fid).expect("present");
+        f.counter += 1;
+        f.moving = false;
+        if f.counter <= 4 {
+            return;
+        }
+        let live = self.buildings.get(target).and_then(|b| b.monument.as_ref()).is_some_and(|m| !m.finished);
+        let spot = self.sled_spot(target, link);
+        let full = amount > 0 && self.stored(yard, r) >= amount;
+        let (Some(spot), true, true) = (spot, live, full) else {
+            self.drop_sled(fid);
+            return;
+        };
+        let map = &self.map;
+        let f = self.figures.get_mut(fid).expect("present");
+        let (x, y) = (f.x, f.y);
+        if (x, y) != spot && !f.go_to(map, spot) {
             self.drop_sled(fid);
             return;
         }
+        self.take_stored(yard, r, amount);
+        let tomb = !self.tomb_route(target).is_empty();
+        let f = self.figures.get_mut(fid).expect("present");
         f.action = SLED_TO_TOMB;
-        f.counter = 0;
-        let (x, y) = (f.x, f.y);
+        // To a tomb he first makes sure of his mason (state 30); to a mausoleum or sun
+        // temple he sets off at once.
+        f.counter = if tomb { 0 } else { 1 };
         // Five pullers, each following the man ahead, and the sled last (0x4aa529).
         let mut lead = fid;
         for n in 1..=SLED_PULLERS + 1 {
@@ -2167,17 +2471,86 @@ impl World {
                 f.target = target;
                 f.slot = n as u8;
                 f.cargo = r;
-                f.amount = taken;
-                f.counter = -(if kind == SLED { SLED_GAP } else { PULLER_GAP });
+                f.amount = amount;
             }
             lead = p;
         }
+        if tomb && (x, y) == spot {
+            self.arrive_at_foot(fid);
+        }
     }
 
-    /// A sled laborer on the way up (the original's state 18, `FUN_004f04d0`): he takes
-    /// the way up entry by entry, waiting where a block still wants its ramp, until
-    /// he is as high as the building has got, then crosses to his mason's block.
+    /// Dragging a loaded sled to a tomb: waiting at the yard (state 30) until his
+    /// mason, or another, waits for it and a sled for the same tomb less than seven
+    /// tiles ahead has got clear (`FUN_004f2ba0`), then over the ground (state 17).
+    fn drag_to_tomb(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let target = f.target;
+        if f.counter == 0 {
+            match self.keep_sled_mason(fid) {
+                Some(true) => {}
+                Some(false) => {
+                    self.figures.get_mut(fid).expect("present").anim_tick += 1;
+                    return;
+                }
+                None => {
+                    self.drop_sled(fid);
+                    return;
+                }
+            }
+            let mine = self.figures.get(fid).map_or(0, |f| f.route.len() as i32);
+            let crowded = self.figures.iter().any(|o| {
+                o.id != fid && o.kind == crate::farms::PEASANT && o.action == SLED_TO_TOMB && o.counter == 1 && o.target == target && (o.route.len() as i32 - mine).abs() < 7
+            });
+            let f = self.figures.get_mut(fid).expect("present");
+            f.anim_tick += 1;
+            if crowded {
+                return;
+            }
+            f.counter = 1;
+        }
+        let map = &self.map;
+        let f = self.figures.get_mut(fid).expect("present");
+        match f.walk(map) {
+            Step::Moving => {}
+            Step::Arrived => self.arrive_at_foot(fid),
+            _ => self.drop_sled(fid),
+        }
+    }
+
+    /// At the foot of the way up: he makes sure of his mason, perhaps changing with
+    /// another laborer (`FUN_004f2cf0`), and steps up (`FUN_004f1cb0`).
+    fn arrive_at_foot(&mut self, fid: FigureId) {
+        self.swap_sled_mason(fid);
+        let Some(target) = self.figures.get(fid).map(|f| f.target) else { return };
+        let first = self.tomb_route(target).first().map_or(0, |r| r.0 as u16);
+        let f = self.figures.get_mut(fid).expect("present");
+        f.perch = Some(crate::pyramids::Perch::foot(first));
+        f.action = SLED_CLIMB;
+        f.moving = false;
+    }
+
+    /// A sled laborer on the way up (the original's state 18, `FUN_004f04d0`): should
+    /// his mason no longer have his block he takes another waiting for a sled, or
+    /// with none stands where he is while the tomb is still building. He takes the
+    /// way up entry by entry, waiting where a block still wants its ramp, until he is
+    /// as high as the building has got, then crosses to his mason's block.
     fn sled_climb(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let (target, link) = (f.target, f.link);
+        if !self.sled_mason_busy(target, link) {
+            match self.sled_mason(target, true, fid) {
+                Some(mason) => self.link_sled(fid, mason),
+                None if self.tomb_building(target) => {
+                    self.figures.get_mut(fid).expect("present").moving = false;
+                    return;
+                }
+                None => {
+                    self.drop_sled(fid);
+                    return;
+                }
+            }
+        }
         let f = self.figures.get_mut(fid).expect("present");
         f.anim_tick += 1;
         let Some(mut p) = f.perch else { return self.drop_sled(fid) };
@@ -2188,11 +2561,6 @@ impl World {
             return;
         }
         f.moving = false;
-        let target = f.target;
-        if !self.keep_sled_mason(fid) {
-            self.drop_sled(fid);
-            return;
-        }
         let Some(&low) = self.frontier(target).first() else {
             self.drop_sled(fid);
             return;
@@ -2223,7 +2591,7 @@ impl World {
     fn deliver_sled(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
         let (target, link, r, amount) = (f.target, f.link, f.cargo, f.amount);
-        let block = self.figures.get(link).filter(|m| m.link == fid).and_then(|m| self.mason_waiting(m));
+        let block = self.figures.get(link).and_then(|m| self.mason_waiting(m));
         if let Some(i) = block {
             let partner = self.sled_partner(target, i).map(|p| p.0).filter(|p| self.frontier(target).contains(p));
             let partner = partner.and_then(|p| self.block_mason(target, p)).filter(|&c| self.figures.get(c).is_some_and(|m| self.mason_waiting(m).is_some()));
@@ -2241,6 +2609,60 @@ impl World {
         f.amount = 0;
         f.action = SLED_DONE;
         f.counter = 0;
+    }
+
+    /// Dragging a sled to a mausoleum or sun temple (the original's states 26 and 23):
+    /// over the ground to the edge of the site, then straight across it to the tile
+    /// his mason lays his block from.
+    fn drag_to_site(&mut self, fid: FigureId) {
+        let map = &self.map;
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        let (stage, link) = (f.counter, f.link);
+        match f.walk(map) {
+            Step::Moving => {}
+            Step::Arrived if stage == 1 => {
+                let Some(spot) = self.mason_spot(link) else {
+                    self.drop_sled(fid);
+                    return;
+                };
+                let map = &self.map;
+                let f = self.figures.get_mut(fid).expect("present");
+                f.counter = 2;
+                f.travel = Travel::Any;
+                if (f.x, f.y) == spot {
+                    self.deliver_to_site(fid);
+                } else if !f.go_to(map, spot) {
+                    self.drop_sled(fid);
+                }
+            }
+            Step::Arrived => self.deliver_to_site(fid),
+            _ => self.drop_sled(fid),
+        }
+    }
+
+    /// The sled reaches the mason at a mausoleum or sun temple: if he waits for it the
+    /// load starts him on his block (his state 10 to 11, 0x4ab537); the load is spent
+    /// either way, and the laborer stands a while (state 29).
+    fn deliver_to_site(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let (target, link, r, amount) = (f.target, f.link, f.cargo, f.amount);
+        let waiting = self.figures.get(link).is_some_and(|m| m.kind == STONEMASON && !m.dead && m.target == target && m.action == AT_SPOT && m.cargo == 0);
+        if waiting {
+            let m = self.figures.get_mut(link).expect("present");
+            m.cargo = 1;
+            m.counter = 0;
+        }
+        if let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()) {
+            Monument::add(&mut m.in_flight, r, -amount);
+            if waiting {
+                Monument::add(&mut m.delivered, r, amount);
+            }
+        }
+        let f = self.figures.get_mut(fid).expect("present");
+        f.amount = 0;
+        f.action = SLED_DONE;
+        f.counter = 0;
+        f.moving = false;
     }
 
     /// A sled laborer is done or gives up: what he still drags is lost with the
@@ -2264,13 +2686,15 @@ impl World {
         self.send_laborer_home(fid);
     }
 
-    /// A sled puller or the sled itself follows the man ahead of it, closely, the
-    /// original's way (`FUN_004b23c0`, the puller at 0x4af2c0 and the sled at
-    /// 0x4ab980), and goes when the laborer at the head of the train is done. Up on a
-    /// tomb it keeps `gap` ticks behind him along the same moves; when he steps up
-    /// from the foot it stands nine ticks and then joins him. The gap is seven ticks
-    /// for a puller and twelve for the sled, and once the load is given over it
-    /// closes up.
+    /// A sled puller or the sled itself follows the man ahead of it the original's
+    /// way (`FUN_004b23c0`, the puller at 0x4af2c0 and the sled at 0x4ab980), and goes
+    /// when the laborer at the head of the train is done. It keeps `gap` ticks behind
+    /// him on his very path: on the ground its step along a tile is his less the gap
+    /// (of the fifteen a tile takes), it takes his tile when that step reaches the
+    /// middle of the tile and his heading when it starts a tile; up on a tomb it
+    /// makes the same moves, and when he steps up from the foot it stands while its
+    /// step counts on up to nine and then joins him. The gap is seven ticks for a
+    /// puller and twelve for the sled, and once the load is given over it closes up.
     pub(crate) fn update_sled_follower(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
         let (lead, slot, is_sled) = (f.link, f.slot as i32, f.kind == SLED);
@@ -2297,10 +2721,6 @@ impl World {
         };
         let l = self.figures.get(lead).expect("alive").clone();
         let f = self.figures.get_mut(fid).expect("present");
-        if f.counter < 0 {
-            f.counter += 1;
-            return;
-        }
         match (f.perch, l.perch) {
             (Some(mut p), Some(lp)) => {
                 let gap = gap as u16;
@@ -2322,7 +2742,11 @@ impl World {
                 f.anim_tick = l.anim_tick;
             }
             (None, Some(lp)) => {
-                f.moving = false;
+                // The count starts from its step along the tile; it stands where it is
+                // meanwhile.
+                if f.counter < 0 {
+                    f.counter = f.progress as i32;
+                }
                 f.counter += 1;
                 if f.counter >= 9 {
                     f.counter = 0;
@@ -2334,12 +2758,18 @@ impl World {
             }
             (_, None) => {
                 f.perch = None;
-                let to = (l.x, l.y);
-                let map = &self.map;
-                if !f.moving && (f.x, f.y) != to && f.destination != Some(to) {
-                    f.go_to(map, to);
+                f.counter = -1;
+                f.progress = (l.progress as i32 - gap).rem_euclid(15) as u8;
+                if f.progress == 8 {
+                    f.x = l.x;
+                    f.y = l.y;
                 }
-                f.walk(map);
+                if f.progress == 0 {
+                    f.direction = l.direction;
+                }
+                // Drawn part way along its step even while the train stands.
+                f.moving = true;
+                f.anim_tick = l.anim_tick;
             }
         }
     }
@@ -2648,14 +3078,32 @@ mod tests {
 
         let Some((mut world, id)) = pyramid_town(true) else { return };
         let mut most_masons = 0;
+        // The tiles each sled laborer has stood on since he loaded his sled.
+        let mut trails: std::collections::HashMap<FigureId, std::collections::HashSet<(i32, i32)>> = std::collections::HashMap::new();
+        let mut followed = 0;
         for _ in 0..60_000 {
             world.tick();
             let masons = world.figures.iter().filter(|f| f.kind == STONEMASON && !f.dead).count();
             most_masons = most_masons.max(masons);
+            for f in world.figures.iter().filter(|f| f.kind == crate::farms::PEASANT && matches!(f.action, AT_YARD | SLED_TO_TOMB)) {
+                trails.entry(f.id).or_default().insert((f.x, f.y));
+            }
+            // Pullers and sleds on the ground keep to their laborer's very path.
+            for f in world.figures.iter().filter(|f| matches!(f.kind, SLED | SLED_PULLER) && !f.dead && f.perch.is_none()) {
+                let mut head = f.link;
+                while let Some(h) = world.figures.get(head).filter(|h| matches!(h.kind, SLED | SLED_PULLER)) {
+                    head = h.link;
+                }
+                if world.figures.get(head).is_some_and(|h| h.action == SLED_TO_TOMB) {
+                    assert!(trails.get(&head).is_some_and(|t| t.contains(&(f.x, f.y))), "{} off its laborer's path at {},{}", f.id, f.x, f.y);
+                    followed += 1;
+                }
+            }
             if world.buildings.get(id).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.finished) {
                 break;
             }
         }
+        assert!(followed > 0);
         let m = world.buildings.get(id).and_then(|b| b.monument.as_ref()).expect("tomb");
         assert!(m.finished);
         // Four masons from each fully staffed guild.
@@ -2703,6 +3151,86 @@ mod tests {
         assert_eq!(def.jobs(LEVELING_PHASES + 3).len(), 3);
         assert_eq!(def.crew(LEVELING_PHASES + 6), vec![STONEMASON, CARPENTER]);
         assert!(def.jobs(def.phase_count - 1).is_empty());
+    }
+
+    #[test]
+    fn sleds_start_the_masons_at_a_mausoleum_and_a_sun_temple() {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.join("mission1.pak").is_file() {
+            return;
+        }
+        for (kind, title, at, phase) in [(MAUSOLEUM, 25, (44, 42), 1), (SUN_TEMPLE, 24, (58, 30), SUN_WALLS)] {
+            let library = osiris_formats::ImageLibrary::open(&data.join("Data")).expect("open image library");
+            let scenario = osiris_formats::MissionPak::open(&data.join("mission1.pak")).expect("pak").scenario(12).expect("mission 12");
+            let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).expect("load defs"));
+            let model_text = std::fs::read(data.join("Pharaoh_Model_Normal.txt")).expect("read model");
+            let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&model_text)).expect("parse model");
+            let balance = std::sync::Arc::new(crate::balance::Balance::from_model(&model));
+            let mut world = World::new(&scenario, defs, balance);
+            world.start(&scenario);
+            world.load_mission(12);
+            world.invasions.planned.clear();
+            world.rules.fire = false;
+            world.rules.collapse = false;
+            world.rules.global_labor_pool = true;
+            world.test_full_staff = true;
+            world.treasury = 100_000;
+            world.scenario_monuments = [title, 0, 0];
+            if let Some(m) = world.mission.as_mut() {
+                m.allowed.insert(kind);
+            }
+            let build = |kind: u16, x: i32, y: i32| Command::Build { kind, x, y, x1: x, y1: y };
+            let mut steps = vec![
+                Command::Road { start: (36, 52), end: (55, 52) },
+                Command::Road { start: (55, 52), end: (74, 52) },
+                Command::Road { start: (36, 56), end: (55, 56) },
+                Command::Road { start: (36, 52), end: (36, 56) },
+                build(kind::STONEMASONS_GUILD, 37, 57),
+                build(kind::STONEMASONS_GUILD, 39, 57),
+                build(kind::WORK_CAMP, 43, 57),
+                build(kind::WORK_CAMP, 46, 57),
+            ];
+            steps.extend((0..8).map(|i| build(kind::STORAGE_YARD, 37 + 3 * i, 53)));
+            for cmd in &steps {
+                assert!(matches!(world.apply(cmd), Outcome::Done { .. }), "{cmd:?}");
+            }
+            let yards: Vec<BuildingId> = world.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD).map(|b| b.id).collect();
+            let fill = |world: &mut World| {
+                for &y in &yards {
+                    let have = world.stored(y, SANDSTONE);
+                    world.add_stored(y, SANDSTONE, 3200 - have);
+                }
+            };
+            fill(&mut world);
+            assert!(matches!(world.apply(&build(kind, at.0, at.1)), Outcome::Done { .. }));
+            fill(&mut world);
+            let stock = |world: &World| yards.iter().map(|&y| world.stored(y, SANDSTONE)).sum::<i32>();
+            let before = stock(&world);
+            let id = world.buildings.iter().find(|b| b.kind == kind).map(|b| b.id).expect("monument");
+            let def = monument_def(kind).expect("def");
+            let units = def.units(phase);
+            if let Some(m) = world.buildings.get_mut(id).and_then(|b| b.monument.as_mut()) {
+                m.phase = phase;
+                m.progress = vec![0; units];
+            }
+            let mut sleds = 0;
+            for _ in 0..40_000 {
+                world.tick();
+                sleds = sleds.max(world.figures.iter().filter(|f| f.kind == SLED && !f.dead).count());
+                // A mason works his block only once its sled has come.
+                for f in world.figures.iter().filter(|f| f.kind == STONEMASON && f.action == AT_SPOT && f.moving) {
+                    assert_eq!(f.cargo, 1);
+                }
+                if world.buildings.get(id).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.phase != phase) {
+                    break;
+                }
+            }
+            let m = world.buildings.get(id).and_then(|b| b.monument.as_ref()).expect("monument");
+            assert_ne!(m.phase, phase, "{kind}");
+            assert!(sleds > 0);
+            // A sled of sandstone for every block, no more.
+            assert_eq!(before - stock(&world), units as i32 * SLED_LOAD, "{kind}");
+        }
     }
 
     #[test]

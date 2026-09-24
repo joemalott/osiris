@@ -116,6 +116,9 @@ pub struct Figure {
     /// (each names the other), or the one a sled puller or sled follows.
     #[serde(default)]
     pub link: FigureId,
+    /// A sled laborer's storage yard.
+    #[serde(default)]
+    pub yard: u32,
 }
 
 impl Figure {
@@ -155,6 +158,7 @@ impl Figure {
             centres: 0,
             perch: None,
             link: 0,
+            yard: 0,
         }
     }
 
