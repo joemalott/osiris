@@ -1316,7 +1316,9 @@ impl Menu {
 
         panel::inner_panel(r, panels, px + 16.0, py + 168.0, 34, 15);
         let [tx, ty, tw, th] = BRIEF_TEXT;
-        let opts = rich_text::Options { font: Font::NormalWhiteOnDark, width: tw as i32, paragraph_indent: 0 };
+        // Drawn as the original draws messages (FUN_004c8070): a paragraph's first
+        // line starts 50 pixels in.
+        let opts = rich_text::Options { font: Font::NormalWhiteOnDark, width: tw as i32, paragraph_indent: 50 };
         let laid = rich_text::layout(&b.content, &opts, &mut rich_text::RendererMeasure::new(r));
         let max = (laid.height as f32 - th).max(0.0);
         self.briefing_max.set(max);
