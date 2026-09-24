@@ -564,18 +564,17 @@ fn page(ui: &Ui, world: &World, b: &Building) -> Option<Page> {
             p
         }
         k::WATER_SUPPLY => {
-            // 16 blocks: notes/building_info.md 1.4 (Akhenaten only) says 17, but its
-            // "Decompile facts" section (checked against the exe) gives only 14/16/18/
-            // 19/22/24 as real window sizes, and groups water supply with the police
-            // station's "generic pattern" (7.4), which is 16.
-            let mut p = Page::new(16, t(108, 0));
+            // 17 blocks (notes/building_info.md 1.4: "water supply, water lift | 29x17",
+            // a direct citation from Akhenaten; the "Decompile facts" class list is
+            // admittedly incomplete, so it doesn't override this).
+            let mut p = Page::new(17, t(108, 0));
             // One line per worker short, from all five down to none.
             p.line(63.0, if no_road { road_line() } else { t(108, (7 - b.workers.clamp(0, 5)) as usize) });
             p.staffed();
             p
         }
         k::WATER_LIFT => {
-            let mut p = Page::new(16, t(107, 0));
+            let mut p = Page::new(17, t(107, 0));
             // A lift with no water beside it or ditch to feed it says so.
             p.line(63.0, if no_road { road_line() } else if b.workers <= 0 { t(107, 2) } else if b.water == 0 { t(107, 3) } else { t(107, 1) });
             p.staffed();
@@ -1072,12 +1071,12 @@ fn cart_line(ui: &Ui, world: &World, b: &Building, p: &mut Page, y: f32) {
 }
 
 fn granary_page(ui: &Ui, world: &World, b: &Building) -> Page {
-    // 18 blocks: notes/building_info.md 5.2 (from Akhenaten's ui_granary_info.js) says
-    // 17, but that section predates the doc's "Decompile facts" (checked against the
-    // exe), whose size classes are only 14/16/18/19/22/24 — granary is the same shape
-    // and complexity as the temple, confirmed class 2 = 18 blocks there.
+    // 17 blocks (notes/building_info.md 1.4 and 5.2 both give this directly, from
+    // Akhenaten's ui_granary_info.js; the "Decompile facts" class list of 14/16/18/19/
+    // 22/24 is admittedly incomplete ("Others need content matching"), so it doesn't
+    // override two independent, direct citations of the real size).
     const G: usize = super::TEXT_GRANARY;
-    let mut p = Page::new(18, ui.t(G, 0));
+    let mut p = Page::new(17, ui.t(G, 0));
     if b.road.is_none() {
         p.line(40.0, ui.t(TEXT_FRAME, 25));
     } else {
