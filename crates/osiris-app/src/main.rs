@@ -1338,11 +1338,12 @@ fn run(mut args: Args) -> Result<()> {
                 }
             }
             let family = load_current_family();
+            let saves = if family.is_empty() { vec![] } else { list_files(&family_saves_dir(&family), "osiris") };
             let mut menu = menu::Menu::new(
                 assets.mission_names.clone(),
                 campaign_view(&assets, &p, &p),
                 list_files(&assets.data.join("Maps"), "map"),
-                vec![],
+                saves,
                 Default::default(),
                 family,
                 family_text(&assets),
