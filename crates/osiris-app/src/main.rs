@@ -7,6 +7,7 @@ mod popup;
 mod army_view;
 mod city_view;
 mod data_dir;
+mod disaster_view;
 mod empire_window;
 mod game;
 mod gfx;

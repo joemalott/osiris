@@ -16,6 +16,7 @@ impl World {
         let roll = self.time.advance();
         self.update_floods();
         self.update_earthquakes();
+        self.update_plagues();
         match self.time.tick {
             1 => {
                 self.check_unlocks();
@@ -125,7 +126,12 @@ impl World {
         self.gather_combatants();
         for fid in self.figures.ids() {
             let kind = self.figures.get(fid).map_or(0, |f| f.kind);
+            let fallen = self.figures.get(fid).is_some_and(|f| f.action == crate::military::action::CORPSE) && !crate::plagues::keeps_own_corpse(kind);
             match kind {
+                _ if fallen => self.update_fallen(fid),
+                crate::plagues::FROG => self.update_frog(fid),
+                crate::plagues::LOCUST => self.update_locust(fid),
+                crate::plagues::SHIPWRECK => self.update_shipwreck(fid),
                 crate::people::figure_kind::IMMIGRANT
                 | crate::people::figure_kind::EMIGRANT
                 | crate::people::figure_kind::HOMELESS => self.update_migrant(fid),

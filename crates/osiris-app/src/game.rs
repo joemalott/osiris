@@ -180,6 +180,10 @@ pub struct Game {
     /// Build categories with nothing to build, refreshed daily.
     empty: Vec<Category>,
     empty_day: Option<(u32, u32)>,
+    /// Dust clouds, and the hailstorm's lightning.
+    disasters: crate::disaster_view::Disasters,
+    /// The plague track playing in place of the music.
+    plague_track: Option<osiris_sim::plagues::Track>,
 }
 
 impl Game {
@@ -246,6 +250,8 @@ impl Game {
             problem_cursor: 0,
             empty: Vec::new(),
             empty_day: None,
+            disasters: Default::default(),
+            plague_track: None,
         }
     }
 
@@ -442,7 +448,17 @@ impl Game {
             let lines: Vec<String> = self.world.warnings.drain(..).map(|id| text.get(19, id as usize).unwrap_or("").trim().to_owned()).collect();
             self.say(&lines.join(" "));
         }
-        if let Some(a) = &self.audio {
+        // A plague's track plays in place of the music while it lasts.
+        if self.plague_track != self.world.plagues.track {
+            self.plague_track = self.world.plagues.track;
+            if let Some(a) = &self.audio {
+                a.play_plague_track(self.plague_track.map(|t| t.file()));
+            }
+            self.music_timer = 0.0;
+        }
+        if let Some(a) = &self.audio
+            && self.plague_track.is_none()
+        {
             self.music_timer -= dt;
             if self.music_timer <= 0.0 {
                 a.update_music(self.world.population);
@@ -1228,6 +1244,9 @@ impl Game {
     }
 
     fn sprites(&mut self, r: &Renderer) -> Vec<Sprite> {
+        for s in self.disasters.take(&mut self.world) {
+            self.sound(s);
+        }
         let carts = *self.cart_images.get_or_insert_with(|| crate::anims::CartImages::load(&r.library).expect("cart images"));
         let defs = &self.world.defs;
         let mut out = Vec::new();
@@ -1258,6 +1277,10 @@ impl Game {
                 out.push(s);
                 continue;
             }
+            if let Some(s) = crate::disaster_view::figure_sprite(&self.world, f) {
+                out.push(s);
+                continue;
+            }
             // A sentry at his post stands on top of his tower.
             if f.kind == osiris_sim::defenses::TOWER_SENTRY
                 && f.action == osiris_sim::military::action::AT_STANDARD
@@ -1285,6 +1308,7 @@ impl Game {
         }
         if self.view_overlay.is_none() {
             out.extend(crate::water_view::fishing_points(&self.world));
+            out.extend(self.disasters.cloud_sprites(&self.world, self.world.time.total_ticks));
         }
         out
     }
@@ -1379,6 +1403,7 @@ impl Game {
                 .collect(),
         });
         self.view.draw(r, &self.world.map, &marks, &ghost, marker, &sprites, &overlays, draw.as_ref());
+        self.disasters.draw_hail(r, &self.world, self.anim_clock, sidebar::panel_left(r.screen[0]), sidebar::TOP);
         self.draw_overlay(r, cost, why);
     }
 

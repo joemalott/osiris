@@ -213,6 +213,12 @@ pub struct World {
     /// The way fire spreads from burning ruins this year (0-7).
     #[serde(default)]
     pub wind: u8,
+    /// Frogs, locusts and hail under way.
+    #[serde(default)]
+    pub plagues: crate::plagues::Plagues,
+    /// Dust and sounds for the screen, with the tick each came on (see `effects`).
+    #[serde(skip)]
+    pub fx: Vec<(u64, crate::effects::Fx)>,
 }
 
 fn default_statue_facing() -> u8 {
@@ -333,6 +339,8 @@ impl World {
             exit_point: (info.exit_point.x, info.exit_point.y),
             counters: ContextCounters::default(),
             wind: 0,
+            plagues: Default::default(),
+            fx: Vec::new(),
         }
     }
 
@@ -444,6 +452,8 @@ impl World {
                 by0 = by0.min(b.y);
                 bx1 = bx1.max(b.x + b.size - 1);
                 by1 = by1.max(b.y + b.size - 1);
+                let (x, y, size) = (b.x, b.y, b.size);
+                self.dust(x, y, size);
             }
             self.demolish(id);
         }

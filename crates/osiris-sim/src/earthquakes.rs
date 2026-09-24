@@ -174,6 +174,7 @@ impl World {
             }
         }
         rules.roads_in(map, x0, y0, x1, y1);
+        self.dust(x, y, 1);
         let near: Vec<_> = self.buildings.iter().filter(|b| b.x <= x + 2 && b.y <= y + 2 && b.x + b.size + 2 > x && b.y + b.size + 2 > y).map(|b| b.id).collect();
         for id in near {
             self.refresh_road_access(id);
