@@ -1,7 +1,7 @@
 //! Docks, dockers and trade ships.
 //!
-//! A city on a sea route sends its traders by ship once the player has a staffed dock
-//! with open water. The ship sails in at the river entry and, if the city has anything
+//! A city on a sea route sends its traders by ship once the player has built a dock
+//! (staffed or not). The ship sails in at the river entry and, if the city has anything
 //! to trade with us (a good it sells that we import, or one it buys that we export),
 //! makes for the nearest free dock. A dock moors one ship at a time; a ship finding
 //! them all taken waits off the nearest one, and gives up after 25 days.
@@ -12,7 +12,7 @@
 //! them, or fetches a load of a good we export from the nearest yard holding one and
 //! sells it to the ship. Unloading comes first. The ship leaves by the river exit once
 //! its dockers are back and there is nothing left to trade, or its hold is full both
-//! ways; the trader then sails home along its route.
+//! ways.
 
 use crate::buildings::{BuildingId, kind};
 use crate::economy::LOAD;
@@ -70,19 +70,13 @@ impl World {
             .collect()
     }
 
-    /// Whether ships can come: the river has an entry and the city has a working dock.
-    pub fn sea_trade_open(&self) -> bool {
-        self.water.river_entry.is_some() && self.buildings.iter().any(|b| b.kind == DOCK && b.workers > 0)
-    }
-
     /// The ship moored at dock `id`.
     pub fn moored_ship(&self, id: BuildingId) -> Option<FigureId> {
         self.figures.iter().find(|f| f.kind == TRADE_SHIP && f.home == id && f.action == ship_action::MOORED).map(|f| f.id)
     }
 
     fn ship_city(&self, fid: FigureId) -> Option<usize> {
-        let f = self.figures.get(fid)?;
-        self.trade.traders.get(f.target as usize).map(|t| t.city)
+        self.trader_city(fid)
     }
 
     /// What a ship from `city` could do here: 2 for each good it sells that we import,
@@ -91,25 +85,19 @@ impl World {
         (1..RESOURCES as u16).map(|r| if self.can_import(city, r) { 2 } else if self.can_export(city, r) { 1 } else { 0 }).sum()
     }
 
-    /// A trade ship arrives at the river entry for trader `trader`.
-    pub(crate) fn ship_arrives(&mut self, trader: usize) {
-        let Some((x, y)) = self.river_entry() else {
-            if let Some(t) = self.trade.traders.get_mut(trader) {
-                t.returning = true;
-                t.step = 0;
-            }
-            return;
-        };
+    /// A trade ship from `city` appears at the river entry.
+    pub(crate) fn ship_arrives(&mut self, city: usize) -> FigureId {
+        let Some((x, y)) = self.river_entry() else { return 0 };
         let fid = self.figures.spawn(TRADE_SHIP, x, y, Travel::Water);
         let capacity = self.defs.figure(TRADE_SHIP).and_then(|d| d.int("max_capacity")).unwrap_or(1200) as i32;
         if let Some(f) = self.figures.get_mut(fid) {
-            f.target = trader as u32;
+            f.target = city as u32;
             f.roam_left = capacity;
             f.roam_turn = 0;
             f.action = ship_action::QUEUED;
         }
-        self.trade.traders[trader].figure = fid;
         self.ship_find_dock(fid);
+        fid
     }
 
     /// Sends ship `fid` to the best free dock, or to wait off the best taken one, or

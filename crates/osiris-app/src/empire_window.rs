@@ -2,9 +2,9 @@
 //! trade in the panel along the bottom. Cities are opened for trade from here.
 //!
 //! The 1200x1600 map scrolls inside a frame of bars (Pharaoh_General group 172); open
-//! routes are dotted (group 149), traders move along them (group 179), and cities show
-//! as ours, Egyptian or foreign (group 169). Text comes from group 47 and city names from
-//! group 195.
+//! routes are dotted (group 149) and cities show as ours, Egyptian or foreign (group
+//! 169). As in the original game, no traders travel the routes here: they appear
+//! straight in the city. Text comes from group 47 and city names from group 195.
 
 use osiris_formats::{ImageLibrary, TextTable};
 use osiris_render::{Renderer, Space};
@@ -31,7 +31,6 @@ pub struct EmpireImages {
     bars: u32,
     route_dots: u32,
     cities: u32,
-    traders: u32,
     tiers: u32,
     icons: u32,
 }
@@ -43,7 +42,6 @@ impl EmpireImages {
             bars: lib.group_id("Pharaoh_General", 172, 0)?,
             route_dots: lib.group_id("Pharaoh_General", 149, 0)?,
             cities: lib.group_id("Pharaoh_General", 169, 0)?,
-            traders: lib.group_id("Pharaoh_General", 179, 0)?,
             tiers: lib.group_id("Pharaoh_General", 171, 0)?,
             icons: lib.group_id("Pharaoh_General", 129, 0)?,
         })
@@ -208,13 +206,6 @@ impl EmpireWindow {
         for c in &world.trade.cities {
             let at = self.to_screen(screen, c.pos);
             img(r, images.city(c.city_type), at[0], at[1]);
-        }
-        for t in &world.trade.traders {
-            if let Some(pos) = world.trader_position(t) {
-                let sea = world.trade.cities.get(t.city).is_some_and(|c| c.sea);
-                let at = self.to_screen(screen, pos);
-                img(r, images.traders + if sea { 0 } else { 1 }, at[0] - 16.0, at[1] - 16.0);
-            }
         }
         r.set_clip(None);
         self.draw_frame(r, images, v);

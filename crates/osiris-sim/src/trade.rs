@@ -1,13 +1,14 @@
 //! Trade with the cities of the empire.
 //!
 //! Each trading city lies at the end of a land or sea route. Once the player opens a
-//! route, the city sends a trader along it every few days (up to three at a time); after
-//! walking the route on the empire map it arrives at the city's entry point as a
-//! caravan with two donkeys. The caravan visits storage yards, each eleven ticks buying
-//! one load of a good the player exports and selling one load of a good the player
-//! imports, up to eight loads each way, until it has nothing left to do or no yard
-//! will deal with it. It sells the goods in turn, a load of each (the rotation is
-//! shared by every caravan).
+//! route, the city sends a trader every few days (up to three at a time). There is no
+//! journey along the route: the trader appears at once at the city's entry point as a
+//! caravan with two donkeys (or at the river entry as a ship). The caravan visits
+//! storage yards, each eleven ticks buying one load of a good the player exports and
+//! selling one load of a good the player imports, up to eight loads each way, until
+//! it has nothing left to do or no yard will deal with it, then leaves by the exit.
+//! It sells the goods in turn, a load of each (the rotation is shared by every
+//! caravan).
 //! Each route allows only so much of each good a year (1500, 2500 or 4000 units).
 
 use crate::buildings::{BuildingId, kind};
@@ -20,12 +21,14 @@ pub const TRADE_CARAVAN: u16 = 19;
 pub const CARAVAN_DONKEY: u16 = 21;
 /// Per-resource tables hold this many slots (index 0 unused).
 pub const RESOURCES: usize = fmt::RESOURCES;
-/// Days between traders on a land route, and on a sea route.
+/// Days between traders on a land route, and on a sea route: the countdown runs from
+/// here to 0, so a trader every 5th or 31st day.
 const LAND_ENTRY_DELAY: i32 = 4;
 const SEA_ENTRY_DELAY: i32 = 30;
-/// Days a trader rests at each point of its route on the empire map (a random
-/// delay in this range is chosen per trip).
-const LAND_MOVE_DELAY: (i32, i32) = (1, 4);
+/// Most traders a city has in ours at once.
+pub const MAX_TRADERS: usize = 3;
+/// City-days between reminders that ships cannot come without a dock.
+const NO_DOCK_REMINDER: i32 = 384;
 /// Ticks between a caravan's deals at a storage yard.
 const DEAL_TICKS: i32 = 11;
 /// Loads a caravan buys at most, and sells at most.
@@ -115,6 +118,9 @@ pub struct TradeCity {
     /// Months left of a siege, which keeps its traders home.
     #[serde(default)]
     pub siege_months: i32,
+    /// Its caravans or ships in the city, by slot (0 for a free slot).
+    #[serde(default)]
+    pub traders: [FigureId; MAX_TRADERS],
 }
 
 impl TradeCity {
@@ -132,15 +138,10 @@ pub struct TradeRoute {
     pub traded: Vec<i32>,
 }
 
-/// A trader on its way along a route, or trading in the city as a caravan.
+/// A trader as older saved games kept it, walking its route on the empire map.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct EmpireTrader {
     pub city: usize,
-    /// Route points walked so far.
-    pub step: usize,
-    pub delay: i32,
-    pub delay_max: i32,
-    pub returning: bool,
     /// The caravan while it is in the city.
     pub figure: FigureId,
 }
@@ -162,7 +163,13 @@ pub struct Trade {
     /// Resources whose industries are shut down.
     #[serde(default)]
     pub mothballed: Vec<bool>,
+    /// Older saved games' traders, whose figures pointed into this list; emptied on
+    /// load.
+    #[serde(default, skip_serializing)]
     pub traders: Vec<EmpireTrader>,
+    /// City-days until the next reminder that ships need a dock.
+    #[serde(default)]
+    pub no_dock_reminder: i32,
     /// The good caravans sell us next, round the resources in turn.
     #[serde(default)]
     pub next_import: u16,
@@ -423,65 +430,56 @@ impl World {
         }
     }
 
-    /// Tick 32: traders move along their routes and cities send new ones.
+    /// Tick 32: each open city counts down to its next trader, who appears at once in
+    /// our city: every fifth day by land, every 31st by sea. A city may have as many
+    /// traders in the city as the mean tier of its goods' allowances (1-3), and its
+    /// countdown waits while they are all here. Ships wait (countdown and all) until
+    /// the city has a dock, of any staffing, and a river entry. The count starts again
+    /// even when trouble keeps the trader home. At most one trader enters a day.
     pub(crate) fn update_trade(&mut self) {
-        let mut arrived = Vec::new();
-        for (i, t) in self.trade.traders.iter_mut().enumerate() {
-            if t.figure != 0 {
-                continue;
-            }
-            if t.delay > 0 {
-                t.delay -= 1;
-                continue;
-            }
-            let n = self.trade.cities.get(t.city).and_then(|c| self.trade.routes.get(c.route as usize)).map_or(0, |r| r.points.len());
-            t.step += 1;
-            t.delay = t.delay_max;
-            if t.step + 1 >= n {
-                if t.returning {
-                    t.step = usize::MAX;
-                } else {
-                    arrived.push(i);
-                }
-            }
-        }
-        self.trade.traders.retain(|t| t.step != usize::MAX);
-        for i in arrived {
-            let sea = self.trade.cities.get(self.trade.traders[i].city).is_some_and(|c| c.sea);
-            if sea {
-                self.ship_arrives(i);
-            } else {
-                self.caravan_arrives(i);
-            }
-        }
-        // Each open city counts down to its next trader: every fifth day by land, every
-        // 31st by sea. It may have as many traders out as the mean tier of its goods'
-        // allowances (1-3), and the countdown waits while they are all out. The count
-        // starts again even when trouble keeps the trader home. At most one trader
-        // enters a day.
+        let has_dock = self.buildings.iter().any(|b| b.kind == crate::water::DOCK);
+        let river = self.river_entry().is_some();
         for city in 0..self.trade.cities.len() {
             let c = &self.trade.cities[city];
             if !c.open || !c.trades() {
                 continue;
             }
-            let tiers: Vec<i32> = (1..RESOURCES)
-                .filter(|&r| c.sells[r] || c.buys[r])
-                .map(|r| self.trade_limit(city, r as u16))
-                .filter(|&l| l > 0)
-                .map(|l| if l <= 1500 { 1 } else if l <= 2500 { 2 } else { 3 })
-                .collect();
-            let route = &self.trade.routes[c.route as usize];
-            if tiers.is_empty() || route.points.is_empty() {
+            if c.sea && !has_dock {
+                if self.trade.no_dock_reminder > 0 {
+                    self.trade.no_dock_reminder -= 1;
+                } else {
+                    self.trade.no_dock_reminder = NO_DOCK_REMINDER;
+                    self.post("message_no_working_dock", None, true);
+                }
                 continue;
             }
-            let slots = ((tiers.iter().sum::<i32>() + tiers.len() as i32 - 1) / tiers.len() as i32).clamp(1, 3) as usize;
-            if self.trade.traders.iter().filter(|t| t.city == city && !t.returning).count() >= slots {
+            if c.sea && !river {
                 continue;
             }
-            // Ships need a working dock. Ra's wrath, storms, sandstorms and sieges keep
-            // traders away.
+            // Tiers come from the route's own allowances; Ra's favour only decides
+            // which goods count.
+            let route = self.trade.routes.get(c.route as usize);
+            let (mut goods, mut tiers) = (0, 0);
+            for r in (1..RESOURCES).filter(|&r| c.sells[r] || c.buys[r]) {
+                if self.trade_limit(city, r as u16) <= 0 {
+                    continue;
+                }
+                goods += 1;
+                tiers += match route.map_or(0, |rt| rt.limit[r]) {
+                    l if l > 2500 => 3,
+                    l if l > 1500 => 2,
+                    l if l > 0 => 1,
+                    _ => 0,
+                };
+            }
+            let slots = if goods > 1 { (tiers + goods - 1) / goods } else { tiers }.min(MAX_TRADERS as i32);
+            if slots <= 0 {
+                continue;
+            }
+            let Some(slot) = (0..slots as usize).find(|&s| !self.trader_in_city(city, s)) else { continue };
+            // Ra's wrath, storms, sandstorms and sieges keep traders away.
             let troubled = c.siege_months > 0 || if c.sea { self.scenario_events.sea_problem_days > 0 } else { self.scenario_events.land_problem_days > 0 };
-            let blocked = (c.sea && !self.sea_trade_open()) || troubled || self.religion.ra_no_traders_months > 0;
+            let blocked = troubled || self.religion.ra_no_traders_months > 0;
             let c = &mut self.trade.cities[city];
             if c.entry_delay > 0 {
                 c.entry_delay -= 1;
@@ -491,37 +489,58 @@ impl World {
             if blocked {
                 continue;
             }
-            let delay = LAND_MOVE_DELAY.0 + self.rng.byte() % (LAND_MOVE_DELAY.1 - LAND_MOVE_DELAY.0 + 1);
-            self.trade.traders.push(EmpireTrader { city, delay, delay_max: delay, ..Default::default() });
+            let fid = if c.sea { self.ship_arrives(city) } else { self.caravan_arrives(city) };
+            self.trade.cities[city].traders[slot] = fid;
             break;
         }
     }
 
-    /// Where a trader is on the empire map, for drawing: coming from the city toward us,
-    /// or going back.
-    pub fn trader_position(&self, t: &EmpireTrader) -> Option<(i32, i32)> {
-        let c = self.trade.cities.get(t.city)?;
-        let pts = &self.trade.routes.get(c.route as usize)?.points;
-        let n = pts.len();
-        if n == 0 || t.figure != 0 {
-            return None;
-        }
-        let i = t.step.min(n - 1);
-        Some(if t.returning { pts[i] } else { pts[n - 1 - i] })
+    /// Whether slot `slot` of `city` holds one of its caravans or ships.
+    fn trader_in_city(&self, city: usize, slot: usize) -> bool {
+        let id = self.trade.cities[city].traders[slot];
+        id != 0
+            && self
+                .figures
+                .get(id)
+                .is_some_and(|f| !f.dead && matches!(f.kind, TRADE_CARAVAN | crate::docks::TRADE_SHIP) && f.target as usize == city)
     }
 
-    fn caravan_arrives(&mut self, trader: usize) {
+    /// Older saved games' caravans and ships pointed at a list of traders; point them
+    /// at their cities instead.
+    pub(crate) fn upgrade_traders(&mut self) {
+        let old = std::mem::take(&mut self.trade.traders);
+        if old.is_empty() {
+            return;
+        }
+        let ids: Vec<FigureId> = self.figures.iter().filter(|f| matches!(f.kind, TRADE_CARAVAN | crate::docks::TRADE_SHIP)).map(|f| f.id).collect();
+        for id in ids {
+            let f = self.figures.get_mut(id).expect("present");
+            match old.get(f.target as usize) {
+                Some(t) if t.figure == id => {
+                    f.target = t.city as u32;
+                    if let Some(c) = self.trade.cities.get_mut(t.city)
+                        && let Some(s) = c.traders.iter_mut().find(|s| **s == 0)
+                    {
+                        *s = id;
+                    }
+                }
+                _ => f.dead = true,
+            }
+        }
+    }
+
+    /// A caravan from `city` appears at the entry point with its two donkeys.
+    fn caravan_arrives(&mut self, city: usize) -> FigureId {
         let (x, y) = self.entry_point;
         let fid = self.figures.spawn(TRADE_CARAVAN, x, y, Travel::PreferRoads);
         let capacity = CARAVAN_LOADS * LOAD;
         if let Some(f) = self.figures.get_mut(fid) {
-            f.target = trader as u32;
+            f.target = city as u32;
             f.roam_left = capacity;
             f.amount = 0;
             f.counter = 0;
             f.action = action::TO_YARD;
         }
-        self.trade.traders[trader].figure = fid;
         let mut lead = fid;
         for _ in 0..2 {
             let d = self.figures.spawn(CARAVAN_DONKEY, x, y, Travel::Land);
@@ -532,11 +551,14 @@ impl World {
             lead = d;
         }
         self.caravan_next_yard(fid, None);
+        fid
     }
 
-    fn trader_city(&self, fid: FigureId) -> Option<usize> {
+    /// The city a caravan or ship comes from.
+    pub(crate) fn trader_city(&self, fid: FigureId) -> Option<usize> {
         let f = self.figures.get(fid)?;
-        self.trade.traders.get(f.target as usize).map(|t| t.city)
+        let city = f.target as usize;
+        (city < self.trade.cities.len()).then_some(city)
     }
 
     /// Picks the storage yard a caravan deals with next: of the yards it could buy from
@@ -686,17 +708,10 @@ impl World {
         dealt
     }
 
-    /// The caravan (or ship) has left the city: its trader heads home along the route.
+    /// The caravan (or ship) has left the city, freeing its city's slot.
     pub(crate) fn caravan_gone(&mut self, fid: FigureId) {
-        let Some(f) = self.figures.get_mut(fid) else { return };
-        f.dead = true;
-        let t = f.target as usize;
-        if let Some(tr) = self.trade.traders.get_mut(t)
-            && tr.figure == fid
-        {
-            tr.figure = 0;
-            tr.returning = true;
-            tr.step = 0;
+        if let Some(f) = self.figures.get_mut(fid) {
+            f.dead = true;
         }
     }
 
@@ -727,7 +742,88 @@ impl World {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::religion::ra_allowance;
+
+    /// The sandbox map with an open land route (allowances 2500 and 4000, so three
+    /// traders at a time) and an open sea route, when the game data is present.
+    fn sandbox() -> Option<World> {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.join("Maps/Sandbox.map").is_file() {
+            return None;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).ok()?;
+        let scenario = osiris_formats::Scenario::load_map(&data.join("Maps/Sandbox.map")).ok()?;
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).ok()?);
+        let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&std::fs::read(data.join("Pharaoh_Model_Normal.txt")).ok()?)).ok()?;
+        let balance = std::sync::Arc::new(crate::balance::Balance::from_model(&model));
+        let mut world = World::new(&scenario, defs, balance);
+        world.start(&scenario);
+        world.messages.clear();
+        let mut t = Trade { cities: Vec::new(), routes: Vec::new(), ..world.trade.clone() };
+        for sea in [false, true] {
+            let mut route = TradeRoute { points: vec![(0, 0), (10, 10)], sea, limit: vec![0; RESOURCES], traded: vec![0; RESOURCES] };
+            route.limit[5] = 2500;
+            route.limit[6] = 4000;
+            let mut c = TradeCity { city_type: city::EGYPTIAN_TRADING, route: t.routes.len() as u8, open: true, sea, entry_delay: LAND_ENTRY_DELAY, ..Default::default() };
+            c.sells = vec![false; RESOURCES];
+            c.buys = vec![false; RESOURCES];
+            c.sells[5] = true;
+            c.buys[6] = true;
+            t.routes.push(route);
+            t.cities.push(c);
+        }
+        world.trade = t;
+        Some(world)
+    }
+
+    /// Caravans alive in the city.
+    fn caravans(w: &World) -> usize {
+        w.figures.iter().filter(|f| f.kind == TRADE_CARAVAN && !f.dead).count()
+    }
+
+    #[test]
+    fn traders_appear_at_once_every_fifth_day() {
+        let Some(mut w) = sandbox() else { return };
+        // A day of trade, keeping every caravan but `gone` in the city whatever its way
+        // out.
+        let day = |w: &mut World, gone: FigureId| {
+            w.update_trade();
+            let ids: Vec<FigureId> = w.figures.iter().filter(|f| f.kind == TRADE_CARAVAN && f.id != gone).map(|f| f.id).collect();
+            for id in ids {
+                w.figures.get_mut(id).expect("present").dead = false;
+            }
+        };
+        let mut seen = Vec::new();
+        for d in 1..=30 {
+            day(&mut w, 0);
+            seen.push((d, caravans(&w)));
+        }
+        let first = |n: usize| seen.iter().find(|s| s.1 >= n).map(|s| s.0);
+        assert_eq!((first(1), first(2), first(3), first(4)), (Some(5), Some(10), Some(15), None));
+        // The countdown waits while all three are here; once one leaves, the next comes
+        // five days later.
+        let gone = w.trade.cities[0].traders[1];
+        w.caravan_gone(gone);
+        let days = (1..=10).find(|_| {
+            day(&mut w, gone);
+            caravans(&w) == 3
+        });
+        assert_eq!(days, Some(5));
+        assert_eq!(w.trade.cities[0].traders.iter().filter(|&&t| t != 0 && t != gone).count(), 3);
+    }
+
+    #[test]
+    fn ships_wait_for_a_dock() {
+        let Some(mut w) = sandbox() else { return };
+        w.trade.cities[0].open = false;
+        for _ in 0..40 {
+            w.update_trade();
+        }
+        assert!(w.figures.iter().all(|f| f.kind != crate::docks::TRADE_SHIP));
+        assert_eq!(w.trade.cities[1].entry_delay, LAND_ENTRY_DELAY, "the countdown waits for a dock");
+        assert_eq!(w.messages.iter().filter(|m| *m == "message_no_working_dock").count(), 1);
+    }
 
     #[test]
     fn ra_moves_allowances_a_step() {

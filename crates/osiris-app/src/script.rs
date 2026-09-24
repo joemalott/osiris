@@ -280,10 +280,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 for (i, c) in world.trade.cities.iter().enumerate() {
                     let route = &world.trade.routes[c.route as usize];
                     let traded: Vec<(usize, i32)> = route.traded.iter().copied().enumerate().filter(|t| t.1 > 0).collect();
-                    eprintln!("  city {i} name {} type {} open {} sea {} traded {:?} next {} route {} points {} limits {:?}", c.name_id, c.city_type, c.open, c.sea, traded, c.entry_delay, c.route, route.points.len(), route.limit.iter().enumerate().filter(|l| *l.1 > 0).collect::<Vec<_>>());
-                }
-                for t in &world.trade.traders {
-                    eprintln!("  trader {:?} at {:?}", t, world.trader_position(t));
+                    eprintln!("  city {i} name {} type {} open {} sea {} traded {:?} next {} route {} points {} limits {:?} traders {:?}", c.name_id, c.city_type, c.open, c.sea, traded, c.entry_delay, c.route, route.points.len(), route.limit.iter().enumerate().filter(|l| *l.1 > 0).collect::<Vec<_>>(), c.traders);
                 }
                 eprintln!("  finance {:?} entry {:?} exit {:?}", world.finance.this_year, world.entry_point, world.exit_point);
             }
