@@ -605,6 +605,50 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
             }
             // The monument building types the build menu offers now.
+            // For each monument the build menu offers: the first spot it can go, or
+            // the commonest reason it can't go anywhere.
+            ["monfit"] => {
+                let ks: Vec<u16> = (0..1000u16).filter(|&k| world.defs.building(k).is_some_and(|d| d.has_flag("is_monument")) && world.is_allowed(k)).collect();
+                for k in ks {
+                    let mut why: std::collections::BTreeMap<&str, u32> = Default::default();
+                    let mut spot = None;
+                    'scan: for y in 0..world.map.height {
+                        for x in 0..world.map.width {
+                            match world.can_place(k, x, y) {
+                                Ok(()) => {
+                                    spot = Some((x, y));
+                                    break 'scan;
+                                }
+                                Err(e) => *why.entry(e).or_default() += 1,
+                            }
+                        }
+                    }
+                    let name = world.defs.building(k).map_or("?", |d| d.key.as_str());
+                    match spot {
+                        Some(p) => eprintln!("{k} {name}: fits at {p:?}"),
+                        None => eprintln!("{k} {name}: NOWHERE {why:?}"),
+                    }
+                }
+            }
+            // Spots where a pyramid complex's valley temple could meet the water: a
+            // straight north-south shore (land west, open water east, two rows).
+            ["shores"] => {
+                use osiris_sim::map::terrain as t;
+                let m = &world.map;
+                let open = t::WATER | t::GROUNDWATER | t::DEEPWATER;
+                let water = |x: i32, y: i32| m.contains(x, y) && m.terrain.at_or(x, y, 0) & t::WATER != 0 && m.terrain.at_or(x, y, 0) & !open == 0;
+                let land = |x: i32, y: i32| m.contains(x, y) && m.terrain.at_or(x, y, 0) & t::WATER == 0;
+                let (mut n, mut bits) = (0, std::collections::BTreeMap::<u32, u32>::new());
+                for y in 0..m.height {
+                    for x in 0..m.width {
+                        if land(x, y) && land(x, y + 1) && water(x + 1, y) && water(x + 1, y + 1) {
+                            n += 1;
+                            *bits.entry(m.terrain.at_or(x, y, 0) | m.terrain.at_or(x, y + 1, 0)).or_default() += 1;
+                        }
+                    }
+                }
+                eprintln!("{n} shore spots; land-side terrain bits: {:x?}", bits.iter().map(|(b, c)| (*b, *c)).collect::<Vec<_>>());
+            }
             ["monallowed"] => {
                 let ks: Vec<u16> = (0..1000u16).filter(|&k| world.defs.building(k).is_some_and(|d| d.has_flag("is_monument")) && world.is_allowed(k)).collect();
                 eprintln!("monuments allowed {ks:?}");
