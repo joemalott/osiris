@@ -1725,7 +1725,7 @@ impl World {
         let Some(job) = decode_tomb_job(f.amount) else { return Some(TombPose::Idle) };
         let there = match job {
             Job::Part(i) => f.perch.is_none() && self.part_tile(f.target, i) == Some((f.x, f.y)),
-            _ => f.perch.is_some_and(|p| !p.at_foot() && self.job_spot(f.target, job).is_some_and(|(b, h)| p.block as usize == b && p.height == h)),
+            _ => f.perch.is_some_and(|p| p.arrived() && !p.at_foot() && self.job_spot(f.target, job).is_some_and(|(b, h)| p.block as usize == b && p.height == h)),
         };
         Some(match job {
             _ if !there => TombPose::Idle,

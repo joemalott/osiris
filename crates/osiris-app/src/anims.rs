@@ -222,6 +222,11 @@ fn monument(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
         let y = p[1] + rec.sprite_offset_y as f32 - rec.height as f32 + city_view::TILE_H / 2.0 * (tiles + 1) as f32 - lift as f32;
         out.push(Overlay { x: dx, y: dy, pos: [p[0] + rec.sprite_offset_x as f32, y], image });
     }
+    // The carpenters' ramps, over the blocks they stand on.
+    for ((x, y), image, (dx, dy)) in cx.world.tomb_ramps(b.id) {
+        let p = cx.point(x, y);
+        out.push(Overlay { x, y, pos: [p[0] + dx as f32, p[1] + dy as f32], image });
+    }
 }
 
 /// The granary: a heap of food per 400 units stored in its eight spots, and its

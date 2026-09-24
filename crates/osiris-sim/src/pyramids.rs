@@ -232,6 +232,16 @@ const STEPPED_SURFACE: [[(i8, i8, i8, i8); 6]; 9] = [
 /// A ramp on a +y or +x edge block moves its standing place over (0x5f5bf8).
 const RAMP_SURFACE: [(i8, i8); 9] = [(0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (-13, 7), (13, 7), (0, 0), (0, 0)];
 
+/// Where a ramp on a +y or +x edge block goes, besides its standing place (0x5f5b28).
+const RAMP_PLACE: [(i8, i8); 9] = [(0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (-17, 29), (-4, 22), (0, 0), (0, 0)];
+
+/// A stepped pyramid's ramp pieces, from the first (0x6d past the block images),
+/// moved over by these pixels (0x5f5b68).
+const STEPPED_RAMP_PLACE: [(i8, i8); 18] = [
+    (-16, 36), (-20, 18), (-16, 0), (3, 20), (-1, 2), (-5, -15), (-8, 10), (2, 6), (-8, 10),
+    (-8, -10), (-47, 3), (-43, -15), (-15, 20), (-11, 2), (-24, 11), (-26, 7), (6, 11), (0, -10),
+];
+
 /// Ticks a figure takes to cross a tile of a tomb.
 const PERCH_TICKS: u16 = 15;
 
@@ -560,11 +570,13 @@ impl World {
     /// takes a block whether or not its material has come: as in the original, he
     /// waits on it for the sled.
     pub(crate) fn tomb_job(&self, id: BuildingId, figure: u16, taken: &[Job], perched: bool) -> Option<Job> {
-        let (style, _, m) = self.tomb(id)?;
+        let (style, var, m) = self.tomb(id)?;
         let job = match m.phase {
             RAISE if figure == crate::monuments::CARPENTER => {
-                // A ramp a block is waiting for.
-                return m.blocks.iter().enumerate().find(|(i, b)| b.waiting_for_ramp() && !taken.contains(&Job::Ramp(*i))).map(|(i, _)| Job::Ramp(i));
+                // The first ramp in the schedule a block is waiting for, if no one has
+                // taken it (`FUN_004f01e0`).
+                let i = RAMPS[var.min(4)].iter().map(|r| r.0 as usize).find(|&i| m.blocks.get(i).is_some_and(Block::waiting_for_ramp))?;
+                return (!taken.contains(&Job::Ramp(i))).then_some(Job::Ramp(i));
             }
             RAISE => self
                 .frontier(id)
@@ -1184,6 +1196,74 @@ impl World {
             if let Some(a) = bdef.anims.get(key) {
                 out.push((x0 + p.x, y0 + p.y, a.image, 0));
             }
+        }
+        out
+    }
+
+    /// The carpenters' ramps standing on a tomb's blocks, as the original draws them
+    /// with each block (`FUN_004edf50`, `FUN_004ef550`): the block's lower-left tile,
+    /// the image, and its top-left from that tile's, in pixels. Only ramps on the
+    /// faces toward the viewer show, and a stepped pyramid's also on its corners.
+    pub fn tomb_ramps(&self, id: BuildingId) -> Vec<((i32, i32), u32, (i32, i32))> {
+        let mut out = Vec::new();
+        let Some(bld) = self.buildings.get(id) else { return out };
+        let Some((style, var, m)) = self.tomb(id) else { return out };
+        let Some(base) = self.defs.building(bld.kind).and_then(|d| d.anims.get("blocks")).map(|a| a.image) else { return out };
+        let stepped = matches!(style, Style::Pyramid(Family::Stepped));
+        let bent = matches!(style, Style::Pyramid(Family::Bent));
+        for (i, b) in m.blocks.iter().enumerate() {
+            if !b.ramp_shown {
+                continue;
+            }
+            // A stepped pyramid's ramp also shows on its partner block.
+            let at = if b.ramp && b.ramp_at > 0 {
+                b.ramp_at
+            } else {
+                RAMPS[var.min(4)].iter().find(|r| r.2 as usize == i).map_or(0, |r| r.1)
+            };
+            if at == 0 {
+                continue;
+            }
+            let kind = b.kind as usize;
+            let unit = ((at - 1) % 6) as usize;
+            let (image, (dx, dy)) = if stepped {
+                let corner = match at % 6 {
+                    2 => 1,
+                    4 => 2,
+                    5 => 3,
+                    _ => 0,
+                };
+                let first = match kind {
+                    5 => 0x6d + unit as u32 % 3,
+                    6 => 0x70 + unit as u32 % 3,
+                    1 => 0x73 + corner,
+                    2 => 0x77 + corner,
+                    3 => 0x7b + corner,
+                    _ => continue,
+                };
+                let (x0, y0, _, _) = STEPPED_SURFACE[kind][if unit > 2 { 3 } else { 0 }];
+                let (ex, ey) = STEPPED_RAMP_PLACE[(first - 0x6d) as usize];
+                (base + first, (x0 as i32 + ex as i32, y0 as i32 + ey as i32))
+            } else {
+                let first = match kind {
+                    5 => 0x6d,
+                    6 => 0x6e,
+                    _ => continue,
+                };
+                let (rx, ry) = RAMP_PLACE[kind];
+                // A bent pyramid's half courses rise half as far a unit.
+                let half = bent && BENT_HALF[var.min(1)].get(b.level as usize).copied().unwrap_or(false);
+                let (sx, sy) = if half { SURFACE[kind][((2 * at - 2) % 6) as usize] } else { SURFACE[kind][unit] };
+                let sy = if half { sy as i32 / 2 } else { sy as i32 };
+                (base + first, (rx as i32 + sx as i32, ry as i32 + sy))
+            };
+            let raise = if bent {
+                BENT_RAISE[var.min(1)].get(b.level as usize).copied().unwrap_or(b.level as i32 * COURSE_RAISE)
+            } else {
+                b.level as i32 * COURSE_RAISE
+            };
+            // The same corner of the block a figure's standing place is taken from.
+            out.push(((bld.x + b.x, bld.y + b.y + 1), image, (28 + dx, -17 - raise + dy)));
         }
         out
     }
