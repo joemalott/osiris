@@ -25,6 +25,8 @@ pub enum Travel {
     Water,
     /// Invaders: as on land, but a gatehouse bars the way like a wall.
     Hostile,
+    /// Crocodiles and hippos: as invaders on land, and through any water.
+    Amphibious,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -103,6 +105,16 @@ pub struct Figure {
     pub roam_out: bool,
     #[serde(default)]
     pub roam_wait: i8,
+    /// Wild animals: the frame of the animation they are showing, which also times
+    /// some of what they do.
+    #[serde(default)]
+    pub frame: u8,
+    /// The action a figure drawn into a fight goes back to when it is over.
+    #[serde(default)]
+    pub resume: u16,
+    /// Predators: looks round since the last time one saw anything.
+    #[serde(default)]
+    pub look: u8,
     /// Tile centres reached this tick, for the traffic tally.
     #[serde(skip)]
     pub centres: u8,
@@ -142,6 +154,9 @@ impl Figure {
             carried: Vec::new(),
             roam_out: false,
             roam_wait: -1,
+            frame: 0,
+            resume: 0,
+            look: 0,
             centres: 0,
         }
     }
@@ -221,6 +236,7 @@ pub fn passable(map: &Map, travel: Travel, x: i32, y: i32) -> bool {
         // Invaders cross trees, scrub, marsh, dunes, rubble, gardens, canals, ramps and
         // dry floodplain (the original's route grid for non-citizens); buildings, walls
         // and gatehouses they must batter down.
+        Travel::Amphibious => t & terrain::WATER != 0 || passable(map, Travel::Hostile, x, y),
         Travel::Hostile => {
             const OPEN: u32 = terrain::TREE
                 | terrain::SHRUB
@@ -260,7 +276,7 @@ pub fn find_route(map: &Map, travel: Travel, from: (i32, i32), to: (i32, i32)) -
     came[idx(from.0, from.1)] = 8;
     let dirs: &[u8] = match travel {
         Travel::Roads => &[0, 2, 4, 6],
-        Travel::Land | Travel::PreferRoads | Travel::Water | Travel::Hostile => &[0, 2, 4, 6, 1, 3, 5, 7],
+        Travel::Land | Travel::PreferRoads | Travel::Water | Travel::Hostile | Travel::Amphibious => &[0, 2, 4, 6, 1, 3, 5, 7],
     };
     // The destination may be a building entrance off the road network; allow it.
     let ok = |x: i32, y: i32| (x, y) == to || passable(map, travel, x, y);

@@ -377,6 +377,28 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 eprintln!("  won {} lost {} limit {:?} survival {:?}", world.won, world.lost, world.time_limit, world.survival);
                 eprintln!("  planned {:?} lost {}", world.invasions.planned.iter().map(|p| (p.invader, p.year, p.month, p.warning, p.done)).collect::<Vec<_>>(), world.invasions.lost);
             }
+            // Every herd and pack: its point, the spot it prowls around, its count, and
+            // each animal's tile, action, damage and target.
+            ["herds"] => {
+                for (i, h) in world.herds.iter().enumerate() {
+                    let members: Vec<(i32, i32, u16, i32, u32)> = h.members.iter().filter_map(|&m| world.figures.get(m)).map(|f| (f.x, f.y, f.action, f.damage, f.target)).collect();
+                    eprintln!("  herd {i} kind {} predator {} at {},{} dest {:?} {}/{} regrow {} roam {} {:?}", h.kind, h.predator, h.x, h.y, h.dest(), h.members.len(), h.target, h.regrow, h.roam, members);
+                }
+                let fallen = world.figures.iter().filter(|f| f.action == osiris_sim::military::action::CORPSE).map(|f| (f.kind, f.x, f.y)).collect::<Vec<_>>();
+                eprintln!("  fallen {fallen:?}");
+            }
+            // Puts a pack of the climate's beasts down at a tile, stirring at once.
+            ["pack", p] => {
+                let p = parse_point(p)?;
+                world.create_herds(&[p], &[]);
+                if let Some(h) = world.herds.last() {
+                    for &m in &h.members.clone() {
+                        if let Some(f) = world.figures.get_mut(m) {
+                            f.counter = 1;
+                        }
+                    }
+                }
+            }
             ["clearmessages"] => {
                 world.messages.clear();
                 world.message_texts.clear();

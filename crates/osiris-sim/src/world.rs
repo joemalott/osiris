@@ -155,8 +155,12 @@ pub struct World {
     pub survival: Option<i32>,
     pub migration_params: crate::people::MigrationParams,
     pub scenario_name: String,
-    /// 0 central, 1 northern, 2 desert.
+    /// 0 humid, 1 normal, 2 arid.
     pub climate: u8,
+    /// The scenario's other choice of beast for its climate (asps, lions or
+    /// scorpions rather than hippos, crocodiles or hyenas).
+    #[serde(default)]
+    pub alt_predator: bool,
     /// Where immigrants arrive and emigrants leave, in map coordinates.
     pub entry_point: (i32, i32),
     pub exit_point: (i32, i32),
@@ -302,6 +306,7 @@ impl World {
             migration_params: Default::default(),
             scenario_name: info.subtitle.clone(),
             climate: info.climate,
+            alt_predator: info.alt_predator_type != 0,
             entry_point: (info.entry_point.x, info.entry_point.y),
             start_corner: start_corner(scenario),
             complex_gods: info.temple_complex_gods(),
@@ -319,16 +324,10 @@ impl World {
         }
     }
 
-    /// Starts the scenario: places the herds from the map's prey points.
+    /// Starts the scenario: places the herds from the map's predator and prey points.
     pub fn start(&mut self, scenario: &Scenario) {
-        let points: Vec<(i32, i32, i32)> = scenario
-            .info
-            .prey_herd_points
-            .iter()
-            .filter(|p| p.is_valid())
-            .map(|p| (p.x, p.y, 0))
-            .collect();
-        self.create_herds(&points);
+        let points = |list: &[osiris_formats::scenario::TilePoint]| list.iter().filter(|p| p.is_valid()).map(|p| (p.x, p.y)).collect::<Vec<_>>();
+        self.create_herds(&points(&scenario.info.predator_herd_points), &points(&scenario.info.prey_herd_points));
         self.init_floods(&scenario.floodplain_settings);
     }
 
