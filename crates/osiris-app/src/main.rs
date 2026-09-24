@@ -1065,6 +1065,12 @@ fn main() -> Result<()> {
         if let Some(city) = view.empire {
             let mut e = empire_window::EmpireWindow::default();
             e.select(city);
+            e.show(match (view.empire_popup.as_deref(), city) {
+                (Some("confirm"), Some(c)) => Some(empire_window::EmpirePopup::Confirm(c)),
+                (Some("nomoney"), _) => Some(empire_window::EmpirePopup::NoMoney),
+                (Some("opened"), Some(c)) => Some(empire_window::EmpirePopup::Opened(c)),
+                _ => None,
+            });
             game.empire = Some(e);
         }
         if view.difficulty {
