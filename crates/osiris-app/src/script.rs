@@ -19,6 +19,8 @@ pub struct ScriptView {
     pub messages: bool,
     pub menu_page: Option<String>,
     pub rules: bool,
+    /// Opens the Difficulty window.
+    pub difficulty: bool,
     pub overlay: Option<String>,
     pub top_menu: Option<usize>,
     pub build_menu: Option<String>,
@@ -130,6 +132,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 view.menu_page = Some(page.to_string());
             }
             ["rules"] => view.rules = true,
+            ["difficultywindow"] => view.difficulty = true,
             ["overlay", name] => view.overlay = Some(name.to_string()),
             ["topmenu", n] => view.top_menu = Some(n.parse()?),
             ["messages"] => view.messages = true,
@@ -163,6 +166,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             // The temple complex facing for the next build (0 along x, 1 along y).
             ["complexface", f] => world.complex_facing = f.parse::<u8>()? & 1,
             ["treasury", n] => world.treasury = n.parse()?,
+            // Plays on at difficulty N (0 Very Easy .. 4 Impossible).
+            ["difficulty", n] => world.set_difficulty(n.parse()?),
             ["gatefacing", n] => world.gatehouse_facing = n.parse::<u8>()?.min(1),
             // The placement preview of building K with the cursor on x,y: each tile's verdict.
             ["preview", k, p] => {
@@ -397,7 +402,10 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             ["saveload"] => {
                 let bytes = world.save().map_err(anyhow::Error::msg)?;
-                let loaded = World::load(&bytes, world.defs.clone(), world.balance.clone()).map_err(anyhow::Error::msg)?;
+                let mut loaded = World::load(&bytes, world.defs.clone(), world.balance.clone()).map_err(anyhow::Error::msg)?;
+                if let Some(b) = world.balances.clone() {
+                    loaded.attach_balances(b);
+                }
                 let same = loaded.save().map_err(anyhow::Error::msg)? == bytes;
                 eprintln!("saveload: {} bytes, identical after reload: {same}", bytes.len());
                 *world = loaded;

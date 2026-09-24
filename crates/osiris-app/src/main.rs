@@ -111,6 +111,7 @@ struct Assets {
     data: PathBuf,
     defs: Arc<Defs>,
     balance: Arc<Balance>,
+    balances: Arc<[Arc<Balance>; 5]>,
     text: Arc<TextTable>,
     messages: Arc<MessageTable>,
     phrases: Arc<osiris_formats::Phrases>,
@@ -123,12 +124,15 @@ enum Source {
     Map(PathBuf),
 }
 
-fn new_world(assets: &Assets, source: &Source) -> Result<World> {
+/// A new game of `source` at `difficulty`.
+fn new_world(assets: &Assets, source: &Source, difficulty: u8) -> Result<World> {
     let (scenario, mission) = match source {
         Source::Map(path) => (Scenario::load_map(path)?, None),
         Source::Mission(n) => (MissionPak::open(&assets.data.join("mission1.pak"))?.scenario(*n)?, Some(*n)),
     };
     let mut world = World::new(&scenario, assets.defs.clone(), assets.balance.clone());
+    world.attach_balances(assets.balances.clone());
+    world.begin_at(difficulty);
     world.start(&scenario);
     if let Some(n) = mission {
         world.load_mission(n as i32);
@@ -156,6 +160,16 @@ fn rules_path() -> PathBuf {
 /// The player's game rules, applied to every game.
 fn load_rules() -> osiris_sim::Rules {
     std::fs::read_to_string(rules_path()).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default()
+}
+
+/// The difficulty new games start at, which the player last chose (the original
+/// keeps it in Pharaoh.inf).
+fn load_difficulty() -> u8 {
+    std::fs::read_to_string(user_dir().join("difficulty.txt")).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(osiris_sim::difficulty::NORMAL).min(osiris_sim::difficulty::IMPOSSIBLE)
+}
+
+fn save_difficulty(d: u8) {
+    let _ = std::fs::write(user_dir().join("difficulty.txt"), format!("{d}\n"));
 }
 
 fn save_rules(rules: &osiris_sim::Rules) {
@@ -412,7 +426,7 @@ impl App {
                 event_loop.exit();
                 return;
             }
-            menu::Choice::Mission(n) => new_world(&self.assets, &Source::Mission(*n)).map(|w| (w, Some(*n))),
+            menu::Choice::Mission(n) => new_world(&self.assets, &Source::Mission(*n), load_difficulty()).map(|w| (w, Some(*n))),
             menu::Choice::Family(name) => {
                 self.family = name.clone();
                 choose_family(&self.family);
@@ -436,7 +450,7 @@ impl App {
                 }
                 return;
             }
-            menu::Choice::Map(p) => new_world(&self.assets, &Source::Map(p.clone())).map(|w| (w, None)),
+            menu::Choice::Map(p) => new_world(&self.assets, &Source::Map(p.clone()), load_difficulty()).map(|w| (w, None)),
             menu::Choice::Save(p) => load_game(&self.assets, p).map(|w| {
                 let m = w.mission.as_ref().map(|m| m.id as usize);
                 (w, m)
@@ -507,7 +521,12 @@ pub fn sanitize(name: &str) -> String {
 
 fn load_game(assets: &Assets, path: &Path) -> Result<World> {
     let bytes = std::fs::read(path).with_context(|| path.display().to_string())?;
-    World::load(&bytes, assets.defs.clone(), assets.balance.clone()).map_err(anyhow::Error::msg)
+    let mut world = World::load(&bytes, assets.defs.clone(), assets.balance.clone()).map_err(anyhow::Error::msg)?;
+    world.attach_balances(assets.balances.clone());
+    // As in the original, a saved game brings back its difficulty, and the player
+    // goes on at it.
+    save_difficulty(world.difficulty);
+    Ok(world)
 }
 
 impl ApplicationHandler for App {
@@ -528,7 +547,7 @@ impl ApplicationHandler for App {
             self.args.mission.map(|n| (Source::Mission(n), Some(n)))
         };
         match direct {
-            Some((source, mission)) => match new_world(&self.assets, &source) {
+            Some((source, mission)) => match new_world(&self.assets, &source, load_difficulty()) {
                 Ok(world) => self.start(world, mission),
                 Err(e) => {
                     self.status = Some((format!("{e}"), 5.0));
@@ -745,6 +764,9 @@ impl App {
                         osiris_ui::draw_text(r, osiris_ui::Font::NormalYellow, s, 20.0, 50.0, osiris_ui::font::WHITE);
                     }
                 });
+                if std::mem::take(&mut game.difficulty_changed) {
+                    save_difficulty(game.world.difficulty);
+                }
                 // Once the victory message has been read, go on to the next mission.
                 if game.world.won && game.idle() {
                     finished = Some(*mission);
@@ -759,7 +781,7 @@ impl App {
             None => {}
         }
         match lost_choice {
-            Some((top_menu::MenuAction::Replay, Some(n))) => match new_world(&self.assets, &Source::Mission(n)) {
+            Some((top_menu::MenuAction::Replay, Some(n))) => match new_world(&self.assets, &Source::Mission(n), load_difficulty()) {
                 Ok(world) => self.start(world, Some(n)),
                 Err(e) => self.status = Some((format!("Could not start: {e}"), 5.0)),
             },
@@ -844,18 +866,26 @@ fn start_view(w: &World) -> (i32, i32) {
     if w.map.contains(e.0, e.1) { e } else { (w.map.width / 2, w.map.height / 2) }
 }
 
-fn load_assets(data: &Path, library: &ImageLibrary) -> Result<Assets> {
-    let defs = Arc::new(Defs::load(library).map_err(anyhow::Error::msg)?);
-    let model_path = data.join("Pharaoh_Model_Normal.txt");
+/// The model files of difficulty `d` (as spelled in their names).
+fn load_balance(data: &Path, d: &str) -> Result<Balance> {
+    let model_path = data.join(format!("Pharaoh_Model_{d}.txt"));
     let model_text = std::fs::read(&model_path).with_context(|| model_path.display().to_string())?;
     let mut balance = Balance::from_model(&Model::parse(&String::from_utf8_lossy(&model_text))?);
-    if let Ok(t) = std::fs::read(data.join("Tax_Sentiment_Model_Normal.txt")) {
+    if let Ok(t) = std::fs::read(data.join(format!("Tax_Sentiment_Model_{d}.txt"))) {
         balance.tax_sentiment = osiris_formats::model::parse_tax_sentiment(&String::from_utf8_lossy(&t));
     }
-    if let Ok(t) = std::fs::read(data.join("Figure_model_normal.txt")).or_else(|_| std::fs::read(data.join("Figure_model.txt"))) {
+    let figures = data.join(format!("Figure_model_{}.txt", d.to_lowercase()));
+    if let Ok(t) = std::fs::read(figures).or_else(|_| std::fs::read(data.join("Figure_model.txt"))) {
         balance.set_units(&osiris_formats::model::parse_figures(&String::from_utf8_lossy(&t))?);
     }
-    let balance = Arc::new(balance);
+    Ok(balance)
+}
+
+fn load_assets(data: &Path, library: &ImageLibrary) -> Result<Assets> {
+    let defs = Arc::new(Defs::load(library).map_err(anyhow::Error::msg)?);
+    let balances: Vec<Arc<Balance>> = osiris_sim::difficulty::FILE_NAMES.iter().map(|d| load_balance(data, d).map(Arc::new)).collect::<Result<_>>()?;
+    let balances: Arc<[Arc<Balance>; 5]> = Arc::new(balances.try_into().expect("five difficulties"));
+    let balance = balances[osiris_sim::difficulty::NORMAL as usize].clone();
     let text = Arc::new(TextTable::parse(&std::fs::read(data.join("Pharaoh_Text.eng"))?)?);
     let messages = Arc::new(MessageTable::parse(&std::fs::read(data.join("Pharaoh_MM.eng"))?)?);
     let campaign = std::fs::read(data.join("campaign.txt"))
@@ -869,7 +899,7 @@ fn load_assets(data: &Path, library: &ImageLibrary) -> Result<Assets> {
         .map(|i| names.get(i).cloned().unwrap_or_else(|| format!("Mission {}", i + 1)))
         .collect();
     let phrases = Arc::new(osiris_formats::Phrases::parse(&String::from_utf8_lossy(&std::fs::read(data.join("eventmsg.txt")).unwrap_or_default())));
-    Ok(Assets { data: data.to_owned(), defs, balance, text, messages, phrases, mission_names, campaign: Arc::new(campaign) })
+    Ok(Assets { data: data.to_owned(), defs, balance, balances, text, messages, phrases, mission_names, campaign: Arc::new(campaign) })
 }
 
 fn main() -> Result<()> {
@@ -890,7 +920,7 @@ fn main() -> Result<()> {
             Some(m) => Source::Map(m.clone()),
             None => Source::Mission(args.mission.unwrap_or(0)),
         };
-        let mut world = new_world(&assets, &source)?;
+        let mut world = new_world(&assets, &source, osiris_sim::difficulty::NORMAL)?;
         let view = match &args.script {
             Some(s) => script::run_script(&mut world, s)?,
             None => script::ScriptView { keep_dialogs: true, ..Default::default() },
@@ -948,6 +978,9 @@ fn main() -> Result<()> {
             let mut e = empire_window::EmpireWindow::default();
             e.select(city);
             game.empire = Some(e);
+        }
+        if view.difficulty {
+            game.difficulty_panel = true;
         }
         if view.rules {
             game.rules_panel = Some(rules_panel::RulesPanel::default());

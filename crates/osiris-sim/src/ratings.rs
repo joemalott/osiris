@@ -11,7 +11,8 @@
 use crate::buildings::kind;
 use crate::world::World;
 
-/// Kingdom rating a new city starts with (Normal difficulty).
+/// Kingdom rating a new city starts with at Normal; `World::begin_at` sets the
+/// difficulty's.
 const STARTING_KINGDOM: i32 = 50;
 
 /// Culture: for each service, its coverage slot, the scores for coverage at or below

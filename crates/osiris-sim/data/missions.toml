@@ -23,8 +23,9 @@
 #                 an alias for BUILDING_HOUSE_CRUDE_HUT in the source engine and is mapped to
 #                 "house_crude_hut" here; BUILDING_CLEAR_LAND (id 9) is a terrain tool with no
 #                 buildings.toml entry and is omitted — see MISSIONS_NOTES.md).
-#   funds       = { initial_funds = [5 ints, very_easy..impossible], rescue_loans = [5 ints],
-#                   house_tax_multipliers = [5 ints]?, debt_interest = [5 ints]?,
+#   funds       = { debt_interest = [5 ints]?, (the source's per-difficulty funds, loan
+#                   and tax arrays are dropped: the exe scales the scenario's own funds
+#                   and loan by 200/100/100/100/75%, see difficulty.rs)
 #                   player_rank = int, religion_enabled = bool?, hide_won_screen = bool?,
 #                   enable_scenario_events = bool?, start_message = "key"? }
 #   env         = { has_animals, gods_least_mood, hide_nilometer, flotsam_enabled, ... }
@@ -72,9 +73,6 @@ buildings = ["house_crude_hut", "road"]
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [7500, 5000, 3750, 2500, 2000]
-rescue_loans = [7500, 5000, 3750, 2500, 2000]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 0
 religion_enabled = false
 hide_won_screen = true
@@ -169,8 +167,6 @@ buildings = [
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [7500, 5000, 3750, 2500, 2000]
-rescue_loans = [7500, 5000, 3750, 2500, 2000]
 player_rank = 0
 hide_won_screen = true
 start_message = "message_gold_and_crime"
@@ -241,9 +237,6 @@ buildings = [
 ]
 
 [mission.funds]
-initial_funds = [7500, 5000, 3750, 2500, 2000]
-rescue_loans = [7500, 5000, 3750, 2500, 2000]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 0
 start_message = "message_farming_along_the_nile"
 
@@ -335,9 +328,6 @@ buildings = [
 ]
 
 [mission.funds]
-initial_funds = [7500, 5000, 3750, 2500, 2000]
-rescue_loans = [7500, 5000, 3750, 2500, 2000]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 0
 start_message = "message_developing_culture"
 
@@ -403,9 +393,6 @@ buildings = [
 ]
 
 [mission.funds]
-initial_funds = [7500, 5000, 3750, 2500, 2000]
-rescue_loans = [7500, 5000, 3750, 2500, 2000]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 1
 start_message = "message_trade_on_the_water"
 
@@ -501,9 +488,6 @@ buildings = ["small_statue", "medium_statue", "large_statue", "gardens", "plaza"
 notes = "Runs 4 Pharaoh-favour resource requests (copper y0, gems y2, deben y2, weapons y7) plus 3 scripted Libyan raids (y2/y3/y5, escalating size) and a recurring by-favour invasion tick (army size 45); these affect reputation/trade and are not individually enumerated as messages."
 
 [mission.funds]
-initial_funds = [7500, 5000, 3750, 2500, 2000]
-rescue_loans = [7500, 5000, 3750, 2500, 2000]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 2
 start_message = "message_history_military"
 
@@ -550,9 +534,6 @@ buildings = ["small_statue", "medium_statue", "large_statue", "gardens", "plaza"
 notes = "Runs 4 Pharaoh-favour resource requests (pottery y1, beer y2 and y17, fish y3), a one-time papyrus demand increase, a clay-pit flood (y8) and recurring failed floods from y10, plus 3 scripted Kushite raids (y5/y15/y19) and a recurring by-favour invasion tick (army size 45); not individually enumerated as messages."
 
 [mission.funds]
-initial_funds = [7500, 5000, 3750, 2500, 2000]
-rescue_loans = [7500, 5000, 3750, 2500, 2000]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 2
 start_message = "message_soldiers_and_forts"
 
@@ -609,9 +590,6 @@ buildings = ["small_statue", "medium_statue", "large_statue", "gardens", "plaza"
 notes = "Runs 2 Pharaoh-favour resource requests (beer y2, fish y12), a recurring perfect-flood event from y2, and one-off contaminated-water/sea-trade/wage/demand events (y5-y19), plus 1 scripted Kushite raid (y14) and a recurring by-favour invasion tick (army size 40); not individually enumerated as messages."
 
 [mission.funds]
-initial_funds = [7500, 5000, 3750, 2500, 2000]
-rescue_loans = [7500, 5000, 3750, 2500, 2000]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 3
 start_message = "message_soldiers_and_forts"
 
@@ -673,9 +651,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "low_bridge", "firehouse", 
 notes = "Runs a recurring Pharaoh luxury-goods request (every 2 years from y1) that can late-chain into a Kerma siege and a troops×4 request, a separate Kerma-siege troops×7 request (y7), recurring small Hyksos raids from y2, one large Hyksos invasion (y7), and a recurring by-favour invasion tick (army size 63); price/wage/demand events also fire at various years; not individually enumerated as messages."
 
 [mission.funds]
-initial_funds = [7500, 5000, 3750, 2500, 2000]
-rescue_loans = [7500, 5000, 3750, 2500, 2000]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 3
 enable_scenario_events = true
@@ -735,9 +710,6 @@ buildings = ["small_statue", "medium_statue", "large_statue", "gardens", "plaza"
 notes = "Runs 2 Pharaoh-favour resource requests (granite y4, sandstone y10), a land-trade problem (y2), a flax demand increase (y6) that also re-fires the granite request chain, a Selima-conquered trade unlock (y6), a Nubt-conquered linen demand increase (y7), one-off contaminated-water/sea-trade events (y13/y15), a recurring gems demand increase from y17, and a recurring by-favour invasion tick (wave sizes 40/20/20, food then random targets); not individually enumerated as messages."
 
 [mission.funds]
-initial_funds = [7500, 5000, 3750, 2500, 2000]
-rescue_loans = [7500, 5000, 3750, 2500, 2000]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 6
 enable_scenario_events = true
@@ -797,9 +769,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 notes = "Runs many Pharaoh-favour resource requests and gifts spanning to year 46+ (gamemeat y1/y18+/y33+, pomegranates gift y3, oil y4, stone y10+/y20/y-recurring, luxury y12+/y44+/y46+), recurring gold-mine collapses (y5+, y16+), recurring wage/land-trade events, and a recurring by-favour invasion tick (army size 69); not individually enumerated as messages."
 
 [mission.funds]
-initial_funds = [24000, 16000, 12000, 8000, 6400]
-rescue_loans = [10400, 7000, 5200, 3500, 2800]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [4, 6, 8, 10, 12]
 player_rank = 1
 enable_scenario_events = true
@@ -863,9 +832,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "low_bridge", "ferry", "fir
 notes = "Runs recurring Pharaoh copper (y1+) and luxury (y7+) resource requests, one-off copper/weapons requests (y3, y5, y8), a chickpeas gift (y1), a land-trade problem (y3), 5 recurring clay-pit floods (y1-y5), 7 scripted Libyan/Beduin raids of escalating size (y1-y10) with varied attack targets, and a recurring by-favour invasion tick (army size 51); not individually enumerated as messages."
 
 [mission.funds]
-initial_funds = [30000, 20000, 15000, 10000, 8000]
-rescue_loans = [7000, 4700, 3500, 2300, 1900]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 5
 enable_scenario_events = true
@@ -937,9 +903,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 notes = "Runs an extensive Pharaoh-favour resource-request economy (dozens of request/event roots for timber, reeds, pottery, stone, papyrus, grain, and clay, plus wage/price/flood state changes spanning years 3-56+, per source comments indexed i0-i72), a recurring Hyksos invasion from y7 (size 17), and a recurring by-favour invasion tick (wave sizes 25 then 60); not individually enumerated as messages. Monuments goal (76) reflects a small stepped pyramid (8) plus a stepped-pyramid complex counted at large-pyramid weight (24) per a source comment noting the causeway mechanic isn't implemented."
 
 [mission.funds]
-initial_funds = [20000, 13300, 10000, 6700, 5300]
-rescue_loans = [6000, 4000, 3000, 2000, 1600]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [4, 6, 8, 10, 12]
 player_rank = 4
 enable_scenario_events = true
@@ -1044,9 +1007,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 notes = "Also runs a series of dated limestone/beer/oil/troops resource requests (6 limestone asks, a recurring beer ask, one troops ask, one oil ask), two granite-demand events, 8 Kushite invasion waves, annual clay-pit floods from year 1, and a 3-wave Pharaoh-favour invasion chain (22/21/28); not individually enumerated here."
 
 [mission.funds]
-initial_funds = [20000, 13300, 10000, 6700, 5300]
-rescue_loans = [10000, 6700, 5000, 3300, 2700]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 5
 enable_scenario_events = true
@@ -1130,9 +1090,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 notes = "Also runs an oil-request ladder (a root ask plus several chain-only escalation levels reached on refusal/lateness), a recurring grain request from year 2, a one-time limestone request, an annual wage-decrease event from year 5, and a 2-wave Pharaoh-favour invasion (size 49 then 21); not individually enumerated here."
 
 [mission.funds]
-initial_funds = [20000, 13300, 10000, 6700, 5300]
-rescue_loans = [7000, 4700, 3500, 2300, 1900]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 5
 enable_scenario_events = true
@@ -1194,9 +1151,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 notes = "Also runs two recurring grain requests, a stone-gift chain into a chain-only limestone request, a biennial henna request from year 2, recurring beduin raids from year 6, a Hyksos invasion chain (an initial wipe followed by alternating size-6 waves) plus a later size-11 invasion, annual clay-pit floods, and a single Pharaoh-favour invasion wave (size 75); not individually enumerated here."
 
 [mission.funds]
-initial_funds = [20000, 13300, 10000, 6700, 5300]
-rescue_loans = [8000, 5300, 4000, 2700, 2100]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 6
 enable_scenario_events = true
@@ -1270,9 +1224,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 notes = "Also runs one-time fish, meat, pottery, and limestone resource requests (year 1/3/5/10) each with its own reputation/trade tail, 4 timed Hittite invasion waves plus an Egyptian punitive raid after a limestone refusal, an annual clay-pit flood, and a 4-wave Pharaoh-favour invasion chain (15/45/30/30); not individually enumerated here."
 
 [mission.funds]
-initial_funds = [20000, 13300, 10000, 6700, 5300]
-rescue_loans = [5000, 3300, 2500, 1700, 1300]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [4, 6, 8, 10, 12]
 player_rank = 6
 enable_scenario_events = true
@@ -1347,9 +1298,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 notes = "Also runs two one-time limestone-demand events, an annual wage-increase event, a one-time clay-pit flood, a recurring 36-month limestone request from year 3 whose refusal chains a lost-trade-route event, an annual perfect-flood event from year 4 that on success chains a gamemeat request, and a 5-wave Pharaoh-favour invasion (size 20 each); not individually enumerated here."
 
 [mission.funds]
-initial_funds = [12000, 8000, 6000, 4000, 3200]
-rescue_loans = [6000, 4000, 3000, 2000, 1600]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 6
 enable_scenario_events = true
@@ -1421,9 +1369,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 notes = "Runs a large number of scripted requests and events: a recurring gems request from year 3, a gems-ladder chain unlocking a Men-nefer trade route, several one-time gamemeat/gems/limestone gifts and requests, a recurring gamemeat request from year 44, a gems-crisis request whose failure triggers a Hyksos raid, a troops request whose failure/defeat triggers a re-arming Hyksos-raid chain, a recurring timber request from year 35, a recurring Hyksos raid from year 26, two scripted new-trade-route unlocks (year 5 and 15), and a 3-wave Pharaoh-favour invasion (50/20/50); not individually enumerated here."
 
 [mission.funds]
-initial_funds = [20000, 13300, 10000, 6700, 5300]
-rescue_loans = [10000, 6700, 5000, 3300, 2700]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 6
 enable_scenario_events = true
@@ -1515,9 +1460,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "low_bridge", "firehouse", 
 notes = "Runs no resource requests, only scripted economy events (timber/grain demand and price changes, land-trade problems, a contaminated-water event, a scripted new-trade-route unlock with Dahshur) plus a heavy invasion schedule: 11 timed Hyksos raids, 5 timed and 2 recurring beduin raids, a gift of sandstone after one particular raid wipes the city, and a single Pharaoh-favour invasion wave (size 76); not individually enumerated here."
 
 [mission.funds]
-initial_funds = [15000, 10000, 7500, 5000, 4000]
-rescue_loans = [5000, 3300, 2500, 1700, 1300]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 6
 enable_scenario_events = true
@@ -1595,9 +1537,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 notes = "Runs an extensive web of resource-request ladders (oil into a gamemeat chain from year 2; two fish ladders from years 4 and 6 that unlock Byblos/Dahshur trade and cascade into demand/price changes or fall back to gamemeat/timber re-arm requests; a timber ladder from year 5 unlocking Dahshur trade or falling back to a linen request; a contaminated-water event at year 16 that chains into a further fish request; recurring timber and linen requests from years 43 and 31), an annual wage-increase event from year 10, and a 4-wave Pharaoh-favour invasion (25/25/25/45); not individually enumerated here."
 
 [mission.funds]
-initial_funds = [15000, 10000, 7500, 5000, 4000]
-rescue_loans = [5000, 3300, 2500, 1700, 1300]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 7
 enable_scenario_events = true
@@ -1671,10 +1610,7 @@ buildings = ["house_crude_hut", "road", "roadblock", "low_bridge", "ferry", "fir
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [12000, 8000, 6000, 4000, 3000]
-rescue_loans = [3000, 2000, 1500, 1000, 800]
 debt_interest = [5, 10, 15, 20, 25]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 8
 enable_scenario_events = true
 start_message = "message_mission_dunqul"
@@ -1739,10 +1675,7 @@ buildings = ["house_crude_hut", "road", "roadblock", "low_bridge", "ferry", "fir
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [12000, 8000, 6000, 4000, 3000]
-rescue_loans = [5000, 3300, 2500, 1700, 1300]
 debt_interest = [0, 4, 8, 12, 16]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 8
 enable_scenario_events = true
 start_message = "message_mission_dakhla"
@@ -1840,10 +1773,7 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # mansion and the Temple Complex of Osiris are pre-placed, non-rebuildable map protect targets.
 
 [mission.funds]
-initial_funds = [26700, 17800, 13350, 8900, 7080]
-rescue_loans = [8400, 5600, 4200, 2800, 2200]
 debt_interest = [10, 15, 20, 25, 30]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 9
 enable_scenario_events = true
 start_message = "message_mission_thinis"
@@ -1927,10 +1857,7 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [18000, 12000, 9000, 6000, 4500]
-rescue_loans = [8000, 5300, 4000, 2700, 2000]
 debt_interest = [10, 15, 20, 25, 30]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 8
 enable_scenario_events = true
 start_message = "message_mission_thebes"
@@ -2007,10 +1934,7 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [40000, 26600, 20000, 13400, 10600]
-rescue_loans = [7000, 4700, 3500, 2300, 1800]
 debt_interest = [10, 15, 20, 25, 30]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 9
 enable_scenario_events = true
 start_message = "message_mission_coptos"
@@ -2081,10 +2005,7 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [20000, 13300, 10000, 6700, 5300]
-rescue_loans = [5000, 3300, 2500, 1700, 1300]
 debt_interest = [10, 15, 20, 25, 30]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 9
 enable_scenario_events = true
 start_message = "message_mission_beni_hasan"
@@ -2150,10 +2071,7 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [16000, 10600, 8000, 5400, 4200]
-rescue_loans = [6000, 4000, 3000, 2000, 1500]
 debt_interest = [4, 6, 8, 10, 12]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 10
 enable_scenario_events = true
 start_message = "message_mission_itjtawy"
@@ -2235,10 +2153,7 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [14000, 9300, 7000, 4700, 3700]
-rescue_loans = [6000, 4000, 3000, 2000, 1600]
 debt_interest = [0, 0, 0, 0, 0]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 10
 enable_scenario_events = true
 start_message = "message_mission_mirgissa"
@@ -2312,9 +2227,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [16000, 10600, 8000, 5400, 4200]
-rescue_loans = [6000, 4000, 3000, 2000, 1500]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 10
 enable_scenario_events = true
@@ -2390,9 +2302,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [11000, 7300, 5500, 3700, 2900]
-rescue_loans = [0, 0, 0, 0, 0]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 10
 enable_scenario_events = true
@@ -2469,9 +2378,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [20000, 13300, 10000, 6700, 5300]
-rescue_loans = [0, 0, 0, 0, 0]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 10
 enable_scenario_events = true
@@ -2540,9 +2446,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [18000, 12000, 9000, 6000, 4800]
-rescue_loans = [7000, 4700, 3500, 2300, 1800]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 10
 enable_scenario_events = true
@@ -2609,9 +2512,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [18000, 12000, 9000, 6000, 4800]
-rescue_loans = [0, 0, 0, 0, 0]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 10
 enable_scenario_events = true
@@ -2676,9 +2576,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [90000, 60000, 45000, 30000, 24000]
-rescue_loans = [10000, 6700, 5000, 3300, 2700]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 10
 enable_scenario_events = true
@@ -2755,9 +2652,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [14000, 9300, 7000, 4700, 3700]
-rescue_loans = [5000, 3300, 2500, 1700, 1300]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 10
 enable_scenario_events = true
@@ -2827,9 +2721,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [20000, 13300, 10000, 6700, 5300]
-rescue_loans = [10000, 6700, 5000, 3400, 2700]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 10
 enable_scenario_events = true
@@ -2895,9 +2786,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [4000, 2660, 2000, 1340, 1060]
-rescue_loans = [6000, 4000, 3000, 2000, 1590]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [10, 15, 20, 25, 30]
 player_rank = 10
 enable_scenario_events = true
@@ -2979,9 +2867,6 @@ buildings = [
 # (see unlocks below): the source script gates them behind population thresholds.
 
 [mission.funds]
-initial_funds = [16000, 10670, 8000, 5360, 4240]
-rescue_loans = [5000, 3330, 2500, 1670, 1325]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [5, 7, 9, 11, 13]
 player_rank = 5
 enable_scenario_events = true
@@ -3067,10 +2952,7 @@ buildings = [
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [17000, 11330, 8500, 5670, 4505]
-rescue_loans = [6000, 4000, 3000, 2000, 1590]
 debt_interest = [8, 10, 12, 14, 16]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 6
 enable_scenario_events = true
 start_message = "message_mission_tutankhamun_valley"
@@ -3148,10 +3030,7 @@ buildings = [
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [27440, 18290, 13720, 9150, 7270]
-rescue_loans = [6000, 4000, 3000, 2000, 1590]
 debt_interest = [4, 6, 8, 10, 12]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 6
 enable_scenario_events = true
 start_message = "message_mission_seti_valley"
@@ -3223,10 +3102,7 @@ buildings = [
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [11130, 7420, 5565, 3730, 2950]
-rescue_loans = [3000, 2000, 1500, 1000, 800]
 debt_interest = [5, 7, 9, 11, 13]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 6
 enable_scenario_events = true
 start_message = "message_mission_sumur"
@@ -3321,10 +3197,7 @@ buildings = [
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [36000, 24000, 18000, 12000, 9540]
-rescue_loans = [3000, 2000, 1500, 1000, 800]
 debt_interest = [4, 6, 8, 10, 12]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 10
 enable_scenario_events = true
 start_message = "message_mission_qadesh"
@@ -3419,10 +3292,7 @@ buildings = [
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [16000, 10670, 8000, 5360, 4240]
-rescue_loans = [4000, 2670, 2000, 1340, 1060]
 debt_interest = [6, 8, 10, 12, 14]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 5
 enable_scenario_events = true
 start_message = "message_mission_abu_simbel"
@@ -3501,10 +3371,7 @@ buildings = [
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [30040, 20030, 15020, 10010, 7960]
-rescue_loans = [6000, 4000, 3000, 2000, 1590]
 debt_interest = [4, 6, 8, 10, 12]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 6
 enable_scenario_events = true
 start_message = "message_mission_ramses_valley"
@@ -3578,10 +3445,7 @@ buildings = [
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [20160, 13400, 10080, 6750, 5340]
-rescue_loans = [6000, 4000, 3000, 2000, 1600]
 debt_interest = [4, 5, 7, 9, 11]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 4
 enable_scenario_events = true
 start_message = "message_mission_pi_yer"
@@ -3672,10 +3536,7 @@ buildings = [
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [30004, 20003, 15002, 10001, 7951]
-rescue_loans = [5000, 3330, 2500, 1670, 1325]
 debt_interest = [4, 5, 7, 9, 11]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 player_rank = 5
 enable_scenario_events = true
 start_message = "message_mission_migdol"
@@ -3737,9 +3598,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [16000, 10670, 8000, 5360, 4240]
-rescue_loans = [4000, 2670, 2000, 1340, 1060]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [5, 6, 8, 10, 12]
 player_rank = 6
 enable_scenario_events = true
@@ -3800,9 +3658,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [25960, 17310, 12980, 8700, 6880]
-rescue_loans = [10000, 6670, 5000, 3350, 2650]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [2, 3, 5, 7, 9]
 player_rank = 5
 enable_scenario_events = true
@@ -3864,9 +3719,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [60000, 40000, 30000, 20100, 15900]
-rescue_loans = [10000, 6670, 5000, 3350, 2650]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [3, 4, 6, 8, 10]
 player_rank = 10
 enable_scenario_events = true
@@ -3928,9 +3780,6 @@ buildings = ["house_crude_hut", "road", "firehouse", "architect_post", "police_s
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [22000, 14670, 11000, 7370, 5830]
-rescue_loans = [3000, 2000, 1500, 1005, 795]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [4, 5, 7, 9, 11]
 player_rank = 1
 enable_scenario_events = true
@@ -3992,9 +3841,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [112000, 74670, 56000, 37520, 29680]
-rescue_loans = [8000, 5330, 4000, 2680, 2120]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [4, 5, 7, 9, 11]
 player_rank = 10
 enable_scenario_events = true
@@ -4056,9 +3902,6 @@ buildings = ["house_crude_hut", "road", "roadblock", "firehouse", "architect_pos
 # BUILDING_CLEAR_LAND has no buildings.toml key (terrain tool, id 9); omitted from the list above.
 
 [mission.funds]
-initial_funds = [14000, 9330, 7000, 4690, 3710]
-rescue_loans = [4000, 2670, 2000, 1340, 1060]
-house_tax_multipliers = [300, 200, 150, 100, 75]
 debt_interest = [0, 1, 3, 5, 7]
 player_rank = 10
 enable_scenario_events = true

@@ -88,8 +88,6 @@ pub struct Mission {
     pub goals: Goals,
     pub population_cap: Option<i32>,
     pub start_message: Option<String>,
-    pub initial_funds: Option<i32>,
-    pub house_tax_pct: Option<i32>,
     pub religion_enabled: bool,
     /// The rank Pharaoh has given the governor, which sets the salary he may draw.
     #[serde(default)]
@@ -103,8 +101,6 @@ const ALWAYS: [u16; 3] = [kind::ROAD, kind::VACANT_LOT, kind::WELL];
 const NEVER_BUILT: [u16; 5] = [37, 302, 337, 360, 361];
 /// The palaces and the mansions, for ranks 0-5, 6-7 and 8-10.
 const RANKED: [[u16; 3]; 2] = [kind::PALACES, [77, 78, 79]];
-/// Difficulty column used from per-difficulty tables (Normal).
-const DIFFICULTY: usize = 2;
 
 fn goal(t: &toml::Table, key: &str) -> Goal {
     let Some(g) = t.get(key).and_then(|v| v.as_table()) else { return Goal::default() };
@@ -190,9 +186,6 @@ impl World {
                 done: false,
             })
             .collect();
-        let arr = |t: &toml::Table, k: &str| {
-            t.get(k).and_then(|v| v.as_array()).and_then(|a| a.get(DIFFICULTY)).and_then(|v| v.as_integer()).map(|v| v as i32)
-        };
         let mission = Mission {
             id,
             name: raw.name,
@@ -209,8 +202,6 @@ impl World {
             },
             population_cap: raw.vars.get("population_cap").and_then(|v| v.as_integer()).map(|v| v as i32),
             start_message: raw.funds.get("start_message").and_then(|v| v.as_str()).map(str::to_owned),
-            initial_funds: arr(&raw.funds, "initial_funds"),
-            house_tax_pct: arr(&raw.funds, "house_tax_multipliers"),
             religion_enabled: raw.funds.get("religion_enabled").and_then(|v| v.as_bool()).unwrap_or(true),
             player_rank: raw.funds.get("player_rank").and_then(|v| v.as_integer()).unwrap_or(0) as u8,
         };
@@ -340,10 +331,11 @@ impl World {
     }
 
     /// The year the time limit, or else the survival time, runs out (years after
-    /// the start). A time limit gets 7 more years on Very Easy and 2 on Easy.
+    /// the start). A time limit gets 7 more years on Very Easy and 2 on Easy (the
+    /// lowest difficulty played).
     pub fn deadline(&self) -> Option<i32> {
         match (self.time_limit, self.survival) {
-            (Some(n), _) => Some(n + time_limit_grace(DIFFICULTY)),
+            (Some(n), _) => Some(n + time_limit_grace(self.lowest_difficulty as usize)),
             (None, s) => s,
         }
     }
@@ -393,7 +385,7 @@ impl World {
     }
 
     fn out_of_time_at_once(&self, fell: bool) -> bool {
-        !fell && self.time_limit.is_some() && DIFFICULTY >= 1
+        !fell && self.time_limit.is_some() && self.lowest_difficulty >= crate::difficulty::EASY
     }
 
     /// Whether the game ended with time run out (the original's "Out of Time!" screen,

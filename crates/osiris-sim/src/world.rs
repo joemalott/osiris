@@ -70,6 +70,16 @@ pub struct World {
     pub defs: Arc<Defs>,
     #[serde(skip)]
     pub balance: Arc<Balance>,
+    /// The balance tables of every difficulty, when the game has them all, so a
+    /// change of difficulty can swap `balance`.
+    #[serde(skip)]
+    pub balances: Option<Arc<[Arc<Balance>; 5]>>,
+    /// 0 Very Easy, 1 Easy, 2 Normal, 3 Hard, 4 Impossible.
+    #[serde(default = "crate::difficulty::normal")]
+    pub difficulty: u8,
+    /// The lowest difficulty played this mission.
+    #[serde(default = "crate::difficulty::normal")]
+    pub lowest_difficulty: u8,
     pub buildings: Buildings,
     pub figures: Figures,
     pub desirability: Grid<i8>,
@@ -263,6 +273,9 @@ impl World {
             treasury: info.initial_funds,
             defs,
             balance,
+            balances: None,
+            difficulty: crate::difficulty::NORMAL,
+            lowest_difficulty: crate::difficulty::NORMAL,
             buildings: Buildings::default(),
             figures: Figures::default(),
             desirability: Grid::new(w, h),

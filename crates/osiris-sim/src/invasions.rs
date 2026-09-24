@@ -284,6 +284,10 @@ impl World {
             }
         }
         let by_sea = (9..=16).contains(&point) && !self.invasions.sea_points.is_empty();
+        // Land and Bedouin attacks come in the difficulty's share of their size; no
+        // army is ever more than 150.
+        let scaled = if by_sea && inv.invader != invader::BEDOUIN { amount } else { amount * self.by_difficulty(crate::difficulty::INVASION_PCT) / 100 };
+        let amount = scaled.clamp(1, 150);
         let spot = if by_sea {
             self.invasions.sea_points.get(point as usize - 9).copied()
         } else {

@@ -148,6 +148,11 @@ pub struct Game {
     pub rules_panel: Option<RulesPanel>,
     /// Set when the player changes the rules, so the caller can store them.
     pub rules_changed: bool,
+    /// The Difficulty window is open, and a click on it waits to be handled.
+    pub difficulty_panel: bool,
+    difficulty_click: Option<[f32; 2]>,
+    /// Set when the player changes the difficulty, so the caller can store it.
+    pub difficulty_changed: bool,
     top_menu: TopMenu,
     /// The overlay being shown, if any.
     pub view_overlay: Option<View>,
@@ -212,6 +217,9 @@ impl Game {
             empire_images: None,
             custom_dialog: None,
             rules_panel: None,
+            difficulty_panel: false,
+            difficulty_click: None,
+            difficulty_changed: false,
             rules_changed: false,
             top_menu,
             view_overlay: None,
@@ -275,7 +283,7 @@ impl Game {
 
     /// Nothing modal is open and no tool is in hand.
     pub fn idle(&self) -> bool {
-        self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.empire.is_none() && self.advisors.is_none() && self.rules_panel.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
+        self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.empire.is_none() && self.advisors.is_none() && self.rules_panel.is_none() && !self.difficulty_panel && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
     }
 
     pub fn close_dialog(&mut self) {
@@ -330,6 +338,9 @@ impl Game {
         match World::load(&data, self.world.defs.clone(), self.world.balance.clone()) {
             Ok(mut w) => {
                 w.rules = self.world.rules.clone();
+                if let Some(b) = self.world.balances.clone() {
+                    w.attach_balances(b);
+                }
                 self.world = w;
                 self.map_changed = true;
                 self.ghost = None;
@@ -394,6 +405,7 @@ impl Game {
             || self.empire.is_some()
             || self.message_list.is_some()
             || self.rules_panel.is_some()
+            || self.difficulty_panel
             || self.custom_dialog.is_some()
     }
 
@@ -630,6 +642,10 @@ impl Game {
             self.lost_click = Some(self.cursor);
             return None;
         }
+        if self.difficulty_panel {
+            self.difficulty_click = Some(self.cursor);
+            return None;
+        }
         if let Some(p) = &mut self.rules_panel {
             match p.click(&mut self.world.rules, screen, sidebar::panel_left(screen_w), self.cursor) {
                 RulesClick::Toggled => {
@@ -799,6 +815,10 @@ impl Game {
         match action {
             MenuAction::Overseer(a) => self.open_advisor(a),
             MenuAction::Rules => self.open_rules(),
+            MenuAction::Difficulty => {
+                self.difficulty_panel = true;
+                self.sound("BUTTON.WAV");
+            }
             MenuAction::Faster => self.faster(),
             MenuAction::Slower => self.slower(),
             MenuAction::Pause => self.paused = !self.paused,
@@ -1002,7 +1022,7 @@ impl Game {
             }
             return;
         }
-        if self.dialog.take().is_some() || self.empire.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() {
+        if self.dialog.take().is_some() || self.empire.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() || std::mem::take(&mut self.difficulty_panel) {
             return;
         }
         if self.selected_company.take().is_some() {
@@ -1416,6 +1436,9 @@ impl Game {
         if let Some(p) = &self.rules_panel {
             p.draw(r, &self.images.panels, &self.world.rules, sidebar::panel_left(r.screen[0]), "Changes apply now, and to every game you play.");
         }
+        if self.difficulty_panel {
+            self.draw_difficulty(r);
+        }
         if let Some(l) = &self.message_list {
             l.draw(r, &self.images.panels, &self.world, &self.messages, &self.text);
         }
@@ -1427,10 +1450,42 @@ impl Game {
         }
     }
 
+    /// The original's Difficulty window (Options menu): the level between arrows. A
+    /// change applies at once; a right-click or a click outside closes it.
+    fn draw_difficulty(&mut self, r: &mut Renderer) {
+        let img = *self.ui_images.get_or_insert_with(|| crate::widgets::UiImages::load(&r.library).expect("ui images"));
+        let ox = ((r.screen[0] - 640.0) / 2.0).floor();
+        let oy = ((r.screen[1] - 480.0) / 2.0).floor();
+        let (x, y) = (ox + 48.0, oy + 80.0);
+        osiris_ui::panel::outer_panel(r, &self.images.panels, x, y, 24, 12);
+        let click = self.difficulty_click.take();
+        let mut ui = crate::widgets::Ui { r, panels: &self.images.panels, img, text: &self.text, cursor: self.cursor, click };
+        let t = ui.t(153, 0);
+        ui.centred(Font::LargeBlackOnLight, &t, x, oy + 94.0, 384.0);
+        let t = ui.t(153, self.world.difficulty as usize + 1);
+        ui.centred(Font::NormalBlackOnLight, &t, ox + 80.0, oy + 174.0, 224.0);
+        let down = ui.arrow(ox + 288.0, oy + 166.0, false);
+        let up = ui.arrow(ox + 312.0, oy + 166.0, true);
+        let t = ui.t(153, 8);
+        ui.centred(Font::NormalBlackOnLight, &t, x, oy + 246.0, 384.0);
+        let outside = click.is_some_and(|[cx, cy]| cx < x || cy < y || cx >= x + 384.0 || cy >= y + 192.0);
+        let d = self.world.difficulty;
+        let want = if down { d.saturating_sub(1) } else if up { (d + 1).min(osiris_sim::difficulty::IMPOSSIBLE) } else { d };
+        if down || up {
+            self.sound("BUTTON.WAV");
+        }
+        if want != d {
+            self.world.set_difficulty(want);
+            self.difficulty_changed = true;
+        }
+        if outside {
+            self.difficulty_panel = false;
+        }
+    }
+
     /// The original's screen for a lost mission: "Defeat!" (or "Out of Time!") with
-    /// its text, then New Game and, for a campaign mission, Replay mission. (Its
-    /// third choice when time runs out, Lower Difficulty, waits on a difficulty
-    /// setting.)
+    /// its text, then New Game and, for a campaign mission, Replay mission; out of
+    /// time, also Lower Difficulty.
     fn draw_lost(&mut self, r: &mut Renderer) {
         const W: i32 = 34;
         const H: i32 = 15;
@@ -1449,8 +1504,11 @@ impl Game {
         ui.wrapped(Font::NormalBlackOnLight, &t, x + 32.0, y + 52.0, w - 64.0);
         let by = y + h - 48.0;
         let mut choice = None;
-        let buttons: Vec<(usize, MenuAction)> = if replay { vec![(6, MenuAction::MainMenu), (37, MenuAction::Replay)] } else { vec![(6, MenuAction::MainMenu)] };
-        let bw = if replay { 144.0 } else { 416.0 };
+        let mut buttons: Vec<(usize, MenuAction)> = if replay { vec![(6, MenuAction::MainMenu), (37, MenuAction::Replay)] } else { vec![(6, MenuAction::MainMenu)] };
+        if self.world.lost_to_time() {
+            buttons.push((40, MenuAction::LowerDifficulty));
+        }
+        let bw = if buttons.len() > 1 { 144.0 } else { 416.0 };
         let gap = (w - bw * buttons.len() as f32) / (buttons.len() as f32 + 1.0);
         for (i, (label, action)) in buttons.into_iter().enumerate() {
             let bx = (x + gap + i as f32 * (bw + gap)).floor();
@@ -1464,7 +1522,12 @@ impl Game {
         }
         if let Some(a) = choice {
             self.sound("BUTTON.WAV");
-            self.request = Some(a);
+            if a == MenuAction::LowerDifficulty {
+                self.world.lower_difficulty_for_time();
+                self.difficulty_changed = true;
+            } else {
+                self.request = Some(a);
+            }
         }
     }
 }

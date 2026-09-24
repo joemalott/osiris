@@ -105,10 +105,6 @@ impl Default for Finance {
     }
 }
 
-/// Kingdom rating lost for each further year in debt (Normal difficulty); the tenth
-/// and later all cost the last.
-const DEBT_YEAR_PENALTY: [i32; 10] = [-5, -10, -20, -35, -50, -50, -50, -50, -50, -50];
-
 impl World {
     /// The original stops all building, whatever it costs, once the treasury is 5000
     /// or more in debt; until then anything may be built.
@@ -163,7 +159,7 @@ impl World {
     }
 
     /// Monthly, after the salary: every twelfth month in a row that ends in debt costs
-    /// kingdom rating, more each year.
+    /// kingdom rating, more each year (the tenth and later all cost the last).
     pub(crate) fn count_debt_months(&mut self) {
         let f = &mut self.finance;
         if self.treasury >= 0 {
@@ -173,8 +169,8 @@ impl World {
         }
         f.months_in_debt += 1;
         if f.months_in_debt % 12 == 0 {
-            f.debt_years = (f.debt_years + 1).min(DEBT_YEAR_PENALTY.len() as i32);
-            let penalty = DEBT_YEAR_PENALTY[f.debt_years as usize - 1];
+            f.debt_years = (f.debt_years + 1).min(10);
+            let penalty = crate::difficulty::DEBT_YEAR_PENALTY[self.difficulty.min(4) as usize][f.debt_years as usize - 1];
             self.ratings.change_kingdom(penalty);
             self.post("message_debt_anniversary", None, true);
         }
@@ -199,7 +195,7 @@ impl World {
             return;
         }
         f.rescued = true;
-        let loan = f.rescue_loan;
+        let loan = f.rescue_loan * crate::difficulty::FUNDS_PCT[self.difficulty.min(4) as usize] / 100;
         f.this_year.donated += loan;
         self.treasury += loan;
         if loan <= 0 {
@@ -246,7 +242,7 @@ mod tests {
 
     #[test]
     fn debt_penalties_grow_each_year() {
-        assert_eq!(&DEBT_YEAR_PENALTY[..4], &[-5, -10, -20, -35]);
+        assert_eq!(&crate::difficulty::DEBT_YEAR_PENALTY[2][..4], &[-5, -10, -20, -35]);
         let y = YearTotals { taxes: 100, exports: 50, gold: 10, donated: 5, imports: 20, wages: 30, construction: 40, interest: 1, salary: 2, ..Default::default() };
         assert_eq!((y.income(), y.expenses()), (165, 93));
     }

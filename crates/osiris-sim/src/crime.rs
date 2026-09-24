@@ -20,8 +20,6 @@ pub const MAGISTRATE: u16 = 89;
 const CRIMINAL_ROAM: i32 = 200;
 /// A thief loiters until his counter, started at 10 to 25, passes this.
 const THIEF_LOITER: i32 = 40;
-/// Percent of a target's money a thief takes (Normal difficulty).
-const THEFT_PCT: i32 = 9;
 /// Buildings a thief robs, with their weight in the treasury's share.
 const MANSIONS: [u16; 3] = [77, 78, 79];
 const TREASURY_WEIGHTS: [(u16, i32); 6] = [(187, 50), (188, 50), (189, 50), (86, 2), (87, 2), (184, 3)];
@@ -197,7 +195,7 @@ impl World {
     /// A thief steals 9% of what building `id` holds.
     fn rob(&mut self, id: u32, at: (i32, i32)) {
         let Some(k) = self.buildings.get(id).map(|b| b.kind) else { return };
-        let stolen = self.loot(id) * THEFT_PCT / 100;
+        let stolen = self.loot(id) * self.by_difficulty(crate::difficulty::THEFT_PCT) / 100;
         if stolen <= 0 {
             return;
         }

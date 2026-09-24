@@ -14,6 +14,9 @@ pub enum MenuAction {
     Save,
     Quit,
     Rules,
+    Difficulty,
+    /// Out of time: play on at a lower difficulty.
+    LowerDifficulty,
     Faster,
     Slower,
     Pause,
@@ -82,6 +85,7 @@ impl TopMenu {
             (
                 t(2, 0, "Options"),
                 vec![
+                    e(t(2, 6, "Difficulty"), MenuAction::Difficulty),
                     e("Game rules...".into(), MenuAction::Rules),
                     e("Faster  (])".into(), MenuAction::Faster),
                     e("Slower  ([)".into(), MenuAction::Slower),

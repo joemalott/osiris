@@ -110,10 +110,6 @@ impl Religion {
     }
 }
 
-/// Favour (mood 90+, 80-89) and wrath (21-30, 11-20, 10 or less) a god picked for
-/// the day gathers (Normal difficulty).
-const FAVOUR: [i32; 2] = [2, 1];
-const WRATH: [i32; 3] = [1, 1, 2];
 /// Shipwrights, weavers and jewellers, and the material Ptah stocks them with.
 const PTAH_WORKSHOPS: [(u16, u16); 3] = [(74, 20), (111, 16), (113, 18)];
 /// What a workshop Ptah stocks holds of its material after.
@@ -165,8 +161,8 @@ impl World {
     }
 
     /// Daily: moods drift a point toward their targets, and one god picked at random
-    /// gathers favour (2 at 90 or more, 1 at 80-89) or wrath (1 at 11-30, 2 at 10 or
-    /// less), up to 50. A god above 50 loses its wrath, one below 50 its favour. On
+    /// gathers favour (at 70 or more) or wrath (at 30 or less) by the difficulty's
+    /// tables, up to 50. A god above 50 loses its wrath, one below 50 its favour. On
     /// the first day of the month the god picked acts.
     pub(crate) fn update_gods_day(&mut self) {
         self.seth_strikes_invaders();
@@ -181,15 +177,18 @@ impl World {
             }
         }
         let pick = (self.rng.byte() as usize) % GODS;
+        let favour = crate::difficulty::FAVOUR.map(|t| self.by_difficulty(t));
+        let wrath = crate::difficulty::WRATH.map(|t| self.by_difficulty(t));
         let g = &mut self.religion.gods[pick];
         if g.status != status::UNKNOWN {
             match g.mood {
-                m if m >= 90 => g.favour += FAVOUR[0],
-                m if m >= 80 => g.favour += FAVOUR[1],
+                m if m >= 90 => g.favour += favour[0],
+                m if m >= 80 => g.favour += favour[1],
+                m if m >= 70 => g.favour += favour[2],
                 m if m >= 31 => {}
-                m if m >= 21 => g.wrath += WRATH[0],
-                m if m >= 11 => g.wrath += WRATH[1],
-                _ => g.wrath += WRATH[2],
+                m if m >= 21 => g.wrath += wrath[0],
+                m if m >= 11 => g.wrath += wrath[1],
+                _ => g.wrath += wrath[2],
             }
             if g.mood == 50 {
                 g.wrath = 0;

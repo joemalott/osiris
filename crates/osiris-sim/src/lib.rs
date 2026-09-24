@@ -11,6 +11,7 @@ pub mod census;
 pub mod city;
 pub mod crime;
 pub mod defenses;
+pub mod difficulty;
 pub mod defs;
 pub mod desirability;
 pub mod earthquakes;

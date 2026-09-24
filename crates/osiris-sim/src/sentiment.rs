@@ -6,8 +6,6 @@
 
 use crate::world::World;
 
-/// Sentiment in a new or small town (Normal difficulty).
-pub const BASELINE: i32 = 60;
 
 /// Why sentiment is low, for the overseers.
 pub mod cause {
@@ -141,16 +139,17 @@ impl World {
         let jobs = self.employment_sentiment();
         let huts = self.hut_penalty();
         let pop = self.population;
+        let baseline = self.by_difficulty(crate::difficulty::BASELINE_SENTIMENT);
         let houses = self.balance.houses.clone();
         let (mut food_total, mut needing_food, mut huts_total, mut counted) = (0, 0, 0, 0);
         for b in self.buildings.iter_mut() {
             let Some(h) = b.house.as_mut() else { continue };
             if h.population <= 0 {
-                h.happiness = 10 + BASELINE;
+                h.happiness = 10 + baseline;
                 continue;
             }
             if small {
-                h.happiness = BASELINE + if pop < 200 { 10 } else { 0 };
+                h.happiness = baseline + if pop < 200 { 10 } else { 0 };
                 continue;
             }
             counted += 1;
@@ -179,7 +178,7 @@ impl World {
         }
         let occupied: Vec<i32> = self.buildings.iter().filter_map(|b| b.house.as_ref()).filter(|h| h.population > 0).map(|h| h.happiness).collect();
         let previous = self.sentiment;
-        self.sentiment = if occupied.is_empty() { BASELINE } else { occupied.iter().sum::<i32>() / occupied.len() as i32 };
+        self.sentiment = if occupied.is_empty() { self.by_difficulty(crate::difficulty::BASELINE_SENTIMENT) } else { occupied.iter().sum::<i32>() / occupied.len() as i32 };
         // Hathor's oracle (Bast) lifts the whole city's mood.
         if self.complex_blessing(crate::temple_complex::BAST, crate::temple_complex::ORACLE) {
             self.sentiment = (self.sentiment + 10).min(100);
