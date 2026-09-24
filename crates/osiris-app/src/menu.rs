@@ -7,7 +7,7 @@ use osiris_formats::{MissionPak, Scenario, TextTable};
 use osiris_render::{Renderer, Space, WHITE};
 use osiris_sim::Rules;
 use osiris_sim::ratings::MissionResult;
-use osiris_ui::{Font, PanelImages, draw_text, font, panel, rich_text, text_width};
+use osiris_ui::{Font, PanelImages, centring_width, draw_text, font, panel, rich_text, text_width};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -22,11 +22,11 @@ const BG_BRIEFING: u32 = 507;
 /// The family registry's own background (group 29, "FE_Registry.BMP"); the "create a
 /// family" page reuses `BG_CHOOSE_GAME`, as the original does.
 const BG_REGISTRY: u32 = 654;
-/// Size of the family pages' popups (a notice, or a delete confirmation).
-const NOTICE_W: f32 = 340.0;
-const NOTICE_H: f32 = 130.0;
-const CONFIRM_W: f32 = 360.0;
-const CONFIRM_H: f32 = 170.0;
+/// The front end's popups (FUN_004264d0, FUN_00425570) in the family pages' 640x480
+/// page: the panel, 30x10 blocks, and in it OK or Yes and No (table 0x5c8168).
+const POPUP: [f32; 2] = [80.0, 80.0];
+const POPUP_YES: [f32; 4] = [256.0, 100.0, 34.0, 34.0];
+const POPUP_NO: [f32; 4] = [192.0, 100.0, 34.0, 34.0];
 /// The choice of city: the frame, the maps of Egypt (one per choice screen, 640x400,
 /// shown at 192,144 in the frame) and the city marker (normal, hover, pressed).
 const CHOICE_BACK: u32 = 492;
@@ -91,10 +91,29 @@ const BRIEF_DOWN: [f32; 4] = [335.0, 576.0, 17.0, 17.0];
 const BRIEF_TEXT: [f32; 4] = [240.0, 340.0, 528.0, 234.0];
 
 /// The family's menu (FUN_004cb4d0) in its 640x480 art: the panel, and the first
-/// button (225x25, one every 48 pixels).
+/// button (225x25, one every 48 pixels, table 0x5e0408).
 const FAMILY_PANEL: [f32; 2] = [128.0, 40.0];
 const FAMILY_BUTTON: [f32; 2] = [208.0, 128.0];
-const FAMILY_BUTTON_W: f32 = 224.0;
+const FAMILY_BUTTON_W: f32 = 225.0;
+
+/// The family registry (FUN_00516630) in the same page: its panel, the first of its
+/// twelve rows (table 0x5f7f28), and Create, Delete, Proceed and the way back to the
+/// family's menu (table 0x5f8078).
+const REGISTRY_PANEL: [f32; 2] = [128.0, 40.0];
+const PAGE_ROW: [f32; 4] = [160.0, 128.0, 288.0, 16.0];
+const PAGE_ROWS: usize = 12;
+const REGISTRY_BUTTONS: [[f32; 4]; 4] = [[142.0, 332.0, 125.0, 25.0], [276.0, 332.0, 130.0, 25.0], [418.0, 332.0, 80.0, 25.0], [196.0, 362.0, 250.0, 25.0]];
+/// The registry's and the saved games' scroll arrows (tables 0x5f7ee0, 0x5c79f0),
+/// and the stone's x, highest top and travel.
+const PAGE_UP: [f32; 4] = [464.0, 120.0, 34.0, 34.0];
+const PAGE_DOWN: [f32; 4] = [464.0, 300.0, 34.0, 34.0];
+const PAGE_STONE: [f32; 3] = [472.0, 145.0, 130.0];
+/// Loading a saved game (FUN_00532340): its cancel and OK (table 0x5c79f0).
+const LOAD_CANCEL: [f32; 4] = [344.0, 335.0, 34.0, 34.0];
+const LOAD_OK: [f32; 4] = [392.0, 335.0, 34.0, 34.0];
+/// Naming a new family (FUN_00520b90): its panel and the arrow that creates it.
+const NEW_FAMILY_PANEL: [f32; 2] = [128.0, 160.0];
+const NEW_FAMILY_GO: [f32; 4] = [464.0, 249.0, 27.0, 27.0];
 
 /// The campaign as the menu shows it.
 #[derive(Debug, Clone, Default)]
@@ -203,10 +222,8 @@ pub struct FamilyText {
     pub back_button: String,
     /// 31.0, the "create a family" page's title.
     pub enter_name: String,
-    /// 13.5, that page's commit button.
+    /// 13.5, beside that page's arrow.
     pub continue_button: String,
-    /// 12.0, that page's cancel button.
-    pub cancel_button: String,
     /// 5.90
     pub delete_title: String,
     /// 5.91
@@ -219,10 +236,6 @@ pub struct FamilyText {
     pub none_title: String,
     /// 5.95
     pub none_body: String,
-    /// 18.1
-    pub yes: String,
-    /// 18.0
-    pub no: String,
 }
 
 struct Item {
@@ -253,7 +266,6 @@ pub struct Menu {
     rules_panel: RulesPanel,
     /// Set when the rules change, so the caller can store them.
     pub rules_changed: bool,
-    hover_back: bool,
     /// The active family, whose name is used in messages; empty until one is chosen.
     pub family: String,
     /// Families found in the registry, refreshed whenever it's opened.
@@ -266,8 +278,9 @@ pub struct Menu {
     family_notice: Option<(String, String)>,
     /// A delete confirmation, naming the family that would be removed.
     family_confirm: Option<String>,
-    /// The hovered button on the family pages: New/Continue is 0, Delete 1, Proceed
-    /// 2; a popup's OK or Yes is 0, No is 1.
+    /// The hovered button on the family pages: Create is 0, Delete 1, Proceed 2 and
+    /// the way back 3; the new family's arrow and the saved games' OK are 0, their
+    /// cancel 1; a popup's OK or Yes is 0, No is 1.
     family_hover: Option<u8>,
     family_text: FamilyText,
     text: Arc<TextTable>,
@@ -300,9 +313,6 @@ pub struct Menu {
     briefing_max: std::cell::Cell<f32>,
 }
 
-const LIST_ROWS: usize = 16;
-const ROW_H: f32 = 22.0;
-const BOX_W: f32 = 400.0;
 const BUTTON_H: f32 = 25.0;
 
 /// Where a background image lands when scaled to cover the screen: offset and scale.
@@ -312,11 +322,6 @@ fn cover(r: &Renderer, image: u32) -> ([f32; 2], f32) {
     let (w, h) = (rec.width as f32, rec.height as f32);
     let s = (sw / w).max(sh / h);
     ([(sw - w * s) / 2.0, (sh - h * s) / 2.0], s)
-}
-
-fn cover_screen(screen: [f32; 2], size: [f32; 2]) -> ([f32; 2], f32) {
-    let s = (screen[0] / size[0]).max(screen[1] / size[1]);
-    ([(screen[0] - size[0] * s) / 2.0, (screen[1] - size[1] * s) / 2.0], s)
 }
 
 /// Whether art stretched `s` times lands on a fraction of a device pixel, where it is
@@ -375,7 +380,7 @@ fn bg_text(r: &mut Renderer, f: Font, s: &str, x: f32, y: f32) {
 /// Text centred in a band `w` wide from `x`, as the original centres it: flush left
 /// when it is wider.
 fn bg_centred(r: &mut Renderer, f: Font, s: &str, x: f32, y: f32, w: f32) {
-    let tw = text_width(r, f, s) as f32;
+    let tw = centring_width(r, f, s) as f32;
     let dx = ((w - tw) / 2.0).max(0.0).floor();
     draw_text(r, f, s, x + dx, y, text_color(f));
 }
@@ -408,7 +413,6 @@ impl Menu {
             rules,
             rules_panel: RulesPanel::default(),
             rules_changed: false,
-            hover_back: false,
             family,
             families: Vec::new(),
             family_selected: None,
@@ -618,7 +622,7 @@ impl Menu {
         match self.page {
             Page::Custom => 15,
             Page::Campaign => 13,
-            _ => LIST_ROWS,
+            _ => PAGE_ROWS,
         }
     }
 
@@ -627,16 +631,18 @@ impl Menu {
         if self.page == Page::Campaign { (396.0, 391.0) } else { (364.0, 359.0) }
     }
 
-    /// How far the stone travels.
-    fn stone_range(&self) -> f32 {
-        (self.visible_rows() * 16) as f32 - 76.0
+    /// The stone's highest top and how far it travels.
+    fn stone_track(&self) -> (f32, f32) {
+        match self.page {
+            Page::Load | Page::Family => (PAGE_STONE[1], PAGE_STONE[2]),
+            _ => (self.list_top().0 + 25.0, (self.visible_rows() * 16) as f32 - 76.0),
+        }
     }
 
-    /// Scrolls to put the stone at `y` (in the background's coordinates).
+    /// Scrolls to put the stone at `y` (in the page's coordinates).
     fn drag_stone(&mut self, y: f32) {
-        let range = self.stone_range();
-        let (top, _) = self.list_top();
-        let t = (y - top - 25.0).clamp(0.0, range);
+        let (top, range) = self.stone_track();
+        let t = (y - top).clamp(0.0, range);
         let max = self.items.len().saturating_sub(self.visible_rows());
         let pct = (t * 100.0 / range) as usize;
         self.scroll = max * pct / 100;
@@ -658,72 +664,25 @@ impl Menu {
         Frame { o: [((screen[0] - 640.0 * s) / 2.0).floor(), ((screen[1] - 480.0 * s) / 2.0).floor()], s }
     }
 
-    /// List pages other than the campaign: an outer panel in the middle of the screen.
-    /// The family registry has an extra row of buttons (New/Delete/Proceed) above its
-    /// Back button, so it reserves more height.
-    fn list_box(&self, screen: [f32; 2]) -> (f32, f32) {
-        let rows = self.items.len().clamp(1, LIST_ROWS) as f32;
-        let extra = if self.page == Page::Family { 40.0 } else { 0.0 };
-        let h = rows * ROW_H + 64.0 + 40.0 + extra;
-        (((screen[0] - BOX_W) / 2.0).floor(), ((screen[1] - h) / 2.0).max(40.0).floor())
-    }
-
-    fn back_button(&self, screen: [f32; 2]) -> [f32; 2] {
-        match self.page {
-            Page::Family => {
-                let (x, y) = self.list_box(screen);
-                let rows = self.items.len().clamp(1, LIST_ROWS) as f32;
-                [x + (BOX_W - 160.0) / 2.0, y + 44.0 + rows * ROW_H + 12.0 + BUTTON_H + 12.0]
-            }
-            Page::NewFamily => {
-                let [x, y, w, h] = self.new_family_box(screen);
-                [x + w / 2.0 + 8.0, y + h - 40.0]
-            }
-            _ => {
-                let (x, y) = self.list_box(screen);
-                let rows = self.items.len().clamp(1, LIST_ROWS) as f32;
-                [x + (BOX_W - 160.0) / 2.0, y + 44.0 + rows * ROW_H + 12.0]
-            }
+    /// The row of the registry's or the saved games' list at `b`, in the page.
+    fn page_row_at(&self, b: [f32; 2]) -> Option<usize> {
+        let [x, y, w, h] = PAGE_ROW;
+        if b[0] < x || b[0] >= x + w || b[1] < y {
+            return None;
         }
+        let row = ((b[1] - y) / h) as usize;
+        (row < PAGE_ROWS).then_some(row + self.scroll)
     }
 
-    /// The "create a family" page's panel: a fixed size, since it has no rows.
-    fn new_family_box(&self, screen: [f32; 2]) -> [f32; 4] {
-        let (w, h) = (BOX_W, 190.0);
-        [((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).max(40.0).floor(), w, h]
+    /// Whether `b`, in the page, is on a popup's Yes (or OK), or its No.
+    fn popup_button(b: [f32; 2], yes: bool) -> bool {
+        let [x, y, w, h] = if yes { POPUP_YES } else { POPUP_NO };
+        inside(b, POPUP[0] + x, POPUP[1] + y, w, h)
     }
 
-    /// The family registry's New/Delete/Proceed buttons, side by side above Back.
-    fn family_buttons(&self, screen: [f32; 2]) -> [[f32; 4]; 3] {
-        let (x, y) = self.list_box(screen);
-        let rows = self.items.len().clamp(1, LIST_ROWS) as f32;
-        let by = y + 44.0 + rows * ROW_H + 12.0;
-        // Buttons are drawn in whole 16-pixel pieces.
-        let w = 128.0;
-        [[x + 4.0, by, w, BUTTON_H], [x + 8.0 + w, by, w, BUTTON_H], [x + 12.0 + 2.0 * w, by, w, BUTTON_H]]
-    }
-
-    /// The "create a family" page's commit button (its Back button reuses the generic
-    /// `back_button`, next to it).
-    fn new_family_ok_button(&self, screen: [f32; 2]) -> [f32; 4] {
-        let [x, y, w, h] = self.new_family_box(screen);
-        [x + w / 2.0 - 168.0, y + h - 40.0, 160.0, BUTTON_H]
-    }
-
-    /// A popup panel, centred on screen.
-    fn popup_rect(screen: [f32; 2], w: f32, h: f32) -> [f32; 4] {
-        [((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor(), w, h]
-    }
-
-    fn notice_ok_button(screen: [f32; 2]) -> [f32; 4] {
-        let [x, y, w, h] = Self::popup_rect(screen, NOTICE_W, NOTICE_H);
-        [x + (w - 100.0) / 2.0, y + h - 40.0, 100.0, BUTTON_H]
-    }
-
-    fn confirm_buttons(screen: [f32; 2]) -> ([f32; 4], [f32; 4]) {
-        let [x, y, w, h] = Self::popup_rect(screen, CONFIRM_W, CONFIRM_H);
-        let by = y + h - 40.0;
-        ([x + w / 2.0 - 108.0, by, 100.0, BUTTON_H], [x + w / 2.0 + 8.0, by, 100.0, BUTTON_H])
+    /// The popup's button under `b`: Yes (or OK) is 0, No 1, when it has one.
+    fn popup_hover(b: [f32; 2], no: bool) -> Option<u8> {
+        if Self::popup_button(b, true) { Some(0) } else if no && Self::popup_button(b, false) { Some(1) } else { None }
     }
 
     fn item_at(&self, screen: [f32; 2], p: [f32; 2]) -> Option<usize> {
@@ -741,15 +700,7 @@ impl Menu {
                 let row = ((b[1] - top) / 16.0) as usize;
                 (row < self.visible_rows()).then_some(row + self.scroll)
             }
-            Page::Load | Page::Family => {
-                let (x, y) = self.list_box(screen);
-                let top = y + 44.0;
-                if p[0] < x + 16.0 || p[0] > x + BOX_W - 16.0 || p[1] < top {
-                    return None;
-                }
-                let row = ((p[1] - top) / ROW_H) as usize;
-                (row < self.visible_rows()).then_some(row + self.scroll)
-            }
+            Page::Load | Page::Family => self.page_row_at(Self::main_frame(screen).to_bg(p)),
             Page::Rules | Page::CityChoice | Page::NewFamily | Page::Periods | Page::HistoryPeriods | Page::Briefing => None,
         };
         found.filter(|&i| i < self.items.len())
@@ -760,26 +711,23 @@ impl Menu {
             self.rules_panel.hover(screen, screen[0], p);
             return;
         }
-        if self.family_notice.is_some() {
-            self.family_hover = inside4(p, Self::notice_ok_button(screen)).then_some(0);
-            return;
-        }
-        if self.family_confirm.is_some() || self.explore_confirm {
-            let (yes, no) = Self::confirm_buttons(screen);
-            self.family_hover = if inside4(p, yes) { Some(0) } else if inside4(p, no) { Some(1) } else { None };
-            return;
-        }
         self.cursor = p;
+        let b = Self::main_frame(screen).to_bg(p);
+        if self.family_notice.is_some() || self.family_confirm.is_some() || self.explore_confirm {
+            self.family_hover = Self::popup_hover(b, self.family_notice.is_none());
+            return;
+        }
         if self.dragging {
-            self.drag_stone(Frame::new(screen).to_bg(p)[1]);
+            let f = if matches!(self.page, Page::Load | Page::Family) { Self::main_frame(screen) } else { Frame::new(screen) };
+            self.drag_stone(f.to_bg(p)[1]);
         }
         self.hover = self.item_at(screen, p);
         self.hover_point = self.point_at(screen, p);
-        let [bx, by] = self.back_button(screen);
-        self.hover_back = !matches!(self.page, Page::Main | Page::CityChoice | Page::Custom | Page::Campaign | Page::Periods | Page::HistoryPeriods | Page::Briefing) && inside(p, bx, by, 160.0, BUTTON_H);
         self.family_hover = match self.page {
-            Page::Family => self.family_buttons(screen).iter().position(|&r| inside4(p, r)).map(|i| i as u8),
-            Page::NewFamily => inside4(p, self.new_family_ok_button(screen)).then_some(0),
+            Page::Family => REGISTRY_BUTTONS.iter().position(|&r| inside4(b, r)).map(|i| i as u8),
+            Page::NewFamily => inside4(b, NEW_FAMILY_GO).then_some(0),
+            Page::Load if inside4(b, LOAD_OK) => Some(0),
+            Page::Load if inside4(b, LOAD_CANCEL) => Some(1),
             _ => None,
         };
     }
@@ -814,22 +762,14 @@ impl Menu {
         }
     }
 
-    /// The choice screen's frame: its offset and scale on screen.
-    fn choice_frame(screen: [f32; 2]) -> ([f32; 2], f32) {
-        cover_screen(screen, [1024.0, 768.0])
-    }
-
     /// The city marker under `p` on the choice screen.
     fn point_at(&self, screen: [f32; 2], p: [f32; 2]) -> Option<usize> {
         if self.page != Page::CityChoice {
             return None;
         }
         let c = self.campaign.choice.as_ref()?;
-        let (o, s) = Self::choice_frame(screen);
-        c.points.iter().position(|pt| {
-            let (cx, cy) = (o[0] + (CHOICE_MAP_AT[0] + pt.x) * s, o[1] + (CHOICE_MAP_AT[1] + pt.y) * s);
-            (p[0] - cx).powi(2) + (p[1] - cy).powi(2) <= (MARKER_R * s).powi(2)
-        })
+        let b = Frame::new(screen).to_bg(p);
+        c.points.iter().position(|pt| (b[0] - CHOICE_MAP_AT[0] - pt.x).powi(2) + (b[1] - CHOICE_MAP_AT[1] - pt.y).powi(2) <= MARKER_R.powi(2))
     }
 
     /// Whether the window should forward typed text to [`Self::type_family_name`].
@@ -880,40 +820,40 @@ impl Menu {
     /// family" page; Delete and Proceed act on the selected row, or complain that
     /// none is selected; Back leaves (once a family is already active).
     fn click_family(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
+        let b = Self::main_frame(screen).to_bg(p);
         if self.family_notice.is_some() {
-            if inside4(p, Self::notice_ok_button(screen)) {
+            if Self::popup_button(b, true) {
                 self.family_notice = None;
             }
             return None;
         }
         if let Some(name) = self.family_confirm.clone() {
-            let (yes, no) = Self::confirm_buttons(screen);
-            if inside4(p, yes) {
+            if Self::popup_button(b, true) {
                 crate::delete_family(&name);
                 if self.family.eq_ignore_ascii_case(&name) {
                     self.family.clear();
                 }
                 self.family_confirm = None;
                 self.go(Page::Family);
-            } else if inside4(p, no) {
+            } else if Self::popup_button(b, false) {
                 self.family_confirm = None;
             }
             return None;
         }
-        let [new_r, delete_r, proceed_r] = self.family_buttons(screen);
-        if inside4(p, new_r) {
+        let [new_r, delete_r, proceed_r, back_r] = REGISTRY_BUTTONS;
+        if inside4(b, new_r) {
             self.go(Page::NewFamily);
             return None;
         }
         let selected = self.family_selected.and_then(|i| self.families.get(i)).cloned();
-        if inside4(p, delete_r) {
+        if inside4(b, delete_r) {
             match selected {
                 Some(name) => self.family_confirm = Some(name),
                 None => self.family_notice = Some((self.family_text.none_title.clone(), self.family_text.none_body.clone())),
             }
             return None;
         }
-        if inside4(p, proceed_r) {
+        if inside4(b, proceed_r) {
             return match selected {
                 Some(name) => Some(Choice::Family(name)),
                 None => {
@@ -922,9 +862,11 @@ impl Menu {
                 }
             };
         }
-        let [bx, by] = self.back_button(screen);
-        if inside(p, bx, by, 160.0, BUTTON_H) {
+        if inside4(b, back_r) {
             self.back();
+            return None;
+        }
+        if self.click_page_scroll(b) {
             return None;
         }
         if let Some(i) = self.item_at(screen, p) {
@@ -933,32 +875,69 @@ impl Menu {
         None
     }
 
+    /// A click on the registry's or the saved games' scroll arrows or stone.
+    fn click_page_scroll(&mut self, b: [f32; 2]) -> bool {
+        if inside4(b, PAGE_UP) {
+            self.scroll(-1);
+        } else if inside4(b, PAGE_DOWN) {
+            self.scroll(1);
+        } else if self.items.len() > PAGE_ROWS && inside(b, PAGE_STONE[0] - 5.0, PAGE_STONE[1], 32.0, PAGE_STONE[2] + 25.0) {
+            self.dragging = true;
+            self.drag_stone(b[1]);
+        } else {
+            return false;
+        }
+        true
+    }
+
+    /// A click on the saved games: a row picks the game, the picked one again or OK
+    /// loads it, and cancel leaves.
+    fn click_load(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
+        let b = Self::main_frame(screen).to_bg(p);
+        if inside4(b, LOAD_CANCEL) {
+            self.back();
+            return None;
+        }
+        let chosen = |m: &Self, i: Option<usize>| match m.items.get(i?).map(|item| &item.action) {
+            Some(Action::Choose(c)) => Some(c.clone()),
+            _ => None,
+        };
+        if inside4(b, LOAD_OK) {
+            return chosen(self, self.picked);
+        }
+        if self.click_page_scroll(b) {
+            return None;
+        }
+        let i = self.item_at(screen, p)?;
+        if self.picked == Some(i) {
+            return chosen(self, Some(i));
+        }
+        self.picked = Some(i);
+        None
+    }
+
     /// A click on the "create a family" page: the commit button (validated in
     /// [`Self::commit_new_family`]) or Back, cancelling.
     fn click_new_family(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
+        let b = Self::main_frame(screen).to_bg(p);
         if self.family_notice.is_some() {
-            if inside4(p, Self::notice_ok_button(screen)) {
+            if Self::popup_button(b, true) {
                 self.family_notice = None;
             }
             return None;
         }
-        if inside4(p, self.new_family_ok_button(screen)) {
+        if inside4(b, NEW_FAMILY_GO) {
             self.commit_new_family();
-            return None;
-        }
-        let [bx, by] = self.back_button(screen);
-        if inside(p, bx, by, 160.0, BUTTON_H) {
-            self.back();
         }
         None
     }
 
     pub fn click(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
         if self.explore_confirm {
-            let (yes, no) = Self::confirm_buttons(screen);
-            if inside4(p, yes) {
+            let b = Self::main_frame(screen).to_bg(p);
+            if Self::popup_button(b, true) {
                 self.go(Page::HistoryPeriods);
-            } else if inside4(p, no) {
+            } else if Self::popup_button(b, false) {
                 self.explore_confirm = false;
             }
             return None;
@@ -975,6 +954,9 @@ impl Menu {
         if self.page == Page::NewFamily {
             return self.click_new_family(screen, p);
         }
+        if self.page == Page::Load {
+            return self.click_load(screen, p);
+        }
         if matches!(self.page, Page::Custom | Page::Campaign) {
             return self.click_scenarios(screen, p);
         }
@@ -989,13 +971,6 @@ impl Menu {
                 RulesClick::Inside => {}
             }
             return None;
-        }
-        if self.page != Page::Main {
-            let [bx, by] = self.back_button(screen);
-            if inside(p, bx, by, 160.0, BUTTON_H) {
-                self.back();
-                return None;
-            }
         }
         let i = self.item_at(screen, p)?;
         let item = self.items.get(i)?;
@@ -1108,7 +1083,7 @@ impl Menu {
             self.show_results = !self.show_results;
             return None;
         }
-        let (top, up_y) = self.list_top();
+        let (_, up_y) = self.list_top();
         if at([ARROW_X, up_y, ARROW_SIZE[0], ARROW_SIZE[1]]) {
             self.scroll(-1);
             return None;
@@ -1117,8 +1092,8 @@ impl Menu {
             self.scroll(1);
             return None;
         }
-        let range = self.stone_range();
-        if self.items.len() > self.visible_rows() && b[0] >= TRACK_X && b[0] < TRACK_X + TRACK_W && b[1] >= top + 25.0 && b[1] <= top + 50.0 + range {
+        let (stone, range) = self.stone_track();
+        if self.items.len() > self.visible_rows() && b[0] >= TRACK_X && b[0] < TRACK_X + TRACK_W && b[1] >= stone && b[1] <= stone + 25.0 + range {
             self.dragging = true;
             self.drag_stone(b[1]);
             return None;
@@ -1142,15 +1117,31 @@ impl Menu {
         r.smooth = false;
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn button(r: &mut Renderer, panels: &PanelImages, label: &str, x: f32, y: f32, w: f32, focus: bool, enabled: bool) {
-        panel::large_label(r, panels, x, y, (w / 16.0) as i32, (focus && enabled) as u32);
-        let f = Font::NormalBlackOnLight;
-        let tw = text_width(r, f, label) as f32;
-        draw_text(r, f, label, x + ((w - tw) / 2.0).floor(), y + 6.0, font::BLACK);
-        if !enabled {
-            r.rect([x, y], [w, BUTTON_H], [0.0, 0.0, 0.0, 0.45], Space::Screen);
+    /// A text button as the family pages draw them (FUN_004cd1a0): a frame, lit
+    /// under the mouse, with its label centred 4 pixels in and 7 down.
+    fn text_button(r: &mut Renderer, panels: &PanelImages, label: &str, [x, y, w, h]: [f32; 4], focus: bool, font: Font) {
+        panel::button_border(r, panels, x, y, w as i32, h as i32, focus);
+        bg_centred(r, font, label, x + 4.0, y + 7.0, w);
+    }
+
+    /// One of the icons of Pharaoh_General group 96 (OK 0, cancel 4, the arrows 8
+    /// and 12), lit under the mouse.
+    fn icon_button(r: &mut Renderer, frame: u32, rect: [f32; 4], cursor: [f32; 2]) {
+        if let Ok(id) = r.library.group_id("Pharaoh_General", 96, frame as usize) {
+            bg_image(r, id + inside4(cursor, rect) as u32, rect[0], rect[1]);
         }
+    }
+
+    /// The family pages' 640x480 page over `bg`, drawn in its coordinates.
+    fn draw_paged(&self, r: &mut Renderer, panels: &PanelImages, bg: u32, page: fn(&Self, &mut Renderer, &PanelImages, &Frame)) {
+        Self::background(r, bg);
+        let f = Self::main_frame(r.screen);
+        r.screen_frame = Some((f.o, f.s));
+        r.smooth = fractional(r, f.s);
+        page(self, r, panels, &f);
+        r.set_clip(None);
+        r.screen_frame = None;
+        r.smooth = false;
     }
 
     pub fn draw(&self, r: &mut Renderer, panels: &PanelImages) {
@@ -1159,14 +1150,14 @@ impl Menu {
             Page::Campaign | Page::Custom => self.draw_scenarios(r, panels),
             Page::Periods | Page::HistoryPeriods => self.draw_framed(r, panels, BG_HISTORY, Self::draw_periods),
             Page::Briefing => self.draw_framed(r, panels, BG_BRIEFING, Self::draw_briefing),
-            Page::CityChoice => self.draw_choice(r),
-            Page::Load => self.draw_list(r, panels),
+            Page::CityChoice => self.draw_framed(r, panels, CHOICE_BACK, Self::draw_choice),
+            Page::Load => self.draw_paged(r, panels, BG_CHOOSE_GAME, Self::draw_load),
             Page::Rules => {
                 Self::background(r, BG_TITLE);
                 self.rules_panel.draw(r, panels, &self.rules, r.screen[0], "These apply to every game you play.");
             }
-            Page::Family => self.draw_family(r, panels),
-            Page::NewFamily => self.draw_new_family(r, panels),
+            Page::Family => self.draw_paged(r, panels, BG_REGISTRY, Self::draw_family),
+            Page::NewFamily => self.draw_paged(r, panels, BG_CHOOSE_GAME, Self::draw_new_family),
         }
     }
 
@@ -1187,9 +1178,11 @@ impl Menu {
             if !item.enabled {
                 continue;
             }
-            let [x, y, w, _] = Self::main_button(i);
-            panel::large_label(r, panels, x, y, (w / 16.0) as i32, (self.hover == Some(i)) as u32);
-            bg_centred(r, Font::NormalBlackOnLight, &item.label, x + 4.0, y + 7.0, w);
+            Self::text_button(r, panels, &item.label, Self::main_button(i), self.hover == Some(i), Font::NormalBlackOnLight);
+        }
+        if self.explore_confirm {
+            let t = |i: usize| self.text.get(5, i).unwrap_or("").trim().to_string();
+            self.draw_popup(r, panels, &f, &t(141), &t(142), true);
         }
         r.screen_frame = None;
         r.smooth = false;
@@ -1199,18 +1192,27 @@ impl Menu {
         let credit = "Game data (c) Sierra";
         let cw = text_width(r, Font::SmallPlain, credit) as f32;
         draw_text(r, Font::SmallPlain, credit, sw - cw - 12.0, sh - 20.0, [0.8, 0.8, 0.8, 1.0]);
-        if self.explore_confirm {
-            let t = |i: usize| self.text.get(5, i).unwrap_or("").trim().to_string();
-            self.draw_yes_no(r, panels, &t(141), &t(142));
-        }
     }
 
-    /// A 1024x768 background with a page drawn over it in its coordinates.
+    /// A 1024x768 background with a page drawn over it in its coordinates. Explore
+    /// History's, Custom Missions' and the choice of city's art paints their window
+    /// (panel, picture frame, list boxes), so it is drawn whole at the page's scale, where the page lines
+    /// up with it; scaled to cover the screen, the art would put the window elsewhere
+    /// on a screen of another shape. What of the screen it leaves is the art covering
+    /// it, dimmed.
     fn draw_framed(&self, r: &mut Renderer, panels: &PanelImages, bg: u32, page: fn(&Self, &mut Renderer, &PanelImages, &Frame)) {
         Self::background(r, bg);
         let f = Frame::new(r.screen);
+        let window = matches!(bg, BG_HISTORY | BG_CUSTOM | CHOICE_BACK);
+        if window {
+            r.rect([0.0, 0.0], r.screen, [0.0, 0.0, 0.0, 0.5], Space::Screen);
+        }
         r.screen_frame = Some((f.o, f.s));
         r.smooth = fractional(r, f.s);
+        if window && let Some(rec) = r.record(bg) {
+            let size = [rec.width as f32, rec.height as f32];
+            r.image_scaled(bg, [0.0, 0.0], size, WHITE, Space::Screen);
+        }
         page(self, r, panels, &f);
         r.set_clip(None);
         r.screen_frame = None;
@@ -1314,7 +1316,9 @@ impl Menu {
 
         panel::inner_panel(r, panels, px + 16.0, py + 168.0, 34, 15);
         let [tx, ty, tw, th] = BRIEF_TEXT;
-        let opts = rich_text::Options { font: Font::NormalWhiteOnDark, width: tw as i32, paragraph_indent: 0 };
+        // Drawn as the original draws messages (FUN_004c8070): a paragraph's first
+        // line starts 50 pixels in.
+        let opts = rich_text::Options { font: Font::NormalWhiteOnDark, width: tw as i32, paragraph_indent: 50 };
         let laid = rich_text::layout(&b.content, &opts, &mut rich_text::RendererMeasure::new(r));
         let max = (laid.height as f32 - th).max(0.0);
         self.briefing_max.set(max);
@@ -1348,14 +1352,8 @@ impl Menu {
     /// list of scenarios on the left with its scroll bar, the picked scenario's picture
     /// above it, and its details on the dark panel to the right.
     fn draw_scenarios(&self, r: &mut Renderer, panels: &PanelImages) {
-        Self::background(r, if self.page == Page::Campaign { BG_HISTORY } else { BG_CUSTOM });
-        let f = Frame::new(r.screen);
-        r.screen_frame = Some((f.o, f.s));
-        r.smooth = fractional(r, f.s);
-        self.draw_scenarios_framed(r, panels, &f);
-        r.set_clip(None);
-        r.screen_frame = None;
-        r.smooth = false;
+        let bg = if self.page == Page::Campaign { BG_HISTORY } else { BG_CUSTOM };
+        self.draw_framed(r, panels, bg, Self::draw_scenarios_framed);
     }
 
     fn draw_scenarios_framed(&self, r: &mut Renderer, panels: &PanelImages, f: &Frame) {
@@ -1387,7 +1385,8 @@ impl Menu {
         if self.items.len() > rows {
             let max = self.items.len() - rows;
             let pct = if self.scroll == 0 { 0 } else if self.scroll < max { self.scroll * 100 / max } else { 100 };
-            let y = top + 25.0 + (self.stone_range() as usize * pct / 100) as f32;
+            let (stone, range) = self.stone_track();
+            let y = stone + (range as usize * pct / 100) as f32;
             bg_image(r, panels.panel_button + 39, STONE_X, y);
         }
 
@@ -1516,159 +1515,117 @@ impl Menu {
         }
     }
 
-    /// The map of Egypt with a marker on each city to choose from; the period's title
-    /// below, and the city under the mouse (or the prompt to choose one).
-    fn draw_choice(&self, r: &mut Renderer) {
-        let [sw, sh] = r.screen;
-        r.rect([0.0, 0.0], [sw, sh], [0.0, 0.0, 0.0, 1.0], Space::Screen);
+    /// The map of Egypt with a marker on each city to choose from (FUN_0041aaa0): the
+    /// period's title below, and the city under the mouse, or the prompt to choose one.
+    fn draw_choice(&self, r: &mut Renderer, _panels: &PanelImages, _f: &Frame) {
         let Some(c) = &self.campaign.choice else { return };
-        let (o, s) = Self::choice_frame(r.screen);
-        r.image_scaled(CHOICE_BACK, o, [1024.0 * s, 768.0 * s], WHITE, Space::Screen);
-        let at = [o[0] + CHOICE_MAP_AT[0] * s, o[1] + CHOICE_MAP_AT[1] * s];
-        r.image_scaled(c.map, at, [640.0 * s, 400.0 * s], WHITE, Space::Screen);
+        r.image(c.map, CHOICE_MAP_AT, WHITE, Space::Screen);
         for (i, pt) in c.points.iter().enumerate() {
             let image = CHOICE_MARKER + (self.hover_point == Some(i)) as u32;
-            let (cx, cy) = (at[0] + pt.x * s, at[1] + pt.y * s);
-            r.image_scaled(image, [cx - MARKER_R * s, cy - MARKER_R * s], [46.0 * s, 46.0 * s], WHITE, Space::Screen);
+            bg_image(r, image, CHOICE_MAP_AT[0] + pt.x - MARKER_R, CHOICE_MAP_AT[1] + pt.y - MARKER_R);
         }
-        draw_text(r, Font::LargeBlackOnLight, &c.title, (o[0] + 204.0 * s).floor(), (o[1] + 550.0 * s).floor(), font::BLACK);
+        bg_text(r, Font::LargeBlackOnLight, &c.title, 212.0, 554.0);
         let line = self.hover_point.and_then(|i| c.points.get(i)).map_or(c.prompt.as_str(), |pt| pt.label.as_str());
-        draw_text(r, Font::NormalBlackOnLight, line, (o[0] + 214.0 * s).floor(), (o[1] + 584.0 * s).floor(), font::BLACK);
+        bg_wrapped(r, Font::NormalBlackOnLight, line, 212.0, 584.0, 560.0);
     }
 
-    fn draw_list(&self, r: &mut Renderer, panels: &PanelImages) {
-        Self::background(r, if self.page == Page::Custom { BG_CUSTOM } else { BG_CHOOSE_GAME });
-        let (x, y) = self.list_box(r.screen);
-        let rows = self.items.len().clamp(1, LIST_ROWS);
-        let hb = ((rows as f32 * ROW_H + 64.0 + 40.0) / 16.0).ceil() as i32;
-        panel::outer_panel(r, panels, x, y, (BOX_W / 16.0) as i32, hb);
-        let title = if self.page == Page::Custom { "Custom missions" } else { "Load a saved game" };
-        let tw = text_width(r, Font::LargeBlackOnLight, title) as f32;
-        draw_text(r, Font::LargeBlackOnLight, title, x + (BOX_W - tw) / 2.0, y + 12.0, font::BLACK);
-        panel::inner_panel(r, panels, x + 16.0, y + 40.0, (BOX_W / 16.0) as i32 - 2, ((rows as f32 * ROW_H + 8.0) / 16.0).ceil() as i32);
-        for (row, i) in (self.scroll..self.items.len()).take(LIST_ROWS).enumerate() {
-            let item = &self.items[i];
-            let iy = y + 46.0 + row as f32 * ROW_H;
-            let f = if self.hover == Some(i) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
-            let lw = text_width(r, f, &item.label) as f32;
-            draw_text(r, f, &item.label, x + (BOX_W - lw) / 2.0, iy, font::WHITE);
+    /// The registry's and the saved games' scroll arrows, the stone's track and the
+    /// stone, whose track starts at `track_y` (FUN_00516630, FUN_00532340).
+    fn draw_page_scroll(&self, r: &mut Renderer, panels: &PanelImages, cursor: [f32; 2], track_y: f32) {
+        panel::inner_panel(r, panels, 467.0, track_y, 2, 10);
+        Self::icon_button(r, 8, PAGE_UP, cursor);
+        Self::icon_button(r, 12, PAGE_DOWN, cursor);
+        if self.items.len() > PAGE_ROWS {
+            let max = self.items.len() - PAGE_ROWS;
+            let pct = if self.scroll == 0 { 0 } else if self.scroll < max { self.scroll * 100 / max } else { 100 };
+            bg_image(r, panels.panel_button + 39, PAGE_STONE[0], PAGE_STONE[1] + (PAGE_STONE[2] as usize * pct / 100) as f32);
         }
-        // Scroll hints (the mouse wheel scrolls the list).
-        if self.scroll > 0 {
-            draw_text(r, Font::NormalWhiteOnDark, "^", x + BOX_W - 40.0, y + 46.0, font::WHITE);
-        }
-        if self.scroll + LIST_ROWS < self.items.len() {
-            let last = y + 46.0 + (LIST_ROWS - 1) as f32 * ROW_H;
-            draw_text(r, Font::NormalWhiteOnDark, "v", x + BOX_W - 40.0, last, font::WHITE);
-            let more = format!("{} more", self.items.len() - self.scroll - LIST_ROWS);
-            let mw = text_width(r, Font::SmallPlain, &more) as f32;
-            draw_text(r, Font::SmallPlain, &more, x + BOX_W - 46.0 - mw, last + 3.0, font::WHITE);
-        }
-        let [bx, by] = self.back_button(r.screen);
-        Self::button(r, panels, "Back", bx, by, 160.0, self.hover_back, true);
     }
 
-    /// The family registry: a list of existing families, with New/Delete/Proceed
-    /// above the usual Back button.
-    fn draw_family(&self, r: &mut Renderer, panels: &PanelImages) {
-        Self::background(r, BG_REGISTRY);
-        let (x, y) = self.list_box(r.screen);
-        let rows = self.items.len().clamp(1, LIST_ROWS);
-        let hb = ((rows as f32 * ROW_H + 64.0 + 40.0 + 40.0) / 16.0).ceil() as i32;
-        panel::outer_panel(r, panels, x, y, (BOX_W / 16.0) as i32, hb);
-        let title = &self.family_text.registry_title;
-        let tw = text_width(r, Font::LargeBlackOnLight, title) as f32;
-        draw_text(r, Font::LargeBlackOnLight, title, x + (BOX_W - tw) / 2.0, y + 12.0, font::BLACK);
-        panel::inner_panel(r, panels, x + 16.0, y + 40.0, (BOX_W / 16.0) as i32 - 2, ((rows as f32 * ROW_H + 8.0) / 16.0).ceil() as i32);
-        for (row, i) in (self.scroll..self.items.len()).take(LIST_ROWS).enumerate() {
-            let item = &self.items[i];
-            let iy = y + 46.0 + row as f32 * ROW_H;
-            let f = if self.family_selected == Some(i) || self.hover == Some(i) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
-            let lw = text_width(r, f, &item.label) as f32;
-            draw_text(r, f, &item.label, x + (BOX_W - lw) / 2.0, iy, font::WHITE);
+    /// Loading a saved game (FUN_00532340): the picked game's name in the box above
+    /// the list of saved games, twelve at a time, and "Proceed?" with cancel and OK.
+    fn draw_load(&self, r: &mut Renderer, panels: &PanelImages, f: &Frame) {
+        let t = |g: usize, i: usize| self.text.get(g, i).unwrap_or("").trim().to_string();
+        let cursor = f.to_bg(self.cursor);
+        panel::outer_panel(r, panels, 128.0, 40.0, 24, 21);
+        panel::inner_panel(r, panels, 144.0, 80.0, 20, 2);
+        panel::inner_panel(r, panels, 144.0, 120.0, 20, 13);
+        bg_centred(r, Font::LargeBlackOnLight, &t(43, 1), 160.0, 50.0, 304.0);
+        bg_text(r, Font::NormalBlackOnLight, &t(43, 5), 224.0, 342.0);
+        if let Some(item) = self.picked.and_then(|i| self.items.get(i)) {
+            bg_text(r, Font::NormalYellow, &item.label, 160.0, 90.0);
         }
-        if self.families.is_empty() {
-            let empty = "No families yet - create one below.";
-            let ew = text_width(r, Font::NormalWhiteOnDark, empty) as f32;
-            draw_text(r, Font::NormalWhiteOnDark, empty, x + (BOX_W - ew) / 2.0, y + 46.0, font::WHITE);
+        for (row, i) in (self.scroll..self.items.len()).take(PAGE_ROWS).enumerate() {
+            let font = if self.hover == Some(i) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
+            bg_text(r, font, &self.items[i].label, PAGE_ROW[0], 130.0 + 16.0 * row as f32);
         }
-        let [new_r, delete_r, proceed_r] = self.family_buttons(r.screen);
-        let labels = [&self.family_text.new_button, &self.family_text.delete_button, &self.family_text.proceed_button];
-        for (i, (r_, label)) in [new_r, delete_r, proceed_r].into_iter().zip(labels).enumerate() {
-            Self::button(r, panels, label, r_[0], r_[1], r_[2], self.family_hover == Some(i as u8), true);
+        self.draw_page_scroll(r, panels, cursor, 144.0);
+        Self::icon_button(r, 4, LOAD_CANCEL, cursor);
+        Self::icon_button(r, 0, LOAD_OK, cursor);
+    }
+
+    /// The family registry (FUN_00516630): the families, twelve at a time, and the
+    /// buttons to create one, delete or proceed with the one picked, or go back.
+    fn draw_family(&self, r: &mut Renderer, panels: &PanelImages, f: &Frame) {
+        let cursor = f.to_bg(self.cursor);
+        let [px, py] = REGISTRY_PANEL;
+        panel::outer_panel(r, panels, px, py, 24, 23);
+        panel::inner_panel(r, panels, 144.0, 120.0, 20, 13);
+        bg_centred(r, Font::LargeBlackOnLight, &self.family_text.registry_title, px, 58.0, 384.0);
+        for (row, i) in (self.scroll..self.items.len()).take(PAGE_ROWS).enumerate() {
+            let font = if self.family_selected == Some(i) || self.hover == Some(i) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
+            bg_text(r, font, &self.items[i].label, PAGE_ROW[0], PAGE_ROW[1] + PAGE_ROW[3] * row as f32);
         }
-        let [bx, by] = self.back_button(r.screen);
-        Self::button(r, panels, &self.family_text.back_button, bx, by, 160.0, self.hover_back, !self.family.is_empty());
+        self.draw_page_scroll(r, panels, cursor, 146.0);
+        let labels = [&self.family_text.new_button, &self.family_text.delete_button, &self.family_text.proceed_button, &self.family_text.back_button];
+        for (i, (rect, label)) in REGISTRY_BUTTONS.into_iter().zip(labels).enumerate() {
+            // Until a family is chosen there is no family's menu to go back to.
+            let font = if i == 3 && self.family.is_empty() { Font::NormalBlue } else { Font::NormalBlackOnLight };
+            let lit = self.family_notice.is_none() && self.family_confirm.is_none() && self.family_hover == Some(i as u8);
+            Self::text_button(r, panels, label, rect, lit, font);
+        }
         if let Some((title, body)) = &self.family_notice {
-            self.draw_notice(r, panels, title, body);
-        } else if self.family_confirm.is_some() {
-            self.draw_confirm(r, panels);
+            self.draw_popup(r, panels, f, title, body, false);
+        } else if let Some(name) = &self.family_confirm {
+            let body = format!("{} ({name})", self.family_text.delete_body);
+            self.draw_popup(r, panels, f, &self.family_text.delete_title, &body, true);
         }
     }
 
-    /// The "create a family" page: a title, a text box and Continue/Back buttons.
-    fn draw_new_family(&self, r: &mut Renderer, panels: &PanelImages) {
-        Self::background(r, BG_CHOOSE_GAME);
-        let [x, y, w, h] = self.new_family_box(r.screen);
-        panel::outer_panel(r, panels, x, y, (w / 16.0) as i32, (h / 16.0).ceil() as i32);
-        let title = &self.family_text.enter_name;
-        let tw = text_width(r, Font::LargeBlackOnLight, title) as f32;
-        draw_text(r, Font::LargeBlackOnLight, title, x + (w - tw) / 2.0, y + 14.0, font::BLACK);
-        panel::inner_panel(r, panels, x + 16.0, y + 48.0, (w / 16.0) as i32 - 2, 2);
-        let shown = format!("{}_", self.new_family);
-        draw_text(r, Font::NormalWhiteOnDark, &shown, x + 24.0, y + 54.0, font::WHITE);
-        let ok = self.new_family_ok_button(r.screen);
-        Self::button(r, panels, &self.family_text.continue_button, ok[0], ok[1], ok[2], self.family_hover == Some(0), true);
-        let [bx, by] = self.back_button(r.screen);
-        Self::button(r, panels, &self.family_text.cancel_button, bx, by, 160.0, self.hover_back, true);
+    /// Naming a new family (FUN_00520b90): the name typed so far, and the arrow that
+    /// creates the family. Right-click goes back, as in the original.
+    fn draw_new_family(&self, r: &mut Renderer, panels: &PanelImages, f: &Frame) {
+        let cursor = f.to_bg(self.cursor);
+        let [px, py] = NEW_FAMILY_PANEL;
+        panel::outer_panel(r, panels, px, py, 24, 8);
+        bg_centred(r, Font::LargeBlackOnLight, &self.family_text.enter_name, px, py + 12.0, 384.0);
+        panel::inner_panel(r, panels, 160.0, 208.0, 20, 2);
+        bg_text(r, Font::NormalYellow, &format!("{}_", self.new_family), 176.0, 216.0);
+        bg_text(r, Font::NormalBlackOnLight, &self.family_text.continue_button, 395.0, 255.0);
+        if let Ok(go) = r.library.group_id("Pharaoh_General", 192, 0) {
+            bg_image(r, go + inside4(cursor, NEW_FAMILY_GO) as u32, NEW_FAMILY_GO[0], NEW_FAMILY_GO[1]);
+        }
         if let Some((title, body)) = &self.family_notice {
-            self.draw_notice(r, panels, title, body);
+            self.draw_popup(r, panels, f, title, body, false);
         }
     }
 
-    /// Wraps `text` to `width` px in the popups' body font.
-    fn wrap(r: &Renderer, text: &str, width: f32) -> rich_text::Layout {
-        let opts = rich_text::Options { font: Font::NormalBlackOnLight, width: width as i32, paragraph_indent: 0 };
-        rich_text::layout(text, &opts, &mut rich_text::RendererMeasure::new(r))
-    }
-
-    /// An OK-only popup: a title and a short wrapped message.
-    fn draw_notice(&self, r: &mut Renderer, panels: &PanelImages, title: &str, body: &str) {
-        let screen = r.screen;
-        r.rect([0.0, 0.0], screen, [0.0, 0.0, 0.0, 0.5], Space::Screen);
-        let [x, y, w, h] = Self::popup_rect(screen, NOTICE_W, NOTICE_H);
-        panel::outer_panel(r, panels, x, y, (w / 16.0) as i32, (h / 16.0).ceil() as i32);
-        let tw = text_width(r, Font::LargeBlackOnLight, title) as f32;
-        draw_text(r, Font::LargeBlackOnLight, title, x + (w - tw) / 2.0, y + 10.0, font::BLACK);
-        let layout = Self::wrap(r, body, w - 32.0);
-        r.set_clip(Some([x + 16.0, y + 38.0, w - 32.0, h - 78.0]));
-        rich_text::draw(r, &layout, [x + 16.0, y + 38.0], h - 78.0, 0.0, font::BLACK);
-        r.set_clip(None);
-        let ok = Self::notice_ok_button(screen);
-        Self::button(r, panels, "OK", ok[0], ok[1], ok[2], self.family_hover == Some(0), true);
-    }
-
-    /// The delete-family Yes/No confirmation.
-    fn draw_confirm(&self, r: &mut Renderer, panels: &PanelImages) {
-        let Some(name) = &self.family_confirm else { return };
-        let body = format!("{} ({name})", self.family_text.delete_body);
-        self.draw_yes_no(r, panels, &self.family_text.delete_title, &body);
-    }
-
-    /// A Yes/No popup: a title and a short wrapped question.
-    fn draw_yes_no(&self, r: &mut Renderer, panels: &PanelImages, title: &str, body: &str) {
-        let screen = r.screen;
-        r.rect([0.0, 0.0], screen, [0.0, 0.0, 0.0, 0.5], Space::Screen);
-        let [x, y, w, h] = Self::popup_rect(screen, CONFIRM_W, CONFIRM_H);
-        panel::outer_panel(r, panels, x, y, (w / 16.0) as i32, (h / 16.0).ceil() as i32);
-        let tw = text_width(r, Font::LargeBlackOnLight, title) as f32;
-        draw_text(r, Font::LargeBlackOnLight, title, x + (w - tw) / 2.0, y + 10.0, font::BLACK);
-        let layout = Self::wrap(r, body, w - 32.0);
-        r.set_clip(Some([x + 16.0, y + 38.0, w - 32.0, h - 78.0]));
-        rich_text::draw(r, &layout, [x + 16.0, y + 38.0], h - 78.0, 0.0, font::BLACK);
-        r.set_clip(None);
-        let (yes, no) = Self::confirm_buttons(screen);
-        Self::button(r, panels, &self.family_text.yes, yes[0], yes[1], yes[2], self.family_hover == Some(0), true);
-        Self::button(r, panels, &self.family_text.no, no[0], no[1], no[2], self.family_hover == Some(1), true);
+    /// A popup over the family pages (FUN_00425570): its title, and its message on
+    /// one centred line, or wrapped when it is too long for one; OK, or Yes and No.
+    fn draw_popup(&self, r: &mut Renderer, panels: &PanelImages, f: &Frame, title: &str, body: &str, no: bool) {
+        let cursor = f.to_bg(self.cursor);
+        let [x, y] = POPUP;
+        panel::outer_panel(r, panels, x, y, 30, 10);
+        bg_centred(r, Font::LargeBlackOnLight, title, x, y + 20.0, 480.0);
+        if text_width(r, Font::NormalBlackOnLight, body) < 420 {
+            bg_centred(r, Font::NormalBlackOnLight, body, x, y + 60.0, 480.0);
+        } else {
+            bg_wrapped(r, Font::NormalBlackOnLight, body, x + 30.0, y + 60.0, 420.0);
+        }
+        let at = |[bx, by, w, h]: [f32; 4]| [x + bx, y + by, w, h];
+        Self::icon_button(r, 0, at(POPUP_YES), cursor);
+        if no {
+            Self::icon_button(r, 4, at(POPUP_NO), cursor);
+        }
     }
 }

@@ -94,10 +94,11 @@ impl Ui<'_> {
         draw_text(self.r, f, s, x, y, color) as f32
     }
 
-    /// Text centred in a band `w` wide starting at `x`.
+    /// Text centred in a band `w` wide starting at `x`, as the original centres it:
+    /// flush left when it is wider.
     pub fn centred(&mut self, f: Font, s: &str, x: f32, y: f32, w: f32) {
-        let tw = self.width(f, s);
-        self.label(f, s, (x + (w - tw) / 2.0).floor(), y);
+        let tw = osiris_ui::centring_width(self.r, f, s) as f32;
+        self.label(f, s, x + ((w - tw) / 2.0).max(0.0).floor(), y);
     }
 
     /// Text wrapped to `w` pixels; returns its height. Like the original's plain
