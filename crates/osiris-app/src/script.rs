@@ -263,6 +263,35 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let id = world.map.building.at_or(x, y, 0);
                 world.destroy(id, true);
             }
+            // The building at a tile collapses, as when its damage runs out.
+            ["collapse", p] => {
+                let (x, y) = parse_point(p)?;
+                let id = world.map.building.at_or(x, y, 0);
+                world.destroy(id, false);
+            }
+            // A plague now: frogs N (months), locusts, hail or sink (Seth's boats).
+            ["plague", which] | ["plague", which, _] => {
+                let n = parts.get(2).map_or(Ok(6), |s| s.parse())?;
+                eprintln!("{step}: {}", world.plague_now(which, n));
+            }
+            ["plagues"] => {
+                let count = |k: u16| world.figures.iter().filter(|f| f.kind == k).count();
+                let p = &world.plagues;
+                eprintln!(
+                    "  frogs {} ({} ticks) locusts {} ({} ticks) hail {} wrecks {} fallen {} track {:?}",
+                    count(osiris_sim::plagues::FROG),
+                    p.frogs,
+                    count(osiris_sim::plagues::LOCUST),
+                    p.locusts,
+                    p.hail,
+                    count(osiris_sim::plagues::SHIPWRECK),
+                    world.figures.iter().filter(|f| f.action == osiris_sim::military::action::CORPSE).count(),
+                    p.track
+                );
+                for f in world.figures.iter().filter(|f| matches!(f.kind, osiris_sim::plagues::FROG | osiris_sim::plagues::LOCUST)).take(4) {
+                    eprintln!("  kind {} at {},{} action {} target {} dest {:?}", f.kind, f.x, f.y, f.action, f.target, f.destination);
+                }
+            }
             ["stock", p, r, n] => {
                 let (x, y) = parse_point(p)?;
                 let id = world.map.building.at_or(x, y, 0);

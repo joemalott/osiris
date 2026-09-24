@@ -89,6 +89,10 @@ impl World {
             self.events.collapse = true;
         }
         self.wreck(id, by_fire);
+        // A collapse raises a cloud of dust with a crash; a fire starts quietly.
+        if !by_fire {
+            self.dust(b.x, b.y, b.size);
+        }
     }
 
     /// Replaces a building with rubble or burning ruins, without a message.
@@ -174,6 +178,7 @@ impl World {
                     continue;
                 }
                 self.wreck(target, true);
+                self.fx(crate::effects::Fx::Sound(crate::effects::FIRE));
                 break;
             }
         }

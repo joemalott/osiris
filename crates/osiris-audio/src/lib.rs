@@ -142,6 +142,22 @@ impl Audio {
         }
     }
 
+    /// Plays a plague's looping ambient track (`path` under `AUDIO/`, e.g.
+    /// `"Ambient/Frogs.mp3"`) in place of the music, as the original does, or with
+    /// `None` stops it; [`Audio::update_music`] then picks music again.
+    pub fn play_plague_track(&self, path: Option<&str>) {
+        let Some(inner) = &self.inner else { return };
+        let mut current = inner.music_current.lock().unwrap();
+        inner.music_player.stop();
+        *current = None;
+        let Some(path) = path else { return };
+        let full = inner.audio_path(path);
+        match open_looped_source(&full) {
+            Ok(source) => inner.music_player.append(source),
+            Err(err) => eprintln!("osiris-audio: could not play {full:?}: {err}"),
+        }
+    }
+
     /// Stops music playback immediately.
     pub fn stop_music(&self) {
         let Some(inner) = &self.inner else { return };

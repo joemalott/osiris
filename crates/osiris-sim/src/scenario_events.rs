@@ -409,6 +409,7 @@ impl World {
                     let id = ids[self.rng.below(ids.len() as i32) as usize];
                     let tile = self.buildings.get(id).map(|b| (b.x, b.y));
                     self.wreck(id, false);
+                    self.fx(crate::effects::Fx::Sound(crate::effects::CRASH));
                     if e.kind == event::GOLD_MINE_COLLAPSE {
                         phrases = Some(("goldmine_cavein_title".into(), "goldmine_cavein_initial_announcement".into(), "goldmine_cavein_no_reason_A".into()));
                     } else {
@@ -511,20 +512,22 @@ impl World {
                     phrases = Some((format!("gift_title_{side}"), format!("{body}_{side}"), format!("gift_no_reason_{side}_A")));
                 }
             }
+            // Locusts will come before the next flood, as when Osiris sends them.
             event::LOCUSTS => {
-                // The swarm eats the crops of as many farms as the event says.
-                let farms: Vec<u32> = self.buildings.iter().filter(|b| self.is_farm(b.kind) && b.progress > 0).map(|b| b.id).collect();
-                for &id in farms.iter().take(amount.max(1) as usize) {
-                    if let Some(b) = self.buildings.get_mut(id) {
-                        b.progress = 0;
-                    }
-                }
+                self.arm_locusts();
                 popup_key = Some("message_plague_of_locusts");
             }
             // Invasions keep their own calendar; one another event led to sets out now.
             event::INVASION if e.trigger == trigger::FIRED => self.arm_invasion(i),
-            event::FROGS => popup_key = Some("message_plague_of_frogs"),
-            event::HAILSTORM => popup_key = Some("message_hailstorm"),
+            // Frogs for as many months as the event's amount.
+            event::FROGS => {
+                self.plague_of_frogs(amount);
+                popup_key = Some("message_plague_of_frogs");
+            }
+            event::HAILSTORM => {
+                self.hailstorm();
+                popup_key = Some("message_hailstorm");
+            }
             event::BLOOD_RIVER => popup_key = Some("message_river_of_blood"),
             _ => {}
         }

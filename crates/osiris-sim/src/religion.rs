@@ -124,10 +124,6 @@ const PTAH_INDUSTRIES: [u16; 6] = [161, 162, 109, 74, 111, 113];
 /// The goods Ptah's great blessing tops up in a storage yard: gems, clay, pottery,
 /// flax, linen and jewellery.
 const PTAH_GOODS: [u16; 6] = [18, 11, 13, 16, 17, 19];
-/// Sentiment each house loses to locusts, frogs and hail.
-const PLAGUE_SENTIMENT: i32 = -15;
-/// Months a house the frogs reach stays empty.
-const FROG_MONTHS: i32 = 5;
 /// Bast's festival, which she throws herself.
 const BAST_FESTIVAL: u8 = 4;
 
@@ -352,8 +348,7 @@ impl World {
         let key = match (god, major) {
             (OSIRIS, true) => {
                 if self.coin() {
-                    self.religion.osiris_locusts = true;
-                    self.change_house_sentiment(PLAGUE_SENTIMENT);
+                    self.arm_locusts();
                     "message_wrath_of_osiris_2"
                 } else {
                     let q = (-2 - self.rng.below(3)) * 10;
@@ -394,8 +389,7 @@ impl World {
             }
             (PTAH, true) => {
                 if self.coin() {
-                    self.frogs();
-                    self.change_house_sentiment(PLAGUE_SENTIMENT);
+                    self.plague_of_frogs(crate::plagues::PTAH_FROG_MONTHS);
                     "message_wrath_of_ptah_4"
                 } else if self.ptah_razes_industry() {
                     "message_wrath_of_ptah_2"
@@ -409,6 +403,7 @@ impl World {
                 match yard {
                     Some(id) => {
                         self.wreck(id, true);
+                        self.fx(crate::effects::Fx::Sound(crate::effects::CRASH));
                         "message_ptah_is_upset"
                     }
                     None => "message_wrath_of_ptah",
@@ -417,10 +412,9 @@ impl World {
             (SETH, true) => {
                 if self.coin() {
                     self.hailstorm();
-                    self.change_house_sentiment(PLAGUE_SENTIMENT);
                     "message_hailstorm_wrath_of_seth"
                 } else {
-                    self.seth_sinks_boats();
+                    self.sink_boats();
                     "message_wrath_of_seth"
                 }
             }
@@ -434,6 +428,7 @@ impl World {
                 match best.map(|c| c.fort) {
                     Some(fort) => {
                         self.wreck(fort, true);
+                        self.fx(crate::effects::Fx::Sound(crate::effects::CRASH));
                         "message_seth_is_upset"
                     }
                     None => "message_wrath_of_seth_noeffect",
@@ -445,6 +440,7 @@ impl World {
                 houses.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
                 for (_, id) in houses.into_iter().take(20) {
                     self.wreck(id, true);
+                    self.fx(crate::effects::Fx::Sound(crate::effects::CRASH));
                 }
                 "message_wrath_of_bast"
             }
@@ -457,7 +453,7 @@ impl World {
     }
 
     /// Adds `delta` to the sentiment of every house, within 0-100.
-    fn change_house_sentiment(&mut self, delta: i32) {
+    pub(crate) fn change_house_sentiment(&mut self, delta: i32) {
         for h in self.buildings.iter_mut().filter_map(|b| b.house.as_mut()) {
             h.happiness = (h.happiness + delta).clamp(0, 100);
         }
@@ -518,38 +514,18 @@ impl World {
         for id in ids {
             self.wreck(id, true);
         }
+        self.fx(crate::effects::Fx::Sound(crate::effects::CRASH));
         true
     }
 
-    /// Ptah's frogs: from the finest houses down, houses holding up to 65% of the
-    /// people are sought out, and each has an even chance that a frog reaches it and
-    /// drives its people out; it stays empty while the plague lasts.
-    fn frogs(&mut self) {
-        let total: i32 = self.buildings.iter().filter_map(|b| b.house.as_ref()).map(|h| h.population).sum();
-        let limit = total * 65 / 100;
-        let mut houses: Vec<(u8, BuildingId, i32)> = self.buildings.iter().filter_map(|b| b.house.as_ref().map(|h| (h.level, b.id, h.population))).collect();
-        houses.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-        let mut sought = 0;
-        for (_, id, pop) in houses {
-            if sought >= limit {
-                break;
-            }
-            sought += pop;
-            if sought > limit || self.rng.below(100) >= 50 {
-                continue;
-            }
-            self.drive_out(id);
-        }
-    }
-
-    /// A house's people leave it as homeless, and no one moves in for a while.
-    fn drive_out(&mut self, id: BuildingId) {
+    /// A house's people leave it as homeless, and no one moves in for `months`.
+    pub(crate) fn drive_out(&mut self, id: BuildingId, months: i32) {
         let Some(b) = self.buildings.get(id) else { return };
         let Some(h) = &b.house else { return };
         let (pop, (x, y)) = (h.population, b.road.unwrap_or((b.x, b.y)));
         if let Some(h) = self.buildings.get_mut(id).and_then(|b| b.house.as_mut()) {
             h.population = 0;
-            h.quarantine = h.quarantine.max(FROG_MONTHS);
+            h.quarantine = h.quarantine.max(months);
         }
         if pop <= 0 {
             return;
@@ -562,11 +538,11 @@ impl World {
         }
     }
 
-    /// Seth's hail strikes down half of the soldiers, invaders, boats and dangerous
-    /// beasts, and three in four of everyone else in the streets. (Figures the city keeps other
+    /// Hail strikes down half of the soldiers, invaders, boats and dangerous beasts,
+    /// and three in four of everyone else in the streets. (Figures the city keeps other
     /// accounts of, such as traders, monument crews and standard bearers, are
     /// spared.)
-    fn hailstorm(&mut self) {
+    pub(crate) fn hail_strikes(&mut self) {
         use crate::figures::Travel;
         for fid in self.figures.ids() {
             let Some(f) = self.figures.get(fid) else { continue };
@@ -581,35 +557,19 @@ impl World {
             if self.rng.below(100) > chance {
                 continue;
             }
-            self.fall(fid, fighter);
+            self.fall(fid);
         }
     }
 
-    /// A figure is struck down: fighters and warships fall and lie a while, anyone
-    /// else is gone.
-    fn fall(&mut self, fid: crate::figures::FigureId, lies: bool) {
+    /// A figure is struck down: it falls and lies a while (fighters and warships by
+    /// their own rules, anyone else as `update_fallen` has it).
+    fn fall(&mut self, fid: crate::figures::FigureId) {
         let Some(f) = self.figures.get_mut(fid) else { return };
-        if lies {
-            f.action = crate::military::action::CORPSE;
-            f.counter = 0;
-            f.foe = 0;
-            f.route.clear();
-            f.moving = false;
-        } else {
-            f.dead = true;
-        }
-    }
-
-    /// Seth's great wrath: every fishing boat, warship and transport is lost.
-    fn seth_sinks_boats(&mut self) {
-        for fid in self.figures.ids() {
-            let Some(f) = self.figures.get(fid) else { continue };
-            match f.kind {
-                crate::fishing::FISHING_BOAT => self.fall(fid, false),
-                crate::navy::WARSHIP | crate::navy::TRANSPORT if f.action != crate::military::action::CORPSE => self.fall(fid, true),
-                _ => {}
-            }
-        }
+        f.action = crate::military::action::CORPSE;
+        f.counter = 0;
+        f.foe = 0;
+        f.route.clear();
+        f.moving = false;
     }
 
     /// Seth's great blessing: once invaders are in the city he strikes down up to
@@ -627,7 +587,7 @@ impl World {
         let Some(&(_, at)) = invaders.first() else { return };
         let n = std::mem::take(&mut self.religion.seth_crush) as usize;
         for &(fid, _) in invaders.iter().take(n) {
-            self.fall(fid, true);
+            self.fall(fid);
         }
         self.post("message_the_spirit_of_seth", Some(at), true);
     }
@@ -670,19 +630,13 @@ impl World {
     }
 
     /// Monthly: when Osiris has sent locusts they come three months before the
-    /// flood's season (by its month, season / 30) and eat every floodplain crop.
+    /// flood's season (by its month, season / 30) to eat every floodplain crop.
     fn locusts_descend(&mut self) {
         if !self.religion.osiris_locusts || !self.has_floodplain() || self.flood_month() != (self.time.month as i32 + 3) % 12 {
             return;
         }
         self.religion.osiris_locusts = false;
-        for id in self.buildings.ids() {
-            if self.is_floodplain_farm(id)
-                && let Some(b) = self.buildings.get_mut(id)
-            {
-                b.progress = 0;
-            }
-        }
+        self.send_locusts();
     }
 
     /// A festival's cost in deben for the city's size.

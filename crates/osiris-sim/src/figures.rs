@@ -25,6 +25,10 @@ pub enum Travel {
     Water,
     /// Invaders: as on land, but a gatehouse bars the way like a wall.
     Hostile,
+    /// Frogs: over land as people walk it, and through water.
+    Amphibious,
+    /// Locusts, and a frog's last hop into a house: anywhere on the map.
+    Air,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -233,6 +237,8 @@ pub fn passable(map: &Map, travel: Travel, x: i32, y: i32) -> bool {
                 | terrain::FLOODPLAIN;
             t & terrain::GATEHOUSE == 0 && (t & terrain::ROAD != 0 && t & terrain::WATER == 0 || t & (mask::IMPASSABLE | terrain::BUILDING) & !OPEN == 0 || ferry)
         }
+        Travel::Amphibious => citizen_ground(t).is_some() || t & terrain::WATER != 0 && t & terrain::BUILDING == 0,
+        Travel::Air => true,
     }
 }
 
@@ -250,6 +256,18 @@ pub fn find_route(map: &Map, travel: Travel, from: (i32, i32), to: (i32, i32)) -
     if !map.contains(from.0, from.1) || !map.contains(to.0, to.1) {
         return None;
     }
+    // Fliers go straight: diagonally while both axes differ, then along the other.
+    if travel == Travel::Air {
+        let mut route = VecDeque::new();
+        let (mut x, mut y) = from;
+        while let Some(d) = direction_to((x, y), to) {
+            let (dx, dy) = NEIGHBOURS[d as usize];
+            x += dx;
+            y += dy;
+            route.push_back(d);
+        }
+        return Some(route);
+    }
     if travel == Travel::PreferRoads {
         return find_route(map, Travel::Roads, from, to).or_else(|| find_route(map, Travel::Land, from, to));
     }
@@ -260,7 +278,7 @@ pub fn find_route(map: &Map, travel: Travel, from: (i32, i32), to: (i32, i32)) -
     came[idx(from.0, from.1)] = 8;
     let dirs: &[u8] = match travel {
         Travel::Roads => &[0, 2, 4, 6],
-        Travel::Land | Travel::PreferRoads | Travel::Water | Travel::Hostile => &[0, 2, 4, 6, 1, 3, 5, 7],
+        Travel::Land | Travel::PreferRoads | Travel::Water | Travel::Hostile | Travel::Amphibious | Travel::Air => &[0, 2, 4, 6, 1, 3, 5, 7],
     };
     // The destination may be a building entrance off the road network; allow it.
     let ok = |x: i32, y: i32| (x, y) == to || passable(map, travel, x, y);

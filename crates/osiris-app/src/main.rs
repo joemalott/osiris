@@ -5,6 +5,7 @@ mod advisors;
 mod anims;
 mod army_view;
 mod city_view;
+mod disaster_view;
 mod empire_window;
 mod game;
 mod gfx;

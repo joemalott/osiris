@@ -57,7 +57,7 @@ terrain_usage = "roads"
 id = 6
 key = "explosion"
 category = "inactive"
-anims = { poof = { pack = "SprAmbient", group = 12, offset = 0, frames = 12 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 6 } }
+anims = { poof = { pack = "SprAmbient", group = 12, offset = 0, frames = 20 }, small = { pack = "SprAmbient", group = 5, offset = 0, frames = 15 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 6 } }
 max_damage = 0
 terrain_usage = "any"
 
@@ -513,7 +513,7 @@ terrain_usage = "roads"
 id = 67
 key = "shipwreck"
 category = "inactive"
-anims = { big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 67 } }
+anims = { wreck = { pack = "SprAmbient", group = 0, offset = 0, frames = 36 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 67 } }
 max_damage = 10
 terrain_usage = "any"
 
@@ -837,7 +837,7 @@ terrain_usage = "animal"
 id = 107
 key = "locust"
 category = "inactive"
-anims = { walk = { pack = "SprMain2", group = 30, offset = 0, frames = 6 }, idle = { pack = "SprMain2", group = 30, offset = 0, frames = 6 }, death = { pack = "SprMain2", group = 30, offset = 0, frames = 6, loop = false }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 107 } }
+anims = { walk = { pack = "SprMain2", group = 30, offset = 0, frames = 6 }, eat = { pack = "SprMain2", group = 32, offset = 0, frames = 6 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 107 } }
 attack_value = 0
 default_swarm = 8
 float_height = 20
