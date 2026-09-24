@@ -264,11 +264,12 @@ fn text_color(f: Font) -> [f32; 4] {
     if matches!(f, Font::SmallPlain | Font::NormalBlackOnLight | Font::LargeBlackOnLight) { font::BLACK } else { font::WHITE }
 }
 
-/// The original draws each glyph three pixels above the y it is given.
+/// The original draws plain text three pixels above the y it is given, wrapped
+/// descriptions included; `draw_text` does so, the rich-text layout doesn't.
 const GLYPH_RISE: f32 = 3.0;
 
 fn bg_text(r: &mut Renderer, f: Font, s: &str, x: f32, y: f32) {
-    draw_text(r, f, s, x, y - GLYPH_RISE, text_color(f));
+    draw_text(r, f, s, x, y, text_color(f));
 }
 
 /// Text centred in a band `w` wide from `x`, as the original centres it: flush left
@@ -276,7 +277,7 @@ fn bg_text(r: &mut Renderer, f: Font, s: &str, x: f32, y: f32) {
 fn bg_centred(r: &mut Renderer, f: Font, s: &str, x: f32, y: f32, w: f32) {
     let tw = text_width(r, f, s) as f32;
     let dx = ((w - tw) / 2.0).max(0.0).floor();
-    draw_text(r, f, s, x + dx, y - GLYPH_RISE, text_color(f));
+    draw_text(r, f, s, x + dx, y, text_color(f));
 }
 
 fn bg_wrapped(r: &mut Renderer, f: Font, s: &str, x: f32, y: f32, w: f32) {

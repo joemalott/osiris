@@ -119,15 +119,25 @@ pub fn text_width(r: &Renderer, font: Font, text: &str) -> i32 {
 pub const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 pub const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
-/// Draws `text` with its top-left at `(x, y)` and returns the width drawn. `color` tints
-/// the silhouette fonts and is ignored by the coloured ones.
+/// How far above the y it is given the original draws plain text (FUN_004cca60). Its
+/// message-body text (FUN_004c8680) doesn't rise; [`draw_text_unrisen`] draws that.
+const RISE: f32 = 3.0;
+
+/// Draws plain text at the original's `(x, y)` (its glyph tops land three pixels
+/// higher) and returns the width drawn. `color` tints the silhouette fonts and is
+/// ignored by the coloured ones.
 pub fn draw_text(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: [f32; 4]) -> i32 {
-    draw(r, font, text, x, y, color, WHITE)
+    draw(r, font, text, x, y - RISE, color, WHITE)
 }
 
 /// Like [`draw_text`], but also multiplies the coloured fonts by `tint` (to dim text).
 pub fn draw_text_tinted(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, tint: [f32; 4]) -> i32 {
-    draw(r, font, text, x, y, tint, tint)
+    draw(r, font, text, x, y - RISE, tint, tint)
+}
+
+/// Draws `text` with its glyph tops at `y`, as the original draws message bodies.
+pub fn draw_text_unrisen(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: [f32; 4]) -> i32 {
+    draw(r, font, text, x, y, color, WHITE)
 }
 
 fn draw(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: [f32; 4], tint: [f32; 4]) -> i32 {

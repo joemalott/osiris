@@ -15,7 +15,7 @@
 //! vertical scroll, culls anything outside the given viewport, and calls into
 //! `osiris_render`/`osiris_ui::font`.
 
-use crate::font::{Font, draw_text, text_width};
+use crate::font::{Font, draw_text_unrisen, text_width};
 use osiris_render::{Renderer, Space};
 
 /// Width/height measurement used by [`layout`], so layout logic can be unit tested
@@ -250,7 +250,7 @@ pub fn draw(r: &mut Renderer, laid_out: &Layout, origin: [f32; 2], viewport_h: f
                 if py + font.line_height() as f32 <= origin[1] || py >= origin[1] + viewport_h {
                     continue;
                 }
-                draw_text(r, *font, text, origin[0] + *x as f32, py, color);
+                draw_text_unrisen(r, *font, text, origin[0] + *x as f32, py, color);
             }
             Run::Image { x, y, id, w: _, h } => {
                 let py = origin[1] + *y as f32 - scroll;

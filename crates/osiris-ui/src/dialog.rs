@@ -257,7 +257,7 @@ impl MessageDialog {
         panel::outer_panel(r, &self.panels, g.x, g.y, self.width_blocks, self.height_blocks);
 
         let tw = text_width(r, Font::LargeBlackOnLight, &self.title) as f32;
-        draw_text(r, Font::LargeBlackOnLight, &self.title, g.x + (g.w - tw) / 2.0, g.y + BLOCK, font::BLACK);
+        draw_text(r, Font::LargeBlackOnLight, &self.title, g.x + (g.w - tw) / 2.0, g.y + 14.0, font::BLACK);
 
         if !self.subtitle.is_empty() {
             draw_text(r, Font::NormalBlackOnLight, &self.subtitle, g.x + BLOCK, g.y + 2.0 * BLOCK - 2.0, font::BLACK);

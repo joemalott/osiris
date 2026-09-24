@@ -97,7 +97,8 @@ impl Ui<'_> {
         self.label(f, s, (x + (w - tw) / 2.0).floor(), y);
     }
 
-    /// Text wrapped to `w` pixels; returns its height.
+    /// Text wrapped to `w` pixels; returns its height. Like the original's plain
+    /// wrapped text it sits three pixels above `y`, as single lines do.
     pub fn wrapped(&mut self, f: Font, s: &str, x: f32, y: f32, w: f32) -> f32 {
         if s.is_empty() {
             return 0.0;
@@ -105,7 +106,7 @@ impl Ui<'_> {
         let opts = Options { font: f, width: w as i32, ..Default::default() };
         let laid = rich_text::layout(s, &opts, &mut RendererMeasure::new(self.r));
         let color = if matches!(f, Font::NormalWhiteOnDark | Font::NormalYellow) { font::WHITE } else { font::BLACK };
-        rich_text::draw(self.r, &laid, [x, y], laid.height as f32, 0.0, color);
+        rich_text::draw(self.r, &laid, [x, y - 3.0], laid.height as f32, 0.0, color);
         laid.height as f32
     }
 
