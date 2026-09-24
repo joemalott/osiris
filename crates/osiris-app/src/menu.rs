@@ -1205,12 +1205,25 @@ impl Menu {
         }
     }
 
-    /// A 1024x768 background with a page drawn over it in its coordinates.
+    /// A 1024x768 background with a page drawn over it in its coordinates. Explore
+    /// History's and Custom Missions' art paints their window (panel, picture frame
+    /// and list boxes), so it is drawn whole at the page's scale, where the page lines
+    /// up with it; scaled to cover the screen, the art would put the window elsewhere
+    /// on a screen of another shape. What of the screen it leaves is the art covering
+    /// it, dimmed.
     fn draw_framed(&self, r: &mut Renderer, panels: &PanelImages, bg: u32, page: fn(&Self, &mut Renderer, &PanelImages, &Frame)) {
         Self::background(r, bg);
         let f = Frame::new(r.screen);
+        let window = matches!(bg, BG_HISTORY | BG_CUSTOM);
+        if window {
+            r.rect([0.0, 0.0], r.screen, [0.0, 0.0, 0.0, 0.5], Space::Screen);
+        }
         r.screen_frame = Some((f.o, f.s));
         r.smooth = fractional(r, f.s);
+        if window && let Some(rec) = r.record(bg) {
+            let size = [rec.width as f32, rec.height as f32];
+            r.image_scaled(bg, [0.0, 0.0], size, WHITE, Space::Screen);
+        }
         page(self, r, panels, &f);
         r.set_clip(None);
         r.screen_frame = None;
@@ -1348,14 +1361,8 @@ impl Menu {
     /// list of scenarios on the left with its scroll bar, the picked scenario's picture
     /// above it, and its details on the dark panel to the right.
     fn draw_scenarios(&self, r: &mut Renderer, panels: &PanelImages) {
-        Self::background(r, if self.page == Page::Campaign { BG_HISTORY } else { BG_CUSTOM });
-        let f = Frame::new(r.screen);
-        r.screen_frame = Some((f.o, f.s));
-        r.smooth = fractional(r, f.s);
-        self.draw_scenarios_framed(r, panels, &f);
-        r.set_clip(None);
-        r.screen_frame = None;
-        r.smooth = false;
+        let bg = if self.page == Page::Campaign { BG_HISTORY } else { BG_CUSTOM };
+        self.draw_framed(r, panels, bg, Self::draw_scenarios_framed);
     }
 
     fn draw_scenarios_framed(&self, r: &mut Renderer, panels: &PanelImages, f: &Frame) {
