@@ -170,7 +170,7 @@ fn monument(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
     if let (Some(def), Some(m)) = (osiris_sim::monuments::monument_def(b.kind), &b.monument)
         && let osiris_sim::monuments::Style::Obelisk { size, .. } = def.style
     {
-        if !m.finished && m.phase >= 4
+        if !m.finished && def.crew(m.phase).contains(&osiris_sim::monuments::STONEMASON)
             && let Some(ladder) = cx.anim(b, "ladder")
         {
             cx.sprite(out, b.x, b.y + size - 1, (20, -40), ladder.image);

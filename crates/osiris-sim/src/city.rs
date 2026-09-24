@@ -34,7 +34,10 @@ impl World {
             10 => self.update_desirability(),
             18 => self.grow_vegetation(),
             12 => self.decay_houses_covered(),
-            20 => self.update_production(),
+            20 => {
+                self.update_production();
+                self.build_up_carpenters();
+            }
             22 => self.update_room(),
             23 => self.update_migration(),
             25 => self.update_labor(),

@@ -14,6 +14,10 @@ use crate::world::World;
 pub const BLOCK_WORK: u16 = 200;
 /// Most a sled carries.
 pub const SLED_LOAD: i32 = 400;
+/// The progress a carpenters' guild builds up before each carpenter goes out, and
+/// the timber he takes with him.
+const CARPENTER_PROGRESS: i32 = 400;
+const CARPENTER_TIMBER: i32 = 100;
 /// Men pulling each sled.
 const SLED_PULLERS: usize = 6;
 
@@ -26,13 +30,11 @@ pub const FUNERAL_WALKER: u16 = 94;
 /// A work-camp laborer's action while he goes to a storage yard for a sled.
 pub(crate) const HAULING: u16 = 7;
 
-const CLAY: u16 = 11;
 const BRICKS: u16 = 12;
 const TIMBER: u16 = 20;
 const STONE: u16 = 24;
 const LIMESTONE: u16 = 25;
 const GRANITE: u16 = 26;
-const PAINT: u16 = 33;
 const SANDSTONE: u16 = 30;
 
 pub const SMALL_BENT_PYRAMID: u16 = 241;
@@ -63,11 +65,11 @@ pub enum Style {
     /// A brick tomb of one or two courses, with a chapel on its east side.
     Mastaba,
     Pyramid(Family),
-    /// Granite paid for when placed, then scaffolding and carving; `size` tiles
-    /// square, drawn in `stages` images.
-    Obelisk { size: i32, stages: u8, granite: i32, timber: &'static [i32] },
-    /// Three 6x6 parts in a line (head, body, tail), carved from a buried outcrop in
-    /// six stages: carpenters' scaffolding, then stonemasons carving, then painting.
+    /// Granite paid for when placed, then its `steps` of carpenters' scaffolding and
+    /// masons' carving, one job each; `size` tiles square, drawn in `stages` images.
+    Obelisk { size: i32, stages: u8, granite: i32, steps: &'static [Job] },
+    /// Three 6x6 parts in a row along x (head, body, tail), carved from a buried
+    /// outcrop in fifteen steps of carpenters' and stonemasons' jobs.
     Sphinx,
     /// Four 4x4 buildings in a row (tower, colonnade, hall, pylon) in a 22x8
     /// courtyard of paving, statues, planters and sphinxes. Laborers level the
@@ -94,9 +96,6 @@ const MAUSOLEUM_BLOCKS: usize = 8;
 const MAUSOLEUM_WORK: u16 = 50;
 /// Sandstone taken from storage when a mausoleum is placed, and on each sled.
 const MAUSOLEUM_PLACEMENT: i32 = 24000;
-/// Timber for the ramps. The manual says a mausoleum needs wood; how much is not
-/// known, so this is a placeholder.
-const MAUSOLEUM_TIMBER: i32 = 400;
 
 /// The sun temple: 11x21 tiles; its obelisk's 5x5 corner; sandstone taken when it is
 /// placed; and the obelisk's thirteen steps, each carpenters' (true) or masons'
@@ -254,10 +253,117 @@ fn mausoleum_tiles() -> Vec<(i32, i32)> {
     (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| mausoleum_decor(x, y).is_some()).collect()
 }
 
-/// The sphinx's phases after placing it: (timber, paint, clay). These are the
-/// placeholder amounts of the reconstruction the facts come from; the original's
-/// are not known.
-const SPHINX_PHASES: [(i32, i32, i32); 7] = [(400, 0, 0), (400, 0, 0), (800, 0, 0), (600, 0, 0), (400, 0, 0), (200, 0, 0), (0, 400, 400)];
+/// A craftsman's job on an obelisk, sphinx or sun temple obelisk: the craftsman
+/// (carpenter or stonemason) and the ticks it takes him. A carpenter brings his
+/// timber from his guild; no sleds are dragged.
+pub type Job = (u16, u16);
+
+/// The obelisks' steps, one job each (the original's tables at 0x586b08 and
+/// 0x58fe48).
+const SMALL_OBELISK_STEPS: [Job; 10] = [
+    (CARPENTER, 320),
+    (CARPENTER, 320),
+    (CARPENTER, 600),
+    (CARPENTER, 600),
+    (STONEMASON, 580),
+    (STONEMASON, 580),
+    (STONEMASON, 520),
+    (STONEMASON, 520),
+    (STONEMASON, 340),
+    (STONEMASON, 340),
+];
+const LARGE_OBELISK_STEPS: [Job; 18] = [
+    (CARPENTER, 320),
+    (CARPENTER, 320),
+    (CARPENTER, 610),
+    (CARPENTER, 610),
+    (CARPENTER, 680),
+    (CARPENTER, 680),
+    (CARPENTER, 750),
+    (CARPENTER, 750),
+    (STONEMASON, 740),
+    (STONEMASON, 740),
+    (STONEMASON, 670),
+    (STONEMASON, 670),
+    (STONEMASON, 500),
+    (STONEMASON, 500),
+    (STONEMASON, 530),
+    (STONEMASON, 530),
+    (STONEMASON, 340),
+    (STONEMASON, 340),
+];
+
+/// An obelisk's progress starts at 33 when placed and each finished step adds
+/// 67/steps (rounded); it is done at 100. The step worked is the one that progress
+/// falls in, so with 18 steps (progress 4 a step) the twelfth is never reached.
+const OBELISK_START: i32 = 33;
+const OBELISK_DONE: i32 = 100;
+
+const fn obelisk_increment(steps: usize) -> i32 {
+    (67 * 2 + steps as i32) / (2 * steps as i32)
+}
+
+/// The step (0-based) an obelisk of `steps` steps works after `k` finished ones, or
+/// `None` once it is done.
+const fn obelisk_step(steps: usize, k: usize) -> Option<usize> {
+    let progress = OBELISK_START + obelisk_increment(steps) * k as i32;
+    if progress >= OBELISK_DONE {
+        return None;
+    }
+    let step = (progress - OBELISK_START) as usize * steps / 66 + 1;
+    Some(if step > steps { steps - 1 } else { step - 1 })
+}
+
+/// How many steps an obelisk of `steps` steps works in all.
+const fn obelisk_worked(steps: usize) -> u8 {
+    let mut k = 0;
+    while obelisk_step(steps, k).is_some() {
+        k += 1;
+    }
+    k as u8
+}
+
+/// The obelisk's image (0-based of `stages`) after `k` finished steps: it only
+/// begins to change past progress 66.
+fn obelisk_image(steps: usize, stages: u8, k: usize) -> u8 {
+    let progress = (OBELISK_START + obelisk_increment(steps) * k as i32).min(OBELISK_DONE);
+    let scaled = ((progress - 66) * 3).max(0);
+    (stages as i32 * scaled / 100).min(stages as i32 - 1) as u8
+}
+
+/// The sphinx's jobs: (step, craftsman, ticks). A step's jobs are worked side by
+/// side, each by its own craftsman (the original's table at 0x5c2748).
+const SPHINX_JOBS: [(u8, u16, u16); 22] = [
+    (1, CARPENTER, 500),
+    (2, CARPENTER, 700),
+    (3, CARPENTER, 400),
+    (4, STONEMASON, 600),
+    (4, STONEMASON, 800),
+    (4, STONEMASON, 400),
+    (5, STONEMASON, 600),
+    (5, STONEMASON, 800),
+    (5, STONEMASON, 1200),
+    (6, STONEMASON, 800),
+    (7, STONEMASON, 1200),
+    (7, STONEMASON, 650),
+    (7, CARPENTER, 600),
+    (8, STONEMASON, 650),
+    (8, STONEMASON, 1200),
+    (9, STONEMASON, 650),
+    (10, STONEMASON, 650),
+    (11, STONEMASON, 900),
+    (12, STONEMASON, 500),
+    (13, STONEMASON, 400),
+    (14, CARPENTER, 540),
+    (15, STONEMASON, 450),
+];
+const SPHINX_STEPS: u8 = 15;
+
+/// The carving stage (1-6) each of the sphinx's three parts shows at a step (1-15;
+/// 16 when finished): head first, then body, then tail, in turn.
+fn sphinx_stage(step: u8, part: u8) -> u8 {
+    (1 + (step + 1).saturating_sub(part) / 3).min(6)
+}
 
 /// Pyramids: stepped pyramids are plain stone; bent and true pyramids are stone and
 /// mudbrick pyramids brick, all three cased in limestone and polished at the end.
@@ -294,11 +400,10 @@ const fn pyramid(kind: u16, family: Family, blocks: i32, weight: i32, title: usi
     tomb(kind, (blocks, blocks), Style::Pyramid(family), weight, title)
 }
 
-/// An obelisk: no leveling (it starts at the first building phase), timber for the
-/// scaffolding in its first phases, stonemasons carving from its third until the
-/// last art stage. Its work is counted per tile.
-const fn obelisk(kind: u16, size: i32, stages: u8, granite: i32, timber: &'static [i32], weight: i32, title: usize) -> MonumentDef {
-    MonumentDef { kind, cols: size, rows: size, style: Style::Obelisk { size, stages, granite, timber }, phase_count: LEVELING_PHASES + stages + 1, weight, title }
+/// An obelisk: no leveling (it starts at the first building phase), then a phase for
+/// each step it works.
+const fn obelisk(kind: u16, size: i32, stages: u8, granite: i32, steps: &'static [Job], weight: i32, title: usize) -> MonumentDef {
+    MonumentDef { kind, cols: size, rows: size, style: Style::Obelisk { size, stages, granite, steps }, phase_count: LEVELING_PHASES + obelisk_worked(steps.len()) + 1, weight, title }
 }
 
 /// A royal tomb: its bulk in tiles, its one phase being the cutting.
@@ -312,14 +417,14 @@ pub const MONUMENTS: [MonumentDef; 29] = [
     royal_tomb(crate::royal_tombs::MEDIUM_ROYAL_TOMB, (14, 16), 8, 34),
     royal_tomb(crate::royal_tombs::LARGE_ROYAL_TOMB, (17, 33), 13, 35),
     royal_tomb(crate::royal_tombs::GRAND_ROYAL_TOMB, (29, 23), 18, 36),
-    MonumentDef { kind: SPHINX, cols: 3, rows: 6, style: Style::Sphinx, phase_count: LEVELING_PHASES + SPHINX_PHASES.len() as u8 + 1, weight: 1, title: 21 },
+    MonumentDef { kind: SPHINX, cols: 3, rows: 1, style: Style::Sphinx, phase_count: LEVELING_PHASES + SPHINX_STEPS + 1, weight: 1, title: 21 },
     // The rating weight is a placeholder.
     MonumentDef { kind: MAUSOLEUM, cols: 11, rows: 4, style: Style::Mausoleum, phase_count: 6, weight: 4, title: 25 },
     // The rating weight is a placeholder.
     MonumentDef { kind: SUN_TEMPLE, cols: 1, rows: 1, style: Style::SunTemple, phase_count: SUN_FORE + 2, weight: 4, title: 24 },
     // Granite taken at placement: 100 and 200 blocks (the original's placement check).
-    obelisk(SMALL_OBELISK, 3, 4, 10_000, &[200, 200, 200], 2, 22),
-    obelisk(LARGE_OBELISK, 5, 6, 20_000, &[400, 400, 400, 200], 4, 23),
+    obelisk(SMALL_OBELISK, 3, 4, 10_000, &SMALL_OBELISK_STEPS, 2, 22),
+    obelisk(LARGE_OBELISK, 5, 6, 20_000, &LARGE_OBELISK_STEPS, 4, 23),
     // Sizes in blocks, as in the original: large is 8 across in every family.
     tomb(kind::SMALL_MASTABA, (2, 5), Style::Mastaba, 2, 18),
     tomb(kind::MEDIUM_MASTABA, (3, 7), Style::Mastaba, 2, 19),
@@ -438,20 +543,13 @@ impl MonumentDef {
     /// The material phase `p` needs.
     pub fn phase(&self, p: u8) -> Vec<(u16, i32)> {
         match self.style {
-            Style::Obelisk { timber, .. } => {
-                let own = p.saturating_sub(LEVELING_PHASES) as usize;
-                timber.get(own).map_or_else(Vec::new, |&t| vec![(TIMBER, t)])
-            }
-            Style::Sphinx => {
-                let own = p.saturating_sub(LEVELING_PHASES) as usize;
-                let Some(&(timber, paint, clay)) = SPHINX_PHASES.get(own) else { return Vec::new() };
-                [(TIMBER, timber), (PAINT, paint), (CLAY, clay)].into_iter().filter(|m| m.1 > 0).collect()
-            }
+            // Carved from what was paid for at placing, or the rock; carpenters bring
+            // their guild's timber.
+            Style::Obelisk { .. } | Style::Sphinx => Vec::new(),
             Style::Mausoleum => {
                 let blocks = (MAUSOLEUM_BLOCKS * MAUSOLEUM_PARTS.len()) as i32 * SLED_LOAD;
                 match p {
                     1 | 3 => vec![(SANDSTONE, blocks)],
-                    2 => vec![(TIMBER, MAUSOLEUM_TIMBER)],
                     _ => Vec::new(),
                 }
             }
@@ -471,15 +569,26 @@ impl MonumentDef {
     /// bricklayers for bricks, stonemasons for stone, sandstone and carving,
     /// carpenters for timber. (Pyramids and mastabas choose theirs a unit at a time.)
     pub fn crew(&self, p: u8) -> Vec<u16> {
+        let jobs = self.jobs(p);
+        if !jobs.is_empty() {
+            let mut crew: Vec<u16> = Vec::new();
+            for (figure, _) in jobs {
+                if !crew.contains(&figure) {
+                    crew.push(figure);
+                }
+            }
+            return crew;
+        }
         match self.style {
             Style::SunTemple => {
                 return match p {
-                    1..=13 => vec![if SUN_OBELISK_STEPS[(p - 1) as usize].0 { CARPENTER } else { STONEMASON }],
                     SUN_GATE | SUN_WALLS | SUN_FORE => vec![STONEMASON],
                     _ => Vec::new(),
                 };
             }
-            Style::Pyramid(_) | Style::Mastaba | Style::RoyalTomb => return Vec::new(),
+            // A mausoleum's ramps are carpenters' work.
+            Style::Mausoleum if p == 2 => return vec![CARPENTER],
+            Style::Pyramid(_) | Style::Mastaba | Style::RoyalTomb | Style::Obelisk { .. } | Style::Sphinx => return Vec::new(),
             _ => {}
         }
         let phase = self.phase(p);
@@ -488,8 +597,7 @@ impl MonumentDef {
         if has(BRICKS) {
             crew.push(BRICKLAYER);
         }
-        let carving = matches!(self.style, Style::Obelisk { .. } | Style::Sphinx) && p >= LEVELING_PHASES + 2 && p + 1 < self.phase_count;
-        if has(STONE) || has(LIMESTONE) || has(SANDSTONE) || carving {
+        if has(STONE) || has(LIMESTONE) || has(SANDSTONE) {
             crew.push(STONEMASON);
         }
         if has(TIMBER) {
@@ -498,9 +606,42 @@ impl MonumentDef {
         crew
     }
 
+    /// The craftsmen's jobs of phase `p` of an obelisk, sphinx or sun temple
+    /// obelisk, each worked by one craftsman who then goes home; none for other
+    /// phases and monuments.
+    pub fn jobs(&self, p: u8) -> Vec<Job> {
+        match self.style {
+            Style::Obelisk { steps, .. } => {
+                let Some(k) = p.checked_sub(LEVELING_PHASES) else { return Vec::new() };
+                obelisk_step(steps.len(), k as usize).map_or_else(Vec::new, |i| vec![steps[i]])
+            }
+            Style::Sphinx => {
+                let step = p.saturating_sub(LEVELING_PHASES) + 1;
+                SPHINX_JOBS.iter().filter(|j| p >= LEVELING_PHASES && j.0 == step).map(|j| (j.1, j.2)).collect()
+            }
+            Style::SunTemple => match p {
+                1..=13 => {
+                    let (carpenter, work) = SUN_OBELISK_STEPS[(p - 1) as usize];
+                    vec![(if carpenter { CARPENTER } else { STONEMASON }, work)]
+                }
+                _ => Vec::new(),
+            },
+            _ => Vec::new(),
+        }
+    }
+
+    /// Ticks of work piece `i` of phase `p` takes.
+    pub fn work_of(&self, p: u8, i: usize) -> u16 {
+        self.jobs(p).get(i).map_or_else(|| self.unit_work(p), |j| j.1)
+    }
+
     /// Pieces of work in phase `p`: a block of the site for most monuments; for a
     /// mausoleum its courtyard tiles, storey blocks or ramps.
     pub fn units(&self, p: u8) -> usize {
+        let jobs = self.jobs(p).len();
+        if jobs > 0 {
+            return jobs;
+        }
         match self.style {
             Style::Mausoleum => match p {
                 0 | 4 => mausoleum_tiles().len(),
@@ -596,7 +737,9 @@ impl World {
     pub fn monument_footprint(&self, k: u16) -> Option<(i32, i32)> {
         monument_def(k).map(|d| match d.style {
             Style::Obelisk { size, .. } => (size, size),
-            Style::Sphinx => (6, 18),
+            // Its three parts side by side along x in every view (the original's
+            // placement at 0x470990 puts them at x, x+6 and x+12).
+            Style::Sphinx => (18, 6),
             Style::Mausoleum => MAUSOLEUM_SIZE,
             Style::SunTemple => SUN_TEMPLE_SIZE,
             Style::RoyalTomb => (d.cols, d.rows),
@@ -704,6 +847,9 @@ impl World {
                     left -= self.take_stored(y, r, left);
                 }
             }
+        }
+        if !crate::pyramids::blockwise(def.style) {
+            m.progress = vec![0; def.units(m.phase)];
         }
         if let Some(b) = self.buildings.get_mut(id) {
             b.monument = Some(m);
@@ -941,11 +1087,11 @@ impl World {
         if def.style == Style::Sphinx {
             // Each part shows its stage of carving: the rough outcrop first, the
             // finished, painted figure at the end.
-            let own = phase.saturating_sub(LEVELING_PHASES);
-            let stage = if finished { 6 } else { own.clamp(1, 6) };
+            let step = if finished { SPHINX_STEPS + 1 } else { phase.saturating_sub(LEVELING_PHASES) + 1 };
             for (part, letter) in ["a", "b", "c"].iter().enumerate() {
+                let stage = sphinx_stage(step, part as u8);
                 let image = bdef.anims.get(&format!("s{stage}{letter}1")).map_or(site, |a| a.image);
-                self.map.set_footprint(x0, y0 + 6 * part as i32, 6, image);
+                self.map.set_footprint(x0 + 6 * part as i32, y0, 6, image);
             }
             return;
         }
@@ -961,9 +1107,9 @@ impl World {
             self.refresh_sun_temple(id);
             return;
         }
-        if let Style::Obelisk { size, stages, .. } = def.style {
-            let stage = if finished { stages } else { phase.saturating_sub(LEVELING_PHASES).clamp(1, stages) };
-            let key = ["sa", "sb", "sc", "sd", "se", "sf"][(stage - 1) as usize];
+        if let Style::Obelisk { size, stages, steps, .. } = def.style {
+            let done = if finished { steps.len() } else { phase.saturating_sub(LEVELING_PHASES) as usize };
+            let key = ["sa", "sb", "sc", "sd", "se", "sf"][obelisk_image(steps.len(), stages, done) as usize];
             let image = bdef.anims.get(key).map_or(site, |a| a.image);
             self.map.set_footprint(x0, y0, size, image);
             return;
@@ -1137,16 +1283,18 @@ impl World {
             if gb.workers <= 0 || out >= cap {
                 continue;
             }
-            // Carpenters work only while their guild has timber (a load a ramp).
-            if figure == CARPENTER && gb.stock.get(TIMBER as usize).copied().unwrap_or(0) < crate::pyramids::RAMP_TIMBER {
+            // A carpenter goes out only once his guild has built up its progress (the
+            // original's carpenters' guild at 0x4612c0).
+            if figure == CARPENTER && gb.progress < CARPENTER_PROGRESS {
                 continue;
             }
             let from = (gb.x, gb.y);
             // A pyramid or mastaba takes a craftsman from every guild, and a royal tomb
-            // one for each chamber; other monuments one of each.
+            // one for each chamber; an obelisk or sphinx one for each open job; other
+            // monuments one of each.
             let target = self.active_monuments().into_iter().find(|&id| {
                 let tomb = self.buildings.get(id).and_then(|b| monument_def(b.kind)).is_some_and(|d| crate::pyramids::blockwise(d.style) || d.style == Style::RoyalTomb);
-                self.wants_craftsman(id, figure) && (tomb || !self.buildings.get(id).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.has_craftsman(figure)))
+                self.wants_craftsman(id, figure) && (tomb || self.open_jobs(id, figure) > 0)
             });
             let Some(target) = target else { continue };
             if self.buildings.get(target).is_some_and(|b| crate::royal_tombs::is_royal_tomb(b.kind)) {
@@ -1165,11 +1313,45 @@ impl World {
                     continue;
                 }
             }
-            self.buildings.get_mut(g).expect("present").walkers[0] = fid;
+            let blockwise = self.buildings.get(target).and_then(|b| monument_def(b.kind)).is_some_and(|d| crate::pyramids::blockwise(d.style));
+            let gb = self.buildings.get_mut(g).expect("present");
+            gb.walkers[0] = fid;
+            if figure == CARPENTER {
+                // He takes a load of the guild's timber with him (a pyramid's carpenters
+                // draw theirs a ramp at a time), and the guild starts over.
+                gb.progress = 0;
+                if !blockwise && let Some(t) = gb.stock.get_mut(TIMBER as usize) {
+                    *t = (*t - CARPENTER_TIMBER).max(0);
+                }
+            }
             if let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()) {
                 m.craftsmen.push((figure, fid));
             }
         }
+    }
+
+    /// Tick 20: a carpenters' guild holding any timber builds up a point of progress
+    /// for each worker, to at most 400 (the original's daily production at 0x455900).
+    pub(crate) fn build_up_carpenters(&mut self) {
+        for b in self.buildings.iter_mut().filter(|b| b.kind == kind::CARPENTERS_GUILD) {
+            if b.workers > 0 && b.stock.get(TIMBER as usize).is_some_and(|&t| t > 0) {
+                b.progress = (b.progress + b.workers).min(CARPENTER_PROGRESS);
+            }
+        }
+    }
+
+    /// How many more of craftsman `figure` monument `id` has room for: one for each
+    /// of its jobs he could take that no one has come for, or for other monuments one
+    /// if none of his kind is there.
+    fn open_jobs(&self, id: BuildingId, figure: u16) -> usize {
+        let Some(b) = self.buildings.get(id) else { return 0 };
+        let (Some(def), Some(m)) = (monument_def(b.kind), b.monument.as_ref()) else { return 0 };
+        let jobs = def.jobs(m.phase);
+        if jobs.is_empty() {
+            return usize::from(!m.has_craftsman(figure));
+        }
+        let open = jobs.iter().enumerate().filter(|&(i, j)| j.0 == figure && m.progress.get(i).is_some_and(|&p| p < j.1)).count();
+        open.saturating_sub(m.craftsmen.iter().filter(|c| c.0 == figure).count())
     }
 
     /// A craftsman walks to the monument and stays while its course needs him. The
@@ -1202,6 +1384,7 @@ impl World {
                 }
             }
             2 if self.buildings.get(target).and_then(|b| monument_def(b.kind)).is_some_and(|d| crate::pyramids::blockwise(d.style)) => self.work_on_tomb(fid),
+            2 if self.buildings.get(target).and_then(|b| Some(monument_def(b.kind)?.jobs(b.monument.as_ref()?.phase))).is_some_and(|j| !j.is_empty()) => self.work_job(fid),
             2 => {
                 let Some(b) = self.buildings.get(target) else { return };
                 let Some(def) = monument_def(b.kind) else { return };
@@ -1238,6 +1421,54 @@ impl World {
                 }
             }
         }
+    }
+
+    /// A craftsman at an obelisk, sphinx or sun temple obelisk takes one of the
+    /// phase's jobs of his trade that no one else holds, works it through a tick at a
+    /// time, and goes home (the original's tables at 0x586b08, 0x58fe48, 0x5c2748 and
+    /// 0x596080: a job is held by its craftsman, and a carpenter's guild pays for each).
+    fn work_job(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let (target, figure, held) = (f.target, f.kind, f.amount);
+        let Some(b) = self.buildings.get(target) else { return };
+        let (Some(def), Some(m)) = (monument_def(b.kind), b.monument.as_ref()) else { return };
+        let jobs = def.jobs(m.phase);
+        let open = |i: usize| jobs.get(i).is_some_and(|j| j.0 == figure && m.progress.get(i).is_some_and(|&p| p < j.1));
+        let job = if held > 0 {
+            Some(held as usize - 1).filter(|&i| open(i))
+        } else {
+            let taken: Vec<i32> = m.craftsmen.iter().filter(|c| c.1 != fid).filter_map(|c| self.figures.get(c.1)).map(|o| o.amount).collect();
+            (0..jobs.len()).find(|&i| open(i) && !taken.contains(&(i as i32 + 1)))
+        };
+        let Some(i) = job else {
+            self.leave_monument(fid);
+            return;
+        };
+        let work = jobs[i].1;
+        let m = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()).expect("working");
+        m.progress[i] += 1;
+        let done = m.progress[i] >= work;
+        if let Some(f) = self.figures.get_mut(fid) {
+            f.amount = i as i32 + 1;
+            f.moving = true;
+        }
+        if done {
+            self.refresh_monument_images(target);
+            self.leave_monument(fid);
+        }
+    }
+
+    /// Craftsman `fid` is done at his monument and goes home.
+    fn leave_monument(&mut self, fid: FigureId) {
+        let Some(target) = self.figures.get(fid).map(|f| f.target) else { return };
+        if let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()) {
+            m.craftsmen.retain(|c| c.1 != fid);
+        }
+        if let Some(f) = self.figures.get_mut(fid) {
+            f.amount = 0;
+            f.moving = false;
+        }
+        self.send_home(fid);
     }
 
     /// A craftsman at a pyramid or mastaba: he takes on a block's next unit (and the
@@ -1482,8 +1713,15 @@ impl World {
             let finished = if crate::pyramids::blockwise(def.style) {
                 self.advance_tomb(id)
             } else {
-                let m = b.monument.as_ref().expect("active");
-                let all_done = m.progress.iter().all(|&p| p >= def.unit_work(m.phase));
+                // (A game saved when obelisks and the sphinx were built otherwise may
+                // hold a different count of pieces for the phase.)
+                let units = def.units(b.monument.as_ref().expect("active").phase);
+                let m = self.buildings.get_mut(id).and_then(|b| b.monument.as_mut()).expect("active");
+                if m.progress.len() != units {
+                    m.progress.resize(units, 0);
+                }
+                let m = self.buildings.get(id).and_then(|b| b.monument.as_ref()).expect("active");
+                let all_done = m.progress.iter().enumerate().all(|(i, &p)| p >= def.work_of(m.phase, i));
                 let paid = def.phase(m.phase).iter().all(|&(r, want)| Monument::amount(&m.delivered, r) >= want);
                 if !all_done || !paid {
                     continue;
@@ -1591,8 +1829,8 @@ impl World {
         if def.style == Style::RoyalTomb {
             return self.royal_tomb_percent(id);
         }
-        let units = m.progress.len().max(1) as i32;
-        let within = m.progress.iter().map(|&p| p as i32).sum::<i32>() * 100 / (units * def.unit_work(m.phase).max(1) as i32);
+        let needed: i32 = (0..m.progress.len()).map(|i| def.work_of(m.phase, i) as i32).sum();
+        let within = m.progress.iter().map(|&p| p as i32).sum::<i32>() * 100 / needed.max(1);
         ((m.phase as i32 * 100 + within) / (def.phase_count as i32 - 1).max(1)).min(99)
     }
 
@@ -1771,5 +2009,107 @@ mod tests {
         assert_eq!((left(STONE), left(LIMESTONE)), (6400 - 4800, 19200 - 19200));
         // And the carpenters' guild gave 100 timber for each of the six ramps.
         assert!(world.buildings.iter().filter(|b| b.kind == kind::CARPENTERS_GUILD).all(|b| b.stock[TIMBER as usize] == 0));
+    }
+
+    #[test]
+    fn obelisk_steps_follow_the_original_progress() {
+        // Ten steps, all worked.
+        let small: Vec<usize> = (0..).map_while(|k| obelisk_step(10, k)).collect();
+        assert_eq!(small, (0..10).collect::<Vec<_>>());
+        // Eighteen steps at 4 progress a step: the twelfth is skipped.
+        let large: Vec<usize> = (0..).map_while(|k| obelisk_step(18, k)).collect();
+        assert_eq!(large, (0..18).filter(|&i| i != 11).collect::<Vec<_>>());
+        assert_eq!(monument_def(SMALL_OBELISK).map(|d| d.phase_count), Some(LEVELING_PHASES + 11));
+        assert_eq!(monument_def(LARGE_OBELISK).map(|d| d.phase_count), Some(LEVELING_PHASES + 18));
+        // The first four jobs are carpenters' and take no sleds.
+        let def = monument_def(SMALL_OBELISK).expect("obelisk");
+        for p in LEVELING_PHASES..def.phase_count - 1 {
+            let carpenter = p < LEVELING_PHASES + 4;
+            assert_eq!(def.crew(p), vec![if carpenter { CARPENTER } else { STONEMASON }]);
+            assert!(def.phase(p).is_empty());
+        }
+        // The image only changes in the last part of the work.
+        let images: Vec<u8> = (0..=10).map(|k| obelisk_image(10, 4, k)).collect();
+        assert_eq!(images, [0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 3]);
+    }
+
+    #[test]
+    fn sphinx_parts_carve_in_turn() {
+        let stages: Vec<[u8; 3]> = (1..=16).map(|s| [0, 1, 2].map(|p| sphinx_stage(s, p))).collect();
+        assert_eq!(stages[0], [1, 1, 1]);
+        assert_eq!(stages[1], [2, 1, 1]);
+        assert_eq!(stages[3], [2, 2, 2]);
+        assert_eq!(stages[13], [6, 5, 5]);
+        assert_eq!(stages[15], [6, 6, 6]);
+        let def = monument_def(SPHINX).expect("sphinx");
+        // Step 4: three masons side by side; step 7: two masons and a carpenter.
+        assert_eq!(def.jobs(LEVELING_PHASES + 3).len(), 3);
+        assert_eq!(def.crew(LEVELING_PHASES + 6), vec![STONEMASON, CARPENTER]);
+        assert!(def.jobs(def.phase_count - 1).is_empty());
+    }
+
+    #[test]
+    fn obelisk_is_built_by_guild_craftsmen_without_sleds() {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.join("mission1.pak").is_file() {
+            return;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).expect("open image library");
+        let scenario = osiris_formats::MissionPak::open(&data.join("mission1.pak")).expect("pak").scenario(12).expect("mission 12");
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).expect("load defs"));
+        let model_text = std::fs::read(data.join("Pharaoh_Model_Normal.txt")).expect("read model");
+        let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&model_text)).expect("parse model");
+        let balance = std::sync::Arc::new(crate::balance::Balance::from_model(&model));
+        let mut world = World::new(&scenario, defs, balance);
+        world.start(&scenario);
+        world.load_mission(12);
+        world.invasions.planned.clear();
+        world.rules.fire = false;
+        world.rules.collapse = false;
+        world.rules.global_labor_pool = true;
+        world.test_full_staff = true;
+        world.treasury = 100_000;
+        world.scenario_monuments = [22, 0, 0];
+        if let Some(m) = world.mission.as_mut() {
+            m.allowed.insert(SMALL_OBELISK);
+        }
+        let build = |kind: u16, x: i32, y: i32| Command::Build { kind, x, y, x1: x, y1: y };
+        let mut steps = vec![
+            Command::Road { start: (36, 52), end: (55, 52) },
+            Command::Road { start: (55, 52), end: (74, 52) },
+            Command::Road { start: (36, 56), end: (55, 56) },
+            Command::Road { start: (36, 52), end: (36, 56) },
+            build(kind::STONEMASONS_GUILD, 37, 57),
+            build(kind::CARPENTERS_GUILD, 41, 57),
+            build(kind::WORK_CAMP, 43, 57),
+        ];
+        steps.extend((0..4).map(|i| build(kind::STORAGE_YARD, 37 + 3 * i, 53)));
+        for cmd in &steps {
+            assert!(matches!(world.apply(cmd), Outcome::Done { .. }), "{cmd:?}");
+        }
+        let yards: Vec<BuildingId> = world.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD).map(|b| b.id).collect();
+        for y in yards {
+            world.add_stored(y, GRANITE, 3200);
+        }
+        let out = world.apply(&build(SMALL_OBELISK, 60, 48));
+        assert!(matches!(out, Outcome::Done { .. }), "{out:?}");
+        let id = world.buildings.iter().find(|b| b.kind == SMALL_OBELISK).map(|b| b.id).expect("obelisk");
+        let guild = world.buildings.iter().find(|b| b.kind == kind::CARPENTERS_GUILD).map(|b| b.id).expect("guild");
+        world.buildings.get_mut(guild).expect("guild").stock[TIMBER as usize] = 600;
+        let mut ticks = 0;
+        let mut most_carpenters = 0;
+        while ticks < 60_000 && !world.buildings.get(id).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.finished) {
+            world.tick();
+            ticks += 1;
+            assert!(world.figures.iter().all(|f| f.kind != SLED), "no sleds for an obelisk");
+            most_carpenters = most_carpenters.max(world.figures.iter().filter(|f| f.kind == CARPENTER && !f.dead).count());
+        }
+        assert!(world.buildings.get(id).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.finished), "unfinished after {ticks} ticks");
+        // One carpenter a job, each after the guild's 400 points of progress.
+        assert_eq!(most_carpenters, 1);
+        assert_eq!(world.buildings.get(guild).map(|g| g.stock[TIMBER as usize]), Some(200));
+        // At least the jobs' own ticks, and the guild's four build-ups of 50 days.
+        let work: i32 = SMALL_OBELISK_STEPS.iter().map(|j| j.1 as i32).sum();
+        assert!(ticks > work + 4 * 50 * 51, "{ticks}");
     }
 }
