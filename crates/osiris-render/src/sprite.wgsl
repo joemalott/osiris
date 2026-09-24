@@ -21,6 +21,7 @@ struct Instance {
     // bit 2: masked (texture colours ANDed with the 5-6-5 mask in bits 16-31)
     // bit 3: filter (drawn with the multiplying pipeline: the shape multiplies what
     //        is under it by `color`)
+    // bit 4: smooth (bilinear filtering)
     @location(5) flags: u32,
 };
 
@@ -29,6 +30,9 @@ struct VOut {
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
     @location(2) @interpolate(flat) flags: u32,
+    // The image's corners in the atlas, so sampling never strays into its neighbours.
+    @location(3) @interpolate(flat) lo: vec2<f32>,
+    @location(4) @interpolate(flat) hi: vec2<f32>,
 };
 
 @vertex
@@ -43,12 +47,45 @@ fn vs(@builtin(vertex_index) vi: u32, i: Instance) -> VOut {
     out.uv = mix(i.uv0, i.uv1, corner);
     out.color = i.color;
     out.flags = i.flags;
+    out.lo = min(i.uv0, i.uv1);
+    out.hi = max(i.uv0, i.uv1);
     return out;
+}
+
+// Texel `t` of the atlas, kept inside the image's texels `a`..`b`.
+fn texel(t: vec2<i32>, a: vec2<i32>, b: vec2<i32>) -> vec4<f32> {
+    return textureLoad(atlas, clamp(t, a, b), 0);
+}
+
+// Bilinear filtering within the image, weighting colours by their alpha so the
+// transparent edges don't darken it.
+fn sample_smooth(v: VOut) -> vec4<f32> {
+    let dims = vec2<f32>(textureDimensions(atlas));
+    let a = vec2<i32>(floor(v.lo * dims + 0.5));
+    let b = max(vec2<i32>(ceil(v.hi * dims - 0.5)) - 1, a);
+    let p = v.uv * dims - 0.5;
+    let f = fract(p);
+    let t = vec2<i32>(floor(p));
+    let c00 = texel(t, a, b);
+    let c10 = texel(t + vec2<i32>(1, 0), a, b);
+    let c01 = texel(t + vec2<i32>(0, 1), a, b);
+    let c11 = texel(t + vec2<i32>(1, 1), a, b);
+    let pm = mix(mix(vec4<f32>(c00.rgb * c00.a, c00.a), vec4<f32>(c10.rgb * c10.a, c10.a), f.x), mix(vec4<f32>(c01.rgb * c01.a, c01.a), vec4<f32>(c11.rgb * c11.a, c11.a), f.x), f.y);
+    if (pm.a <= 0.0) {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(pm.rgb / pm.a, pm.a);
 }
 
 @fragment
 fn fs(v: VOut) -> @location(0) vec4<f32> {
-    let t = textureSample(atlas, atlas_sampler, v.uv);
+    // Nearest sampling, kept half a texel inside the image: at fractional scales an
+    // edge pixel could otherwise land in the transparent gap beside it.
+    let half = 0.5 / vec2<f32>(textureDimensions(atlas));
+    var t = textureSample(atlas, atlas_sampler, clamp(v.uv, v.lo + half, max(v.hi - half, v.lo + half)));
+    if ((v.flags & 16u) != 0u) {
+        t = sample_smooth(v);
+    }
     var c = t * v.color;
     if ((v.flags & 2u) != 0u) {
         c = vec4<f32>(v.color.rgb, t.a * v.color.a);

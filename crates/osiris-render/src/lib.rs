@@ -138,6 +138,10 @@ pub struct Renderer {
     /// While set, screen-space draws and clips are given in a frame of their own that
     /// lands at this offset and scale (a screen laid out at 1024x768, stretched).
     pub screen_frame: Option<([f32; 2], f32)>,
+    /// While set, images are filtered smoothly (bilinear) rather than by nearest
+    /// pixel: for art stretched by a fraction, where nearest pixels double some rows
+    /// and columns and not others.
+    pub smooth: bool,
     pub library: ImageLibrary,
 }
 
@@ -276,6 +280,7 @@ impl Renderer {
             scale: 1.0,
             clip: None,
             screen_frame: None,
+            smooth: false,
             library,
         }
     }
@@ -359,7 +364,8 @@ impl Renderer {
         space: Space,
         paint: Paint,
     ) {
-        // bit 0 screen space, 1 silhouette, 2 masked, 3 filter; bits 16-31 the mask.
+        // bit 0 screen space, 1 silhouette, 2 masked, 3 filter, 4 smooth; bits 16-31
+        // the mask.
         let (mode, mask, color) = match paint {
             Paint::Normal => (0, 0, color),
             Paint::Silhouette => (2, 0, color),
@@ -367,7 +373,19 @@ impl Renderer {
             Paint::Filter(m) => (8, m, Paint::filter_tint(m)),
         };
         let (pos, size) = match self.screen_frame {
-            Some((o, k)) if space == Space::Screen => ([o[0] + pos[0] * k, o[1] + pos[1] * k], [size[0] * k, size[1] * k]),
+            Some((o, k)) if space == Space::Screen => {
+                // Both edges land on whole device pixels, so images that meet in the
+                // frame meet on screen, with no pixel between them left uncovered.
+                // Stretched 2.5 times an edge falls half-way between pixels, where two
+                // neighbours' rounding errors could round it apart; the bias rounds
+                // both the same way.
+                let snap = |v: f32| (v * self.scale - 0.01).round() / self.scale;
+                let x0 = snap(o[0] + pos[0] * k);
+                let y0 = snap(o[1] + pos[1] * k);
+                let x1 = snap(o[0] + (pos[0] + size[0]) * k);
+                let y1 = snap(o[1] + (pos[1] + size[1]) * k);
+                ([x0, y0], [x1 - x0, y1 - y0])
+            }
             _ => (pos, size),
         };
         let inst = Instance {
@@ -376,7 +394,7 @@ impl Renderer {
             uv0,
             uv1,
             color,
-            flags: (space == Space::Screen) as u32 | mode | (mask as u32) << 16,
+            flags: (space == Space::Screen) as u32 | mode | (self.smooth as u32) << 4 | (mask as u32) << 16,
         };
         let multiply = matches!(paint, Paint::Filter(_));
         let idx = self.instances.len() as u32;

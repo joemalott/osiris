@@ -128,7 +128,11 @@ pub fn screenshot(
         view_formats: &[],
     });
     let mut renderer = Renderer::new(device, queue, format, library);
-    renderer.screen = [w as f32, h as f32];
+    // OSIRIS_SCALE=2 renders as a Retina display would: the same pixels, laid out at
+    // half the size.
+    let scale = std::env::var("OSIRIS_SCALE").ok().and_then(|s| s.parse::<f32>().ok()).unwrap_or(1.0).max(1.0);
+    renderer.scale = scale;
+    renderer.screen = [w as f32 / scale, h as f32 / scale];
     draw(&mut renderer);
     let sprites = renderer.instance_count();
     let t0 = std::time::Instant::now();

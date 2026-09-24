@@ -233,6 +233,13 @@ fn cover_screen(screen: [f32; 2], size: [f32; 2]) -> ([f32; 2], f32) {
     ([(screen[0] - size[0] * s) / 2.0, (screen[1] - size[1] * s) / 2.0], s)
 }
 
+/// Whether art stretched `s` times lands on a fraction of a device pixel, where it is
+/// better filtered smoothly than by nearest pixel.
+fn fractional(r: &Renderer, s: f32) -> bool {
+    let k = s * r.scale;
+    (k - k.round()).abs() > 0.01
+}
+
 fn inside(p: [f32; 2], x: f32, y: f32, w: f32, h: f32) -> bool {
     p[0] >= x && p[0] < x + w && p[1] >= y && p[1] < y + h
 }
@@ -920,7 +927,9 @@ impl Menu {
         let Some(rec) = r.record(image) else { return };
         let size = [rec.width as f32, rec.height as f32];
         let (o, s) = cover(r, image);
+        r.smooth = fractional(r, s);
         r.image_scaled(image, o, [size[0] * s, size[1] * s], WHITE, Space::Screen);
+        r.smooth = false;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -970,9 +979,11 @@ impl Menu {
         Self::background(r, if self.page == Page::Campaign { BG_HISTORY } else { BG_CUSTOM });
         let f = Frame::new(r.screen);
         r.screen_frame = Some((f.o, f.s));
+        r.smooth = fractional(r, f.s);
         self.draw_scenarios_framed(r, panels, &f);
         r.set_clip(None);
         r.screen_frame = None;
+        r.smooth = false;
     }
 
     fn draw_scenarios_framed(&self, r: &mut Renderer, panels: &PanelImages, f: &Frame) {
