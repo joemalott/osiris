@@ -127,6 +127,9 @@ pub struct Game {
     pub phrases: Arc<osiris_formats::Phrases>,
     /// The governor's name, for the messages.
     pub player_name: String,
+    /// The victory speech (text group 147): the campaign's line for its missions,
+    /// 37 for any other map, as the original picks it.
+    pub victory_text: usize,
     dialog: Option<MessageDialog>,
     pub info: Option<InfoPanel>,
     minimap: Option<Minimap>,
@@ -191,6 +194,7 @@ impl Game {
         Self {
             phrases: Arc::default(),
             player_name: "Governor".to_owned(),
+            victory_text: 37,
             world,
             view: CityView::default(),
             tool: Tool::None,
@@ -270,11 +274,8 @@ impl Game {
             }
         } else if key == "victory" {
             Message {
-                title: "Victory!".to_owned(),
-                content: format!(
-                    "@PYou have met every goal set for {}. The people of Egypt rejoice at your success.",
-                    self.world.scenario_name
-                ),
+                title: self.text.get(62, 0).unwrap_or("Victory").to_owned(),
+                content: format!("@P{}", self.text.get(147, self.victory_text).unwrap_or("")),
                 size: (30, 16),
                 ..Default::default()
             }

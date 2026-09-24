@@ -17,6 +17,8 @@ const BG_TITLE: u32 = 201;
 const BG_CHOOSE_GAME: u32 = 656;
 const BG_HISTORY: u32 = 658;
 const BG_CUSTOM: u32 = 657;
+/// The mission briefing's background (Pharaoh_Unloaded group 18, second image).
+const BG_BRIEFING: u32 = 507;
 /// The family registry's own background (group 29, "FE_Registry.BMP"); the "create a
 /// family" page reuses `BG_CHOOSE_GAME`, as the original does.
 const BG_REGISTRY: u32 = 654;
@@ -57,16 +59,69 @@ const TAB_CAMPAIGNS: [f32; 4] = [387.0, 352.0, 93.0, 25.0];
 const DIFFICULTY_UP: [f32; 4] = [560.0, 536.0, 17.0, 17.0];
 const DIFFICULTY_DOWN: [f32; 4] = [577.0, 536.0, 17.0, 17.0];
 
+/// The campaign window (FUN_0041be10, button table 0x57be78): the nine periods'
+/// buttons, 144x25, Pharaoh's five above Cleopatra's four. The arrow that begins or
+/// plays the period is `PLAY_BUTTON`, Explore History's exit is `EXIT_BUTTON`.
+const PERIOD_BUTTONS: [[f32; 2]; 9] = [
+    [212.0, 435.0],
+    [212.0, 465.0],
+    [364.0, 405.0],
+    [364.0, 435.0],
+    [364.0, 465.0],
+    [212.0, 535.0],
+    [212.0, 565.0],
+    [364.0, 535.0],
+    [364.0, 565.0],
+];
+const PERIOD_W: f32 = 144.0;
+/// Each period's picture: Pharaoh's are the first five mission pictures, Cleopatra's
+/// are these of the expansion's.
+const PERIOD_PICTURES: [usize; 4] = [4, 2, 5, 7];
+
+/// The mission briefing (FUN_0041a180): its panel, and the label slots its goals
+/// fill (table 0x5797d4, relative to the panel).
+const BRIEF_AT: [f32; 2] = [208.0, 160.0];
+const GOAL_SLOTS: [[f32; 2]; 6] = [[32.0, 90.0], [288.0, 90.0], [32.0, 112.0], [288.0, 112.0], [32.0, 134.0], [288.0, 134.0]];
+/// "To the city", the cancel back to the choice of city, and the difficulty's arrows.
+const BRIEF_GO: [f32; 4] = [772.0, 570.0, 27.0, 27.0];
+const BRIEF_BACK: [f32; 4] = [218.0, 572.0, 31.0, 20.0];
+const BRIEF_UP: [f32; 4] = [318.0, 576.0, 17.0, 17.0];
+const BRIEF_DOWN: [f32; 4] = [335.0, 576.0, 17.0, 17.0];
+/// The briefing's text: where it is drawn and the band it is clipped to.
+const BRIEF_TEXT: [f32; 4] = [240.0, 340.0, 528.0, 234.0];
+
+/// The family's menu (FUN_004cb4d0) in its 640x480 art: the panel, and the first
+/// button (225x25, one every 48 pixels).
+const FAMILY_PANEL: [f32; 2] = [128.0, 40.0];
+const FAMILY_BUTTON: [f32; 2] = [208.0, 128.0];
+const FAMILY_BUTTON_W: f32 = 224.0;
+
 /// The campaign as the menu shows it.
 #[derive(Debug, Clone, Default)]
 pub struct CampaignView {
-    /// Missions the player may start, in the order played.
-    pub playable: Vec<usize>,
     pub done: Vec<usize>,
     /// The choice of the next city, when one is waiting.
     pub choice: Option<ChoiceView>,
     /// The best result of each mission won.
     pub results: BTreeMap<usize, MissionResult>,
+    /// The period the family history has reached; the only one it may begin.
+    pub period: usize,
+    /// The family has a city in play to resume.
+    pub resume: bool,
+}
+
+/// A mission's briefing, shown before its city.
+#[derive(Debug, Clone, Default)]
+pub struct BriefingView {
+    pub mission: usize,
+    pub title: String,
+    pub subtitle: String,
+    pub content: String,
+    pub brief: Brief,
+    /// The tutorial's first goal, on the first five missions.
+    pub tutorial: Option<String>,
+    /// The mission was picked on the choice of city, which Cancel goes back to.
+    pub back: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -88,7 +143,16 @@ pub struct ChoicePoint {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Choice {
+    /// A mission picked on Explore History's list, to brief and play on its own.
     Mission(usize),
+    /// The family history's city in play, loaded again.
+    Resume,
+    /// The family history goes on in the period it has reached.
+    Begin,
+    /// A whole period played from Explore History.
+    Period(usize),
+    /// The briefing is read: on to the mission's city.
+    ToCity(usize),
     /// The city on this campaign path.
     Path(u32),
     Map(PathBuf),
@@ -101,7 +165,15 @@ pub enum Choice {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Page {
     Main,
+    /// Explore History's list of individual missions.
     Campaign,
+    /// The campaign window as "Begin Family History" opens it: only the period the
+    /// family has reached can be begun.
+    Periods,
+    /// The same window as Explore History's Campaigns tab, where every period plays.
+    HistoryPeriods,
+    /// A mission's briefing.
+    Briefing,
     /// The map of Egypt with the cities to choose between.
     CityChoice,
     Custom,
@@ -211,12 +283,24 @@ pub struct Menu {
     /// can store it.
     pub difficulty: u8,
     pub difficulty_changed: bool,
+    /// The period picked on the campaign window.
+    period_sel: usize,
+    /// The campaign window came up because a period was won: as in the original, it
+    /// can then only be left by beginning the next.
+    periods_locked: bool,
+    briefing: Option<BriefingView>,
+    /// How far the briefing's text is scrolled, in pixels.
+    briefing_scroll: f32,
+    /// "No Missions Won By Family": asked before Explore History opens for a family
+    /// with no mission won.
+    explore_confirm: bool,
+    /// How far the briefing's text can scroll, found as it is drawn.
+    briefing_max: std::cell::Cell<f32>,
 }
 
 const LIST_ROWS: usize = 16;
 const ROW_H: f32 = 22.0;
 const BOX_W: f32 = 400.0;
-const BUTTON_W: f32 = 256.0;
 const BUTTON_H: f32 = 25.0;
 
 /// Where a background image lands when scaled to cover the screen: offset and scale.
@@ -257,7 +341,12 @@ struct Frame {
 
 impl Frame {
     fn new(screen: [f32; 2]) -> Self {
-        let (o, s) = cover_screen(screen, [1024.0, 768.0]);
+        Self::of(screen, [1024.0, 768.0])
+    }
+
+    /// Art of another size scaled to cover the screen.
+    fn of(screen: [f32; 2], size: [f32; 2]) -> Self {
+        let (o, s) = cover_screen(screen, size);
         Self { o, s }
     }
 
@@ -333,6 +422,12 @@ impl Menu {
             dragging: false,
             difficulty: osiris_sim::difficulty::NORMAL,
             difficulty_changed: false,
+            period_sel: 0,
+            periods_locked: false,
+            briefing: None,
+            briefing_scroll: 0.0,
+            explore_confirm: false,
+            briefing_max: std::cell::Cell::new(0.0),
         };
         m.build();
         m
@@ -351,8 +446,16 @@ impl Menu {
             self.family_notice = Some((self.family_text.none_title.clone(), self.family_text.none_body.clone()));
             return;
         }
+        if name == "explore-confirm" {
+            self.go(Page::Main);
+            self.explore_confirm = true;
+            return;
+        }
         let page = match name {
             "campaign" => Page::Campaign,
+            "periods" => Page::Periods,
+            "history" => Page::HistoryPeriods,
+            "briefing" => Page::Briefing,
             "choice" => Page::CityChoice,
             "custom" => Page::Custom,
             "load" => Page::Load,
@@ -370,26 +473,48 @@ impl Menu {
         self.family_selected = self.families.iter().position(|f| f.eq_ignore_ascii_case(&self.family));
     }
 
-    /// The campaign after a mission: the choice of the next city when one is waiting,
-    /// otherwise the mission list.
-    pub fn show_campaign(&mut self) {
-        self.go(if self.campaign.choice.is_some() { Page::CityChoice } else { Page::Campaign });
+    /// The choice of the next city, waiting in the campaign being played.
+    pub fn show_choice(&mut self) {
+        self.go(if self.campaign.choice.is_some() { Page::CityChoice } else { Page::Main });
+    }
+
+    /// The campaign window with period `k` picked: from "Begin Family History", or,
+    /// `locked`, because the period before it was just won.
+    pub fn show_periods(&mut self, k: usize, locked: bool) {
+        self.go(Page::Periods);
+        self.period_sel = k.min(PERIOD_BUTTONS.len() - 1);
+        self.periods_locked = locked;
+    }
+
+    /// Picks a period on the campaign window, for scripted screenshots.
+    pub fn pick_period(&mut self, k: usize) {
+        self.period_sel = k.min(PERIOD_BUTTONS.len() - 1);
+    }
+
+    /// A mission's briefing, before its city.
+    pub fn show_briefing(&mut self, b: BriefingView) {
+        self.briefing = Some(b);
+        self.briefing_scroll = 0.0;
+        self.go(Page::Briefing);
     }
 
     fn go(&mut self, page: Page) {
         if page == Page::Family {
             self.refresh_families();
         }
+        if matches!(page, Page::Periods | Page::HistoryPeriods) && !matches!(self.page, Page::Periods | Page::HistoryPeriods) {
+            self.period_sel = if page == Page::Periods { self.campaign.period.min(PERIOD_BUTTONS.len() - 1) } else { 0 };
+        }
+        self.periods_locked = false;
+        self.explore_confirm = false;
         self.page = page;
         self.build();
-        self.scroll = if page == Page::Campaign { self.items.len() } else { 0 };
+        self.scroll = 0;
         self.clamp_scroll();
         self.dragging = false;
-        // Custom Missions starts on the first map, Explore History on the mission to
-        // play next.
+        // Both lists start on their first row.
         let first = match page {
-            Page::Custom => (!self.items.is_empty()).then_some(0),
-            Page::Campaign => self.items.iter().rposition(|i| matches!(i.action, Action::Choose(Choice::Mission(_)))),
+            Page::Custom | Page::Campaign => (!self.items.is_empty()).then_some(0),
             _ => None,
         };
         self.picked = None;
@@ -437,37 +562,30 @@ impl Menu {
     fn build(&mut self) {
         let go = |p| Action::Go(p);
         self.items = match self.page {
+            // The family's menu (text group 293): the history's button reads "Resume"
+            // while a city of it is in play, and Load Saved Game shows only when there
+            // are saves. Game rules and Quit are Osiris's own.
             Page::Main => {
-                let mut v = vec![Item { label: format!("Family: {}", self.family), enabled: true, action: go(Page::Family) }];
-                if let Some(latest) = self.saves.first() {
-                    let name = latest.file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned());
-                    v.push(Item { label: format!("Continue: {name}"), enabled: true, action: Action::Choose(Choice::Save(latest.clone())) });
-                }
-                v.extend([
-                    Item { label: "Campaign".into(), enabled: true, action: go(Page::Campaign) },
-                    Item { label: "Custom missions".into(), enabled: !self.maps.is_empty(), action: go(Page::Custom) },
-                    Item { label: "Load saved game".into(), enabled: !self.saves.is_empty(), action: go(Page::Load) },
+                let t = |i: usize| self.text.get(293, i).unwrap_or("").trim().to_string();
+                let history = if self.campaign.resume { Item { label: t(0), enabled: true, action: Action::Choose(Choice::Resume) } } else { Item { label: t(7), enabled: true, action: go(Page::Periods) } };
+                vec![
+                    history,
+                    Item { label: t(1), enabled: true, action: go(Page::HistoryPeriods) },
+                    Item { label: t(2), enabled: !self.saves.is_empty(), action: go(Page::Load) },
+                    Item { label: t(3), enabled: !self.maps.is_empty(), action: go(Page::Custom) },
+                    Item { label: t(4), enabled: true, action: go(Page::Family) },
                     Item { label: "Game rules".into(), enabled: true, action: go(Page::Rules) },
                     Item { label: "Quit".into(), enabled: true, action: Action::Choose(Choice::Quit) },
-                ]);
-                v
+                ]
             }
-            Page::Campaign => {
-                let mut v: Vec<Item> = self
-                    .campaign
-                    .playable
-                    .iter()
-                    .map(|&m| Item {
-                        label: self.mission_names.get(m).cloned().unwrap_or_default(),
-                        enabled: true,
-                        action: Action::Choose(Choice::Mission(m)),
-                    })
-                    .collect();
-                if let Some(c) = &self.campaign.choice {
-                    v.push(Item { label: c.title.clone(), enabled: true, action: go(Page::CityChoice) });
-                }
-                v
-            }
+            // Every mission of campaign.txt, each playable on its own, as the original
+            // lists them (FUN_0041df70).
+            Page::Campaign => self
+                .mission_names
+                .iter()
+                .enumerate()
+                .map(|(m, name)| Item { label: name.clone(), enabled: true, action: Action::Choose(Choice::Mission(m)) })
+                .collect(),
             Page::Custom => Self::files(&self.maps, Choice::Map),
             Page::Load => Self::files(&self.saves, Choice::Save),
             Page::Family => self
@@ -475,7 +593,7 @@ impl Menu {
                 .iter()
                 .map(|name| Item { label: name.clone(), enabled: true, action: Action::Choose(Choice::Family(name.clone())) })
                 .collect(),
-            Page::Rules | Page::CityChoice | Page::NewFamily => Vec::new(),
+            Page::Rules | Page::CityChoice | Page::NewFamily | Page::Periods | Page::HistoryPeriods | Page::Briefing => Vec::new(),
         };
         self.hover = None;
     }
@@ -523,9 +641,13 @@ impl Menu {
         self.scroll = self.scroll.min(self.items.len().saturating_sub(self.visible_rows()));
     }
 
-    /// Main page: button `i`'s top-left.
-    fn main_button(screen: [f32; 2], i: usize) -> [f32; 2] {
-        [(screen[0] / 2.0 - BUTTON_W / 2.0).floor(), (screen[1] / 2.0 - 100.0 + 40.0 * i as f32).floor()]
+    /// Main page: button `i`, in its 640x480 art's coordinates.
+    fn main_button(i: usize) -> [f32; 4] {
+        [FAMILY_BUTTON[0], FAMILY_BUTTON[1] + 48.0 * i as f32, FAMILY_BUTTON_W, BUTTON_H]
+    }
+
+    fn main_frame(screen: [f32; 2]) -> Frame {
+        Frame::of(screen, [640.0, 480.0])
     }
 
     /// List pages other than the campaign: an outer panel in the middle of the screen.
@@ -598,10 +720,10 @@ impl Menu {
 
     fn item_at(&self, screen: [f32; 2], p: [f32; 2]) -> Option<usize> {
         let found = match self.page {
-            Page::Main => (0..self.items.len()).find(|&i| {
-                let [x, y] = Self::main_button(screen, i);
-                inside(p, x, y, BUTTON_W, BUTTON_H)
-            }),
+            Page::Main => {
+                let b = Self::main_frame(screen).to_bg(p);
+                (0..self.items.len()).find(|&i| self.items[i].enabled && inside4(b, Self::main_button(i)))
+            }
             Page::Campaign | Page::Custom => {
                 let b = Frame::new(screen).to_bg(p);
                 let (top, _) = self.list_top();
@@ -620,7 +742,7 @@ impl Menu {
                 let row = ((p[1] - top) / ROW_H) as usize;
                 (row < self.visible_rows()).then_some(row + self.scroll)
             }
-            Page::Rules | Page::CityChoice | Page::NewFamily => None,
+            Page::Rules | Page::CityChoice | Page::NewFamily | Page::Periods | Page::HistoryPeriods | Page::Briefing => None,
         };
         found.filter(|&i| i < self.items.len())
     }
@@ -634,7 +756,7 @@ impl Menu {
             self.family_hover = inside4(p, Self::notice_ok_button(screen)).then_some(0);
             return;
         }
-        if self.family_confirm.is_some() {
+        if self.family_confirm.is_some() || self.explore_confirm {
             let (yes, no) = Self::confirm_buttons(screen);
             self.family_hover = if inside4(p, yes) { Some(0) } else if inside4(p, no) { Some(1) } else { None };
             return;
@@ -646,7 +768,7 @@ impl Menu {
         self.hover = self.item_at(screen, p);
         self.hover_point = self.point_at(screen, p);
         let [bx, by] = self.back_button(screen);
-        self.hover_back = !matches!(self.page, Page::Main | Page::CityChoice | Page::Custom | Page::Campaign) && inside(p, bx, by, 160.0, BUTTON_H);
+        self.hover_back = !matches!(self.page, Page::Main | Page::CityChoice | Page::Custom | Page::Campaign | Page::Periods | Page::HistoryPeriods | Page::Briefing) && inside(p, bx, by, 160.0, BUTTON_H);
         self.family_hover = match self.page {
             Page::Family => self.family_buttons(screen).iter().position(|&r| inside4(p, r)).map(|i| i as u8),
             Page::NewFamily => inside4(p, self.new_family_ok_button(screen)).then_some(0),
@@ -660,17 +782,22 @@ impl Menu {
     }
 
     pub fn scroll(&mut self, lines: i32) {
+        if self.page == Page::Briefing {
+            self.briefing_scroll = (self.briefing_scroll + 11.0 * lines as f32).clamp(0.0, self.briefing_max.get());
+            return;
+        }
         let max = self.items.len().saturating_sub(self.visible_rows()) as i32;
         self.scroll = (self.scroll as i32 + lines).clamp(0, max) as usize;
     }
 
     pub fn back(&mut self) {
-        if self.family_notice.take().is_some() || self.family_confirm.take().is_some() {
+        if self.family_notice.take().is_some() || self.family_confirm.take().is_some() || std::mem::take(&mut self.explore_confirm) {
             return;
         }
         match self.page {
-            Page::CityChoice => self.go(Page::Campaign),
             Page::Main => {}
+            Page::Periods if self.periods_locked => {}
+            Page::Briefing if self.briefing.as_ref().is_some_and(|b| b.back) => self.go(Page::CityChoice),
             // Nothing to fall back to until a family exists: the registry is the
             // only page reachable, and it must stay so.
             Page::Family if self.family.is_empty() => {}
@@ -819,6 +946,21 @@ impl Menu {
     }
 
     pub fn click(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
+        if self.explore_confirm {
+            let (yes, no) = Self::confirm_buttons(screen);
+            if inside4(p, yes) {
+                self.go(Page::HistoryPeriods);
+            } else if inside4(p, no) {
+                self.explore_confirm = false;
+            }
+            return None;
+        }
+        if matches!(self.page, Page::Periods | Page::HistoryPeriods) {
+            return self.click_periods(screen, p);
+        }
+        if self.page == Page::Briefing {
+            return self.click_briefing(screen, p);
+        }
         if self.page == Page::Family {
             return self.click_family(screen, p);
         }
@@ -853,6 +995,12 @@ impl Menu {
             return None;
         }
         match item.action.clone() {
+            // "Choose a Mission" asks first when the family has won nothing yet
+            // (text 5.141-142).
+            Action::Go(Page::HistoryPeriods) if self.campaign.done.is_empty() && self.campaign.results.is_empty() => {
+                self.explore_confirm = true;
+                None
+            }
             Action::Go(page) => {
                 self.go(page);
                 None
@@ -864,6 +1012,56 @@ impl Menu {
                 Some(c)
             }
         }
+    }
+
+    /// A click on the campaign window: a period's button picks it (a locked one too,
+    /// to read why it is locked), the arrow begins or plays the picked period, and on
+    /// Explore History the exit and the Individual Missions tab.
+    fn click_periods(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
+        let b = Frame::new(screen).to_bg(p);
+        let explore = self.page == Page::HistoryPeriods;
+        if let Some(k) = PERIOD_BUTTONS.iter().position(|&[x, y]| inside(b, x, y, PERIOD_W, BUTTON_H)) {
+            self.period_sel = k;
+            return None;
+        }
+        if explore && inside4(b, TAB_MISSIONS) {
+            self.go(Page::Campaign);
+            return None;
+        }
+        if explore && inside4(b, EXIT_BUTTON) {
+            self.go(Page::Main);
+            return None;
+        }
+        if inside4(b, PLAY_BUTTON) {
+            if explore {
+                return Some(Choice::Period(self.period_sel));
+            }
+            if self.period_sel == self.campaign.period {
+                return Some(Choice::Begin);
+            }
+        }
+        None
+    }
+
+    /// A click on the briefing: on to the city, back to the choice of city, or the
+    /// difficulty's arrows.
+    fn click_briefing(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
+        let b = Frame::new(screen).to_bg(p);
+        let brief = self.briefing.as_ref()?;
+        if inside4(b, BRIEF_GO) {
+            return Some(Choice::ToCity(brief.mission));
+        }
+        if brief.back && inside4(b, BRIEF_BACK) {
+            self.go(Page::CityChoice);
+            return None;
+        }
+        let d = self.difficulty;
+        let want = if inside4(b, BRIEF_UP) { (d + 1).min(osiris_sim::difficulty::IMPOSSIBLE) } else if inside4(b, BRIEF_DOWN) { d.saturating_sub(1) } else { d };
+        if want != d {
+            self.difficulty = want;
+            self.difficulty_changed = true;
+        }
+        None
     }
 
     /// A click on Custom Missions or Explore History: the exit and start buttons, the
@@ -893,6 +1091,10 @@ impl Menu {
                 self.difficulty_changed = true;
                 return None;
             }
+        }
+        if self.page == Page::Campaign && at(TAB_CAMPAIGNS) {
+            self.go(Page::HistoryPeriods);
+            return None;
         }
         if self.page == Page::Campaign && at(RESULTS_BUTTON) {
             self.show_results = !self.show_results;
@@ -947,6 +1149,8 @@ impl Menu {
         match self.page {
             Page::Main => self.draw_main(r, panels),
             Page::Campaign | Page::Custom => self.draw_scenarios(r, panels),
+            Page::Periods | Page::HistoryPeriods => self.draw_framed(r, panels, BG_HISTORY, Self::draw_periods),
+            Page::Briefing => self.draw_framed(r, panels, BG_BRIEFING, Self::draw_briefing),
             Page::CityChoice => self.draw_choice(r),
             Page::Load => self.draw_list(r, panels),
             Page::Rules => {
@@ -958,18 +1162,178 @@ impl Menu {
         }
     }
 
+    /// The family's menu: its title and buttons on the FE_ChooseGame art, drawn in that
+    /// art's 640x480 coordinates.
     fn draw_main(&self, r: &mut Renderer, panels: &PanelImages) {
-        Self::background(r, BG_TITLE);
-        let [sw, sh] = r.screen;
+        Self::background(r, BG_CHOOSE_GAME);
+        let f = Self::main_frame(r.screen);
+        r.screen_frame = Some((f.o, f.s));
+        r.smooth = fractional(r, f.s);
+        // The original's panel holds its five buttons; it is drawn taller here for
+        // Osiris's two more.
+        let rows = ((FAMILY_BUTTON[1] + 48.0 * self.items.len() as f32 - FAMILY_PANEL[1]) / 16.0).ceil() as i32;
+        panel::outer_panel(r, panels, FAMILY_PANEL[0], FAMILY_PANEL[1], 24, rows.max(21));
+        let title = self.text.get(293, 5).unwrap_or("").trim().replace("[player_name]", &self.family);
+        bg_centred(r, Font::LargeBlackOnLight, &title, 140.0, 60.0, 368.0);
         for (i, item) in self.items.iter().enumerate() {
-            let [x, y] = Self::main_button(r.screen, i);
-            Self::button(r, panels, &item.label, x, y, BUTTON_W, self.hover == Some(i), item.enabled);
+            if !item.enabled {
+                continue;
+            }
+            let [x, y, w, _] = Self::main_button(i);
+            panel::large_label(r, panels, x, y, (w / 16.0) as i32, (self.hover == Some(i)) as u32);
+            bg_centred(r, Font::NormalBlackOnLight, &item.label, x + 4.0, y + 7.0, w);
         }
+        r.screen_frame = None;
+        r.smooth = false;
+        let [sw, sh] = r.screen;
         let note = concat!("Osiris ", env!("CARGO_PKG_VERSION"), " - an open-source engine for Pharaoh");
         draw_text(r, Font::SmallPlain, note, 12.0, sh - 20.0, [0.8, 0.8, 0.8, 1.0]);
         let credit = "Game data (c) Sierra";
         let cw = text_width(r, Font::SmallPlain, credit) as f32;
         draw_text(r, Font::SmallPlain, credit, sw - cw - 12.0, sh - 20.0, [0.8, 0.8, 0.8, 1.0]);
+        if self.explore_confirm {
+            let t = |i: usize| self.text.get(5, i).unwrap_or("").trim().to_string();
+            self.draw_yes_no(r, panels, &t(141), &t(142));
+        }
+    }
+
+    /// A 1024x768 background with a page drawn over it in its coordinates.
+    fn draw_framed(&self, r: &mut Renderer, panels: &PanelImages, bg: u32, page: fn(&Self, &mut Renderer, &PanelImages, &Frame)) {
+        Self::background(r, bg);
+        let f = Frame::new(r.screen);
+        r.screen_frame = Some((f.o, f.s));
+        r.smooth = fractional(r, f.s);
+        page(self, r, panels, &f);
+        r.set_clip(None);
+        r.screen_frame = None;
+        r.smooth = false;
+    }
+
+    /// Explore History's two tabs, the one showing pressed in.
+    fn draw_tabs(&self, r: &mut Renderer, panels: &PanelImages, cursor: [f32; 2], campaigns: bool) {
+        let t = |i: usize| self.text.get(294, i).unwrap_or("").trim().to_string();
+        for (tab, label, on) in [(TAB_MISSIONS, t(38), !campaigns), (TAB_CAMPAIGNS, t(39), campaigns)] {
+            panel::button_border(r, panels, tab[0], tab[1], tab[2] as i32, tab[3] as i32, on || inside4(cursor, tab));
+            bg_centred(r, Font::NormalBlackOnLight, &label, tab[0] + 4.0, tab[1] + 7.0, tab[2]);
+        }
+    }
+
+    /// The campaign window (FUN_0041be10). "Begin Family History" shows the period the
+    /// family has reached as the only one to begin, earlier ones with their short
+    /// account and later ones with why they must wait (text 294, four lines a period);
+    /// Explore History's Campaigns tab lets every period play.
+    fn draw_periods(&self, r: &mut Renderer, panels: &PanelImages, f: &Frame) {
+        let explore = self.page == Page::HistoryPeriods;
+        let t = |g: usize, i: usize| self.text.get(g, i).unwrap_or("").trim().to_string();
+        let cursor = f.to_bg(self.cursor);
+        let k = self.period_sel;
+        let current = self.campaign.period;
+        let picture = match k {
+            0..5 => r.library.group_id("Pharaoh_Unloaded", 28, k),
+            _ => r.library.group_id("Expansion", 38, PERIOD_PICTURES[k - 5]),
+        };
+        if let Ok(id) = picture {
+            bg_image(r, id, 270.0, if explore { 200.0 } else { 204.0 });
+        }
+        let title = t(293, if explore { 6 } else { 5 }).replace("[player_name]", &self.family);
+        bg_centred(r, Font::LargeBlackOnLight, &title, 212.0, 161.0, 600.0);
+        bg_centred(r, Font::LargeBlackOnDark, &t(294, 4 * k), 531.0, 204.0, 283.0);
+        let line = if explore || k == current { 2 } else if k < current { 1 } else { 3 };
+        bg_wrapped(r, Font::NormalWhiteOnDark, &t(294, 4 * k + line), 539.0, 260.0, 269.0);
+
+        bg_text(r, Font::NormalBlackOnLight, &t(294, 41), 222.0, 410.0);
+        bg_text(r, Font::NormalBlackOnLight, &t(294, 42), 222.0, 510.0);
+        for (i, &[x, y]) in PERIOD_BUTTONS.iter().enumerate() {
+            let enabled = explore || i == current;
+            let lit = enabled && inside(cursor, x, y, PERIOD_W, BUTTON_H);
+            panel::large_label(r, panels, x, y, (PERIOD_W / 16.0) as i32, lit as u32);
+            let font = if enabled { Font::NormalBlackOnLight } else { Font::NormalBlue };
+            bg_centred(r, font, &t(27, i), x, y + 6.0, PERIOD_W);
+        }
+        if explore {
+            self.draw_tabs(r, panels, cursor, true);
+            bg_text(r, Font::NormalBlackOnLight, &t(294, 37), 742.0, 589.0);
+            bg_text(r, Font::NormalBlackOnLight, &t(44, 217), 572.0, 589.0);
+            if let Ok(cancel) = r.library.group_id("Pharaoh_General", 96, 4) {
+                bg_image(r, cancel + inside4(cursor, EXIT_BUTTON) as u32, EXIT_BUTTON[0], EXIT_BUTTON[1]);
+            }
+        } else if k == current {
+            bg_text(r, Font::NormalBlackOnLight, &t(294, 36), 612.0, 589.0);
+        }
+        if (explore || k == current)
+            && let Ok(go) = r.library.group_id("Pharaoh_General", 192, 0)
+        {
+            bg_image(r, go + inside4(cursor, PLAY_BUTTON) as u32, PLAY_BUTTON[0], PLAY_BUTTON[1]);
+        }
+    }
+
+    /// The mission briefing (FUN_0041a180): the briefing's title and subtitle, the
+    /// objectives as labels, the briefing itself below, and at the bottom the
+    /// difficulty and the way to the city.
+    fn draw_briefing(&self, r: &mut Renderer, panels: &PanelImages, f: &Frame) {
+        let Some(b) = &self.briefing else { return };
+        let t = |g: usize, i: usize| self.text.get(g, i).unwrap_or("").trim().to_string();
+        let cursor = f.to_bg(self.cursor);
+        let [px, py] = BRIEF_AT;
+        panel::outer_panel(r, panels, px, py, 38, 28);
+        bg_text(r, Font::LargeBlackOnLight, &b.title, px + 16.0, py + 16.0);
+        bg_text(r, Font::NormalBlackOnLight, &b.subtitle, px + 16.0, py + 46.0);
+
+        panel::inner_panel(r, panels, px + 16.0, py + 64.0, 36, 6);
+        bg_text(r, Font::NormalYellow, &t(62, 10), px + 32.0, py + 72.0);
+        let w = &b.brief.win;
+        let mut goals = Vec::new();
+        if w.population.enabled {
+            goals.push(format!("{} {}", t(62, 11), w.population.value));
+        }
+        if w.housing_count.value != 0 {
+            goals.push(format!("{} {}", w.housing_count.value, t(29, w.housing_level.value.max(0) as usize + 20)));
+        }
+        for (g, id) in [(&w.culture, 12), (&w.prosperity, 13), (&w.monuments, 14), (&w.kingdom, 15)] {
+            if g.enabled {
+                goals.push(format!("{} {}", t(62, id), g.value));
+            }
+        }
+        for (line, [x, y]) in goals.iter().zip(GOAL_SLOTS) {
+            panel::label(r, panels, px + x, py + y, 15, 0);
+            bg_text(r, Font::NormalBlue, line, px + x + 8.0, py + y + 3.0);
+        }
+        if let Some(line) = &b.tutorial {
+            let [x, y] = GOAL_SLOTS[4];
+            panel::label(r, panels, px + x, py + y, 34, 0);
+            bg_text(r, Font::NormalBlue, line, px + x + 8.0, py + y + 3.0);
+        }
+
+        panel::inner_panel(r, panels, px + 16.0, py + 168.0, 34, 15);
+        let [tx, ty, tw, th] = BRIEF_TEXT;
+        let opts = rich_text::Options { font: Font::NormalWhiteOnDark, width: tw as i32, paragraph_indent: 0 };
+        let laid = rich_text::layout(&b.content, &opts, &mut rich_text::RendererMeasure::new(r));
+        let max = (laid.height as f32 - th).max(0.0);
+        self.briefing_max.set(max);
+        let scroll = self.briefing_scroll.min(max);
+        r.set_clip(Some([tx - 16.0, py + 171.0, tw + 32.0, th]));
+        rich_text::draw(r, &laid, [tx, ty - GLYPH_RISE - scroll], laid.height as f32, 0.0, text_color(Font::NormalWhiteOnDark));
+        r.set_clip(None);
+        if max > 0.0 {
+            panel::inner_panel(r, panels, px + 557.0, py + 192.0, 2, 12);
+        }
+
+        bg_text(r, Font::NormalBlackOnLight, &format!("{} {}", t(44, 216), t(153, self.difficulty as usize + 1)), px + 150.0, py + 417.0);
+        for (group, rect) in [(212, BRIEF_UP), (16, BRIEF_DOWN)] {
+            if let Ok(id) = r.library.group_id("Pharaoh_General", group, 0) {
+                bg_image(r, id + inside4(cursor, rect) as u32, rect[0], rect[1]);
+            }
+        }
+        if b.back {
+            bg_text(r, Font::NormalBlackOnLight, &t(13, 4), px + 50.0, py + 419.0);
+            if let Ok(id) = r.library.group_id("Pharaoh_General", 90, 8) {
+                bg_image(r, id + inside4(cursor, BRIEF_BACK) as u32, BRIEF_BACK[0], BRIEF_BACK[1]);
+            }
+        }
+        bg_text(r, Font::NormalBlackOnLight, &t(62, 7), px + 476.0, py + 417.0);
+        if let Ok(go) = r.library.group_id("Pharaoh_General", 192, 0) {
+            bg_image(r, go + inside4(cursor, BRIEF_GO) as u32, BRIEF_GO[0], BRIEF_GO[1]);
+        }
     }
 
     /// Custom Missions and Explore History, drawn as the original's one window: the
@@ -992,14 +1356,7 @@ impl Menu {
         let cursor = f.to_bg(self.cursor);
         if history {
             bg_centred(r, Font::LargeBlackOnLight, &t(293, 6), 212.0, 161.0, 600.0);
-            // Individual missions are this page; Osiris has no list of campaigns.
-            for (tab, label, on) in [(TAB_MISSIONS, t(294, 38), true), (TAB_CAMPAIGNS, t(294, 39), false)] {
-                panel::button_border(r, panels, tab[0], tab[1], tab[2] as i32, tab[3] as i32, on);
-                bg_centred(r, Font::NormalBlackOnLight, &label, tab[0] + 4.0, tab[1] + 7.0, tab[2]);
-                if !on {
-                    r.rect([tab[0], tab[1]], [tab[2], tab[3]], [0.0, 0.0, 0.0, 0.45], Space::Screen);
-                }
-            }
+            self.draw_tabs(r, panels, cursor, false);
         }
 
         let rows = self.visible_rows();
@@ -1286,15 +1643,19 @@ impl Menu {
     /// The delete-family Yes/No confirmation.
     fn draw_confirm(&self, r: &mut Renderer, panels: &PanelImages) {
         let Some(name) = &self.family_confirm else { return };
+        let body = format!("{} ({name})", self.family_text.delete_body);
+        self.draw_yes_no(r, panels, &self.family_text.delete_title, &body);
+    }
+
+    /// A Yes/No popup: a title and a short wrapped question.
+    fn draw_yes_no(&self, r: &mut Renderer, panels: &PanelImages, title: &str, body: &str) {
         let screen = r.screen;
         r.rect([0.0, 0.0], screen, [0.0, 0.0, 0.0, 0.5], Space::Screen);
         let [x, y, w, h] = Self::popup_rect(screen, CONFIRM_W, CONFIRM_H);
         panel::outer_panel(r, panels, x, y, (w / 16.0) as i32, (h / 16.0).ceil() as i32);
-        let title = &self.family_text.delete_title;
         let tw = text_width(r, Font::LargeBlackOnLight, title) as f32;
         draw_text(r, Font::LargeBlackOnLight, title, x + (w - tw) / 2.0, y + 10.0, font::BLACK);
-        let body = format!("{} ({name})", self.family_text.delete_body);
-        let layout = Self::wrap(r, &body, w - 32.0);
+        let layout = Self::wrap(r, body, w - 32.0);
         r.set_clip(Some([x + 16.0, y + 38.0, w - 32.0, h - 78.0]));
         rich_text::draw(r, &layout, [x + 16.0, y + 38.0], h - 78.0, 0.0, font::BLACK);
         r.set_clip(None);

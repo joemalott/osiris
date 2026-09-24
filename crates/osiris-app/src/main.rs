@@ -368,23 +368,57 @@ fn family_text(assets: &Assets) -> menu::FamilyText {
     }
 }
 
-/// What the menu shows of the campaign: the missions the player may start, which are
-/// won, and the choice of city waiting to be made, if any.
-fn campaign_view(assets: &Assets, p: &progress::Progress) -> menu::CampaignView {
+/// What the menu shows of the family's campaign: the missions won and their results,
+/// the period reached, and whether a city of it waits to be resumed. The choice of
+/// city waiting is that of the campaign being played, `at`.
+fn campaign_view(assets: &Assets, p: &progress::Progress, at: &progress::Progress) -> menu::CampaignView {
     let text = |id: u32| assets.text.get(144, id as usize).unwrap_or("").trim().to_string();
-    let choice = p.choice(&assets.campaign).map(|(screen, choices)| menu::ChoiceView {
+    let choice = at.choice(&assets.campaign).map(|(screen, choices)| menu::ChoiceView {
         map: menu::CHOICE_MAPS + screen.graphic_id,
         title: text(screen.title_text_id),
         prompt: text(0),
         points: choices.iter().map(|c| menu::ChoicePoint { x: c.x as f32, y: c.y as f32, label: text(c.text_id), path: c.path_id }).collect(),
     });
-    let count = assets.mission_names.len();
     menu::CampaignView {
-        playable: p.playable().into_iter().filter(|&m| m < count).collect(),
         done: p.done.clone(),
         choice,
         results: p.results.clone(),
+        period: p.period(&assets.campaign),
+        resume: p.save.as_ref().is_some_and(|s| s.exists()),
     }
+}
+
+/// The first five missions teach the game, and their briefings name the tutorial's
+/// first goal (text 62, FUN_004e2530 with nothing yet done).
+const TUTORIAL_GOALS: [usize; 5] = [21, 24, 28, 33, 31];
+
+/// Mission `m`'s briefing: its campaign.txt intro message and its goals.
+fn briefing_view(assets: &Assets, m: usize, back: bool) -> menu::BriefingView {
+    let intro = progress::mission_entry(&assets.campaign, m).map_or(200 + m, |e| e.intro_mm as usize);
+    let msg = assets.messages.get(intro).cloned().unwrap_or_default();
+    let name = assets.mission_names.get(m).cloned().unwrap_or_default();
+    let brief = MissionPak::open(&assets.data.join("mission1.pak")).ok().and_then(|pak| pak.scenario(m).ok()).map(|s| mission_brief::Brief::new(name, &s)).unwrap_or_default();
+    menu::BriefingView {
+        mission: m,
+        title: msg.title,
+        subtitle: msg.subtitle,
+        content: msg.content,
+        brief,
+        tutorial: TUTORIAL_GOALS.get(m).and_then(|&i| assets.text.get(62, i)).map(|s| s.trim().to_owned()),
+        back,
+    }
+}
+
+/// How the mission in play was started, which decides what follows a win.
+#[derive(Debug, Clone)]
+enum Run {
+    /// The family history: a win moves the family's campaign on.
+    History,
+    /// A period played from Explore History: wins walk its missions and choices, the
+    /// family's own campaign stays where it is.
+    Replay(progress::Progress),
+    /// A single mission from Explore History's list, a custom map or another save.
+    Single,
 }
 
 enum Screen {
@@ -414,6 +448,9 @@ struct App {
     autosaved: Option<(i32, std::time::Instant)>,
     /// The active family; empty until one is chosen (gating the menu on startup).
     family: String,
+    run: Run,
+    /// The city picked on the choice screen, taken once its briefing is read.
+    pending_path: Option<u32>,
 }
 
 impl App {
@@ -424,7 +461,15 @@ impl App {
     }
 
     fn menu(&self) -> Box<menu::Menu> {
-        let campaign = if self.family.is_empty() { menu::CampaignView::default() } else { campaign_view(&self.assets, &load_progress(&self.assets.campaign, &self.family)) };
+        let campaign = if self.family.is_empty() {
+            menu::CampaignView::default()
+        } else {
+            let p = load_progress(&self.assets.campaign, &self.family);
+            match &self.run {
+                Run::Replay(q) => campaign_view(&self.assets, &p, q),
+                _ => campaign_view(&self.assets, &p, &p),
+            }
+        };
         let mut menu = Box::new(menu::Menu::new(
             self.assets.mission_names.clone(),
             campaign,
@@ -446,6 +491,7 @@ impl App {
         let mut game = game::Game::new(world, images, self.assets.text.clone(), self.assets.messages.clone(), self.audio.clone());
         game.phrases = self.assets.phrases.clone();
         game.player_name = player_name();
+        game.victory_text = mission.and_then(|m| progress::mission_entry(&self.assets.campaign, m)).map_or(37, |e| e.victory_text as usize);
         game.set_autosave(load_autosave());
         self.autosaved = None;
         start_camera(&mut gfx.renderer, &mut game);
@@ -453,44 +499,177 @@ impl App {
     }
 
     fn choose(&mut self, choice: menu::Choice, event_loop: &ActiveEventLoop) {
+        let c = self.assets.campaign.clone();
         let result = match &choice {
             menu::Choice::Quit => {
                 event_loop.exit();
                 return;
             }
-            menu::Choice::Mission(n) => new_world(&self.assets, &Source::Mission(*n), load_difficulty()).map(|w| (w, Some(*n))),
+            // Explore History's list: the mission on its own, after its briefing.
+            menu::Choice::Mission(n) => {
+                self.run = Run::Single;
+                self.pending_path = None;
+                self.brief(*n, false);
+                return;
+            }
+            menu::Choice::Resume => {
+                let p = load_progress(&c, &self.family);
+                match p.save.as_deref().map(|s| load_game(&self.assets, s)) {
+                    Some(Ok(w)) => {
+                        self.run = Run::History;
+                        let m = w.mission.as_ref().map(|m| m.id as usize);
+                        Ok((w, m))
+                    }
+                    Some(Err(e)) => Err(e),
+                    None => return,
+                }
+            }
+            menu::Choice::Begin => {
+                self.run = Run::History;
+                self.step();
+                return;
+            }
+            menu::Choice::Period(k) => {
+                self.run = Run::Replay(progress::Progress::at_period(&c, *k));
+                self.step();
+                return;
+            }
+            menu::Choice::ToCity(m) => {
+                // The city picked on the choice screen is only taken now.
+                if let Some(path) = self.pending_path.take() {
+                    match &mut self.run {
+                        Run::History => {
+                            let mut p = load_progress(&c, &self.family);
+                            p.choose(&c, path);
+                            save_progress(&p, &self.family);
+                        }
+                        Run::Replay(q) => q.choose(&c, path),
+                        Run::Single => {}
+                    }
+                }
+                new_world(&self.assets, &Source::Mission(*m), load_difficulty()).map(|w| (w, Some(*m)))
+            }
             menu::Choice::Family(name) => {
                 self.family = name.clone();
                 choose_family(&self.family);
                 self.screen = Some(Screen::Menu(self.menu()));
                 return;
             }
+            // A city is picked: its first mission's briefing, from which Cancel goes
+            // back to the choice.
             menu::Choice::Path(path) => {
-                // The city is chosen: on to its first mission.
-                let mut p = load_progress(&self.assets.campaign, &self.family);
-                p.choose(&self.assets.campaign, *path);
-                save_progress(&p, &self.family);
-                match p.next {
-                    progress::Next::Mission(m) => {
-                        self.choose(menu::Choice::Mission(m), event_loop);
-                    }
-                    _ => {
-                        let mut menu = self.menu();
-                        menu.show_campaign();
-                        self.screen = Some(Screen::Menu(menu));
-                    }
+                let mut at = match &self.run {
+                    Run::Replay(q) => q.clone(),
+                    _ => load_progress(&c, &self.family),
+                };
+                at.choose(&c, *path);
+                if let progress::Next::Mission(m) = at.next {
+                    self.pending_path = Some(*path);
+                    self.brief(m, true);
+                } else {
+                    self.screen = Some(Screen::Menu(self.menu()));
                 }
                 return;
             }
-            menu::Choice::Map(p) => new_world(&self.assets, &Source::Map(p.clone()), load_difficulty()).map(|w| (w, None)),
+            menu::Choice::Map(p) => {
+                self.run = Run::Single;
+                new_world(&self.assets, &Source::Map(p.clone()), load_difficulty()).map(|w| (w, None))
+            }
             menu::Choice::Save(p) => load_game(&self.assets, p).map(|w| {
                 let m = w.mission.as_ref().map(|m| m.id as usize);
+                // A save of the family's next mission goes on with its history.
+                let next = load_progress(&c, &self.family).next;
+                self.run = if m.is_some_and(|m| next == progress::Next::Mission(m)) { Run::History } else { Run::Single };
                 (w, m)
             }),
         };
         match result {
             Ok((world, mission)) => self.start(world, mission),
             Err(e) => self.status = Some((format!("Could not start: {e}"), 5.0)),
+        }
+    }
+
+    /// Mission `m`'s briefing, before its city.
+    fn brief(&mut self, m: usize, back: bool) {
+        let mut menu = self.menu();
+        menu.show_briefing(briefing_view(&self.assets, m, back));
+        self.screen = Some(Screen::Menu(menu));
+    }
+
+    /// What comes next in the campaign being played: a mission's briefing, the choice
+    /// of a city, or, at the end, the family's menu.
+    fn step(&mut self) {
+        let next = match &self.run {
+            Run::Replay(q) => q.next.clone(),
+            Run::History => load_progress(&self.assets.campaign, &self.family).next,
+            Run::Single => progress::Next::End,
+        };
+        match next {
+            progress::Next::Mission(m) => self.brief(m, false),
+            progress::Next::Choice(_) => {
+                let mut menu = self.menu();
+                menu.show_choice();
+                self.screen = Some(Screen::Menu(menu));
+            }
+            progress::Next::End => self.screen = Some(Screen::Menu(self.menu())),
+        }
+    }
+
+    /// The mission is played again from its start, as the same kind of play.
+    fn restart(&mut self, m: usize) {
+        match new_world(&self.assets, &Source::Mission(m), load_difficulty()) {
+            Ok(world) => self.start(world, Some(m)),
+            Err(e) => self.status = Some((format!("Could not start: {e}"), 5.0)),
+        }
+    }
+
+    /// The victory has been read. As in the original (FUN_00418640), the family keeps
+    /// the best result of any campaign mission won. The family history moves on to the
+    /// next mission or choice of the period; when the period is won, the campaign
+    /// window offers the next one, except after the New Kingdom (where the original
+    /// plays its closing film) and at the very end, which go back to the family's
+    /// menu. A period played from Explore History walks its missions the same way and
+    /// ends at the menu; a single mission goes straight back.
+    fn mission_won(&mut self, mission: Option<(usize, osiris_sim::ratings::MissionResult)>) {
+        let c = self.assets.campaign.clone();
+        let Some((m, result)) = mission else {
+            self.screen = Some(Screen::Menu(self.menu()));
+            return;
+        };
+        let mut p = load_progress(&c, &self.family);
+        p.record(m, result);
+        if !self.family.is_empty() {
+            if matches!(self.run, Run::History) {
+                let before = p.period(&c);
+                p.won(&c, m);
+                p.save = None;
+                save_progress(&p, &self.family);
+                let now = p.period(&c);
+                if now != before {
+                    let mut menu = self.menu();
+                    if now != 5 && now < c.sections.len() {
+                        menu.show_periods(now, true);
+                    }
+                    self.screen = Some(Screen::Menu(menu));
+                    return;
+                }
+            } else {
+                save_progress(&p, &self.family);
+            }
+        }
+        match &mut self.run {
+            Run::History => self.step(),
+            Run::Replay(q) => {
+                let before = q.period(&c);
+                q.won(&c, m);
+                if q.period(&c) == before {
+                    self.step();
+                } else {
+                    self.run = Run::Single;
+                    self.screen = Some(Screen::Menu(self.menu()));
+                }
+            }
+            Run::Single => self.screen = Some(Screen::Menu(self.menu())),
         }
     }
 
@@ -510,7 +689,7 @@ impl App {
                 self.screen = Some(Screen::Menu(menu));
             }
             MenuAction::Replay => match mission {
-                Some(n) => self.choose(menu::Choice::Mission(n), event_loop),
+                Some(n) => self.restart(n),
                 None => self.status = Some(("Only campaign missions can be replayed".into(), 3.0)),
             },
             _ => self.screen = Some(Screen::Menu(self.menu())),
@@ -530,6 +709,20 @@ impl App {
             Err(e) => format!("Save failed: {e}"),
         };
         self.status = Some((msg, 3.0));
+        self.saved_history(path);
+    }
+
+    /// A city of the family history was saved: "Resume Family History" loads it, as
+    /// the original keeps the history's save in the player file.
+    fn saved_history(&self, path: PathBuf) {
+        if !matches!(self.run, Run::History) || self.family.is_empty() {
+            return;
+        }
+        let mut p = load_progress(&self.assets.campaign, &self.family);
+        if p.save.as_ref() != Some(&path) {
+            p.save = Some(path);
+            save_progress(&p, &self.family);
+        }
     }
 
     fn quickload(&mut self) {
@@ -549,19 +742,23 @@ impl App {
 /// The original saves the city to last.sav as each month begins while Autosave is
 /// on. Osiris keeps one autosave per city, beside its saved game; at high speeds
 /// it saves at most every few seconds, and writes the file off the main thread.
-fn autosave(game: &game::Game, saves: &Path, last: &mut Option<(i32, std::time::Instant)>) {
+fn autosave(game: &game::Game, saves: &Path, last: &mut Option<(i32, std::time::Instant)>) -> Option<PathBuf> {
     let w = &game.world;
     let month = w.time.year * 12 + w.time.month as i32;
     let now = std::time::Instant::now();
     match *last {
-        None => *last = Some((month, now)),
+        None => {
+            *last = Some((month, now));
+            None
+        }
         Some((m, t)) if m != month && now - t >= std::time::Duration::from_secs(3) => {
             *last = Some((month, now));
             if !game.autosave || w.won || w.lost {
-                return;
+                return None;
             }
-            let Ok(bytes) = w.save() else { return };
+            let bytes = w.save().ok()?;
             let path = autosave_path(saves, &w.scenario_name);
+            let written = path.clone();
             std::thread::spawn(move || {
                 let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
                 let tmp = path.with_extension("tmp");
@@ -569,8 +766,9 @@ fn autosave(game: &game::Game, saves: &Path, last: &mut Option<(i32, std::time::
                     let _ = std::fs::rename(&tmp, &path);
                 }
             });
+            Some(written)
         }
-        Some(_) => {}
+        Some(_) => None,
     }
 }
 
@@ -796,6 +994,7 @@ impl App {
         let saves = self.saves_dir();
         let Some(gfx) = &mut self.gfx else { return };
         let mut finished: Option<Option<(usize, osiris_sim::ratings::MissionResult)>> = None;
+        let mut autosaved = None;
         let mut lost_choice: Option<(top_menu::MenuAction, Option<usize>)> = None;
         match &mut self.screen {
             Some(Screen::Menu(m)) => {
@@ -842,7 +1041,7 @@ impl App {
                 if std::mem::take(&mut game.autosave_changed) {
                     save_autosave(game.autosave);
                 }
-                autosave(game, &saves, &mut self.autosaved);
+                autosaved = autosave(game, &saves, &mut self.autosaved);
                 // Once the victory message has been read, go on to the next mission.
                 if game.world.won && game.idle() {
                     finished = Some(mission.map(|m| (m, game.world.mission_result())));
@@ -864,28 +1063,14 @@ impl App {
                 Ok(world) => self.start(world, Some(n)),
                 Err(e) => self.status = Some((format!("Could not start: {e}"), 5.0)),
             },
-            Some((_, mission)) => {
-                let mut menu = self.menu();
-                if mission.is_some() {
-                    menu.show_campaign();
-                }
-                self.screen = Some(Screen::Menu(menu));
-            }
+            Some(_) => self.screen = Some(Screen::Menu(self.menu())),
             None => {}
         }
+        if let Some(path) = autosaved {
+            self.saved_history(path);
+        }
         if let Some(mission) = finished {
-            if let Some((m, result)) = mission {
-                let mut p = load_progress(&self.assets.campaign, &self.family);
-                p.won(&self.assets.campaign, m);
-                p.record(m, result);
-                save_progress(&p, &self.family);
-            }
-            let mut menu = self.menu();
-            if mission.is_some() {
-                // The next mission, or the choice of the next city.
-                menu.show_campaign();
-            }
-            self.screen = Some(Screen::Menu(menu));
+            self.mission_won(mission);
         }
         if let Some(gfx) = &self.gfx {
             gfx.window.request_redraw();
@@ -1007,16 +1192,33 @@ fn main() -> Result<()> {
         };
         let images = sidebar::SidebarImages::load(&library)?;
         if view.menu {
-            // A campaign part-way through, at its first choice of city.
+            // A campaign part-way through: `menuwins` steps into it (each a mission won
+            // or the first city chosen), or else up to its first choice of city.
             let c = &assets.campaign;
             let mut p = progress::Progress::new(c);
-            while let progress::Next::Mission(m) = p.next {
-                p.won(c, m);
+            match view.menu_wins {
+                Some(n) => {
+                    for _ in 0..n {
+                        match p.next {
+                            progress::Next::Mission(m) => p.won(c, m),
+                            progress::Next::Choice(_) => {
+                                let path = p.choice(c).and_then(|(_, ch)| ch.first()).map_or(0, |x| x.path_id);
+                                p.choose(c, path);
+                            }
+                            progress::Next::End => break,
+                        }
+                    }
+                }
+                None => {
+                    while let progress::Next::Mission(m) = p.next {
+                        p.won(c, m);
+                    }
+                }
             }
             let family = load_current_family();
             let mut menu = menu::Menu::new(
                 assets.mission_names.clone(),
-                campaign_view(&assets, &p),
+                campaign_view(&assets, &p, &p),
                 list_files(&assets.data.join("Maps"), "map"),
                 vec![],
                 Default::default(),
@@ -1028,6 +1230,16 @@ fn main() -> Result<()> {
             menu.difficulty = load_difficulty();
             if let Some(page) = &view.menu_page {
                 menu.open_page(page);
+            }
+            if let Some(k) = view.menu_period {
+                menu.show_periods(k, false);
+                if view.menu_page.as_deref() == Some("history") {
+                    menu.open_page("history");
+                    menu.pick_period(k);
+                }
+            }
+            if let Some(m) = view.menu_brief {
+                menu.show_briefing(briefing_view(&assets, m, view.menu_page.as_deref() == Some("choice")));
             }
             if let Some(i) = view.menu_pick {
                 menu.pick_row(i);
@@ -1137,6 +1349,8 @@ fn main() -> Result<()> {
         drawn_request: None,
         autosaved: None,
         family: load_current_family(),
+        run: Run::Single,
+        pending_path: None,
     };
     event_loop.run_app(&mut app)?;
     Ok(())

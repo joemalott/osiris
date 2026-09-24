@@ -22,6 +22,11 @@ pub struct ScriptView {
     /// prior results.
     pub menu_pick: Option<usize>,
     pub menu_results: bool,
+    /// Steps taken into the family's campaign (missions won, first cities chosen).
+    pub menu_wins: Option<usize>,
+    /// A period picked on the campaign window, and a mission's briefing to show.
+    pub menu_period: Option<usize>,
+    pub menu_brief: Option<usize>,
     pub rules: bool,
     /// Opens the Difficulty window.
     pub difficulty: bool,
@@ -141,6 +146,12 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             ["menupick", n] => view.menu_pick = Some(n.parse()?),
             ["menuresults"] => view.menu_results = true,
+            ["menuwins", n] => view.menu_wins = Some(n.parse()?),
+            ["menuperiod", k] => view.menu_period = Some(k.parse()?),
+            ["menubrief", m] => {
+                view.menu = true;
+                view.menu_brief = Some(m.parse()?);
+            }
             ["rules"] => view.rules = true,
             ["difficultywindow"] => view.difficulty = true,
             ["leave"] => view.leave = true,
