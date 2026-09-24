@@ -163,7 +163,7 @@ pub fn figure_sprite(world: &World, f: &osiris_sim::figures::Figure) -> Option<S
     let def = world.defs.figure(f.kind)?;
     let anim = |key: &str| def.anims.get(key);
     let at = |image: u32| Some(Sprite { behind: false, x: f.x, y: f.y, offset: f.pixel_offset(), image });
-    if f.action == osiris_sim::military::action::CORPSE && !plagues::keeps_own_corpse(f.kind) {
+    if f.action == osiris_sim::military::action::CORPSE && !plagues::keeps_own_corpse(f.kind) && !osiris_sim::predators::is_predator(f.kind) {
         let death = anim("death")?;
         let frame = (FALL_FRAMES[(f.counter / 2).clamp(0, 63) as usize] as u32).min(death.frames.max(1) - 1);
         return at(death.image + frame);

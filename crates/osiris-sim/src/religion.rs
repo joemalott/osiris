@@ -795,7 +795,7 @@ pub fn ra_allowance(steps: i32, base: i32) -> i32 {
 
 /// Whether Seth's hail can strike a figure of kind `k`: not the traders, monument
 /// crews, standard bearers, missiles and ferries the city keeps other accounts of.
-fn hail_strikes(k: u16) -> bool {
+pub(crate) fn hail_strikes(k: u16) -> bool {
     use crate::{docks, military, monuments, royal_tombs, trade, water};
     !matches!(
         k,

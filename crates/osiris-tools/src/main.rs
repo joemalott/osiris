@@ -166,6 +166,10 @@ fn describe(name: &str, s: &Scenario) {
     if i.win.time_limit.enabled || i.win.survival_time.enabled {
         println!("    time limit {:?} survival {:?}", i.win.time_limit, i.win.survival_time);
     }
+    let herds = |pts: &[osiris_formats::scenario::TilePoint]| pts.iter().filter(|p| p.x > 0).map(|p| (p.x, p.y)).collect::<Vec<_>>();
+    if i.predator_herd_points.iter().chain(&i.prey_herd_points).any(|p| p.x > 0) {
+        println!("    herds: animals {} predators {:?} (alt {}) prey {:?}", i.has_animals, herds(&i.predator_herd_points), i.alt_predator_type, herds(&i.prey_herd_points));
+    }
     let burial: Vec<(usize, u32)> = i.burial_provisions_required.iter().copied().enumerate().filter(|p| p.1 > 0).collect();
     if !burial.is_empty() {
         println!("    burial provisions {burial:?}");

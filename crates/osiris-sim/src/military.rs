@@ -99,7 +99,7 @@ pub const COMPANY_SIZE: usize = 16;
 const BLOW_TICKS: u16 = 24;
 /// Where a blow's count starts when it strikes the first blow of a fight, or a
 /// citizen or criminal.
-const QUICK_BLOW: u16 = 12;
+pub(crate) const QUICK_BLOW: u16 = 12;
 /// The most armour counts for.
 const MAX_ARMOR: i32 = 20;
 /// The straight run (tiles) over which a charging chariot tramples at four times
@@ -314,6 +314,8 @@ pub struct DistantBattle {
 pub struct Combatants {
     pub defenders: Vec<(FigureId, i32, i32)>,
     pub invaders: Vec<(FigureId, i32, i32)>,
+    /// The wild beasts about, whom the city's men fight like invaders.
+    pub predators: Vec<(FigureId, i32, i32)>,
 }
 
 /// Whether direction `a` is `b` or one step either side of it: a man fighting that
@@ -874,6 +876,10 @@ impl World {
         for f in self.figures.iter().filter(|f| !f.dead && f.action != action::CORPSE) {
             if self.is_invader(f) {
                 c.invaders.push((f.id, f.x, f.y));
+            } else if crate::predators::is_predator(f.kind) {
+                if f.action != crate::predators::action::HIDDEN {
+                    c.predators.push((f.id, f.x, f.y));
+                }
             } else if is_soldier(f.kind) || matches!(f.kind, crate::crime::CONSTABLE | crate::defenses::TOWER_SENTRY) {
                 c.defenders.push((f.id, f.x, f.y));
             }
@@ -881,11 +887,18 @@ impl World {
         self.combatants = c;
     }
 
+    /// The figures the city's men (or, with `invader`, the invaders) fight: the
+    /// invaders and the wild beasts, or the city's men.
+    fn foes(&self, invader: bool) -> impl Iterator<Item = &(FigureId, i32, i32)> {
+        let c = &self.combatants;
+        let (list, beasts) = if invader { (&c.defenders, &c.predators[..0]) } else { (&c.invaders, &c.predators[..]) };
+        list.iter().chain(beasts)
+    }
+
     /// The nearest living enemy of a figure on the invaders' side (`invader`) or the
     /// city's, within `range` tiles: its id and tile.
     pub(crate) fn nearest_foe(&self, invader: bool, (x, y): (i32, i32), range: i32) -> Option<(FigureId, i32, i32)> {
-        let list = if invader { &self.combatants.defenders } else { &self.combatants.invaders };
-        list.iter()
+        self.foes(invader)
             .filter(|&&(_, ox, oy)| (ox - x).abs() <= range && (oy - y).abs() <= range)
             .filter(|&&(id, _, _)| self.figures.get(id).is_some_and(|o| !o.dead && o.action != action::CORPSE))
             .min_by_key(|&&(_, ox, oy)| (ox - x).abs() + (oy - y).abs())
@@ -913,6 +926,7 @@ impl World {
             && !matches!(o.action, action::ATTACK | action::CORPSE | action::FLEEING | action::GOING_ABROAD)
             && o.kind != crate::defenses::TOWER_SENTRY
         {
+            o.resume = o.action;
             o.foe = fid;
             o.action = action::ATTACK;
             o.attack_tick = 0;
@@ -926,8 +940,7 @@ impl World {
     /// within `range` tiles, whom it can take on: one not already fighting two, nor a
     /// chariot at the charge.
     pub(crate) fn nearest_open_foe(&self, invader: bool, (x, y): (i32, i32), range: i32) -> Option<(FigureId, i32, i32)> {
-        let list = if invader { &self.combatants.defenders } else { &self.combatants.invaders };
-        list.iter()
+        self.foes(invader)
             .filter(|&&(_, ox, oy)| (ox - x).abs() <= range && (oy - y).abs() <= range)
             .filter(|&&(id, _, _)| self.figures.get(id).is_some_and(|o| !o.dead && o.action != action::CORPSE))
             .filter(|&&(id, _, _)| self.attackers(id) < 2 && !self.riding(id))
@@ -938,8 +951,15 @@ impl World {
     /// How many are fighting a figure, if it is fighting itself.
     fn attackers(&self, fid: FigureId) -> usize {
         let Some(f) = self.figures.get(fid).filter(|f| f.action == action::ATTACK) else { return 0 };
-        let list = if self.is_invader(f) { &self.combatants.defenders } else { &self.combatants.invaders };
-        list.iter().filter(|&&(id, _, _)| self.figures.get(id).is_some_and(|a| a.action == action::ATTACK && a.foe == fid)).count()
+        let c = &self.combatants;
+        let list: Vec<&(FigureId, i32, i32)> = if self.is_invader(f) {
+            c.defenders.iter().chain(&c.predators).collect()
+        } else if crate::predators::is_predator(f.kind) {
+            c.defenders.iter().chain(&c.invaders).collect()
+        } else {
+            c.invaders.iter().chain(&c.predators).collect()
+        };
+        list.into_iter().filter(|&&(id, _, _)| self.figures.get(id).is_some_and(|a| a.action == action::ATTACK && a.foe == fid)).count()
     }
 
     /// Whether a soldier is a charioteer charging with horses still fresh.
@@ -1100,7 +1120,7 @@ impl World {
         // The original means to add (experience + 10) / 20 to the armour of the
         // city's men, but takes the striker's company's experience: an invader's,
         // which is none.
-        let seasoned = if !self.figures.get(foe).is_some_and(|o| self.is_invader(o)) { (company.and_then(|c| self.military.companies.get(c)).map_or(0, |c| c.experience) + 10) / 20 } else { 0 };
+        let seasoned = if !self.figures.get(foe).is_some_and(|o| self.is_invader(o) || crate::predators::is_predator(o.kind) || crate::animals::is_animal(o.kind)) { (company.and_then(|c| self.military.companies.get(c)).map_or(0, |c| c.experience) + 10) / 20 } else { 0 };
         let mut armor = (theirs.armor + seasoned).min(MAX_ARMOR);
         let mut attack = mine.attack;
         // Infantry and charioteers strike at the back of a man busy with another.
@@ -1302,7 +1322,13 @@ impl World {
         let (x, y) = (f.x, f.y);
         let mine = self.figures.get(fid).is_some_and(|f| self.is_invader(f));
         let range = stats.missile_range;
-        let target = self.nearest_foe(mine, (x, y), range);
+        // The city's men shoot at invaders before beasts.
+        let target = if mine {
+            self.nearest_foe(true, (x, y), range)
+        } else {
+            let near = |list: &[(FigureId, i32, i32)]| list.iter().filter(|o| (o.1 - x).abs() <= range && (o.2 - y).abs() <= range).min_by_key(|o| (o.1 - x).abs() + (o.2 - y).abs()).copied();
+            near(&self.combatants.invaders).or_else(|| near(&self.combatants.predators))
+        };
         let Some((target, tx, ty)) = target else { return };
         if let Some(f) = self.figures.get_mut(fid) {
             f.direction = crate::figures::direction_to((x, y), (tx, ty)).unwrap_or(f.direction);

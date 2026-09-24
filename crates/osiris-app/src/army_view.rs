@@ -59,6 +59,26 @@ pub fn fighter_sprite(world: &World, f: &Figure) -> Option<Sprite> {
     Some(Sprite { behind: false, x: f.x, y: f.y, offset, image })
 }
 
+/// A wild beast's sprite, as the original pictures it in each of its states; `None`
+/// while it is unseen.
+pub fn beast_sprite(world: &World, f: &Figure) -> Option<Sprite> {
+    let p = world.predator_picture(f.id)?;
+    let a = world.defs.figure(f.kind)?.anims.get(p.anim)?;
+    let frame = p.frame.min(a.frames.max(1) - 1);
+    let image = if p.facing { a.image + f.direction as u32 % 8 + 8 * frame } else { a.image + frame };
+    Some(Sprite { behind: false, x: f.x, y: f.y, offset: f.pixel_offset(), image })
+}
+
+/// Someone a beast has killed (a walker, or game), lying where they fell.
+pub fn fallen_sprite(world: &World, f: &Figure) -> Option<Sprite> {
+    if f.action != action::CORPSE {
+        return None;
+    }
+    let d = world.defs.figure(f.kind)?.anims.get("death")?;
+    let image = d.image + (f.counter / DEATH_FRAME_TICKS).clamp(0, d.frames as i32 - 1) as u32;
+    Some(Sprite { behind: false, x: f.x, y: f.y, offset: f.pixel_offset(), image })
+}
+
 /// A company's standard: its pole with the morale ball (lower the lower the
 /// company's morale) and the experience ball (higher the more experienced), its flag
 /// waving above, and the company's sign on top.

@@ -28,6 +28,8 @@ impl World {
                 self.check_siege();
             }
             4 => self.check_bankruptcy(),
+            // The herds, like the original's formations, twice a day.
+            5 | 29 => self.update_herds(),
             7 => {
                 for id in self.buildings.ids() {
                     self.refresh_road_access(id);
@@ -97,7 +99,6 @@ impl World {
             self.advance_month_finance();
             self.pay_salary();
             self.count_debt_months();
-            self.regrow_herds();
             self.update_gods_month();
             self.update_ratings_month();
             self.update_funerals();
@@ -126,9 +127,14 @@ impl World {
         self.gather_combatants();
         for fid in self.figures.ids() {
             let kind = self.figures.get(fid).map_or(0, |f| f.kind);
-            let fallen = self.figures.get(fid).is_some_and(|f| f.action == crate::military::action::CORPSE) && !crate::plagues::keeps_own_corpse(kind);
+            let fallen = self.figures.get(fid).is_some_and(|f| f.action == crate::military::action::CORPSE)
+                && !crate::plagues::keeps_own_corpse(kind)
+                && !crate::predators::is_predator(kind);
+            // Anyone a beast has set upon trades blows (or lies fallen) instead.
+            let fought = !fallen && self.fight_in_place(fid);
             match kind {
                 _ if fallen => self.update_fallen(fid),
+                _ if fought => {}
                 crate::plagues::FROG => self.update_frog(fid),
                 crate::plagues::LOCUST => self.update_locust(fid),
                 crate::plagues::SHIPWRECK => self.update_shipwreck(fid),
@@ -147,6 +153,7 @@ impl World {
                 crate::trade::CARAVAN_DONKEY => self.update_donkey(fid),
                 crate::food::MARKET_BUYER => self.update_buyer(fid),
                 k if crate::animals::is_animal(k) => self.update_animal(fid),
+                k if crate::predators::is_predator(k) => self.update_predator(fid),
                 k if crate::animals::is_hunter(k) => self.update_hunter(fid),
                 crate::farms::PEASANT => self.update_peasant(fid),
                 crate::crime::ROBBER => self.update_thief(fid),

@@ -61,6 +61,10 @@ pub struct ScenarioInfo {
     pub player_rank: i16,
     pub predator_herd_points: Vec<TilePoint>,
     pub predator_herd_types: Vec<u16>,
+    /// The scenario's second choice of predator for its climate (Cleopatra's "killer
+    /// type"): asps rather than hippos, lions rather than crocodiles, scorpions
+    /// rather than hyenas.
+    pub alt_predator_type: u16,
     pub fishing_points: Vec<TilePoint>,
     pub invasion_points_land: Vec<TilePoint>,
     pub invasion_points_sea: Vec<TilePoint>,
@@ -155,7 +159,7 @@ impl ScenarioInfo {
         s.player_rank = r.i16()?;
         s.predator_herd_points = points_u16(&mut r, 4)?;
         s.fishing_points = points_u16(&mut r, 8)?;
-        let _alt_predator_type = r.u16()?;
+        s.alt_predator_type = r.u16()?;
         s.predator_herd_types = (0..4).map(|_| r.u16()).collect::<Result<_>>()?;
         r.skip(30)?;
         s.kingdom_supplies_grain = r.i32()? != 0;

@@ -649,7 +649,7 @@ terrain_usage = "roads"
 id = 82
 key = "crocodile"
 category = "hostile"
-anims = { walk = { pack = "SprMain", group = 23, offset = 0, frames = 12 }, death = { pack = "SprMain", group = 24, offset = 0, frames = 8, duration = 3, loop = false }, attack = { pack = "SprMain", group = 25, offset = 0, frames = 6 }, swim = { pack = "SprMain", group = 26, offset = 0, frames = 11 }, idle = { pack = "SprMain", group = 23, offset = 0, frames = 1, loop = false }, swim_idle = { pack = "SprMain", group = 27, offset = 0, frames = 11 }, eating = { pack = "SprMain", group = 25, offset = 0, frames = 6 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 82 } }
+anims = { walk = { pack = "SprMain", group = 23, offset = 0, frames = 12 }, death = { pack = "SprMain", group = 24, offset = 0, frames = 8, loop = false }, attack = { pack = "SprMain", group = 25, offset = 0, frames = 7 }, swim = { pack = "SprMain", group = 26, offset = 0, frames = 11 }, swim_idle = { pack = "SprMain", group = 27, offset = 0, frames = 11 }, sink = { pack = "SprAmbient", group = 11, offset = 0, frames = 23, loop = false }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 82 } }
 attack_value = 7
 chase_speed_mult = 2
 max_damage = 200
@@ -661,7 +661,7 @@ terrain_usage = "amphibia"
 id = 83
 key = "hyena"
 category = "animal"
-anims = { walk = { pack = "SprMain", group = 161, offset = 0, frames = 12 }, attack = { pack = "SprMain", group = 162, offset = 0, frames = 6 }, death = { pack = "SprMain", group = 163, offset = 0, frames = 8, duration = 3, loop = false }, idle = { pack = "SprMain", group = 164, offset = 0, frames = 6 }, eating = { pack = "SprMain", group = 165, offset = 0, frames = 6 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 83 } }
+anims = { walk = { pack = "SprMain", group = 161, offset = 0, frames = 12 }, attack = { pack = "SprMain", group = 162, offset = 0, frames = 6 }, death = { pack = "SprMain", group = 163, offset = 0, frames = 6, loop = false }, idle = { pack = "SprMain", group = 164, offset = 0, frames = 6 }, rest = { pack = "SprMain", group = 165, offset = 0, frames = 6 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 83 } }
 attack_value = 6
 chase_speed_mult = 2
 max_damage = 100
@@ -673,7 +673,7 @@ terrain_usage = "animal"
 id = 84
 key = "hippo"
 category = "animal"
-anims = { walk = { pack = "SprAmbient", group = 22, offset = 0, frames = 12 }, idle = { pack = "SprAmbient", group = 22, offset = 0, frames = 1 }, death = { pack = "SprAmbient", group = 23, offset = 0, frames = 8, duration = 3, loop = false }, attack = { pack = "SprAmbient", group = 24, offset = 0, frames = 7 }, swim = { pack = "SprAmbient", group = 25, offset = 0, frames = 8 }, swim_attack = { pack = "SprAmbient", group = 26, offset = 0, frames = 8 }, swim_idle = { pack = "SprAmbient", group = 27, offset = 0, frames = 8 }, eating = { pack = "SprAmbient", group = 28, offset = 0, frames = 8 }, dance = { pack = "SprAmbient", group = 29, offset = 0, frames = 8 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 84 } }
+anims = { walk = { pack = "SprAmbient", group = 22, offset = 0, frames = 12 }, death = { pack = "SprAmbient", group = 23, offset = 0, frames = 8, loop = false }, hunt = { pack = "SprAmbient", group = 24, offset = 0, frames = 7 }, swim = { pack = "SprAmbient", group = 25, offset = 0, frames = 12 }, yawn = { pack = "SprAmbient", group = 26, offset = 0, frames = 12 }, swim_idle = { pack = "SprAmbient", group = 27, offset = 0, frames = 12 }, idle = { pack = "SprAmbient", group = 28, offset = 0, frames = 12 }, dance = { pack = "SprAmbient", group = 29, offset = 0, frames = 8 }, sink = { pack = "SprAmbient", group = 11, offset = 0, frames = 23, loop = false }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 84 } }
 attack_value = 12
 max_damage = 250
 terrain_usage = "amphibia"
@@ -775,7 +775,7 @@ terrain_usage = "roads"
 id = 102
 key = "asp"
 category = "animal"
-anims = { walk = { pack = "SprMain2", group = 0, offset = 0, frames = 12 }, attack = { pack = "SprMain2", group = 1, offset = 0, frames = 12 }, idle = { pack = "SprMain2", group = 2, offset = 0, frames = 12 }, death = { pack = "SprMain2", group = 3, offset = 0, frames = 6, loop = false }, eating = { pack = "SprMain2", group = 4, offset = 0, frames = 12 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 102 } }
+anims = { walk = { pack = "SprMain2", group = 0, offset = 0, frames = 12 }, attack = { pack = "SprMain2", group = 1, offset = 0, frames = 6 }, death = { pack = "SprMain2", group = 3, offset = 0, frames = 6, loop = false }, idle = { pack = "SprMain2", group = 4, offset = 0, frames = 6 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 102 } }
 attack_value = 4
 chase_speed_mult = 2
 max_damage = 60
@@ -787,7 +787,7 @@ terrain_usage = "animal"
 id = 103
 key = "lion"
 category = "animal"
-anims = { walk = { pack = "SprMain2", group = 5, offset = 0, frames = 11 }, attack = { pack = "SprMain2", group = 6, offset = 0, frames = 11 }, idle = { pack = "SprMain2", group = 7, offset = 0, frames = 6 }, eating = { pack = "SprMain2", group = 8, offset = 0, frames = 10 }, death = { pack = "SprMain2", group = 9, offset = 0, frames = 4 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 103 } }
+anims = { walk = { pack = "SprMain2", group = 5, offset = 0, frames = 11 }, attack = { pack = "SprMain2", group = 6, offset = 0, frames = 11 }, death = { pack = "SprMain2", group = 7, offset = 0, frames = 6, loop = false }, idle = { pack = "SprMain2", group = 8, offset = 0, frames = 10 }, rest = { pack = "SprMain2", group = 9, offset = 0, frames = 4 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 103 } }
 attack_value = 8
 chase_speed_mult = 2
 max_damage = 150
@@ -799,7 +799,7 @@ terrain_usage = "animal"
 id = 104
 key = "scorpion"
 category = "animal"
-anims = { walk = { pack = "SprMain2", group = 10, offset = 0, frames = 12 }, attack = { pack = "SprMain2", group = 11, offset = 0, frames = 6 }, idle = { pack = "SprMain2", group = 12, offset = 0, frames = 6 }, eating = { pack = "SprMain2", group = 14, offset = 0, frames = 6 }, death = { pack = "SprMain2", group = 13, offset = 0, frames = 6, loop = false }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 104 } }
+anims = { walk = { pack = "SprMain2", group = 10, offset = 0, frames = 12 }, attack = { pack = "SprMain2", group = 11, offset = 0, frames = 6 }, death = { pack = "SprMain2", group = 13, offset = 0, frames = 6, loop = false }, idle = { pack = "SprMain2", group = 14, offset = 0, frames = 6 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 104 } }
 attack_value = 5
 chase_speed_mult = 2
 max_damage = 80

@@ -381,7 +381,7 @@ impl InfoPanel {
         let boat = matches!(f.kind, 20 | 25 | 76 | 77 | 78 | 92 | 93 | 100 | 101);
         let (group, count) = if boat { (261, 16) } else { (254, 128) };
         // Animals have no names.
-        let name = if osiris_sim::animals::is_animal(f.kind) { ui.t(TYPE_NAMES, f.kind as usize) } else { ui.t(group, f.id as usize % count) };
+        let name = if osiris_sim::animals::is_animal(f.kind) || osiris_sim::predators::is_predator(f.kind) { ui.t(TYPE_NAMES, f.kind as usize) } else { ui.t(group, f.id as usize % count) };
         ui.label(Font::LargeBlackOnDark, &name, x + 90.0, y + 108.0);
         let mut kind = ui.t(TYPE_NAMES, f.kind as usize);
         if let Some(home) = world.buildings.get(f.home) {

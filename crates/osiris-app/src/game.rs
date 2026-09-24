@@ -1323,6 +1323,11 @@ impl Game {
                 out.push(Sprite { behind: false, x: f.x, y: f.y, offset: f.pixel_offset(), image: work.image + f.direction as u32 + 8 * frame });
                 continue;
             }
+            // The wild beasts, in water or out.
+            if osiris_sim::predators::is_predator(f.kind) {
+                out.extend(crate::army_view::beast_sprite(&self.world, f));
+                continue;
+            }
             if let Some(s) = crate::water_view::figure_sprite(&self.world, f) {
                 out.push(s);
                 continue;
@@ -1335,7 +1340,7 @@ impl Game {
                 out.push(s);
                 continue;
             }
-            if let Some(s) = crate::disaster_view::figure_sprite(&self.world, f) {
+            if let Some(s) = crate::disaster_view::figure_sprite(&self.world, f).or_else(|| crate::army_view::fallen_sprite(&self.world, f)) {
                 out.push(s);
                 continue;
             }

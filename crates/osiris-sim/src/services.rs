@@ -544,7 +544,17 @@ impl World {
                 }
                 _ => {
                     let (x, y) = (f.x, f.y);
-                    let foe = self.figures.iter().find(|o| crate::invasions::is_invader_kind(o.kind) && o.action != crate::military::action::CORPSE && (o.x - x).abs() <= 1 && (o.y - y).abs() <= 1).map(|o| o.id);
+                    // Invaders, and the wild beasts too.
+                    let foe = self
+                        .figures
+                        .iter()
+                        .find(|o| {
+                            (crate::invasions::is_invader_kind(o.kind) || crate::predators::is_predator(o.kind) && o.action != crate::predators::action::HIDDEN)
+                                && o.action != crate::military::action::CORPSE
+                                && (o.x - x).abs() <= 1
+                                && (o.y - y).abs() <= 1
+                        })
+                        .map(|o| o.id);
                     if let Some(foe) = foe {
                         let f = self.figures.get_mut(fid).expect("present");
                         f.foe = foe;
