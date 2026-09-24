@@ -163,6 +163,22 @@ fn road_takes_ditch(map: &Map, x: i32, y: i32, ditch: &impl Fn(i32, i32) -> bool
     }
 }
 
+/// Ditch images a road may be laid across, wet or dry: for each image the tiles along
+/// the ditch's line, where no road may already run (east and west, or north and
+/// south). Other ditch images (corners, junctions) take no road.
+fn ditch_line(offset: u32) -> Option<[(i32, i32); 2]> {
+    const EAST_WEST: [u32; 15] = [0, 7, 9, 15, 17, 19, 21, 28, 30, 36, 38, 40, 42, 44, 46];
+    const NORTH_SOUTH: [u32; 15] = [1, 6, 8, 16, 18, 20, 22, 27, 29, 37, 39, 41, 43, 45, 47];
+    let offset = offset % DRY;
+    if EAST_WEST.contains(&offset) {
+        Some([(-1, 0), (1, 0)])
+    } else if NORTH_SOUTH.contains(&offset) {
+        Some([(0, -1), (0, 1)])
+    } else {
+        None
+    }
+}
+
 /// Whether a ditch may be dug through `(x, y)`: clear land, meadow, dry floodplain, an
 /// existing ditch, or a road it can cross.
 fn ditch_passable(map: &Map, x: i32, y: i32) -> bool {
@@ -227,12 +243,32 @@ impl World {
         b.kind == WATER_LIFT && b.workers > 0 && b.water != 0
     }
 
+    /// Whether a ditch may be dug through `(x, y)`, entering it north-south
+    /// (`Some(true)`), east-west (`Some(false)`) or as an end of the drag (`None`). Over
+    /// open ground as [`ditch_passable`] says; of buildings, through a roadblock, or
+    /// straight through a water lift along the way it faces.
+    fn ditch_through(&self, x: i32, y: i32, vertical: Option<bool>) -> bool {
+        if !self.map.terrain_is(x, y, terrain::BUILDING) {
+            return ditch_passable(&self.map, x, y);
+        }
+        match self.buildings.get(self.map.building.at_or(x, y, 0)) {
+            Some(b) if b.kind == crate::defenses::ROADBLOCK => true,
+            Some(b) if b.kind == WATER_LIFT => vertical == Some(b.orientation % 2 == 0),
+            _ => false,
+        }
+    }
+
+    /// Whether the tile at `(x, y)` is a roadblock.
+    fn roadblock_at(&self, x: i32, y: i32) -> bool {
+        self.buildings.get(self.map.building.at_or(x, y, 0)).is_some_and(|b| b.kind == crate::defenses::ROADBLOCK)
+    }
+
     /// The tiles of a ditch dragged from `start` to `end`, walking back from the end
     /// toward the start as the original does, or `None` if no ditch can be dug there.
     pub fn ditch_path(&self, start: (i32, i32), end: (i32, i32)) -> Option<Vec<(i32, i32)>> {
         let map = &self.map;
         let (w, h) = (map.width, map.height);
-        if !ditch_passable(map, start.0, start.1) || !ditch_passable(map, end.0, end.1) {
+        if !self.ditch_through(start.0, start.1, None) || !self.ditch_through(end.0, end.1, None) {
             return None;
         }
         let mut dist = vec![0i32; (w * h) as usize];
@@ -242,7 +278,7 @@ impl World {
             let d = dist[(y * w + x) as usize];
             for i in (0..8).step_by(2) {
                 let (nx, ny) = (x + NEIGHBOURS[i].0, y + NEIGHBOURS[i].1);
-                if !map.contains(nx, ny) || dist[(ny * w + nx) as usize] != 0 || !ditch_passable(map, nx, ny) {
+                if !map.contains(nx, ny) || dist[(ny * w + nx) as usize] != 0 || !self.ditch_through(nx, ny, Some(i % 4 == 0)) {
                     continue;
                 }
                 dist[(ny * w + nx) as usize] = d + 1;
@@ -259,7 +295,7 @@ impl World {
             }
             // A road is crossed only straight over, with the ditch dug so far.
             let ditch = |x: i32, y: i32| map.terrain_is(x, y, terrain::CANAL) || path.contains(&(x, y));
-            if map.terrain_is(cur.0, cur.1, terrain::ROAD) && !road_takes_ditch(map, cur.0, cur.1, &ditch) {
+            if map.terrain_is(cur.0, cur.1, terrain::ROAD) && !self.roadblock_at(cur.0, cur.1) && !road_takes_ditch(map, cur.0, cur.1, &ditch) {
                 return None;
             }
             path.push(cur);
@@ -306,6 +342,17 @@ impl World {
             rules.empty_land_in(map, x - 4, y - 4, x + 4, y + 4, false);
         }
         Outcome::Done { items, cost }
+    }
+
+    /// Whether a road may be laid over the ditch at `(x, y)`: the ditch runs straight
+    /// (by its image) and no road (`road` says where) lies on its line beside it.
+    pub(crate) fn road_crosses_ditch(&self, x: i32, y: i32, road: &impl Fn(i32, i32) -> bool) -> bool {
+        let base = self.defs.terrain.canal;
+        let image = self.map.images.at_or(x, y, 0);
+        if image < base || image >= base + 2 * DRY {
+            return false;
+        }
+        ditch_line(image - base).is_some_and(|line| line.iter().all(|&(dx, dy)| !road(x + dx, y + dy)))
     }
 
     /// Redraws the ditches in a rectangle, keeping each one wet or dry.
@@ -723,6 +770,50 @@ mod tests {
             }
         }
         assert_eq!(w.water_supply_delay(&b), None);
+    }
+
+    #[test]
+    fn roads_cross_straight_ditches_and_ditches_pass_lifts_and_roadblocks() {
+        use crate::world::Command;
+        let Some(mut w) = mission_world(3) else { return };
+        let lift = apply(&mut w, Command::Build { kind: WATER_LIFT, x: 59, y: 17, x1: 59, y1: 17 });
+        assert_eq!(w.buildings.get(lift).map(|b| b.orientation), Some(2));
+        apply(&mut w, Command::Build { kind: DITCH, x: 60, y: 16, x1: 60, y1: 10 });
+        // A road straight over the ditch, but not along it.
+        let path = w.road_path((57, 13), (63, 13)).expect("a road across the ditch");
+        assert!(path.contains(&(60, 13)));
+        assert!(w.road_path((60, 11), (60, 15)).is_none());
+        apply(&mut w, Command::Road { start: (57, 13), end: (63, 13) });
+        assert!(w.map.terrain_is(60, 13, terrain::ROAD | terrain::CANAL) && w.map.terrain_is(60, 13, terrain::CANAL));
+        // A second road beside the first can't run the ditch's line onto it.
+        assert!(w.road_path((60, 14), (60, 14)).is_none());
+        // A ditch runs straight through the lift the way it faces, never across it.
+        let through = w.ditch_path((60, 15), (60, 21)).expect("a ditch through the lift");
+        assert!(through.contains(&(60, 17)) && through.contains(&(60, 18)));
+        assert!(w.ditch_through(59, 18, Some(true)) && !w.ditch_through(59, 18, Some(false)));
+        assert!(w.ditch_path((60, 17), (60, 15)).is_none());
+        // And through a roadblock.
+        apply(&mut w, Command::Road { start: (66, 10), end: (66, 16) });
+        apply(&mut w, Command::Build { kind: crate::defenses::ROADBLOCK, x: 66, y: 13, x1: 66, y1: 13 });
+        let across = w.ditch_path((64, 13), (68, 13)).expect("a ditch through the roadblock");
+        assert!(across.contains(&(66, 13)));
+    }
+
+    #[test]
+    fn groundwater_under_any_tile_will_do() {
+        let Some(mut w) = mission_world(3) else { return };
+        for y in 0..w.map.height {
+            for x in 0..w.map.width {
+                w.map.terrain.update(x, y, |t| t & !terrain::GROUNDWATER);
+            }
+        }
+        // Mansions need it too.
+        let (x, y) = (0..w.map.height).flat_map(|y| (0..w.map.width).map(move |x| (x, y))).find(|&(x, y)| w.can_place(77, x, y) == Err(crate::build::NEEDS_GROUNDWATER)).expect("a site");
+        assert_eq!(w.can_place(kind::WELL, x, y), Err(crate::build::NEEDS_GROUNDWATER));
+        assert_eq!(w.can_place(kind::WATER_SUPPLY, x, y), Err(crate::build::NEEDS_GROUNDWATER));
+        w.map.terrain.update(x + 1, y + 1, |t| t | terrain::GROUNDWATER);
+        assert_eq!(w.can_place(kind::WATER_SUPPLY, x, y), Ok(()));
+        assert_eq!(w.can_place(kind::WELL, x + 1, y + 1), Ok(()));
     }
 
     #[test]

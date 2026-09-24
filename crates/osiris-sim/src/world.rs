@@ -428,8 +428,10 @@ impl World {
         Outcome::Done { items, cost }
     }
 
+    /// A road's distance fill spreads over ditches too; the walk back takes only those
+    /// it can cross.
     fn road_passable(&self, x: i32, y: i32) -> bool {
-        self.map.contains(x, y) && !self.map.terrain_is(x, y, mask::ROAD_BLOCKED)
+        self.map.contains(x, y) && !self.map.terrain_is(x, y, mask::ROAD_BLOCKED & !terrain::CANAL)
     }
 
     /// Breadth-first distances from `start` over tiles a road may cross; 0 = unreachable.
@@ -474,13 +476,20 @@ impl World {
             if d <= 0 {
                 return None;
             }
+            // A ditch is crossed only straight over, with the road laid so far.
+            let road = |x: i32, y: i32| self.map.terrain_is(x, y, terrain::ROAD) || path.contains(&(x, y));
+            let crossable = |(x, y): (i32, i32)| !self.map.terrain_is(x, y, terrain::CANAL) || self.road_crosses_ditch(x, y, &road);
+            if !crossable(cur) {
+                return None;
+            }
             path.push(cur);
             let Some(dir) = general_direction(cur, start) else {
                 return Some(path);
             };
+            let road = |x: i32, y: i32| self.map.terrain_is(x, y, terrain::ROAD) || path.contains(&(x, y));
             let next = PREFERENCE[dir].iter().map(|&i| (cur.0 + NEIGHBOURS[i].0, cur.1 + NEIGHBOURS[i].1)).find(|&(x, y)| {
                 let nd = at(x, y);
-                nd > 0 && nd < d
+                nd > 0 && nd < d && (!self.map.terrain_is(x, y, terrain::CANAL) || self.road_crosses_ditch(x, y, &road))
             })?;
             cur = next;
         }
@@ -515,6 +524,9 @@ impl World {
         }
         for &(x, y) in &path {
             rules.empty_land_in(map, x - 4, y - 4, x + 4, y + 4, false);
+        }
+        for &(x, y) in path.iter().filter(|&&(x, y)| self.map.terrain_is(x, y, terrain::CANAL)).collect::<Vec<_>>() {
+            self.ditch_images_in(x - 1, y - 1, x + 1, y + 1);
         }
         Outcome::Done { items, cost }
     }
