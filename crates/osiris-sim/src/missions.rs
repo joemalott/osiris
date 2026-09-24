@@ -229,8 +229,12 @@ impl World {
         if let Some(ok) = self.complex_allowed(k) {
             return ok;
         }
+        let monument = self.defs.building(k).is_some_and(|d| d.has_flag("is_monument"));
         let lists = |k: u16| match (&self.mission, &self.scenario_allowed) {
             (Some(m), _) => m.allowed.contains(&k),
+            // The editor's structure flags don't cover monuments: a custom scenario
+            // offers the ones it names.
+            (None, Some(_)) if monument => true,
             (None, Some(allowed)) => allowed.contains(&k),
             (None, None) => true,
         };
@@ -622,6 +626,15 @@ mod tests {
         for k in NEVER_BUILT {
             assert!(!world.is_allowed(k));
         }
+    }
+
+    #[test]
+    fn custom_maps_offer_the_monuments_they_name() {
+        // A small mastaba (title 18) and a small stepped pyramid (title 8).
+        let Some(world) = load(|s| s.info.monuments = [18, 8, 0]) else { return };
+        assert!(world.is_allowed(258));
+        assert!(world.is_allowed(319));
+        assert!(!world.is_allowed(259), "a medium mastaba isn't named");
     }
 
     #[test]
