@@ -181,6 +181,11 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let ids: Vec<_> = world.buildings.iter().filter(|b| b.monument.is_some()).map(|b| b.id).collect();
                 for id in ids {
                     let def = world.buildings.get(id).and_then(|b| osiris_sim::monuments::monument_def(b.kind));
+                    // Pyramids and mastabas go block by block: their stage's start.
+                    if def.is_some_and(|d| osiris_sim::pyramids::blockwise(d.style)) {
+                        world.set_tomb_stage(id, phase.parse()?);
+                        continue;
+                    }
                     if let (Some(def), Some(m)) = (def, world.buildings.get_mut(id).and_then(|b| b.monument.as_mut())) {
                         m.phase = phase.parse()?;
                         m.finished = m.phase + 1 >= def.phase_count;
@@ -405,6 +410,15 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             // Lets the city raise a temple complex to god g (0 Osiris .. 4 Bast).
             ["complexgod", g] => world.complex_gods[g.parse::<usize>()?.min(4)] = true,
+            // Every pyramid's and mastaba's state in a line, and the craftsmen at it.
+            ["tomb"] => {
+                for b in world.buildings.iter().filter(|b| b.monument.is_some()) {
+                    if let Some(s) = world.tomb_summary(b.id) {
+                        let crew: Vec<(u16, i32)> = b.monument.as_ref().map_or_else(Vec::new, |m| m.craftsmen.iter().filter_map(|&(k, c)| world.figures.get(c).map(|f| (k, f.amount))).collect());
+                        eprintln!("{:?} tomb {} kind {}: {s} crew {crew:?}", world.time, b.id, b.kind);
+                    }
+                }
+            }
             ["monlist"] => eprintln!("monuments {:?} complex gods {:?} debt rate {}", world.scenario_monuments, world.complex_gods, world.debt_rate),
             ["report"] => {
                 let houses: Vec<String> = world

@@ -515,9 +515,9 @@ impl World {
                 return;
             }
         }
-        // 4. Goods on "empty": to any other storage that takes them.
+        // 4. Goods on "empty": to any other storage that takes them. (Monument material
+        // leaves on work-camp laborers' sleds, not the yard's carts.)
         let b = self.buildings.get(yard).expect("present").clone();
-        let mut emptied = false;
         for &(r, n) in &held {
             if b.order(r) != order::EMPTY {
                 continue;
@@ -526,13 +526,8 @@ impl World {
             if let Some(o) = self.nearest(others.map(|s| s.id), from) {
                 let taken = self.take_stored(yard, r, n.min(YARD_DELIVER));
                 self.yard_cart(yard, r, taken, o, action::DELIVERING);
-                emptied = true;
                 break;
             }
-        }
-        // 5. A sled of material for a monument under construction.
-        if !emptied {
-            self.yard_monument_errand(yard);
         }
     }
 

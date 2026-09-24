@@ -23,6 +23,8 @@ pub const STONEMASON: u16 = 81;
 pub const SLED: u16 = 86;
 pub const SLED_PULLER: u16 = 96;
 pub const FUNERAL_WALKER: u16 = 94;
+/// A work-camp laborer's action while he goes to a storage yard for a sled.
+pub(crate) const HAULING: u16 = 7;
 
 const CLAY: u16 = 11;
 const BRICKS: u16 = 12;
@@ -315,8 +317,9 @@ pub const MONUMENTS: [MonumentDef; 29] = [
     MonumentDef { kind: MAUSOLEUM, cols: 11, rows: 4, style: Style::Mausoleum, phase_count: 6, weight: 4, title: 25 },
     // The rating weight is a placeholder.
     MonumentDef { kind: SUN_TEMPLE, cols: 1, rows: 1, style: Style::SunTemple, phase_count: SUN_FORE + 2, weight: 4, title: 24 },
-    obelisk(SMALL_OBELISK, 3, 4, 100, &[200, 200, 200], 2, 22),
-    obelisk(LARGE_OBELISK, 5, 6, 200, &[400, 400, 400, 200], 4, 23),
+    // Granite taken at placement: 100 and 200 blocks (the original's placement check).
+    obelisk(SMALL_OBELISK, 3, 4, 10_000, &[200, 200, 200], 2, 22),
+    obelisk(LARGE_OBELISK, 5, 6, 20_000, &[400, 400, 400, 200], 4, 23),
     // Sizes in blocks, as in the original: large is 8 across in every family.
     tomb(kind::SMALL_MASTABA, (2, 5), Style::Mastaba, 2, 18),
     tomb(kind::MEDIUM_MASTABA, (3, 7), Style::Mastaba, 2, 19),
@@ -371,8 +374,6 @@ pub type Scaffold = (Vec<(u32, (i32, i32))>, (i32, i32));
 
 /// Phases that level the site.
 const LEVELING_PHASES: u8 = 2;
-/// Laborers one monument takes at a time.
-const MAX_LABORERS: usize = 5;
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Monument {
@@ -566,6 +567,28 @@ impl MonumentDef {
         matches!(self.style, Style::Mastaba | Style::Pyramid(_) | Style::Mausoleum | Style::RoyalTomb)
     }
 
+}
+
+/// A craftsman's tomb job, kept in his `amount`.
+fn encode_tomb_job(j: crate::pyramids::Job) -> i32 {
+    use crate::pyramids::Job;
+    match j {
+        Job::Unit(i) => 1 + i as i32,
+        Job::Polish(i) => 100_000 + i as i32,
+        Job::Ramp(i) => 200_000 + i as i32,
+        Job::Part(i) => 300_000 + i as i32,
+    }
+}
+
+pub(crate) fn decode_tomb_job(a: i32) -> Option<crate::pyramids::Job> {
+    use crate::pyramids::Job;
+    match a {
+        a if a >= 300_000 => Some(Job::Part((a - 300_000) as usize)),
+        a if a >= 200_000 => Some(Job::Ramp((a - 200_000) as usize)),
+        a if a >= 100_000 => Some(Job::Polish((a - 100_000) as usize)),
+        a if a > 0 => Some(Job::Unit((a - 1) as usize)),
+        _ => None,
+    }
 }
 
 impl World {
@@ -997,14 +1020,15 @@ impl World {
     /// A monument block a work-camp laborer could level: the first block without a
     /// laborer on it, of the nearest monument still being levelled.
     pub(crate) fn leveling_job(&self, from: (i32, i32)) -> Option<(BuildingId, usize)> {
-        let busy: Vec<(u32, i32)> = self.figures.iter().filter(|f| f.kind == crate::farms::PEASANT && f.action >= 3).map(|f| (f.target, f.amount)).collect();
+        let busy: Vec<(u32, i32)> = self.figures.iter().filter(|f| f.kind == crate::farms::PEASANT && matches!(f.action, 3 | 4)).map(|f| (f.target, f.amount)).collect();
         self.active_monuments()
             .into_iter()
             .filter_map(|id| {
                 let b = self.buildings.get(id)?;
                 let m = b.monument.as_ref()?;
                 let def = monument_def(b.kind)?;
-                if !def.laborers(m.phase) || busy.iter().filter(|b| b.0 == id).count() >= MAX_LABORERS {
+                // (As many laborers as there are tiles free: the original sets no limit.)
+                if !def.laborers(m.phase) {
                     return None;
                 }
                 let block = if crate::pyramids::blockwise(def.style) {
@@ -1027,7 +1051,7 @@ impl World {
         if !def.laborers(m.phase) {
             return None;
         }
-        let busy: Vec<i32> = self.figures.iter().filter(|f| f.kind == crate::farms::PEASANT && f.action >= 3 && f.target == id && f.id != me).map(|f| f.amount).collect();
+        let busy: Vec<i32> = self.figures.iter().filter(|f| f.kind == crate::farms::PEASANT && matches!(f.action, 3 | 4) && f.target == id && f.id != me).map(|f| f.amount).collect();
         if crate::pyramids::blockwise(def.style) {
             return self.tomb_site_job(id, &busy);
         }
@@ -1082,7 +1106,9 @@ impl World {
         def.crew(m.phase).contains(&figure)
     }
 
-    /// Tick 31: guilds send their craftsman to a monument that needs one.
+    /// Tick 31: guilds send a craftsman to a monument that needs one, up to four out
+    /// at a time by their staffing (the original's guild spawners at 0x4612c0,
+    /// 0x461490 and 0x4615d0).
     pub(crate) fn guild_walkers(&mut self) {
         let guilds: Vec<(BuildingId, u16)> = self
             .buildings
@@ -1097,11 +1123,22 @@ impl World {
         for (g, figure) in guilds {
             let Some(gb) = self.buildings.get(g) else { continue };
             let Some(road) = gb.road else { continue };
-            if gb.workers <= 0 || gb.walkers[0] != 0 {
+            // As many craftsmen out as a quarter of its staff each (carpenters: the
+            // first even with a handful), four when fully staffed.
+            let pct = gb.workers * 100 / self.workers_needed(gb.kind).max(1);
+            let cap = match pct {
+                p if p >= 100 => 4,
+                p if p >= 75 => 3,
+                p if p >= 50 => 2,
+                p if p >= 25 || figure == CARPENTER && p >= 1 => 1,
+                _ => 0,
+            };
+            let out = self.figures.iter().filter(|f| f.kind == figure && f.home == g && !f.dead).count();
+            if gb.workers <= 0 || out >= cap {
                 continue;
             }
-            // The bricklayers keep a load of bricks to work with.
-            if figure == BRICKLAYER && gb.stock.get(BRICKS as usize).copied().unwrap_or(0) < crate::economy::LOAD {
+            // Carpenters work only while their guild has timber (a load a ramp).
+            if figure == CARPENTER && gb.stock.get(TIMBER as usize).copied().unwrap_or(0) < crate::pyramids::RAMP_TIMBER {
                 continue;
             }
             let from = (gb.x, gb.y);
@@ -1208,19 +1245,7 @@ impl World {
     /// up timber for it), and works it through.
     fn work_on_tomb(&mut self, fid: FigureId) {
         use crate::pyramids::Job;
-        let encode = |j: Job| match j {
-            Job::Unit(i) => 1 + i as i32,
-            Job::Polish(i) => 100_000 + i as i32,
-            Job::Ramp(i) => 200_000 + i as i32,
-            Job::Part(i) => 300_000 + i as i32,
-        };
-        let decode = |a: i32| match a {
-            a if a >= 300_000 => Some(Job::Part((a - 300_000) as usize)),
-            a if a >= 200_000 => Some(Job::Ramp((a - 200_000) as usize)),
-            a if a >= 100_000 => Some(Job::Polish((a - 100_000) as usize)),
-            a if a > 0 => Some(Job::Unit((a - 1) as usize)),
-            _ => None,
-        };
+        let (encode, decode) = (encode_tomb_job, decode_tomb_job);
         let Some(f) = self.figures.get(fid) else { return };
         let (target, figure, home, held, ticks) = (f.target, f.kind, f.home, f.amount, f.counter);
         match decode(held) {
@@ -1276,13 +1301,14 @@ impl World {
         }
     }
 
-    /// A storage yard's monument errand: a sled of whatever a monument's course still
-    /// needs. Returns whether one was sent.
-    pub(crate) fn yard_monument_errand(&mut self, yard: BuildingId) -> bool {
-        let Some(y) = self.buildings.get(yard) else { return false };
-        let Some(road) = y.road else { return false };
-        let from = (y.x, y.y);
-        for id in self.active_monuments() {
+    /// A sled a work-camp laborer could fetch for a monument, nearest the camp at
+    /// `from` first: (monument, storage yard, resource, amount). As in the original,
+    /// peasants drag the monuments' material, a full sled (or what the monument still
+    /// needs) from a yard that holds it.
+    pub(crate) fn haul_job(&self, from: (i32, i32)) -> Option<(BuildingId, BuildingId, u16, i32)> {
+        let mut monuments: Vec<BuildingId> = self.active_monuments();
+        monuments.sort_by_key(|&id| self.buildings.get(id).map_or(i32::MAX, |b| (b.x - from.0).abs() + (b.y - from.1).abs()));
+        for id in monuments {
             let Some(b) = self.buildings.get(id) else { continue };
             let Some(def) = monument_def(b.kind) else { continue };
             let m = b.monument.as_ref().expect("active");
@@ -1291,32 +1317,89 @@ impl World {
             } else {
                 def.phase(m.phase).into_iter().map(|(r, _)| (r, def.needs(m, r))).collect()
             };
+            let at = (b.x, b.y);
             for (r, need) in wants {
-                let have = self.stored(yard, r);
-                let amount = need.min(have).min(SLED_LOAD);
-                if amount < crate::economy::LOAD.min(need) || amount <= 0 {
+                let amount = need.min(SLED_LOAD);
+                if amount <= 0 {
                     continue;
                 }
-                let Some(spot) = self.monument_access(id, from) else { continue };
+                let yard = self
+                    .buildings
+                    .iter()
+                    .filter(|y| y.kind == kind::STORAGE_YARD && y.road.is_some() && self.stored(y.id, r) >= amount)
+                    .min_by_key(|y| ((y.x - at.0).abs() + (y.y - at.1).abs(), y.id));
+                let Some(yard) = yard else { continue };
+                let (road, yat) = (yard.road.expect("filtered"), (yard.x, yard.y));
+                let Some(spot) = self.monument_access(id, yat) else { continue };
                 if crate::figures::find_route(&self.map, Travel::Land, road, spot).is_none() {
                     continue;
                 }
-                self.take_stored(yard, r, amount);
-                if let Some(m) = self.buildings.get_mut(id).and_then(|b| b.monument.as_mut()) {
-                    Monument::add(&mut m.in_flight, r, amount);
-                }
-                self.spawn_sled(yard, id, r, amount, road, spot);
-                return true;
+                return Some((id, yard.id, r, amount));
             }
         }
-        false
+        None
     }
 
-    fn spawn_sled(&mut self, yard: BuildingId, target: BuildingId, r: u16, amount: i32, road: (i32, i32), spot: (i32, i32)) {
+    /// Sends laborer `fid` (just spawned) to fetch a sled: to the yard first. The
+    /// load counts as on its way from now.
+    pub(crate) fn send_hauler(&mut self, fid: FigureId, (monument, yard, r, amount): (BuildingId, BuildingId, u16, i32)) -> bool {
+        let Some(road) = self.buildings.get(yard).and_then(|y| y.road) else { return false };
+        let map = &self.map;
+        let Some(f) = self.figures.get_mut(fid) else { return false };
+        f.target = monument;
+        f.counter = yard as i32;
+        f.cargo = r;
+        f.amount = amount;
+        f.action = HAULING;
+        if !f.go_to(map, road) {
+            return false;
+        }
+        if let Some(m) = self.buildings.get_mut(monument).and_then(|b| b.monument.as_mut()) {
+            Monument::add(&mut m.in_flight, r, amount);
+        }
+        true
+    }
+
+    /// A laborer on his way to a storage yard for a sled: there he loads what he came
+    /// for (or what is left) and drags it to the monument, his pullers with him.
+    pub(crate) fn update_hauler(&mut self, fid: FigureId) {
+        let map = &self.map;
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        let (target, yard, r, amount, camp) = (f.target, f.counter as BuildingId, f.cargo, f.amount, f.home);
+        let step = f.walk(map);
+        if step == Step::Moving {
+            return;
+        }
+        f.dead = true;
+        let road = self.buildings.get(yard).and_then(|y| y.road);
+        let spot = road.and_then(|road| self.monument_access(target, road));
+        let taken = match (road, spot) {
+            (Some(_), Some(_)) if step == Step::Arrived && self.monument_wants_sleds(target) => self.take_stored(yard, r, amount),
+            _ => 0,
+        };
+        if let Some(m) = self.buildings.get_mut(target).and_then(|b| b.monument.as_mut()) {
+            Monument::add(&mut m.in_flight, r, taken - amount);
+        }
+        if let (Some(road), Some(spot)) = (road, spot)
+            && taken > 0
+        {
+            self.spawn_sled(camp, target, r, taken, road, spot);
+        }
+    }
+
+    /// Whether a monument is still under way (and so takes sleds).
+    fn monument_wants_sleds(&self, id: BuildingId) -> bool {
+        self.buildings.get(id).and_then(|b| b.monument.as_ref()).is_some_and(|m| !m.finished)
+    }
+
+    /// A sled of `amount` of `r` for monument `target`, from the laborers of work camp
+    /// `camp` (who count it as one of theirs until it arrives). The load is already
+    /// counted as on its way.
+    fn spawn_sled(&mut self, camp: BuildingId, target: BuildingId, r: u16, amount: i32, road: (i32, i32), spot: (i32, i32)) {
         let sled = self.figures.spawn(SLED, road.0, road.1, Travel::Land);
         let map = &self.map;
         if let Some(f) = self.figures.get_mut(sled) {
-            f.home = yard;
+            f.home = camp;
             f.target = target;
             f.cargo = r;
             f.amount = amount;
@@ -1332,7 +1415,6 @@ impl World {
             }
             lead = p;
         }
-        self.buildings.get_mut(yard).expect("present").walkers[2] = sled;
     }
 
     /// A sled travels to its monument and hands over its load.
@@ -1380,8 +1462,14 @@ impl World {
             // Craftsmen who never arrived are forgotten.
             let alive: Vec<(u16, FigureId)> = self.buildings.get(id).and_then(|b| b.monument.as_ref()).map_or_else(Vec::new, |m| m.craftsmen.clone());
             let alive: Vec<(u16, FigureId)> = alive.into_iter().filter(|&(_, c)| self.figures.get(c).is_some_and(|f| !f.dead && f.target == id)).collect();
+            // What is on its way is what the live sleds and laborers bring.
+            let mut coming: Vec<(u16, i32)> = Vec::new();
+            for f in self.figures.iter().filter(|f| !f.dead && f.target == id && (f.kind == SLED || f.kind == crate::farms::PEASANT && f.action == HAULING)) {
+                Monument::add(&mut coming, f.cargo, f.amount);
+            }
             if let Some(m) = self.buildings.get_mut(id).and_then(|b| b.monument.as_mut()) {
                 m.craftsmen = alive;
+                m.in_flight = coming;
             }
             let Some(b) = self.buildings.get(id) else { continue };
             let Some(def) = monument_def(b.kind) else { continue };
@@ -1585,5 +1673,103 @@ impl World {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::{Command, Outcome};
+
+    /// Mission 12's land by the river with a small true pyramid staked out (its site
+    /// already prepared), storage yards holding its stone and limestone, and two
+    /// stonemasons' guilds and a carpenters' guild with timber for the ramps, all fully
+    /// staffed; work camps only if `camps`.
+    fn pyramid_town(camps: bool) -> Option<(World, BuildingId)> {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.join("mission1.pak").is_file() {
+            return None;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).expect("open image library");
+        let scenario = osiris_formats::MissionPak::open(&data.join("mission1.pak")).expect("pak").scenario(12).expect("mission 12");
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).expect("load defs"));
+        let model_text = std::fs::read(data.join("Pharaoh_Model_Normal.txt")).expect("read model");
+        let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&model_text)).expect("parse model");
+        let balance = std::sync::Arc::new(crate::balance::Balance::from_model(&model));
+        let mut world = World::new(&scenario, defs, balance);
+        world.start(&scenario);
+        world.load_mission(12);
+        world.invasions.planned.clear();
+        world.rules.fire = false;
+        world.rules.collapse = false;
+        world.rules.global_labor_pool = true;
+        world.test_full_staff = true;
+        world.treasury = 100_000;
+        world.scenario_monuments = [13, 0, 0];
+        if let Some(m) = world.mission.as_mut() {
+            m.allowed.insert(SMALL_PYRAMID);
+        }
+        let build = |kind: u16, x: i32, y: i32| Command::Build { kind, x, y, x1: x, y1: y };
+        let mut steps = vec![
+            build(SMALL_PYRAMID, 58, 40),
+            Command::Road { start: (36, 52), end: (55, 52) },
+            Command::Road { start: (55, 52), end: (74, 52) },
+            Command::Road { start: (36, 56), end: (55, 56) },
+            Command::Road { start: (36, 52), end: (36, 56) },
+            build(kind::STONEMASONS_GUILD, 37, 57),
+            build(kind::STONEMASONS_GUILD, 39, 57),
+            build(kind::CARPENTERS_GUILD, 41, 57),
+        ];
+        steps.extend((0..8).map(|i| build(kind::STORAGE_YARD, 37 + 3 * i, 53)));
+        if camps {
+            steps.extend([build(kind::WORK_CAMP, 43, 57), build(kind::WORK_CAMP, 46, 57)]);
+        }
+        for cmd in &steps {
+            assert!(matches!(world.apply(cmd), Outcome::Done { .. }), "{cmd:?}");
+        }
+        let yards: Vec<BuildingId> = world.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD).map(|b| b.id).collect();
+        for (i, y) in yards.into_iter().enumerate() {
+            world.add_stored(y, if i < 2 { STONE } else { LIMESTONE }, 3200);
+        }
+        // Timber for the six ramps.
+        if let Some(g) = world.buildings.iter_mut().find(|b| b.kind == kind::CARPENTERS_GUILD) {
+            g.stock[TIMBER as usize] = 600;
+        }
+        let id = world.buildings.iter().find(|b| b.kind == SMALL_PYRAMID).map(|b| b.id).expect("pyramid");
+        world.set_tomb_stage(id, crate::pyramids::RAISE);
+        Some((world, id))
+    }
+
+    #[test]
+    fn laborers_drag_the_sleds_and_nothing_is_left_over() {
+        let Some((mut world, id)) = pyramid_town(false) else { return };
+        for _ in 0..3000 {
+            world.tick();
+        }
+        // No work camp, no sleds: the masons wait.
+        let m = world.buildings.get(id).and_then(|b| b.monument.as_ref()).expect("tomb");
+        assert!(m.delivered.is_empty() && m.in_flight.is_empty());
+        assert!(world.figures.iter().all(|f| f.kind != SLED));
+
+        let Some((mut world, id)) = pyramid_town(true) else { return };
+        let mut most_masons = 0;
+        for _ in 0..40_000 {
+            world.tick();
+            let masons = world.figures.iter().filter(|f| f.kind == STONEMASON && !f.dead).count();
+            most_masons = most_masons.max(masons);
+            if world.buildings.get(id).and_then(|b| b.monument.as_ref()).is_some_and(|m| m.finished) {
+                break;
+            }
+        }
+        let m = world.buildings.get(id).and_then(|b| b.monument.as_ref()).expect("tomb");
+        assert!(m.finished);
+        // Four masons from each fully staffed guild.
+        assert_eq!(most_masons, 8);
+        // Exactly the 4800 stone and 19200 limestone went into it.
+        assert!(m.delivered.is_empty(), "left on site: {:?}", m.delivered);
+        let left = |r: u16| world.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD).map(|b| world.stored(b.id, r)).sum::<i32>();
+        assert_eq!((left(STONE), left(LIMESTONE)), (6400 - 4800, 19200 - 19200));
+        // And the carpenters' guild gave 100 timber for each of the six ramps.
+        assert!(world.buildings.iter().filter(|b| b.kind == kind::CARPENTERS_GUILD).all(|b| b.stock[TIMBER as usize] == 0));
     }
 }

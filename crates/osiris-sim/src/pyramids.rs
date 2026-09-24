@@ -584,11 +584,20 @@ impl World {
             }
         }
         let remaining = self.tomb_remaining(id);
+        // Units being laid have had their material already.
+        let mut in_hand: Vec<(u16, i32)> = Vec::new();
+        for &(_, c) in &m.craftsmen {
+            if let Some(Job::Unit(i)) = self.figures.get(c).and_then(|f| crate::monuments::decode_tomb_job(f.amount))
+                && let Some(r) = self.tomb_unit_material(id, i)
+            {
+                Monument::add(&mut in_hand, r, UNIT_MATERIAL);
+            }
+        }
         wants
             .into_iter()
             .filter_map(|(r, want)| {
                 let have = Monument::amount(&m.delivered, r) + Monument::amount(&m.in_flight, r);
-                let rest = remaining.iter().find(|x| x.0 == r).map_or(0, |x| x.1) - have;
+                let rest = remaining.iter().find(|x| x.0 == r).map_or(0, |x| x.1) - Monument::amount(&in_hand, r) - have;
                 let short = (want - have).min(rest);
                 // A full sled where the rest of the tomb needs that much.
                 (short > 0).then_some((r, crate::monuments::SLED_LOAD.min(rest)))
@@ -731,6 +740,60 @@ impl World {
             POLISH => m.blocks.iter().all(|b| b.counter == 0) && m.parts.iter().all(|p| p.built),
             _ => false,
         }
+    }
+
+    /// Test runs: puts a tomb at the start of stage `stage` (PREP, RAISE or POLISH;
+    /// anything later finishes it), its blocks as the original leaves them there.
+    pub fn set_tomb_stage(&mut self, id: BuildingId, stage: u8) {
+        let Some((style, var, _)) = self.tomb(id) else { return };
+        let Some(m) = self.buildings.get_mut(id).and_then(|b| b.monument.as_mut()) else { return };
+        let fresh = layout(style, var);
+        m.blocks = fresh;
+        m.progress = vec![0; m.blocks.len() * 4 + 1];
+        m.delivered.clear();
+        m.phase = stage.min(POLISH);
+        m.finished = stage > POLISH;
+        for (i, b) in m.blocks.iter_mut().enumerate() {
+            match stage {
+                PREP => {}
+                RAISE => b.state = BUILDING,
+                _ => {
+                    b.state = BUILT;
+                    b.level = b.top;
+                    b.counter = if stage > POLISH && polished(style) { 0 } else { course_limit(style, var, b, i) };
+                    b.ramp = b.ramp_at > 0;
+                }
+            }
+        }
+        if stage > POLISH {
+            m.parts.iter_mut().for_each(|p| p.built = true);
+        }
+        self.refresh_monument_images(id);
+    }
+
+    /// Test runs: a tomb's state in a line: stage, percent, blocks by state, the
+    /// lowest and highest progress, ramps, parts, and material on site.
+    pub fn tomb_summary(&self, id: BuildingId) -> Option<String> {
+        let (_, _, m) = self.tomb(id)?;
+        let count = |s: u8| m.blocks.iter().filter(|b| b.state == s).count();
+        let prog: Vec<u32> = m.blocks.iter().filter(|b| b.state == BUILDING).map(Block::progress).collect();
+        let ramps = (m.blocks.iter().filter(|b| b.ramp).count(), m.blocks.iter().filter(|b| b.ramp_at > 0).count());
+        let parts = (m.parts.iter().filter(|p| p.built).count(), m.parts.len());
+        Some(format!(
+            "stage {} {}% finished {} building {} built {} prep {} progress {:?}..{:?} ramps {ramps:?} parts {parts:?} delivered {:?} in flight {:?} remaining {:?} polish left {:?}",
+            m.phase,
+            self.tomb_percent(id).unwrap_or(0),
+            m.finished,
+            count(BUILDING),
+            count(BUILT),
+            m.blocks.len() - count(BUILDING) - count(BUILT),
+            prog.iter().min(),
+            prog.iter().max(),
+            m.delivered,
+            m.in_flight,
+            self.tomb_remaining(id),
+            m.blocks.iter().enumerate().filter(|(_, b)| m.phase == POLISH && b.counter > 0).map(|(i, b)| (i, b.level, b.counter)).collect::<Vec<_>>(),
+        ))
     }
 
     /// How far along a tomb is, 0-100: the site is the first 5%, then the units of
