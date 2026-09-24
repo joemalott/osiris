@@ -339,6 +339,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 eprintln!("  finance {:?} entry {:?} exit {:?}", world.finance.this_year, world.entry_point, world.exit_point);
             }
+            ["fireevent", i] => world.fire_event_now(i.parse()?),
             ["events"] => {
                 for (i, e) in world.scenario_events.list.iter().enumerate() {
                     eprintln!(

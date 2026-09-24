@@ -89,8 +89,6 @@ pub mod state {
 const GRACE_MONTHS: i32 = 24;
 /// Days trade stops for after a storm or sandstorm.
 const TRADE_PROBLEM_DAYS: i32 = 48;
-/// Months a siege lasts when the event does not say.
-const DEFAULT_SIEGE_MONTHS: i32 = 12;
 pub const DEBEN: u16 = 36;
 pub const TROOPS: u16 = 37;
 
@@ -135,8 +133,14 @@ pub struct ScenarioEvent {
     interval: (i16, i16),
     item: Pick,
     amount_pick: Pick,
-    /// Route numbers of the cities the event may concern.
+    /// Route numbers of the cities the event may concern (older saved games).
     cities: (i16, i16),
+    /// The route number of the city the event concerns, picked like its resource.
+    #[serde(default)]
+    location: Option<Pick>,
+    /// The route number this occurrence picked.
+    #[serde(default)]
+    pub route: i32,
     pub on_completed: i16,
     pub on_refusal: i16,
     pub on_too_late: i16,
@@ -187,6 +191,7 @@ impl ScenarioEvents {
                 item: e.item.into(),
                 amount_pick: e.amount.into(),
                 cities: (e.location[0], e.location[1]),
+                location: Some(Pick { value: e.location[0], fixed: e.location[1], min: e.location[2], max: e.location[3] }),
                 on_completed: e.on_completed,
                 on_refusal: e.on_refusal,
                 on_too_late: e.on_too_late,
@@ -283,6 +288,32 @@ impl World {
         self.trade.cities.iter().position(|c| c.route as i32 == n && n > 0)
     }
 
+    /// The route number event `i` concerns this time. One that another event led to
+    /// keeps that event's route when its own choices allow it: a single fixed route,
+    /// or a range.
+    fn event_route(&mut self, i: usize) -> i32 {
+        let e = &self.scenario_events.list[i];
+        let Some(loc) = e.location else {
+            let (a, b) = e.cities;
+            return if b > a { a as i32 + self.rng.below((b - a + 1) as i32) } else { a as i32 };
+        };
+        let parent = e.cause.and_then(|(p, _)| self.scenario_events.list.get(p)).map(|p| p.route);
+        let allowed = if loc.fixed < 0 {
+            Some((loc.min as i32, loc.max as i32))
+        } else if loc.min < 0 {
+            Some((loc.fixed as i32, loc.fixed as i32))
+        } else {
+            None
+        };
+        if let (Some(r), Some((lo, hi))) = (parent, allowed)
+            && lo <= r
+            && r <= hi
+        {
+            return r;
+        }
+        self.roll(loc)
+    }
+
     /// Monthly: events whose time has come fire, and open requests move on.
     pub(crate) fn process_scenario_events(&mut self) {
         let now = (self.years_since_start(), self.time.month as i32);
@@ -322,15 +353,23 @@ impl World {
         e.wait = wait;
     }
 
+    /// Fires event `i` now, whatever its trigger (for scripted tests).
+    pub fn fire_event_now(&mut self, i: usize) {
+        if i < self.scenario_events.list.len() {
+            self.fire_event(i);
+        }
+    }
+
     /// Runs event `i`'s effect and message.
     fn fire_event(&mut self, i: usize) {
         let e = self.scenario_events.list[i].clone();
         let resource = self.roll(e.item).max(0) as u16;
         let amount = self.roll(e.amount_pick);
-        let route = if e.cities.1 > e.cities.0 { e.cities.0 as i32 + self.rng.below((e.cities.1 - e.cities.0 + 1) as i32) } else { e.cities.0 as i32 };
+        let route = self.event_route(i);
         let city = self.city_by_route(route);
         {
             let ev = &mut self.scenario_events.list[i];
+            ev.route = route;
             ev.resource = resource;
             ev.amount = amount;
             ev.city = city;
@@ -545,7 +584,12 @@ impl World {
         }
     }
 
-    /// City status changes and messages about other cities.
+    /// City status changes and messages about other cities. A change applies only to
+    /// a city of the kinds it names, and says nothing otherwise: an Egyptian city
+    /// falling becomes foreign (and keeps trading if it traded), a conquered foreign
+    /// city becomes Egyptian, a new trade route makes a city a trading one, and a
+    /// route shutting down or a trading city under siege stops its trade and closes
+    /// its route until a new route is made. Messages change nothing.
     fn city_status_change(&mut self, e: &ScenarioEvent, city: Option<usize>) -> Option<(String, String, String)> {
         use osiris_formats::empire::city as ct;
         let names = |n: &str| Some((format!("{n}_title"), format!("{n}_initial_announcement"), format!("{n}_no_reason_A")));
@@ -555,57 +599,32 @@ impl World {
                 1 => names("foreign_city_conquered"),
                 2 => names("battle_lost"),
                 3 => names("acknowledgement"),
-                4 => self.siege(e, city),
                 _ => None,
             };
         }
         let c = city?;
-        match e.subtype {
-            0 => {
-                let tc = &mut self.trade.cities[c];
-                tc.open = false;
-                tc.city_type = ct::FOREIGN;
-                names("eg_city_falls")
-            }
-            1 => names("foreign_city_conquered"),
-            2 => {
-                let tc = &mut self.trade.cities[c];
-                tc.city_type = match tc.city_type {
-                    ct::PHARAOH => ct::PHARAOH_TRADING,
-                    ct::EGYPTIAN => ct::EGYPTIAN_TRADING,
-                    ct::FOREIGN => ct::FOREIGN_TRADING,
-                    t => t,
-                };
-                names("route_opened")
-            }
-            3 => {
-                let tc = &mut self.trade.cities[c];
-                tc.open = false;
-                tc.city_type = match tc.city_type {
-                    ct::PHARAOH_TRADING => ct::PHARAOH,
-                    ct::EGYPTIAN_TRADING => ct::EGYPTIAN,
-                    ct::FOREIGN_TRADING => ct::FOREIGN,
-                    t => t,
-                };
-                names("route_closed")
-            }
-            4 => self.siege(e, city),
-            _ => None,
-        }
-    }
-
-    /// A trade city falls under siege: its traders stay home for the months given.
-    fn siege(&mut self, e: &ScenarioEvent, city: Option<usize>) -> Option<(String, String, String)> {
-        let c = city.or_else(|| self.trade.cities.iter().position(|c| c.open))?;
-        let months = if e.months_initial > 0 {
-            e.months_initial
-        } else if e.amount > 0 {
-            e.amount
-        } else {
-            DEFAULT_SIEGE_MONTHS
+        let from = self.trade.cities[c].city_type;
+        let to = match (e.subtype, from) {
+            (0, ct::EGYPTIAN_TRADING) => ct::FOREIGN_TRADING,
+            (0, ct::EGYPTIAN) => ct::FOREIGN,
+            (1, ct::FOREIGN_TRADING) => ct::EGYPTIAN_TRADING,
+            (1, ct::FOREIGN) => ct::EGYPTIAN,
+            (2, ct::FOREIGN) => ct::FOREIGN_TRADING,
+            (2, ct::EGYPTIAN) => ct::EGYPTIAN_TRADING,
+            (2, ct::PHARAOH) => ct::PHARAOH_TRADING,
+            (3 | 4, ct::FOREIGN_TRADING) => ct::FOREIGN,
+            (3 | 4, ct::EGYPTIAN_TRADING) => ct::EGYPTIAN,
+            (3 | 4, ct::PHARAOH_TRADING) => ct::PHARAOH,
+            _ => return None,
         };
-        self.trade.cities[c].siege_months = months;
-        Some(("siege_title".into(), "siege_initial_announcement".into(), "siege_no_reason_A".into()))
+        self.change_trade_city(c, to, matches!(e.subtype, 3 | 4));
+        names(match e.subtype {
+            0 => "eg_city_falls",
+            1 => "foreign_city_conquered",
+            2 => "route_opened",
+            3 => "route_closed",
+            _ => "siege",
+        })
     }
 
     /// The reason phrase for event `i` when an earlier event led to it: what happened
@@ -809,12 +828,5 @@ impl World {
         let s = &mut self.scenario_events;
         s.sea_problem_days = (s.sea_problem_days - 1).max(0);
         s.land_problem_days = (s.land_problem_days - 1).max(0);
-    }
-
-    /// Monthly: sieges wear on.
-    pub(crate) fn update_sieges(&mut self) {
-        for c in &mut self.trade.cities {
-            c.siege_months = (c.siege_months - 1).max(0);
-        }
     }
 }

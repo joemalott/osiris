@@ -104,7 +104,6 @@ impl World {
             self.update_morale_month();
             self.update_distant_battle();
             self.process_scenario_events();
-            self.update_sieges();
             self.update_all_roads();
             if roll.year {
                 self.rng.next();
