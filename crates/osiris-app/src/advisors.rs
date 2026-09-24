@@ -819,27 +819,55 @@ fn religion(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opti
         }
     };
     ui.wrapped(Font::NormalBlackOnLight, &advice, px + 60.0, py + 273.0, 512.0);
-    // Festivals.
-    panel::inner_panel(ui.r, ui.panels, px + 48.0, py + 330.0, 34, 5);
+    // Festivals, as the original lays them out: a six-block panel with the festival
+    // picture, the months since the last one, the order button or what is being
+    // prepared, and the organizers' word (group 295) by the months since or to go.
+    panel::inner_panel(ui.r, ui.panels, px + 48.0, py + 320.0, 34, 6);
+    ui.image(ui.img.gods + 15, px + 460.0, py + 323.0);
     let since = world.religion.known().map(|(_, g)| g.months_since_festival).min().unwrap_or(0);
-    let last = format!("{} {} {}", since, ui.t(8, 5), ui.t(58, 15));
-    draw_text(ui.r, Font::NormalWhiteOnDark, &last, px + 112.0, py + 336.0, font::WHITE);
-    match &world.religion.festival {
+    let last = format!("{} {} {}", since, ui.t(8, if since == 1 { 4 } else { 5 }), ui.t(58, 15));
+    draw_text(ui.r, Font::NormalWhiteOnDark, &last, px + 112.0, py + 328.0, font::WHITE);
+    let word = match &world.religion.festival {
         Some(f) => {
-            let s = format!("{}{} ({} {})", ui.t(58, 34), ui.t(157, f.god), f.months_left, ui.t(8, 5));
-            draw_text(ui.r, Font::NormalWhiteOnDark, &s, px + 112.0, py + 360.0, font::WHITE);
+            use osiris_sim::religion::festival;
+            // Preparing: the month it falls in, and a line by size and months to go.
+            let (lead, base) = match f.size {
+                festival::SMALL => (2, 10),
+                festival::LARGE => (3, 20),
+                _ => (4, 31),
+            };
+            let when = if f.months_left <= 1 { ui.t(58, 54) } else { ui.t(160, (world.time.month as i32 + f.months_left) as usize % 12) };
+            let s = format!("{}{}", ui.t(58, if lead < f.months_left { 53 } else { 34 }), when);
+            draw_text(ui.r, Font::NormalWhiteOnDark, &s, px + 102.0, py + 352.0, font::WHITE);
+            (base - 1 + f.months_left.max(1)) as usize
         }
         None => {
-            let hold = ui.t(58, 16);
-            if ui.button([px + 102.0, py + 354.0, 300.0, 24.0], &hold, Font::NormalBlackOnLight)
-                && world.buildings.iter().any(|b| b.kind == osiris_sim::religion::FESTIVAL_SQUARE)
-            {
+            let square = world.buildings.iter().any(|b| b.kind == osiris_sim::religion::FESTIVAL_SQUARE);
+            let label = ui.t(58, if square { 52 } else { 16 });
+            if ui.button([px + 102.0, py + 348.0, 300.0, 20.0], &label, Font::NormalBlackOnLight) && square {
                 *popup = Some(Popup::Festival(None));
             }
-            let advice = ui.t(58, 18 + (since / 4).clamp(0, 6) as usize);
-            ui.wrapped(Font::NormalWhiteOnDark, &advice, px + 60.0, py + 384.0, 400.0);
+            if square {
+                match since {
+                    m if m < 2 => 7,
+                    m if m < 7 => 8,
+                    _ => 9,
+                }
+            } else {
+                match since {
+                    m if m < 2 => 0,
+                    m if m < 7 => 1,
+                    m if m < 13 => 2,
+                    m if m < 19 => 3,
+                    m if m < 25 => 4,
+                    m if m <= 30 => 5,
+                    _ => 6,
+                }
+            }
         }
-    }
+    };
+    let advice = ui.t(295, word);
+    ui.wrapped(Font::NormalWhiteOnDark, &advice, px + 56.0, py + 373.0, 380.0);
     None
 }
 

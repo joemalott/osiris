@@ -13,6 +13,8 @@ use osiris_sim::houses::Need;
 use osiris_sim::storage::order;
 use osiris_ui::{Font, panel};
 
+mod pages;
+
 const TEXT_GENERAL: usize = 8;
 const TEXT_FRAME: usize = 69;
 const TEXT_HOUSE: usize = 127;
@@ -171,10 +173,10 @@ impl InfoPanel {
             rows.push((chariots, stored(chariots) / resource_load(), if stored(chariots) / resource_load() == 1 { 14 } else { 13 }));
         }
         for (i, &(r, n, label)) in rows.iter().enumerate() {
-            let ry = y + 40.0 + 22.0 * i as f32;
-            ui.icon(r, x + 32.0, ry);
+            let ry = y + 38.0 + 26.0 * i as f32;
+            ui.icon(r, x + 30.0, ry);
             let line = format!("{} {}", n, ui.t(G, label));
-            ui.label(Font::NormalBlackOnLight, &line, x + 58.0, ry + 4.0);
+            ui.label(Font::NormalBlackOnLight, &line, x + 58.0, ry + 6.0);
         }
         let needed = world.workers_needed(b.kind).max(1);
         let pct = b.workers * 100 / needed;
@@ -196,7 +198,8 @@ impl InfoPanel {
             ui.t(G, tier(9, 10, 11, 12))
         };
         ui.wrapped(Font::NormalBlackOnLight, &status, x + 32.0, y + 90.0, 25.0 * 16.0);
-        Self::workers(ui, world, b, x + 16.0, y + 142.0, "");
+        panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 136.0, 27, 4);
+        pages::staff_row(ui, world, b, x, y + 142.0, None);
         closed.then_some(InfoAction::Close)
     }
 
@@ -396,50 +399,7 @@ impl InfoPanel {
         (closed.then_some(InfoAction::Close), pick)
     }
 
-    /// The employee row: a dark panel with the worker count and a staffing line.
-    fn workers(ui: &mut Ui, world: &World, b: &Building, x: f32, y: f32, desc: &str) {
-        let needed = world.workers_needed(b.kind);
-        if needed <= 0 {
-            return;
-        }
-        panel::inner_panel(ui.r, ui.panels, x, y, 27, 4);
-        ui.image(ui.img.context_icons + 14, x + 8.0, y + 8.0);
-        let word = ui.t(TEXT_GENERAL, if b.workers == 1 { 12 } else { 13 });
-        let line = format!("{} {} ({} {}", b.workers, word, needed, ui.t(TEXT_FRAME, 0));
-        ui.label(Font::NormalWhiteOnDark, &line, x + 40.0, y + 12.0);
-        let desc = if desc.is_empty() { Self::labor_line(ui, world, b) } else { desc.to_owned() };
-        ui.wrapped(Font::NormalWhiteOnDark, &desc, x + 40.0, y + 30.0, 380.0);
-    }
-
-    /// Why a building has fewer workers than it needs.
-    fn labor_line(ui: &Ui, world: &World, b: &Building) -> String {
-        let needed = world.workers_needed(b.kind);
-        if b.workers >= needed {
-            return String::new();
-        }
-        let id = if world.population <= 0 {
-            16
-        } else if !world.has_labor_access(b.id) {
-            17
-        } else {
-            18
-        };
-        ui.t(TEXT_FRAME, id)
-    }
-
-    /// The staffing tier among `n` lines: 0 for the worst-staffed, `n - 1` for full.
-    fn tier(world: &World, b: &Building, n: usize) -> usize {
-        let needed = world.workers_needed(b.kind).max(1);
-        ((b.workers as f32 / needed as f32 * n as f32).floor() as usize).min(n - 1)
-    }
-
     fn building_window(&mut self, ui: &mut Ui, world: &mut World, b: &Building) -> Option<InfoAction> {
-        let def = world.defs.building(b.kind).cloned();
-        let g = def.as_ref().and_then(|d| d.text_id).filter(|&g| g > 0).map_or(0, |g| g as usize);
-        // The shrines share one group: each god's name and words, in pairs.
-        let pair = if (kind::SHRINE_OSIRIS..=kind::SHRINE_BAST).contains(&b.kind) { 2 * (b.kind - kind::SHRINE_OSIRIS) as usize } else { 0 };
-        let t = |ui: &Ui, i: usize| ui.t(g, if i <= 1 { i + pair } else { i });
-        let name = if g > 0 { t(ui, 0) } else { ui.t(28, b.kind as usize) };
         if b.house.is_some() {
             return self.house_window(ui, world, b);
         }
@@ -452,124 +412,11 @@ impl InfoPanel {
         if b.kind == osiris_sim::military::RECRUITER {
             return self.recruiter_window(ui, world, b);
         }
-        if world.is_farm(b.kind) {
-            return self.farm_window(ui, world, b, g, &name);
+        // Walls and ditches open the land window, as in the original.
+        if matches!(b.kind, 6 | kind::IRRIGATION_DITCH | 169) {
+            return self.terrain_window(ui, world, b.x, b.y);
         }
-        let flags = |f: &str| def.as_ref().is_some_and(|d| d.has_flag(f));
-        let no_road = ui.t(TEXT_FRAME, 25);
-        // Buildings that need no road (statues, shrines, gardens) never warn of one.
-        let roadless = b.road.is_none() && !flags("no_road_access");
-        match b.kind {
-            kind::STORAGE_YARD => return self.yard_window(ui, world, b),
-            kind::GRANARY => return self.granary_window(ui, world, b),
-            kind::BAZAAR => return self.bazaar_window(ui, world, b),
-            kind::WELL => {
-                let ([x, y], closed) = self.frame(ui, 29, 14, &name);
-                let line = t(ui, Self::well_line(world, b));
-                ui.wrapped(Font::NormalBlackOnLight, &line, x + 32.0, y + 56.0, 27.0 * 16.0);
-                return closed.then_some(InfoAction::Close);
-            }
-            kind::BOOTH | kind::BANDSTAND | kind::PAVILION => return self.venue_window(ui, world, b, g, &name),
-            _ => {}
-        }
-        let outputs = def.as_ref().map_or(0, |d| d.outputs.len());
-        let inputs: Vec<u16> = def.as_ref().map_or_else(Vec::new, |d| d.inputs.iter().filter_map(|i| world.resource_id(i)).collect());
-        let output = def.as_ref().and_then(|d| d.outputs.first()).and_then(|o| world.resource_id(o));
-        if outputs > 0 && flags("is_workshop") {
-            // Workshops: progress, input stock and whether production can go on.
-            let two = inputs.len() > 1;
-            let ([x, y], closed) = self.frame(ui, 29, if two { 18 } else { 16 }, &name);
-            if let Some(r) = output {
-                ui.icon(r, x + 10.0, y + 10.0);
-            }
-            let pct = b.progress * 100 / world.max_progress(b.kind).max(1);
-            let progress = format!("{} {}% {}", t(ui, 2), pct, t(ui, 3));
-            ui.label(Font::NormalBlackOnLight, &progress, x + 32.0, y + 40.0);
-            for (i, &r) in inputs.iter().enumerate() {
-                let ry = y + 56.0 + 24.0 * i as f32;
-                ui.icon(r, x + 32.0, ry);
-                let n = b.stock[r as usize];
-                let label = if two { t(ui, 13 + i) } else { t(ui, 12) };
-                let line = format!("{} {} {}", label, n, ui.t(TEXT_GENERAL, if n == 1 { 10 } else { 11 }));
-                ui.label(Font::NormalBlackOnLight, &line, x + 60.0, ry + 4.0);
-            }
-            let status = if b.road.is_none() {
-                no_road
-            } else if output.is_some_and(|r| world.is_mothballed(r)) {
-                t(ui, 4)
-            } else if b.workers <= 0 {
-                t(ui, 5)
-            } else if let Some(i) = inputs.iter().position(|&r| b.stock[r as usize] < resource_load()) {
-                t(ui, 11 + i)
-            } else {
-                t(ui, 10 - Self::tier(world, b, 5))
-            };
-            let sy = y + if two { 110.0 } else { 86.0 };
-            ui.wrapped(Font::NormalBlackOnLight, &status, x + 32.0, sy, 27.0 * 16.0);
-            Self::workers(ui, world, b, x + 16.0, y + if two { 150.0 } else { 136.0 } - 12.0, " ");
-            return closed.then_some(InfoAction::Close);
-        }
-        if outputs > 0 && b.kind != kind::HUNTING_LODGE {
-            // Raw materials: quarries, mines, clay pits, wood and reeds.
-            let ([x, y], closed) = self.frame(ui, 29, 17, &name);
-            if let Some(r) = output {
-                ui.icon(r, x + 14.0, y + 14.0);
-            }
-            let pct = b.progress * 100 / world.max_progress(b.kind).max(1);
-            let progress = format!("{} {}% {}", t(ui, 2), pct, t(ui, 3));
-            ui.label(Font::NormalBlackOnLight, &progress, x + 32.0, y + 44.0);
-            let desc = t(ui, 1);
-            ui.wrapped(Font::NormalBlackOnLight, &desc, x + 32.0, y + 66.0, 26.0 * 16.0);
-            let status = if b.road.is_none() {
-                no_road
-            } else if output.is_some_and(|r| world.is_mothballed(r)) {
-                t(ui, 4)
-            } else if b.workers <= 0 {
-                t(ui, 5)
-            } else {
-                t(ui, 9 - Self::tier(world, b, 4))
-            };
-            Self::workers(ui, world, b, x + 16.0, y + 140.0, &status);
-            return closed.then_some(InfoAction::Close);
-        }
-        // Everything else: the description, then what the building is doing.
-        let temple = (kind::TEMPLE_OSIRIS..=kind::TEMPLE_BAST).contains(&b.kind);
-        // Schools and libraries show their papyrus, mortuaries their linen.
-        let supply = world.walker_supplies(b.kind).map(|(r, _)| r);
-        let ([x, y], closed) = self.frame(ui, 29, if supply.is_some() { 18 } else { 17 }, &name);
-        let supplied = supply.map(|r| b.stock.get(r as usize).copied().unwrap_or(0));
-        let walker_out = b.walkers[0] != 0;
-        let status = if roadless {
-            no_road
-        } else if temple || world.workers_needed(b.kind) <= 0 {
-            String::new()
-        } else if b.workers <= 0 {
-            let s = t(ui, 9);
-            if s.is_empty() { t(ui, 2) } else { s }
-        } else if b.kind == osiris_sim::irrigation::WATER_LIFT {
-            // "...needs to be adjacent to water, or connected by an Irrigation Ditch..."
-            if b.water == 0 { t(ui, 3) } else { String::new() }
-        } else if b.kind == kind::MORTUARY && supplied.unwrap_or(0) < 1 {
-            // "Without linen, we cannot prepare the dead..." Schools and libraries
-            // have no such line: theirs says only whether they are staffed.
-            t(ui, 4)
-        } else if walker_out && supply.is_none() {
-            t(ui, 2)
-        } else {
-            t(ui, 3)
-        };
-        let mut text_y = 46.0;
-        if let (Some(r), Some(n)) = (supply, supplied) {
-            ui.icon(r, x + 32.0, y + 44.0);
-            let line = format!("{} {}", n, ui.t(TEXT_RESOURCES, r as usize));
-            ui.label(Font::NormalBlackOnLight, &line, x + 60.0, y + 48.0);
-            text_y = 72.0;
-        }
-        let desc = t(ui, 1);
-        let line = if status.is_empty() || status == desc { desc } else { format!("{desc} {status}") };
-        ui.wrapped(Font::NormalBlackOnLight, &line, x + 20.0, y + text_y, 27.0 * 16.0);
-        Self::workers(ui, world, b, x + 16.0, y + if supply.is_some() { 152.0 } else { 136.0 }, "");
-        closed.then_some(InfoAction::Close)
+        self.building_page(ui, world, b).unwrap_or(Some(InfoAction::Close))
     }
 
     /// The Construction Foreman's report on a monument.
@@ -700,18 +547,26 @@ impl InfoPanel {
         }
     }
 
+    /// A house, 22 blocks tall as in the original: what keeps it from evolving (or
+    /// makes it devolve), its food and goods, then its people, taxes and crime.
     fn house_window(&mut self, ui: &mut Ui, world: &World, b: &Building) -> Option<InfoAction> {
         let h = b.house.clone().expect("house");
         if h.population <= 0 {
+            // A vacant lot: whether a road is near enough for anyone to move in.
+            let ([x, y], closed) = self.frame(ui, 29, 22, "");
             let title = ui.t(TEXT_VACANT, 0);
-            let ([x, y], closed) = self.frame(ui, 29, 21, &title);
-            panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 40.0, 27, 13);
-            let line = ui.t(TEXT_VACANT, if b.road.is_some() { 1 } else { 2 });
-            ui.wrapped(Font::NormalWhiteOnDark, &line, x + 36.0, y + 114.0, 25.0 * 16.0);
+            ui.centred(Font::LargeBlackOnLight, &title, x, y + 8.0, 29.0 * 16.0);
+            panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 40.0, 27, 12);
+            let nobody = ui.t(TEXT_TERRAIN, 0);
+            ui.centred(Font::NormalWhiteOnDark, &nobody, x, y + 120.0, 29.0 * 16.0);
+            let near = osiris_sim::buildings::road_within(&world.map, b.x, b.y, b.size, 2).is_some();
+            let line = ui.t(TEXT_VACANT, if near { 1 } else { 2 });
+            ui.wrapped(Font::NormalBlackOnLight, &line, x + 32.0, y + 22.0 * 16.0 - 113.0, 25.0 * 16.0);
             return closed.then_some(InfoAction::Close);
         }
+        let ([x, y], closed) = self.frame(ui, 29, 22, "");
         let title = ui.t(TEXT_HOUSE_LEVELS, h.level as usize);
-        let ([x, y], closed) = self.frame(ui, 29, 23, &title);
+        ui.centred(Font::LargeBlackOnLight, &title, x, y + 10.0, 29.0 * 16.0);
         let food_types = h.foods.iter().filter(|&&f| f > 0).count() as i32;
         let advice = if h.level as usize + 1 >= world.balance.houses.len() && h.blocked_by.is_none() {
             100
@@ -719,22 +574,22 @@ impl InfoPanel {
             house_advice(h.blocked_by, h.decaying, food_types)
         };
         let line = ui.t(TEXT_HOUSE, advice);
-        ui.wrapped(Font::NormalBlackOnLight, &line, x + 32.0, y + 40.0, 27.0 * 16.0);
+        ui.wrapped(Font::NormalBlackOnLight, &line, x + 32.0, y + 36.0, 25.0 * 16.0);
         // The city's first four foods and the four goods, with this house's stock.
         let foods = city_foods(world);
         let food_stock = |r: u16| resource::food_slot(r).map_or(0, |s| h.foods[s]);
         for (i, &r) in foods.iter().enumerate() {
             let cx = x + 32.0 + 110.0 * i as f32;
-            ui.icon(r, cx, y + 95.0);
-            ui.label(Font::NormalBlackOnLight, &food_stock(r).to_string(), cx + 32.0, y + 100.0);
+            ui.icon(r, cx, y + 110.0);
+            ui.label(Font::NormalBlackOnLight, &food_stock(r).to_string(), cx + 32.0, y + 112.0);
         }
         for (i, &r) in resource::HOUSE_GOODS.iter().enumerate() {
             let cx = x + 32.0 + 110.0 * i as f32;
-            ui.icon(r, cx, y + 120.0);
-            ui.label(Font::NormalBlackOnLight, &h.goods[i].to_string(), cx + 32.0, y + 124.0);
+            ui.icon(r, cx, y + 130.0);
+            ui.label(Font::NormalBlackOnLight, &h.goods[i].to_string(), cx + 32.0, y + 132.0);
         }
         panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 148.0, 27, 10);
-        ui.image(ui.img.context_icons + 13, x + 34.0, y + 154.0);
+        ui.image(ui.img.context_icons + 13, x + 34.0, y + 158.0);
         let cap = world.house_capacity(b.id);
         let room = if h.population > cap {
             format!("{}{}", h.population - cap, ui.t(TEXT_HOUSE, 21))
@@ -742,114 +597,19 @@ impl InfoPanel {
             format!("{} {}", ui.t(TEXT_HOUSE, 22), cap - h.population)
         };
         let people = format!("{} {} ( {} )", h.population, ui.t(TEXT_HOUSE, 20), room);
-        ui.label(Font::NormalWhiteOnDark, &people, x + 64.0, y + 164.0);
+        ui.label(Font::NormalWhiteOnDark, &people, x + 64.0, y + 168.0);
         let tax = if h.coverage.tax <= 0 {
             ui.t(TEXT_HOUSE, 23)
         } else {
             let amount = world.house_tax(h.level, h.population);
             format!("{} {} {}", ui.t(TEXT_HOUSE, 24), amount, ui.t(TEXT_HOUSE, 25))
         };
-        ui.wrapped(Font::NormalWhiteOnDark, &tax, x + 36.0, y + 194.0, 25.0 * 16.0);
+        ui.wrapped(Font::NormalWhiteOnDark, &tax, x + 36.0, y + 194.0, 23.0 * 16.0);
+        let crime = ui.t(TEXT_HOUSE, crime_line(h.happiness));
+        ui.wrapped(Font::NormalWhiteOnDark, &crime, x + 36.0, y + 214.0, 23.0 * 16.0);
         if world.balance.house(h.level).food_types <= 0 {
             let s = ui.t(TEXT_HOUSE, 33);
-            ui.wrapped(Font::NormalWhiteOnDark, &s, x + 36.0, y + 234.0, 25.0 * 16.0);
-        }
-        closed.then_some(InfoAction::Close)
-    }
-
-    fn farm_window(&mut self, ui: &mut Ui, world: &World, b: &Building, g: usize, name: &str) -> Option<InfoAction> {
-        let ([x, y], closed) = self.frame(ui, 29, 19, name);
-        let t = |ui: &Ui, i: usize| ui.t(g, i);
-        let output = world.defs.building(b.kind).and_then(|d| d.outputs.first()).and_then(|o| world.resource_id(o));
-        if let Some(r) = output {
-            ui.icon(r, x + 10.0, y + 10.0);
-        }
-        let pct = b.progress * 100 / osiris_sim::farms::PROGRESS_MAX;
-        let line = format!("{} {}% {} {} {}% {}", t(ui, 2), pct, t(ui, 3), t(ui, 12), world.fertility(b.id), t(ui, 13));
-        ui.wrapped(Font::NormalBlackOnLight, &line, x + 32.0, y + 40.0, 26.0 * 16.0);
-        let floodplain = world.is_floodplain_farm(b.id);
-        let status = if b.workers <= 0 && !floodplain {
-            t(ui, 5)
-        } else if b.road.is_none() {
-            ui.t(TEXT_FRAME, 25)
-        } else if output.is_some_and(|r| world.is_mothballed(r)) {
-            t(ui, 4)
-        } else if floodplain {
-            let days = b.labor_days;
-            t(ui, if days > 0 { 6 } else { 5 })
-        } else {
-            t(ui, 10 - Self::tier(world, b, 5))
-        };
-        ui.wrapped(Font::NormalBlackOnLight, &status, x + 32.0, y + 66.0, 26.0 * 16.0);
-        // "This farmland is irrigated." or "...not irrigated."
-        let irrigated = ui.t(177, if world.is_irrigated(b.id) { 0 } else { 1 });
-        ui.wrapped(Font::NormalBlackOnLight, &irrigated, x + 32.0, y + 206.0, 26.0 * 16.0);
-        let desc = t(ui, 1);
-        ui.wrapped(Font::NormalBlackOnLight, &desc, x + 32.0, y + 226.0, 26.0 * 16.0);
-        if !floodplain {
-            Self::workers(ui, world, b, x + 16.0, y + 100.0, "");
-        }
-        closed.then_some(InfoAction::Close)
-    }
-
-    fn yard_window(&mut self, ui: &mut Ui, world: &World, b: &Building) -> Option<InfoAction> {
-        let title = ui.t(TEXT_YARD, 0);
-        let ([x, y], closed) = self.frame(ui, 29, 21, &title);
-        let total = world.total_stored(b.id);
-        let line = if b.road.is_none() {
-            ui.t(TEXT_FRAME, 25)
-        } else if total >= osiris_sim::storage::CAPACITY {
-            ui.t(TEXT_YARD, 13)
-        } else if b.spaces.iter().all(|s| s.1 > 0) {
-            ui.t(TEXT_YARD, 14)
-        } else if total == 0 {
-            format!("{} {}", ui.t(TEXT_YARD, 1), ui.t(TEXT_YARD, 22))
-        } else {
-            ui.t(TEXT_YARD, 1)
-        };
-        ui.wrapped(Font::NormalBlackOnLight, &line, x + 22.0, y + 36.0, 28.0 * 16.0 - 30.0);
-        Self::storage_totals(ui, total, x + 24.0, y + 95.0);
-        let mut held: Vec<(u16, i32)> = Vec::new();
-        for &(r, n) in &b.spaces {
-            if n <= 0 {
-                continue;
-            }
-            match held.iter_mut().find(|h| h.0 == r) {
-                Some(h) => h.1 += n,
-                None => held.push((r, n)),
-            }
-        }
-        held.sort();
-        for (i, (r, n)) in held.iter().take(9).enumerate() {
-            let (cx, cy) = (x + [32.0, 172.0, 292.0][i % 3], y + 116.0 + 26.0 * (i / 3) as f32);
-            ui.icon(*r, cx, cy);
-            let s = format!("{} {}", n, ui.t(TEXT_RESOURCES, *r as usize));
-            ui.label(Font::NormalBlackOnLight, &s, cx + 22.0, cy + 2.0);
-        }
-        let cart = world.figures.get(b.walkers[2]);
-        let cart_line = match cart {
-            Some(f) if f.amount > 0 && f.home == b.id => ui.t(TEXT_YARD, 16),
-            Some(_) => ui.t(TEXT_YARD, 17),
-            None => ui.t(TEXT_YARD, 15),
-        };
-        let staff = if b.workers <= 0 {
-            Self::labor_line(ui, world, b)
-        } else {
-            let needed = world.workers_needed(b.kind).max(1);
-            match b.workers * 100 / needed {
-                p if p < 50 => ui.t(TEXT_FRAME, 27),
-                p if p < 75 => ui.t(TEXT_FRAME, 26),
-                _ => cart_line,
-            }
-        };
-        Self::workers(ui, world, b, x + 16.0, y + 198.0, &staff);
-        let orders = ui.t(TEXT_YARD, 2);
-        if ui.button([x + 100.0, y + 21.0 * 16.0 - 40.0, 270.0, 24.0], &orders, Font::NormalBlackOnLight) {
-            self.orders = true;
-            self.scroll = 0;
-        }
-        if self.trade_button(ui) {
-            return Some(InfoAction::Overseer(crate::advisors::Advisor::Trade));
+            ui.wrapped(Font::NormalWhiteOnDark, &s, x + 36.0, y + 234.0, 23.0 * 16.0);
         }
         closed.then_some(InfoAction::Close)
     }
@@ -861,142 +621,6 @@ impl InfoPanel {
         let rect = [x + 40.0, y + h - 40.0, 28.0, 28.0];
         let frame = ui.hot(rect) as u32;
         ui.image_button(ui.img.advisor_buttons + 4 * 3 + frame, rect[0], rect[1], rect[2], rect[3])
-    }
-
-    fn storage_totals(ui: &mut Ui, total: i32, x: f32, y: f32) {
-        let units = ui.t(TEXT_GENERAL, 17);
-        let storing = format!("{} {} {}", ui.t(TEXT_GRANARY, 2), total, units);
-        ui.label(Font::NormalBlackOnLight, &storing, x, y);
-        let free = format!("{} {} {}", ui.t(TEXT_GRANARY, 3), (osiris_sim::storage::CAPACITY - total).max(0), units);
-        ui.label(Font::NormalBlackOnLight, &free, x + 196.0, y);
-    }
-
-    fn granary_window(&mut self, ui: &mut Ui, world: &World, b: &Building) -> Option<InfoAction> {
-        let title = ui.t(TEXT_GRANARY, 0);
-        let ([x, y], closed) = self.frame(ui, 29, 17, &title);
-        if b.road.is_none() {
-            let s = ui.t(TEXT_FRAME, 25);
-            ui.wrapped(Font::NormalBlackOnLight, &s, x + 32.0, y + 40.0, 28.0 * 16.0 - 40.0);
-        }
-        Self::storage_totals(ui, world.total_stored(b.id), x + 34.0, y + 60.0);
-        let foods: Vec<u16> = (resource::GRAIN..=resource::GAMEMEAT).filter(|&r| b.stock[r as usize] > 0).take(4).collect();
-        for (i, &r) in foods.iter().enumerate() {
-            let (cx, cy) = (x + [34.0, 240.0][i % 2], y + 80.0 + 24.0 * (i / 2) as f32);
-            ui.icon(r, cx, cy);
-            let s = format!("{} {}", b.stock[r as usize], ui.t(TEXT_RESOURCES, r as usize));
-            ui.label(Font::NormalBlackOnLight, &s, cx + 34.0, cy + 3.0);
-        }
-        Self::workers(ui, world, b, x + 16.0, y + 136.0, "");
-        let orders = ui.t(TEXT_GRANARY, 5);
-        if ui.button([x + (29.0 * 16.0 - 270.0) / 2.0, y + 17.0 * 16.0 - 40.0, 270.0, 24.0], &orders, Font::NormalBlackOnLight) {
-            self.orders = true;
-            self.scroll = 0;
-        }
-        closed.then_some(InfoAction::Close)
-    }
-
-    fn bazaar_window(&mut self, ui: &mut Ui, world: &World, b: &Building) -> Option<InfoAction> {
-        let title = ui.t(TEXT_BAZAAR, 0);
-        let ([x, y], closed) = self.frame(ui, 29, 17, &title);
-        let has_stock = (resource::GRAIN..=resource::GAMEMEAT).chain(resource::HOUSE_GOODS).any(|r| b.stock[r as usize] > 0);
-        let (seller, buyer) = (b.walkers[0] != 0, b.walkers[2] != 0);
-        let id = if b.road.is_none() {
-            None
-        } else if b.workers <= 0 {
-            Some(2)
-        } else if !has_stock {
-            Some(4)
-        } else if seller && buyer {
-            Some(3)
-        } else if buyer {
-            Some(10)
-        } else if seller {
-            Some(11)
-        } else {
-            Some(3)
-        };
-        let line = id.map_or_else(|| ui.t(TEXT_FRAME, 25), |i| ui.t(TEXT_BAZAAR, i));
-        ui.wrapped(Font::NormalBlackOnLight, &line, x + 32.0, y + 36.0, 26.0 * 16.0);
-        for (row, list) in [(0, city_foods(world)), (1, resource::HOUSE_GOODS.to_vec())] {
-            for (i, &r) in list.iter().enumerate() {
-                let (cx, cy) = (x + 32.0 + 110.0 * i as f32, y + 85.0 + 25.0 * row as f32);
-                ui.icon(r, cx, cy);
-                let f = if b.bazaar_buys(r) { Font::NormalBlackOnLight } else { Font::NormalYellow };
-                ui.label(f, &b.stock[r as usize].to_string(), cx + 32.0, cy + 5.0);
-            }
-        }
-        Self::workers(ui, world, b, x + 16.0, y + 136.0, "");
-        let orders = ui.t(TEXT_GRANARY, 5);
-        if ui.button([x + 100.0, y + 17.0 * 16.0 - 40.0, 270.0, 24.0], &orders, Font::NormalBlackOnLight) {
-            self.orders = true;
-            self.scroll = 0;
-        }
-        closed.then_some(InfoAction::Close)
-    }
-
-    fn venue_window(&mut self, ui: &mut Ui, world: &World, b: &Building, g: usize, name: &str) -> Option<InfoAction> {
-        let hb = if b.kind == kind::BOOTH { 16 } else { 20 };
-        let ([x, y], closed) = self.frame(ui, 29, hb, name);
-        let t = |ui: &Ui, i: usize| ui.t(g, i);
-        let days = |ui: &Ui, n: i32| format!("{} {}", n, ui.t(TEXT_GENERAL, if n == 1 { 44 } else { 45 }));
-        let [j, m, d] = b.shows;
-        let no_road = ui.t(TEXT_FRAME, 25);
-        let (status, lines): (String, Vec<String>) = match b.kind {
-            kind::BOOTH => {
-                let s = if b.road.is_none() {
-                    no_road
-                } else if b.workers <= 0 {
-                    t(ui, 4)
-                } else if j > 0 {
-                    t(ui, 3)
-                } else {
-                    t(ui, 2)
-                };
-                let show = if j > 0 { format!("{} {}", t(ui, 6), days(ui, j)) } else { t(ui, 5) };
-                (format!("{} {}", t(ui, 1), s), vec![show])
-            }
-            kind::BANDSTAND => {
-                let s = if b.road.is_none() {
-                    no_road
-                } else if b.workers <= 0 {
-                    t(ui, 6)
-                } else {
-                    t(ui, match (j > 0, m > 0) {
-                        (true, true) => 3,
-                        (true, false) => 5,
-                        (false, true) => 4,
-                        _ => 2,
-                    })
-                };
-                let jl = if j > 0 { format!("{} {}", t(ui, 10), days(ui, j)) } else { t(ui, 9) };
-                let ml = if m > 0 { format!("{} {}", t(ui, 8), days(ui, m)) } else { t(ui, 7) };
-                (s, vec![jl, ml])
-            }
-            _ => {
-                let s = if b.road.is_none() {
-                    no_road
-                } else {
-                    t(ui, match (j > 0, m > 0, d > 0) {
-                        (false, false, false) => 2,
-                        (true, true, true) => 3,
-                        (true, false, false) => 4,
-                        (false, true, false) => 5,
-                        (false, false, true) => 6,
-                        (true, true, false) => 7,
-                        (true, false, true) => 8,
-                        _ => 9,
-                    })
-                };
-                let line = |ui: &Ui, n: i32, none: usize| if n > 0 { format!("{} {}", t(ui, none + 1), days(ui, n)) } else { t(ui, none) };
-                (format!("{} {}", t(ui, 1), s), vec![line(ui, j, 11), line(ui, m, 13), line(ui, d, 15)])
-            }
-        };
-        ui.wrapped(Font::NormalBlackOnLight, &status, x + 20.0, y + 46.0, 27.0 * 16.0);
-        Self::workers(ui, world, b, x + 16.0, y + 100.0, "");
-        for (i, l) in lines.iter().enumerate() {
-            ui.label(Font::NormalBlackOnLight, l, x + 32.0, y + 170.0 + 20.0 * i as f32);
-        }
-        closed.then_some(InfoAction::Close)
     }
 
     /// Special orders: per resource, accept (up to a share of the building), get,
@@ -1123,7 +747,9 @@ impl InfoPanel {
         } else if is(tr::CANAL) {
             7
         } else if is(tr::WALL) {
-            24
+            // A brick wall, or the mud wall.
+            let brick = world.buildings.iter().any(|b| b.kind == 169 && b.x == x && b.y == y);
+            if brick { 23 } else { 24 }
         } else if is(tr::RUBBLE) {
             8
         } else if is(tr::MEADOW) {
@@ -1166,6 +792,20 @@ fn scenario_resources(world: &World) -> Vec<u16> {
             made || traded
         })
         .collect()
+}
+
+/// Group 127's line on a house's crime, from its people's happiness: none at all
+/// above 49, down to a breeding ground for thieves at 0.
+fn crime_line(happiness: i32) -> usize {
+    match happiness {
+        h if h > 49 => 26,
+        h if h > 39 => 27,
+        h if h > 29 => 28,
+        h if h > 19 => 29,
+        h if h > 9 => 30,
+        h if h > 0 => 31,
+        _ => 32,
+    }
 }
 
 /// Group 127 advice line for a house's first unmet need.

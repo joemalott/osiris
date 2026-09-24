@@ -83,7 +83,7 @@ const GATHER_TICKS: i32 = 300;
 const TIMBER_PER_TRIP: i32 = 25;
 const REEDS_PER_TRIP: i32 = 50;
 
-mod action {
+pub mod action {
     /// Loaded and walking to its destination.
     pub const DELIVERING: u16 = 1;
     /// Empty and walking home.

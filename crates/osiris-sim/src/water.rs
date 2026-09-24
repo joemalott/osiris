@@ -363,13 +363,18 @@ impl World {
         }
     }
 
-    /// The landing linked to ferry `id` nearest to it, if any.
+    /// The staffed landing linked to ferry `id` nearest to it, if any.
     fn ferry_partner(&self, id: BuildingId) -> Option<BuildingId> {
+        self.ferry_link(id, true)
+    }
+
+    /// The landing across the water from ferry `id` (staffed or not), if any.
+    pub fn ferry_link(&self, id: BuildingId, staffed: bool) -> Option<BuildingId> {
         let a = self.buildings.get(id)?;
         let from = mooring_tiles(a)[0];
         self.buildings
             .iter()
-            .filter(|b| b.kind == FERRY && b.id != id && b.workers > 0)
+            .filter(|b| b.kind == FERRY && b.id != id && (!staffed || b.workers > 0))
             .filter(|b| (a.x - b.x).abs() <= FERRY_REACH || (a.y - b.y).abs() <= FERRY_REACH)
             .filter(|b| self.map.terrain_is(mooring_tiles(b)[0].0, mooring_tiles(b)[0].1, terrain::FERRY_ROUTE))
             .min_by_key(|b| ((b.x - a.x).pow(2) + (b.y - a.y).pow(2), b.id))
