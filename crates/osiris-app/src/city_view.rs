@@ -68,8 +68,8 @@ pub fn zoom_at(r: &mut Renderer, screen: [f32; 2], factor: f32) {
 /// A sprite standing on a tile (walkers), drawn after that tile's diagonal.
 #[derive(Debug, Clone, Copy)]
 pub struct Sprite {
-    /// Drawn before the buildings of its diagonal rather than after them (a figure
-    /// over a pyramid's far face, which the pyramid hides).
+    /// Drawn just before its tile's building image rather than after its diagonal (a
+    /// figure over a pyramid's far face, which the blocks drawn after him hide).
     pub behind: bool,
     pub x: i32,
     pub y: i32,
@@ -266,16 +266,31 @@ impl CityView {
                 self.draw_tile(r, map, x, d - x, overlay, true, [vx0, vy0, vx1, vy1]);
             }
         }
+        let draw_person = |r: &mut Renderer, s: &Sprite| {
+            let p = tile_to_world(map, s.x, s.y);
+            draw_sprite(r, s.image, [p[0] + s.offset.0 as f32 + 29.0, p[1] + s.offset.1 as f32 + 23.0]);
+        };
         for d in 0..(w + h - 1) {
             let x_min = (d - (h - 1)).max(0);
             let x_max = d.min(w - 1);
+            // A sprite drawn before its tile's building goes just before that
+            // building's image, the extra drawn from its tile if there is one, else the
+            // tile's own (as the original draws a figure over a pyramid's back face
+            // inside the drawing of the block it is filed on, `FUN_004ef550`).
+            let first = next_hidden;
             while next_hidden < hidden.len() && hidden[next_hidden].x + hidden[next_hidden].y <= d {
-                let s = hidden[next_hidden];
-                let p = tile_to_world(map, s.x, s.y);
-                draw_sprite(r, s.image, [p[0] + s.offset.0 as f32 + 29.0, p[1] + s.offset.1 as f32 + 23.0]);
                 next_hidden += 1;
             }
+            let mut pending: Vec<Sprite> = hidden[first..next_hidden].to_vec();
+            let raised: Vec<(i32, i32)> = extras[next_extra..].iter().take_while(|o| o.x + o.y <= d).map(|o| (o.x, o.y)).collect();
             for x in (x_min..=x_max).rev() {
+                let at = (x, d - x);
+                if !raised.contains(&at) {
+                    for s in pending.iter().filter(|s| (s.x, s.y) == at) {
+                        draw_person(r, s);
+                    }
+                    pending.retain(|s| (s.x, s.y) != at);
+                }
                 self.draw_tile(r, map, x, d - x, overlay, false, [vx0, vy0, vx1, vy1]);
             }
             while next_column < columns.len() && columns[next_column].x + columns[next_column].y <= d {
@@ -286,14 +301,18 @@ impl CityView {
             }
             while next_extra < extras.len() && extras[next_extra].x + extras[next_extra].y <= d {
                 let o = extras[next_extra];
+                for s in pending.iter().filter(|s| (s.x, s.y) == (o.x, o.y)) {
+                    draw_person(r, s);
+                }
+                pending.retain(|s| (s.x, s.y) != (o.x, o.y));
                 r.image(o.image, o.pos, WHITE, Space::World);
                 next_extra += 1;
             }
+            for s in &pending {
+                draw_person(r, s);
+            }
             while next_person < people.len() && people[next_person].x + people[next_person].y <= d {
-                let s = people[next_person];
-                let p = tile_to_world(map, s.x, s.y);
-                let foot = [p[0] + s.offset.0 as f32 + 29.0, p[1] + s.offset.1 as f32 + 23.0];
-                draw_sprite(r, s.image, foot);
+                draw_person(r, &people[next_person]);
                 next_person += 1;
             }
         }

@@ -653,6 +653,14 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let ks: Vec<u16> = (0..1000u16).filter(|&k| world.defs.building(k).is_some_and(|d| d.has_flag("is_monument")) && world.is_allowed(k)).collect();
                 eprintln!("monuments allowed {ks:?}");
             }
+            // Each monument's phase, pieces done, material delivered and on its way.
+            ["monstatus"] => {
+                for b in world.buildings.iter() {
+                    let Some(m) = b.monument.as_ref() else { continue };
+                    let done = m.progress.iter().filter(|&&p| p > 0).count();
+                    eprintln!("{step}: tick {} monument {} kind {} phase {} finished {} begun {done}/{} delivered {:?} in flight {:?}", world.time.total_ticks, b.id, b.kind, m.phase, m.finished, m.progress.len(), m.delivered, m.in_flight);
+                }
+            }
             ["monlist"] => eprintln!("monuments {:?} complex gods {:?} debt rate {} burial {:?}", world.scenario_monuments, world.complex_gods, world.debt_rate, world.burial_needs()),
             // Puts groundwater under a rectangle, for testing wells anywhere.
             ["groundwater", a, b] => {
