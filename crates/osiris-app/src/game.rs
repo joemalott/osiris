@@ -47,7 +47,7 @@ pub fn speed_label(speed: u32) -> String {
     if speed <= 100 { format!("{speed}%") } else { format!("{}x", speed / 100) }
 }
 
-const CONTROLS: &str = "@PLeft-click a build button, then click or drag on the map to build. Right-click cancels the tool, closes windows, and drags to scroll. The arrow keys scroll the map and the mouse wheel zooms.@PP pauses. [ and ] (or Page Up and Page Down) change the speed, from 10% up to 200 times normal. - opens the Overseer of the Treasury and = the Chief Overseer.@PW, F and D show the water, fire and damage overlays; the Overlays menu has the rest. Space switches between the normal view and the last overlay.@PB builds roads and X clears land. M, N, U, O, T and G pick up a bazaar, granary, storage yard, apothecary, water supply and gardens; Ctrl+H housing, Ctrl+F firehouse and Ctrl+A architect.@PF2 opens the game rules, F5 saves and F9 loads the saved game for this city. Escape backs out of whatever is open, and goes to the main menu when nothing is.";
+const CONTROLS: &str = "@PLeft-click a build button, then click or drag on the map to build. Right-click cancels the tool, closes windows, and drags to scroll. The arrow keys scroll the map and the mouse wheel zooms.@PP pauses. [ and ] (or Page Up and Page Down) change the speed, from 10% up to 200 times normal. - opens the Overseer of the Treasury and = the Chief Overseer.@PW, F and D show the water, fire and damage overlays; the Overlays menu has the rest. Space switches between the normal view and the last overlay.@PB builds roads and X clears land. M, N, U, O, T and G pick up a bazaar, granary, storage yard, apothecary, water supply and gardens; Ctrl+H housing, Ctrl+F firehouse and Ctrl+A architect.@PF2 opens the game rules, F5 saves and F9 loads the saved game for this city; the city is also saved each month while Autosave is on (Options menu), and Continue on the main menu picks up the latest save. Escape backs out of whatever is open, and when nothing is, asks whether to leave for the main menu.";
 
 const ABOUT: &str = "@POsiris is an open-source engine for Pharaoh, written in Rust and released under the GNU GPL version 3.@PIt plays the original campaign using your own copy of the game data. Pharaoh and its art, music and text are the work of Impressions Games and Sierra.";
 
@@ -148,11 +148,18 @@ pub struct Game {
     pub rules_panel: Option<RulesPanel>,
     /// Set when the player changes the rules, so the caller can store them.
     pub rules_changed: bool,
+    /// A yes/no popup open, and what a yes asks for; a click on it waits to be handled.
+    confirm: Option<(crate::popup::Confirm, MenuAction)>,
+    confirm_click: Option<[f32; 2]>,
     /// The Difficulty window is open, and a click on it waits to be handled.
     pub difficulty_panel: bool,
     difficulty_click: Option<[f32; 2]>,
     /// Set when the player changes the difficulty, so the caller can store it.
     pub difficulty_changed: bool,
+    /// The city is saved each month (the original's Autosave option).
+    pub autosave: bool,
+    /// Set when the player switches autosave, so the caller can store it.
+    pub autosave_changed: bool,
     top_menu: TopMenu,
     /// The overlay being shown, if any.
     pub view_overlay: Option<View>,
@@ -217,9 +224,13 @@ impl Game {
             empire_images: None,
             custom_dialog: None,
             rules_panel: None,
+            confirm: None,
+            confirm_click: None,
             difficulty_panel: false,
             difficulty_click: None,
             difficulty_changed: false,
+            autosave: true,
+            autosave_changed: false,
             rules_changed: false,
             top_menu,
             view_overlay: None,
@@ -283,7 +294,7 @@ impl Game {
 
     /// Nothing modal is open and no tool is in hand.
     pub fn idle(&self) -> bool {
-        self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.empire.is_none() && self.advisors.is_none() && self.rules_panel.is_none() && !self.difficulty_panel && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
+        self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.empire.is_none() && self.advisors.is_none() && self.rules_panel.is_none() && !self.difficulty_panel && self.confirm.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
     }
 
     pub fn close_dialog(&mut self) {
@@ -406,6 +417,7 @@ impl Game {
             || self.message_list.is_some()
             || self.rules_panel.is_some()
             || self.difficulty_panel
+            || self.confirm.is_some()
             || self.custom_dialog.is_some()
     }
 
@@ -646,6 +658,10 @@ impl Game {
             self.lost_click = Some(self.cursor);
             return None;
         }
+        if self.confirm.is_some() {
+            self.confirm_click = Some(self.cursor);
+            return None;
+        }
         if self.difficulty_panel {
             self.difficulty_click = Some(self.cursor);
             return None;
@@ -819,6 +835,11 @@ impl Game {
         match action {
             MenuAction::Overseer(a) => self.open_advisor(a),
             MenuAction::Rules => self.open_rules(),
+            MenuAction::Autosave => {
+                let on = !self.autosave;
+                self.set_autosave(on);
+                self.autosave_changed = true;
+            }
             MenuAction::Difficulty => {
                 self.difficulty_panel = true;
                 self.sound("BUTTON.WAV");
@@ -836,8 +857,23 @@ impl Game {
                 self.tool = Tool::None;
                 self.sidebar.open = None;
             }
+            // Leaving the city asks first, as the original does.
+            MenuAction::MainMenu | MenuAction::Quit => self.ask_to_leave(action),
             other => self.request = Some(other),
         }
+    }
+
+    /// Switches the monthly autosave, and the Options menu's label for it.
+    pub fn set_autosave(&mut self, on: bool) {
+        self.autosave = on;
+        let label = self.text.get(2, if on { 9 } else { 10 }).unwrap_or(if on { "Autosave - ON" } else { "Autosave - OFF" }).trim().to_owned();
+        self.top_menu.relabel(MenuAction::Autosave, &label);
+    }
+
+    /// Asks the original's "Leave the Kingdom?" before `then` (back to the main
+    /// menu, or quitting).
+    pub fn ask_to_leave(&mut self, then: MenuAction) {
+        self.confirm = Some((crate::popup::Confirm::from_text(&self.text, 5, 0), then));
     }
 
     /// Queues a dialog with plain text of our own.
@@ -1026,7 +1062,7 @@ impl Game {
             }
             return;
         }
-        if self.dialog.take().is_some() || self.empire.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() || std::mem::take(&mut self.difficulty_panel) {
+        if self.dialog.take().is_some() || self.empire.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() || std::mem::take(&mut self.difficulty_panel) || self.confirm.take().is_some() {
             return;
         }
         if self.selected_company.take().is_some() {
@@ -1442,6 +1478,22 @@ impl Game {
         }
         if self.difficulty_panel {
             self.draw_difficulty(r);
+        }
+        if let Some((c, then)) = &self.confirm {
+            let img = *self.ui_images.get_or_insert_with(|| crate::widgets::UiImages::load(&r.library).expect("ui images"));
+            let click = self.confirm_click.take();
+            match c.draw(r, &self.images.panels, img, &self.text, self.cursor, click) {
+                Some(true) => {
+                    self.request = Some(*then);
+                    self.confirm = None;
+                    self.sound("BUTTON.WAV");
+                }
+                Some(false) => {
+                    self.confirm = None;
+                    self.sound("BUTTON.WAV");
+                }
+                None => {}
+            }
         }
         if let Some(l) = &self.message_list {
             l.draw(r, &self.images.panels, &self.world, &self.messages, &self.text);

@@ -36,6 +36,8 @@ pub struct UiImages {
     pub experience_ball: u32,
     /// Pharaoh_Unloaded group 21; the gods' pictures for temple windows are 21-25.
     pub gods: u32,
+    /// The OK (frames 0-3) and cancel (4-7) image buttons (Pharaoh_General group 96).
+    pub ok_cancel: u32,
 }
 
 impl UiImages {
@@ -54,6 +56,7 @@ impl UiImages {
             standard_pole: lib.group_id("Pharaoh_General", 54, 0)?,
             experience_ball: lib.group_id("Pharaoh_General", 224, 0)?,
             gods: lib.group_id("Pharaoh_Unloaded", 21, 0)?,
+            ok_cancel: lib.group_id("Pharaoh_General", 96, 0)?,
         })
     }
 }

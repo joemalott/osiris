@@ -15,6 +15,7 @@ pub enum MenuAction {
     Quit,
     Rules,
     Difficulty,
+    Autosave,
     /// Out of time: play on at a lower difficulty.
     LowerDifficulty,
     Faster,
@@ -58,6 +59,15 @@ const ITEM_H: f32 = 20.0;
 const DROP_W: f32 = 240.0;
 
 impl TopMenu {
+    /// Relabels the entries for `action` in every header.
+    pub fn relabel(&mut self, action: MenuAction, label: &str) {
+        for h in self.all.iter_mut().chain(self.headers.iter_mut()) {
+            for e in h.entries.iter_mut().filter(|e| e.action == action) {
+                e.label = label.to_owned();
+            }
+        }
+    }
+
     pub fn new(text: &TextTable) -> Self {
         let t = |g: usize, i: usize, fallback: &str| text.get(g, i).map_or_else(|| fallback.to_owned(), |s| s.trim().to_owned());
         let e = |label: String, action| Entry { label, action };
@@ -86,6 +96,7 @@ impl TopMenu {
                 t(2, 0, "Options"),
                 vec![
                     e(t(2, 6, "Difficulty"), MenuAction::Difficulty),
+                    e(t(2, 9, "Autosave - ON"), MenuAction::Autosave),
                     e("Game rules...".into(), MenuAction::Rules),
                     e("Faster  (Page Up)".into(), MenuAction::Faster),
                     e("Slower  (Page Down)".into(), MenuAction::Slower),

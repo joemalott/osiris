@@ -25,6 +25,8 @@ pub struct ScriptView {
     pub rules: bool,
     /// Opens the Difficulty window.
     pub difficulty: bool,
+    /// Opens the "Leave the Kingdom?" popup.
+    pub leave: bool,
     pub overlay: Option<String>,
     pub top_menu: Option<usize>,
     pub build_menu: Option<String>,
@@ -139,6 +141,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["menuresults"] => view.menu_results = true,
             ["rules"] => view.rules = true,
             ["difficultywindow"] => view.difficulty = true,
+            ["leave"] => view.leave = true,
             ["overlay", name] => view.overlay = Some(name.to_string()),
             ["topmenu", n] => view.top_menu = Some(n.parse()?),
             ["messages"] => view.messages = true,

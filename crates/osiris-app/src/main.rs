@@ -3,6 +3,7 @@
 
 mod advisors;
 mod anims;
+mod popup;
 mod army_view;
 mod city_view;
 mod empire_window;
@@ -141,6 +142,13 @@ fn new_world(assets: &Assets, source: &Source, difficulty: u8) -> Result<World> 
     Ok(world)
 }
 
+/// Saved games, the last written first, so Continue picks up the latest.
+fn newest_first(mut v: Vec<PathBuf>) -> Vec<PathBuf> {
+    let written = |p: &PathBuf| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    v.sort_by_key(|p| std::cmp::Reverse(written(p)));
+    v
+}
+
 fn list_files(dir: &Path, ext: &str) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|rd| {
@@ -167,6 +175,16 @@ fn load_rules() -> osiris_sim::Rules {
 /// keeps it in Pharaoh.inf).
 fn load_difficulty() -> u8 {
     std::fs::read_to_string(user_dir().join("difficulty.txt")).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(osiris_sim::difficulty::NORMAL).min(osiris_sim::difficulty::IMPOSSIBLE)
+}
+
+/// Whether the city is saved automatically each month (the original's Autosave
+/// option, on unless the player turned it off).
+fn load_autosave() -> bool {
+    std::fs::read_to_string(user_dir().join("autosave.txt")).map_or(true, |s| s.trim() != "off")
+}
+
+fn save_autosave(on: bool) {
+    let _ = std::fs::write(user_dir().join("autosave.txt"), if on { "on\n" } else { "off\n" });
 }
 
 fn save_difficulty(d: u8) {
@@ -388,6 +406,11 @@ struct App {
     keys: std::collections::HashSet<KeyCode>,
     last_frame: std::time::Instant,
     status: Option<(String, f32)>,
+    /// A File-menu request the city made while drawing (a popup answered), carried
+    /// out once the frame is done.
+    drawn_request: Option<top_menu::MenuAction>,
+    /// When the city was last saved automatically: its month, and the moment.
+    autosaved: Option<(i32, std::time::Instant)>,
     /// The active family; empty until one is chosen (gating the menu on startup).
     family: String,
 }
@@ -405,7 +428,7 @@ impl App {
             self.assets.mission_names.clone(),
             campaign,
             list_files(&self.assets.data.join("Maps"), "map"),
-            list_files(&self.saves_dir(), "osiris"),
+            newest_first(list_files(&self.saves_dir(), "osiris")),
             load_rules(),
             self.family.clone(),
             family_text(&self.assets),
@@ -422,6 +445,8 @@ impl App {
         let mut game = game::Game::new(world, images, self.assets.text.clone(), self.assets.messages.clone(), self.audio.clone());
         game.phrases = self.assets.phrases.clone();
         game.player_name = player_name();
+        game.set_autosave(load_autosave());
+        self.autosaved = None;
         start_camera(&mut gfx.renderer, &mut game);
         self.screen = Some(Screen::Playing(Box::new(game), mission));
     }
@@ -520,6 +545,38 @@ impl App {
     }
 }
 
+/// The original saves the city to last.sav as each month begins while Autosave is
+/// on. Osiris keeps one autosave per city, beside its saved game; at high speeds
+/// it saves at most every few seconds, and writes the file off the main thread.
+fn autosave(game: &game::Game, saves: &Path, last: &mut Option<(i32, std::time::Instant)>) {
+    let w = &game.world;
+    let month = w.time.year * 12 + w.time.month as i32;
+    let now = std::time::Instant::now();
+    match *last {
+        None => *last = Some((month, now)),
+        Some((m, t)) if m != month && now - t >= std::time::Duration::from_secs(3) => {
+            *last = Some((month, now));
+            if !game.autosave || w.won || w.lost {
+                return;
+            }
+            let Ok(bytes) = w.save() else { return };
+            let path = autosave_path(saves, &w.scenario_name);
+            std::thread::spawn(move || {
+                let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
+                let tmp = path.with_extension("tmp");
+                if std::fs::write(&tmp, bytes).is_ok() {
+                    let _ = std::fs::rename(&tmp, &path);
+                }
+            });
+        }
+        Some(_) => {}
+    }
+}
+
+fn autosave_path(saves: &Path, scenario: &str) -> PathBuf {
+    saves.join(format!("{} autosave.osiris", sanitize(scenario)))
+}
+
 pub fn sanitize(name: &str) -> String {
     let s: String = name.chars().map(|c| if c.is_alphanumeric() || c == ' ' { c } else { '_' }).collect();
     s.trim().to_owned()
@@ -610,9 +667,7 @@ impl ApplicationHandler for App {
                             }
                         }
                         Some(Screen::Menu(m)) if code == KeyCode::Escape => m.back(),
-                        Some(Screen::Playing(g, _)) if code == KeyCode::Escape && g.idle() => {
-                            self.screen = Some(Screen::Menu(self.menu()));
-                        }
+                        Some(Screen::Playing(g, _)) if code == KeyCode::Escape && g.idle() => g.ask_to_leave(top_menu::MenuAction::MainMenu),
                         Some(Screen::Playing(g, _)) => {
                             let ctrl = [KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::SuperLeft, KeyCode::SuperRight]
                                 .iter()
@@ -714,7 +769,12 @@ impl ApplicationHandler for App {
                     None => {}
                 }
             }
-            WindowEvent::RedrawRequested => self.redraw(),
+            WindowEvent::RedrawRequested => {
+                self.redraw();
+                if let Some(r) = self.drawn_request.take() {
+                    self.menu_request(r, event_loop);
+                }
+            }
             _ => {}
         }
     }
@@ -732,6 +792,7 @@ impl App {
             }
         }
         let status = self.status.as_ref().map(|(s, _)| s.clone());
+        let saves = self.saves_dir();
         let Some(gfx) = &mut self.gfx else { return };
         let mut finished: Option<Option<(usize, osiris_sim::ratings::MissionResult)>> = None;
         let mut lost_choice: Option<(top_menu::MenuAction, Option<usize>)> = None;
@@ -777,6 +838,10 @@ impl App {
                 if std::mem::take(&mut game.difficulty_changed) {
                     save_difficulty(game.world.difficulty);
                 }
+                if std::mem::take(&mut game.autosave_changed) {
+                    save_autosave(game.autosave);
+                }
+                autosave(game, &saves, &mut self.autosaved);
                 // Once the victory message has been read, go on to the next mission.
                 if game.world.won && game.idle() {
                     finished = Some(mission.map(|m| (m, game.world.mission_result())));
@@ -786,6 +851,9 @@ impl App {
                     && let Some(a) = game.request.take()
                 {
                     lost_choice = Some((a, *mission));
+                }
+                if let Some(a) = game.request.take() {
+                    self.drawn_request = Some(a);
                 }
             }
             None => {}
@@ -1002,6 +1070,9 @@ fn main() -> Result<()> {
         if view.difficulty {
             game.difficulty_panel = true;
         }
+        if view.leave {
+            game.ask_to_leave(top_menu::MenuAction::MainMenu);
+        }
         if view.rules {
             game.rules_panel = Some(rules_panel::RulesPanel::default());
         }
@@ -1056,6 +1127,8 @@ fn main() -> Result<()> {
         keys: Default::default(),
         last_frame: std::time::Instant::now(),
         status: None,
+        drawn_request: None,
+        autosaved: None,
         family: load_current_family(),
     };
     event_loop.run_app(&mut app)?;
