@@ -250,9 +250,7 @@ impl InfoPanel {
     /// Draws building `b`'s window, if the original has a layout for its type.
     pub(super) fn building_page(&mut self, ui: &mut Ui, world: &mut World, b: &Building) -> Option<Option<InfoAction>> {
         let page = page(ui, world, b)?;
-        let ([x, y], closed) = self.frame(ui, 29, page.hb, "");
-        let w = 29.0 * 16.0;
-        ui.centred(Font::LargeBlackOnLight, &page.title, x, y + 10.0, w);
+        let ([x, y], closed) = self.frame(ui, 29, page.hb, &page.title);
         if let Some(r) = page.icon {
             ui.icon(r, x + 10.0, y + 10.0);
         }
@@ -551,19 +549,23 @@ fn page(ui: &Ui, world: &World, b: &Building) -> Option<Page> {
             p
         }
         k::WELL => {
+            // A well has no employee row, just its one line of text at y+56 (notes/
+            // building_info.md 9.1, from Akhenaten's ui_well_info_window.js).
             let mut p = Page::new(14, t(109, 0));
-            p.bottom(126.0, t(109, super::InfoPanel::well_line(world, b)));
+            p.line(56.0, t(109, super::InfoPanel::well_line(world, b)));
             p
         }
         k::WATER_SUPPLY => {
-            let mut p = Page::new(16, t(108, 0));
+            // 17 blocks, not 16 (notes/building_info.md 1.4: "water supply, water lift |
+            // 29x17").
+            let mut p = Page::new(17, t(108, 0));
             // One line per worker short, from all five down to none.
             p.line(63.0, if no_road { road_line() } else { t(108, (7 - b.workers.clamp(0, 5)) as usize) });
             p.staffed();
             p
         }
         k::WATER_LIFT => {
-            let mut p = Page::new(16, t(107, 0));
+            let mut p = Page::new(17, t(107, 0));
             // A lift with no water beside it or ditch to feed it says so.
             p.line(63.0, if no_road { road_line() } else if b.workers <= 0 { t(107, 2) } else if b.water == 0 { t(107, 3) } else { t(107, 1) });
             p.staffed();
@@ -602,21 +604,24 @@ fn page(ui: &Ui, world: &World, b: &Building) -> Option<Page> {
         }
         k::BOOTH | k::BANDSTAND | k::PAVILION | k::SENET_HOUSE => venue_page(ui, world, b),
         k::TEMPLE_FIRST..=k::COMPLEX_LAST => {
+            // 18 blocks tall (notes/building_info.md "Decompile facts": class 2 = 18
+            // blocks), with the god picture at (190,134); its text group has only a
+            // name and description, no priest status line, so the description always
+            // shows once there is road access (notes/building_info.md 7.1).
             let god = ((kind - k::TEMPLE_FIRST) % 5) as u32;
-            let mut p = Page::new(16, t(92 + god as usize, 0));
+            let mut p = Page::new(18, t(92 + god as usize, 0));
             p.panel = Some((56.0, 4));
             p.staff = Some(62.0);
-            if no_road {
-                p.line(128.0, road_line());
-            } else {
-                p.picture = Some((ui.img.gods + 21 + god, [190.0, 138.0]));
-            }
+            p.line(128.0, if no_road { road_line() } else { t(92 + god as usize, 1) });
+            p.picture = Some((ui.img.gods + 21 + god, [190.0, 134.0]));
             p
         }
         k::SHRINE_FIRST..=k::SHRINE_LAST => {
+            // 14 blocks tall, god picture at (190,94) (notes/building_info.md: Akhenaten
+            // ui_shrine_info_window.js, background size[29,14], god_image pos[190,94]).
             let god = (kind - k::SHRINE_FIRST) as u32;
-            let mut p = Page::new(16, t(161, 2 * god as usize));
-            p.picture = Some((ui.img.gods + 21 + god, [190.0, 74.0]));
+            let mut p = Page::new(14, t(161, 2 * god as usize));
+            p.picture = Some((ui.img.gods + 21 + god, [190.0, 94.0]));
             p
         }
         k::DOCK => {
@@ -868,8 +873,10 @@ fn farm_page(ui: &Ui, world: &World, b: &Building, g: usize, crop: u16) -> Page 
     } else {
         p.staff = Some(142.0);
     }
-    // "This farmland is irrigated." or "...not irrigated."
-    p.bottom(if floodplain { 138.0 } else { 158.0 }, t(177, if world.is_irrigated(b.id) { 0 } else { 1 }));
+    // "This farmland is irrigated." or "...not irrigated.", at h-143 whether or not the
+    // farm is on a floodplain (notes/building_info.md "Decompile facts": irrigation line
+    // at h-143, checked against the exe).
+    p.bottom(143.0, t(177, if world.is_irrigated(b.id) { 0 } else { 1 }));
     p.bottom(113.0, t(g, 1));
     p
 }
