@@ -19,6 +19,8 @@ const PLAGUED_ROAM: i32 = 500;
 pub const MAX_RISK: i32 = 1000;
 /// Months a stricken house stays quarantined.
 const QUARANTINE_MONTHS: i32 = 2;
+/// Health in the first two missions, which never changes.
+const TUTORIAL_HEALTH: i32 = 75;
 /// City health bonus in a small city: below each population, the bonus.
 const SMALL_CITY_BONUS: [(i32, i32); 10] =
     [(200, 100), (400, 90), (600, 80), (800, 70), (1000, 60), (1100, 50), (1200, 40), (1300, 30), (1400, 20), (1500, 10)];
@@ -34,6 +36,13 @@ struct Outbreaks {
 impl World {
     /// Monthly: household risks and outbreaks, the city's health, and plague.
     pub(crate) fn update_health_month(&mut self) {
+        if self.mission.as_ref().is_some_and(|m| m.id < 2) {
+            // The first two missions hold health at 75: no risks, outbreaks or plague.
+            self.ratings.health = TUTORIAL_HEALTH;
+            self.ratings.health_target = TUTORIAL_HEALTH;
+            self.count_down_quarantine();
+            return;
+        }
         let health = self.ratings.health;
         let desert = self.climate == 2;
         let houses: Vec<u32> = self.buildings.iter().filter(|b| b.house.as_ref().is_some_and(|h| h.population != 0)).map(|b| b.id).collect();
@@ -43,6 +52,8 @@ impl World {
         let mut out = Outbreaks::default();
         let (mut people, mut cared) = (0, 0);
         for id in houses {
+            // The original draws a number for each house and doesn't use it.
+            self.rng.next();
             let Some(b) = self.buildings.get(id) else { continue };
             let Some(h) = &b.house else { continue };
             people += h.population;
@@ -64,7 +75,8 @@ impl World {
                 out.disease = Some(id);
             }
             let Some(h) = self.buildings.get(id).and_then(|b| b.house.as_ref()) else { continue };
-            cared += care_points(h, h.foods.iter().filter(|&&f| f > 0).count() as i32);
+            let types = self.balance.house(h.level).food_types;
+            cared += care_points(h, h.foods_eaten.min(types));
         }
         let mut target = if people > 0 { cared * 100 / people } else { 0 };
         target += SMALL_CITY_BONUS.iter().find(|&&(below, _)| self.population < below).map_or(0, |&(_, bonus)| bonus);
@@ -79,11 +91,7 @@ impl World {
         let r = &mut self.ratings;
         r.health_target = target;
         r.health = if r.health < target { (r.health + 2).min(target) } else { (r.health - 2).max(target) }.clamp(0, 100);
-        for b in self.buildings.iter_mut() {
-            if let Some(h) = b.house.as_mut() {
-                h.quarantine = (h.quarantine - 1).max(0);
-            }
-        }
+        self.count_down_quarantine();
         let creeping: Vec<u32> = self
             .buildings
             .iter_mut()
@@ -100,6 +108,14 @@ impl World {
             if let Some(tile) = house.and_then(|id| self.buildings.get(id)).map(|b| (b.x, b.y)) {
                 self.events.disease = true;
                 self.post_trouble(key, tile, crate::missions::Condition::Disease);
+            }
+        }
+    }
+
+    fn count_down_quarantine(&mut self) {
+        for b in self.buildings.iter_mut() {
+            if let Some(h) = b.house.as_mut() {
+                h.quarantine = (h.quarantine - 1).max(0);
             }
         }
     }
@@ -123,11 +139,11 @@ impl World {
     }
 
     /// Malaria wipes out a house, and will reach every house around it within
-    /// (100 - health) / 20 tiles (one more in the last three months of the year, at
-    /// most 4), a month later for each tile away.
+    /// (100 - health) / 20 tiles (one more when the month just ended is one of the
+    /// year's last three, at most 4), a month later for each tile away.
     fn malaria_strikes(&mut self, id: u32) {
         self.wipe_out(id);
-        let late = matches!(self.time.month, 9..=11) as i32;
+        let late = matches!(self.time.month, 10 | 11 | 0) as i32;
         let reach = ((100 - self.ratings.health) / 20 + late).min(4);
         if reach < 1 {
             return;
@@ -206,7 +222,7 @@ impl World {
 }
 
 /// A household's share of the city's health: 25 for a mortuary, 15 for a physician,
-/// 10, 15 or 20 for one, two or three foods, and 40 more for food and a physician,
+/// 10, 15 or 20 for one, two or three foods eaten at its last meal, and 40 more for food and a physician,
 /// as a percentage of its people.
 fn care_points(h: &crate::houses::House, foods: i32) -> i32 {
     let c = &h.coverage;

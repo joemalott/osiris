@@ -721,3 +721,20 @@ fn adjust_limit(base: i32, bonus: i32) -> i32 {
         _ => base,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::adjust_limit;
+
+    #[test]
+    fn ra_moves_allowances_a_step() {
+        assert_eq!(adjust_limit(1500, 1), 2500);
+        assert_eq!(adjust_limit(4000, 1), 4000);
+        assert_eq!(adjust_limit(0, 1), 1500);
+        assert_eq!(adjust_limit(4000, -1), 2500);
+        assert_eq!(adjust_limit(1500, -1), 0);
+        assert_eq!(adjust_limit(4000, -3), 1500);
+        assert_eq!(adjust_limit(2500, -2), 0);
+        assert_eq!(adjust_limit(1200, -1), 1200);
+    }
+}

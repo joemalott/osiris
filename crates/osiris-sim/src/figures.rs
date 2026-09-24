@@ -88,6 +88,9 @@ pub struct Figure {
     /// every few dozen ticks forever.
     #[serde(default)]
     pub stuck: u8,
+    /// A bazaar buyer's haul: each resource on its list and what it has picked up.
+    #[serde(default)]
+    pub carried: Vec<(u16, i32)>,
 }
 
 impl Figure {
@@ -121,6 +124,7 @@ impl Figure {
             foe: 0,
             attack_tick: 0,
             stuck: 0,
+            carried: Vec::new(),
         }
     }
 

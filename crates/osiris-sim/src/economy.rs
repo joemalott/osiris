@@ -191,6 +191,8 @@ impl World {
             if k == kind::STORAGE_YARD {
                 if b.walkers[2] == 0 {
                     self.yard_errand(id);
+                } else {
+                    self.second_yard_cart(id);
                 }
                 continue;
             }
@@ -495,7 +497,7 @@ impl World {
         }
     }
 
-    /// A storage yard's next errand, in the original's order: fetch the good on "get"
+    /// A storage yard's next errand for its first cart, in the original's order: fetch the good on "get"
     /// it holds least of (by share of its limit), supply buildings that use goods it
     /// holds, send out goods on "empty", then haul for monuments. Needs half its staff.
     fn yard_errand(&mut self, yard: BuildingId) {
@@ -519,22 +521,7 @@ impl World {
             v
         };
         // 1. Goods on "get": fetch from another storage building.
-        let mut gets: Vec<(i32, u16, BuildingId)> = Vec::new();
-        for r in 1..resource::COUNT as u16 {
-            if b.order(r) != order::GET || self.is_stockpiled(r) || self.storage_room(yard, r) <= 0 {
-                continue;
-            }
-            let sources = self
-                .buildings
-                .iter()
-                .filter(|s| s.id != yard && storage::is_storage(s.kind) && s.order(r) != order::GET && self.stored(s.id, r) >= LOAD)
-                .map(|s| s.id);
-            if let Some(src) = self.nearest(sources, from) {
-                let share = self.stored(yard, r) * 100 / b.order_cap(r).max(1);
-                gets.push((share, r, src));
-            }
-        }
-        if let Some(&(_, r, src)) = gets.iter().min() {
+        if let Some(&(_, r, src)) = self.yard_gets(yard).first() {
             self.yard_cart(yard, r, 0, src, action::FETCHING);
             return;
         }
@@ -574,6 +561,63 @@ impl World {
                 self.yard_cart(yard, r, taken, t, action::DELIVERING);
                 return;
             }
+        }
+    }
+
+    /// A yard's goods on "get" it has room for and another storage building can supply,
+    /// with the source, the one it holds least of (by share of its limit) first.
+    fn yard_gets(&self, yard: BuildingId) -> Vec<(i32, u16, BuildingId)> {
+        let Some(b) = self.buildings.get(yard) else { return vec![] };
+        let from = (b.x, b.y);
+        let mut gets: Vec<(i32, u16, BuildingId)> = Vec::new();
+        for r in 1..resource::COUNT as u16 {
+            if b.order(r) != order::GET || self.is_stockpiled(r) || self.storage_room(yard, r) <= 0 {
+                continue;
+            }
+            let sources = self
+                .buildings
+                .iter()
+                .filter(|s| s.id != yard && storage::is_storage(s.kind) && s.order(r) != order::GET && self.stored(s.id, r) >= LOAD)
+                .map(|s| s.id);
+            if let Some(src) = self.nearest(sources, from) {
+                let share = (self.stored(yard, r) * 100 / b.order_cap(r).max(1)).min(100);
+                gets.push((share, r, src));
+            }
+        }
+        gets.sort();
+        gets
+    }
+
+    /// While its first cart is out, a yard at least half staffed may send a second, only
+    /// ever to fetch: the good on "get" it holds second least of, or, when it wants just
+    /// one, that good again while it holds under half its limit.
+    fn second_yard_cart(&mut self, yard: BuildingId) {
+        let Some(b) = self.buildings.get(yard) else { return };
+        if b.workers * 2 < self.workers_needed(b.kind).max(1) {
+            return;
+        }
+        let first = b.walkers[2];
+        if self.figures.iter().any(|f| f.kind == STORAGEYARD_CART && f.home == yard && f.id != first && !f.dead) {
+            return;
+        }
+        let gets = self.yard_gets(yard);
+        let pick = match gets.as_slice() {
+            [] => None,
+            [(share, r, src)] => (*share < 50).then_some((*r, *src)),
+            [_, (_, r, src), ..] => Some((*r, *src)),
+        };
+        let Some((r, src)) = pick else { return };
+        let Some(road) = self.buildings.get(yard).and_then(|b| b.road) else { return };
+        let fid = self.figures.spawn(STORAGEYARD_CART, road.0, road.1, Travel::Roads);
+        if let Some(f) = self.figures.get_mut(fid) {
+            f.home = yard;
+            f.cargo = r;
+            f.action = action::FETCHING;
+        }
+        if !self.head_for(fid, src)
+            && let Some(f) = self.figures.get_mut(fid)
+        {
+            f.dead = true;
         }
     }
 

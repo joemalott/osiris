@@ -118,6 +118,9 @@ pub struct House {
     /// Four small lots joined into one 2x2 house, which holds four times the people.
     #[serde(default)]
     pub merged: bool,
+    /// Foods the household ate at its last monthly meal.
+    #[serde(default)]
+    pub foods_eaten: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

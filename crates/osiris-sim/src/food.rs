@@ -1,5 +1,5 @@
 //! Food: bazaar buyers fetch food from granaries, bazaar traders hand it out to houses
-//! along their route, and houses eat it every half month.
+//! along their route, and houses eat it once a month.
 
 use crate::buildings::{BuildingId, kind};
 use crate::economy::{LOAD, resource};
@@ -24,12 +24,16 @@ const BAZAAR_GOODS: [u16; 4] = [resource::BEER, resource::POTTERY, resource::LIN
 /// A trader leaves a house enough of each good for this many residents per ten.
 const GOODS_PER_TEN: i32 = 8;
 
-/// Per house level: food each resident may keep (x population) and the weekly food
-/// consumption percentage before the difficulty adjustment.
+/// Per house level: food each resident may keep (x population).
 const FOOD_STORAGE_MULTIPLIER: [i32; 20] = [4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6];
-const FOOD_CONSUMPTION_PCT: [i32; 20] = [30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64, 66, 68];
-/// Consumption reduction on Normal difficulty.
-const CONSUMPTION_REDUCTION_PCT: i32 = 30;
+/// Share of its people a household eats each month, in percent, and with a complex to
+/// Bast or Osiris's altar.
+const EAT_PCT: i32 = 25;
+const EAT_LESS_PCT: i32 = 20;
+/// Stops a bazaar buyer makes before heading home.
+const BUYER_STOPS: i32 = 3;
+/// A fancy bazaar (desirability over 30 at its tile) sends a second trader.
+const FANCY_DESIRABILITY: i32 = 30;
 
 mod action {
     pub const TO_GRANARY: u16 = 1;
@@ -84,12 +88,22 @@ impl World {
     }
 
     /// Tick 31: a bazaar with stock sends its trader after a wait that grows as its
-    /// staff shrinks (three days at full staff). One day in eight, its food buyer and
-    /// its goods buyer go shopping if not already out.
+    /// staff shrinks (three days at full staff). A bazaar with desirability over 30 at
+    /// its tile looks fancy and sends a second trader too, with no wait. One day in
+    /// eight, its food buyer and its goods buyer go shopping if not already out.
     pub(crate) fn bazaar_walkers(&mut self) {
         let bazaars: Vec<BuildingId> = self.buildings.iter().filter(|b| b.kind == kind::BAZAAR).map(|b| b.id).collect();
         let needed = self.workers_needed(kind::BAZAAR).max(1);
+        let images = self.defs.building(kind::BAZAAR).map(|d| (d.image, d.anims.get("fancy").map_or(d.image, |a| a.image)));
         for (n, id) in bazaars.into_iter().enumerate() {
+            let Some(b) = self.buildings.get(id) else { continue };
+            let fancy = self.desirability.at_or(b.x, b.y, 0) as i32 > FANCY_DESIRABILITY;
+            if let Some((plain, fancy_image)) = images {
+                let image = if fancy { fancy_image } else { plain };
+                if b.image != image {
+                    self.set_building_image(id, image);
+                }
+            }
             let Some(b) = self.buildings.get(id) else { continue };
             if b.workers <= 0 || b.road.is_none() {
                 continue;
@@ -102,6 +116,11 @@ impl World {
                 _ => 10,
             };
             let stocked = (resource::GRAIN..=resource::GAMEMEAT).chain(resource::HOUSE_GOODS).any(|r| b.stock[r as usize] > 0);
+            let main = b.walkers[0];
+            if fancy && stocked && !self.figures.iter().any(|f| f.kind == MARKET_TRADER && f.home == id && f.id != main && !f.dead) {
+                self.spawn_roaming_figure(id, MARKET_TRADER);
+            }
+            let Some(b) = self.buildings.get(id) else { continue };
             if b.walkers[0] == 0 && stocked {
                 let waited = b.spawn_delay + 1;
                 let b = self.buildings.get_mut(id).expect("present");
@@ -118,13 +137,26 @@ impl World {
             for food in [true, false] {
                 let out = self.figures.iter().any(|f| f.kind == MARKET_BUYER && f.home == id && !f.dead && resource::is_food(f.cargo) == food);
                 if !out && let Some((r, source)) = self.bazaar_wants(id, food) {
-                    self.spawn_buyer(id, r, source);
+                    let list = self.buyer_list(id, food);
+                    self.spawn_buyer(id, r, source, list);
                 }
             }
         }
     }
 
-    fn spawn_buyer(&mut self, bazaar: BuildingId, r: u16, source: BuildingId) {
+    /// What a buyer shops for: up to four foods (or goods), first those the bazaar has
+    /// none of, then those it is short of (under 600 of a food, 100 of a good).
+    fn buyer_list(&self, id: BuildingId, food: bool) -> Vec<u16> {
+        let Some(b) = self.buildings.get(id) else { return vec![] };
+        let list: Vec<u16> = if food { self.bazaar_foods(id) } else { BAZAAR_GOODS.to_vec() };
+        let below = if food { BUY_FOOD_BELOW } else { BUY_GOOD_BELOW };
+        let has_source = |r: u16| self.bazaar_source(id, r).is_some();
+        let empty = list.iter().copied().filter(|&r| b.stock[r as usize] == 0 && has_source(r));
+        let short = list.iter().copied().filter(|&r| b.stock[r as usize] > 0 && b.stock[r as usize] < below && has_source(r));
+        empty.chain(short).take(4).collect()
+    }
+
+    fn spawn_buyer(&mut self, bazaar: BuildingId, r: u16, source: BuildingId, list: Vec<u16>) {
         let Some(road) = self.buildings.get(bazaar).and_then(|b| b.road) else { return };
         let Some(sroad) = self.buildings.get(source).and_then(|s| s.road) else { return };
         let fid = self.figures.spawn(MARKET_BUYER, road.0, road.1, Travel::Roads);
@@ -133,6 +165,10 @@ impl World {
             f.home = bazaar;
             f.target = source;
             f.cargo = r;
+            f.carried = list.into_iter().map(|r| (r, 0)).collect();
+            if !f.carried.iter().any(|c| c.0 == r) {
+                f.carried.insert(0, (r, 0));
+            }
             f.action = action::TO_GRANARY;
             if !f.go_to(map, sroad) {
                 f.dead = true;
@@ -140,18 +176,25 @@ impl World {
         }
     }
 
-    /// What a buyer takes of `r` at `source` for bazaar `bazaar`: whole loads (a part
-    /// load counts as one) until the bazaar reaches its fill level.
-    fn buyer_take(&self, bazaar: BuildingId, source: BuildingId, r: u16) -> i32 {
-        let have = self.buildings.get(bazaar).map_or(0, |b| b.stock[r as usize]);
-        let (fill, most) = if !resource::is_food(r) {
+    /// How far a bazaar fills `r`, and the most loads a buyer takes from one place:
+    /// 800 of its first food and 600 of the others in up to eight loads, 400 of a good
+    /// in up to four.
+    fn buyer_fill(&self, bazaar: BuildingId, r: u16) -> (i32, i32) {
+        if !resource::is_food(r) {
             (GOODS_FILL, 4)
         } else if self.bazaar_foods(bazaar).first() == Some(&r) {
             (FIRST_FOOD_FILL, 8)
         } else {
             (FOOD_FILL, 8)
-        };
-        let room = fill - have;
+        }
+    }
+
+    /// What a buyer already carrying `carried` of `r` takes at `source`: whole loads (a
+    /// part load counts as one) until the bazaar would reach its fill level.
+    fn buyer_take(&self, bazaar: BuildingId, source: BuildingId, r: u16, carried: i32) -> i32 {
+        let have = self.buildings.get(bazaar).map_or(0, |b| b.stock[r as usize]);
+        let (fill, most) = self.buyer_fill(bazaar, r);
+        let room = fill - have - carried;
         if room <= 0 {
             return 0;
         }
@@ -160,31 +203,59 @@ impl World {
         there.min(room / LOAD + 1) * LOAD
     }
 
+    /// A buyer at a granary or storage yard takes what it can of everything on its
+    /// list. After fewer than three stops it goes on to the source of whatever it is
+    /// still shortest of; otherwise, or with nothing left to buy, it goes home.
     pub(crate) fn update_buyer(&mut self, fid: u32) {
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return };
         let step = f.walk(map);
-        let (act, home, target, r) = (f.action, f.home, f.target, f.cargo);
+        let (act, home, target) = (f.action, f.home, f.target);
         match (act, step) {
             (_, Step::Moving) => {}
             (action::TO_GRANARY, Step::Arrived) => {
-                let want = self.buyer_take(home, target, r);
-                let take = self.take_stored(target, r, want);
-                let home_road = self.buildings.get(home).and_then(|b| b.road);
+                let mut carried = std::mem::take(&mut f.carried);
+                f.counter += 1;
+                let stops = f.counter;
+                for c in carried.iter_mut() {
+                    let want = self.buyer_take(home, target, c.0, c.1);
+                    c.1 += self.take_stored(target, c.0, want);
+                }
+                let next = if stops < BUYER_STOPS {
+                    carried
+                        .iter()
+                        .filter_map(|&(r, n)| {
+                            let have = self.buildings.get(home).map_or(0, |b| b.stock[r as usize]);
+                            let need = self.buyer_fill(home, r).0 - have - n;
+                            let src = self.bazaar_source(home, r).filter(|&s| s != target)?;
+                            (need > 0).then_some((need, std::cmp::Reverse(r), src))
+                        })
+                        .max()
+                        .map(|t| t.2)
+                } else {
+                    None
+                };
+                let to = match next {
+                    Some(src) => self.buildings.get(src).and_then(|b| b.road).map(|r| (src, r)),
+                    None => self.buildings.get(home).and_then(|b| b.road).map(|r| (home, r)),
+                };
                 let map = &self.map;
                 let Some(f) = self.figures.get_mut(fid) else { return };
-                f.amount = take;
-                f.action = action::HOME;
-                match home_road {
-                    Some(hr) if f.go_to(map, hr) => {}
+                f.carried = carried;
+                f.amount = f.carried.iter().map(|c| c.1).sum();
+                f.action = if next.is_some() { action::TO_GRANARY } else { action::HOME };
+                match to {
+                    Some((t, road)) if f.go_to(map, road) => f.target = t,
                     _ => f.dead = true,
                 }
             }
             (action::HOME, Step::Arrived) => {
-                let amount = f.amount;
+                let carried = std::mem::take(&mut f.carried);
                 f.dead = true;
                 if let Some(b) = self.buildings.get_mut(home) {
-                    b.stock[r as usize] += amount;
+                    for (r, n) in carried {
+                        b.stock[r as usize] += n;
+                    }
                 }
             }
             _ => f.dead = true,
@@ -273,55 +344,73 @@ impl World {
         }
     }
 
-    /// Months the food in granaries and bazaars would last at the current rate of eating.
+    /// Months the food in granaries at least half staffed would last the city at the
+    /// monthly rate of eating (1 if there is food but nobody to eat it).
     pub fn food_supply_months(&self) -> i32 {
         let food: i32 = self
             .buildings
             .iter()
-            .filter(|b| matches!(b.kind, kind::GRANARY | kind::BAZAAR))
+            .filter(|b| b.kind == kind::GRANARY && b.road.is_some() && b.workers * 2 >= self.workers_needed(b.kind).max(1))
             .map(|b| (resource::GRAIN..=resource::GAMEMEAT).map(|r| b.stock.get(r as usize).copied().unwrap_or(0)).sum::<i32>())
             .sum();
-        // Houses eat about half their people's worth a month (two meals of the weekly share).
-        let per_month: i32 = self
-            .buildings
-            .iter()
-            .filter_map(|b| b.house.as_ref())
-            .map(|h| h.population * FOOD_CONSUMPTION_PCT[h.level as usize] * (100 - CONSUMPTION_REDUCTION_PCT) / 100 / 100 * 2)
-            .sum();
-        let per_month = if self.eats_less() { per_month * 4 / 5 } else { per_month };
-        if per_month > 0 { food / per_month } else { 0 }
+        let per_month = self.population * self.eat_pct() / 100;
+        if per_month > 0 { food / per_month } else { i32::from(food > 0) }
     }
 
-    /// Twice a month: every house eats.
+    fn eat_pct(&self) -> i32 {
+        if self.eats_less() { EAT_LESS_PCT } else { EAT_PCT }
+    }
+
+    /// The foods the city knows of, in resource order: those it can grow or catch,
+    /// those a trading city sells, and any it holds.
+    fn city_foods(&self) -> Vec<u16> {
+        (resource::GRAIN..=resource::GAMEMEAT)
+            .filter(|&r| {
+                let key = self.defs.resources.get(r as usize);
+                let made = self.defs.buildings.iter().flatten().any(|d| d.outputs.first() == key && self.is_allowed(d.id));
+                let sold = self.trade.cities.iter().any(|c| c.trades() && c.sells.get(r as usize).copied().unwrap_or(false));
+                let held = self.buildings.iter().any(|b| matches!(b.kind, kind::GRANARY | kind::BAZAAR) && b.stock.get(r as usize).is_some_and(|&n| n > 0));
+                made || sold || held
+            })
+            .collect()
+    }
+
+    /// Monthly, just after the city's health: each household eats a quarter of its
+    /// people's worth (a fifth with a complex to Bast or Osiris's altar), split evenly
+    /// over the food types its level needs, taken from the city's foods in turn. A food
+    /// it has less of than its share is used up; either way it counts as eaten. It
+    /// stops once it has eaten as many types as its level needs.
     pub(crate) fn consume_food(&mut self) {
         let houses = self.balance.houses.clone();
-        let less = self.eats_less();
+        let pct = self.eat_pct();
+        let mut slots: Vec<usize> = Vec::new();
+        for r in self.city_foods() {
+            if let Some(s) = resource::food_slot(r)
+                && !slots.contains(&s)
+            {
+                slots.push(s);
+            }
+        }
         for b in self.buildings.iter_mut() {
             let Some(h) = b.house.as_mut() else { continue };
-            let level = h.level as usize;
-            let types = houses.get(level).map_or(0, |m| m.food_types);
-            if h.population <= 0 || types <= 0 {
+            let types = houses.get(h.level as usize).map_or(0, |m| m.food_types);
+            h.foods_eaten = 0;
+            if types <= 0 {
                 continue;
             }
-            let pct = FOOD_CONSUMPTION_PCT[level] * (100 - CONSUMPTION_REDUCTION_PCT) / 100 / 5 * 5;
-            let mut per_type = h.population * pct / 100;
-            if less {
-                per_type = per_type * 4 / 5;
-            }
+            let mut share = h.population * pct / 100;
             if types > 1 {
-                per_type /= types;
+                share /= types;
             }
-            if per_type > 0 {
-                per_type = (per_type / 2).max(1);
-            }
-            let mut eaten = 0;
-            for f in h.foods.iter_mut() {
-                if eaten >= types {
-                    break;
+            for &s in &slots {
+                let f = &mut h.foods[s];
+                if *f == 0 && share > 0 {
+                    continue;
                 }
-                if *f > 0 {
-                    *f = (*f - per_type).max(0);
-                    eaten += 1;
+                *f = (*f - share).max(0);
+                h.foods_eaten += 1;
+                if h.foods_eaten >= types {
+                    break;
                 }
             }
         }

@@ -34,7 +34,10 @@ impl World {
             10 => self.update_desirability(),
             18 => self.grow_vegetation(),
             12 => self.decay_houses_covered(),
-            20 => self.update_production(),
+            20 => {
+                self.update_production();
+                self.grow_crops();
+            }
             22 => self.update_room(),
             23 => self.update_migration(),
             25 => self.update_labor(),
@@ -75,12 +78,14 @@ impl World {
         }
         self.update_figures();
         if roll.week {
-            self.consume_food();
             self.consume_goods();
             self.update_sentiment();
             self.crime_half_month();
         }
         if roll.month {
+            // The city's health comes first, then every household eats.
+            self.update_health_month();
+            self.consume_food();
             self.migration.newcomers_this_month = 0;
             self.advance_month_finance();
             self.pay_salary();
@@ -88,7 +93,6 @@ impl World {
             self.regrow_herds();
             self.update_gods_month();
             self.update_ratings_month();
-            self.update_health_month();
             self.update_funerals();
             self.update_invasions();
             self.update_morale_month();

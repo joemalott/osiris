@@ -1,6 +1,6 @@
 //! Farms. Floodplain farms have no staff of their own: work camps send peasants who
 //! tend a farm for 96 days, during which it counts as fully staffed. A farm's crop
-//! grows each day by fertility x 0.16 / 99 x workers x 10 (at least 1), toward 2000.
+//! grows each day at tick 20 by fertility x 0.16 / 99 x workers x 10 (at least 1), toward 2000.
 //! Floodplain crops are harvested when the flood approaches, meadow crops on the first
 //! day of their harvest months; a harvest yields 8 per percent of the crop grown.
 
@@ -48,8 +48,9 @@ impl World {
         ((fertility as f64 * GROWTH_PER_FERTILITY / 99.0 * workers as f64 * 10.0) as i32).max(1)
     }
 
-    /// Tick 33: crops grow. Floodplain farms count as fully staffed while tended.
-    pub(crate) fn update_farms(&mut self) {
+    /// Tick 20, with the industries: crops grow. A floodplain farm counts as fully
+    /// staffed while it has labor days left.
+    pub(crate) fn grow_crops(&mut self) {
         for id in self.buildings.ids() {
             let Some(b) = self.buildings.get(id) else { continue };
             if !self.is_farm(b.kind) {
@@ -62,10 +63,21 @@ impl World {
             let Some(b) = self.buildings.get_mut(id) else { continue };
             if floodplain {
                 b.workers = if b.labor_days > 0 && !mothballed { full } else { 0 };
-                b.labor_days = (b.labor_days - 1).max(0);
             }
             if b.workers > 0 {
                 b.progress = (b.progress + Self::crop_growth(fertility, b.workers)).min(PROGRESS_MAX);
+            }
+        }
+    }
+
+    /// Tick 33: floodplain farms use up a day of labor, and meadow crops are brought
+    /// in on the first day of their harvest months.
+    pub(crate) fn update_farms(&mut self) {
+        for id in self.buildings.ids() {
+            if self.is_floodplain_farm(id)
+                && let Some(b) = self.buildings.get_mut(id)
+            {
+                b.labor_days = (b.labor_days - 1).max(0);
             }
         }
         // Meadow crops are brought in on the first day of their harvest months.
