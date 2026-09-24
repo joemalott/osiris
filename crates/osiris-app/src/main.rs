@@ -438,6 +438,10 @@ struct App {
     /// Where a right-click began with nothing open, to inspect the tile if it isn't a drag.
     inspect: Option<(f64, f64)>,
     cursor: (f64, f64),
+    /// Whether the cursor is over the window, which is focused: only then does the
+    /// screen's edge scroll the city.
+    cursor_in: bool,
+    focused: bool,
     keys: std::collections::HashSet<KeyCode>,
     last_frame: std::time::Instant,
     status: Option<(String, f32)>,
@@ -877,7 +881,16 @@ impl ApplicationHandler for App {
                     },
                 }
             }
+            WindowEvent::CursorEntered { .. } => self.cursor_in = true,
+            WindowEvent::CursorLeft { .. } => self.cursor_in = false,
+            WindowEvent::Focused(f) => {
+                self.focused = f;
+                if !f {
+                    self.keys.clear();
+                }
+            }
             WindowEvent::CursorMoved { position, .. } => {
+                self.cursor_in = true;
                 let Some(gfx) = &mut self.gfx else { return };
                 let p = (position.x, position.y);
                 if let Some(d) = self.drag {
@@ -1012,13 +1025,27 @@ impl App {
                 let pan = 900.0 * dt / gfx.renderer.camera.zoom;
                 let screen = gfx.renderer.screen;
                 let cam = &mut gfx.renderer.camera;
+                // The cursor at the screen's edge scrolls as the arrow keys do. A window
+                // that isn't full screen gets a wider band, since the cursor can slip past it.
+                let scale = gfx.window.scale_factor();
+                let (cx, cy) = (self.cursor.0 / scale, self.cursor.1 / scale);
+                let band = if gfx.window.fullscreen().is_some() { 2.0 } else { 8.0 };
+                let edges = self.cursor_in && self.focused && self.drag.is_none();
+                let edge = |k: KeyCode| {
+                    edges && match k {
+                        KeyCode::ArrowLeft => cx < band,
+                        KeyCode::ArrowRight => cx >= screen[0] as f64 - band,
+                        KeyCode::ArrowUp => cy < band,
+                        _ => cy >= screen[1] as f64 - band,
+                    }
+                };
                 for (k, dx, dy) in [
                     (KeyCode::ArrowLeft, -1.0, 0.0),
                     (KeyCode::ArrowRight, 1.0, 0.0),
                     (KeyCode::ArrowUp, 0.0, -1.0),
                     (KeyCode::ArrowDown, 0.0, 1.0),
                 ] {
-                    if self.keys.contains(&k) {
+                    if self.keys.contains(&k) || edge(k) {
                         match &mut game.empire {
                             Some(e) => e.scroll_by(screen, dx * 900.0 * dt, dy * 900.0 * dt),
                             None => {
@@ -1343,6 +1370,8 @@ fn main() -> Result<()> {
         drag: None,
         inspect: None,
         cursor: (0.0, 0.0),
+        cursor_in: false,
+        focused: true,
         keys: Default::default(),
         last_frame: std::time::Instant::now(),
         status: None,

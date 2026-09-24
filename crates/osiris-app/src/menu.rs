@@ -344,10 +344,12 @@ impl Frame {
         Self::of(screen, [1024.0, 768.0])
     }
 
-    /// Art of another size scaled to cover the screen.
+    /// A page `size` big scaled to fit inside the screen, centred: the background
+    /// behind it covers the screen, but the page itself must not run off it in a
+    /// window of another shape.
     fn of(screen: [f32; 2], size: [f32; 2]) -> Self {
-        let (o, s) = cover_screen(screen, size);
-        Self { o, s }
+        let s = (screen[0] / size[0]).min(screen[1] / size[1]);
+        Self { o: [((screen[0] - size[0] * s) / 2.0).floor(), ((screen[1] - size[1] * s) / 2.0).floor()], s }
     }
 
     /// A point on screen in the background's coordinates.
@@ -646,8 +648,11 @@ impl Menu {
         [FAMILY_BUTTON[0], FAMILY_BUTTON[1] + 48.0 * i as f32, FAMILY_BUTTON_W, BUTTON_H]
     }
 
+    /// The family menu's 640x480 page, at the size the original shows it on a
+    /// 1024x768 screen rather than blown up to fill the window.
     fn main_frame(screen: [f32; 2]) -> Frame {
-        Frame::of(screen, [640.0, 480.0])
+        let s = (screen[0] / 1024.0).min(screen[1] / 768.0);
+        Frame { o: [((screen[0] - 640.0 * s) / 2.0).floor(), ((screen[1] - 480.0 * s) / 2.0).floor()], s }
     }
 
     /// List pages other than the campaign: an outer panel in the middle of the screen.

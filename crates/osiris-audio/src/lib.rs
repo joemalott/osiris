@@ -39,6 +39,9 @@ use rodio::Source as _;
 /// ambience. See the [module docs](crate) for an overview.
 ///
 /// Cheap to pass around by `&Audio`; every method takes `&self`.
+/// The music's starting volume, below effects and speech.
+pub const DEFAULT_MUSIC_VOLUME: f32 = 0.35;
+
 pub struct Audio {
     inner: Option<Inner>,
 }
@@ -77,6 +80,8 @@ impl Audio {
 
         let mixer = device.mixer().clone();
         let music_player = rodio::Player::connect_new(&mixer);
+        // Full-volume music drowns the city's sounds; start it well below them.
+        music_player.set_volume(DEFAULT_MUSIC_VOLUME);
         let speech_player = rodio::Player::connect_new(&mixer);
 
         let city_sound_table =
