@@ -415,14 +415,16 @@ impl World {
         }
     }
 
-    /// Opens the trade route to `city`, paying its cost.
+    /// Opens the trade route to `city`, paying its cost as construction. As in the
+    /// original, only a treasury 5000 or more in debt stops it; otherwise the cost is
+    /// paid even into debt.
     pub fn open_trade_route(&mut self, city: usize) -> Result<(), &'static str> {
         let Some(c) = self.trade.cities.get(city) else { return Err("No such city") };
         if !c.trades() || c.open {
             return Err("This city does not trade with you");
         }
-        if self.treasury < c.cost {
-            return Err("Not enough money");
+        if self.out_of_money() {
+            return Err("You do not have enough debens to open a trade route.");
         }
         let cost = c.cost;
         self.treasury -= cost;
@@ -831,6 +833,20 @@ mod tests {
         assert!(w.figures.iter().all(|f| f.kind != crate::docks::TRADE_SHIP));
         assert_eq!(w.trade.cities[1].entry_delay, LAND_ENTRY_DELAY, "the countdown waits for a dock");
         assert_eq!(w.messages.iter().filter(|m| *m == "message_no_working_dock").count(), 1);
+    }
+
+    #[test]
+    fn routes_open_into_debt_until_5000_owed() {
+        let Some(mut w) = sandbox() else { return };
+        w.trade.cities[0].open = false;
+        w.trade.cities[0].cost = 1000;
+        w.treasury = -4999;
+        w.finance.this_year.construction = 0;
+        assert!(w.open_trade_route(0).is_ok());
+        assert_eq!((w.treasury, w.finance.this_year.construction), (-5999, 1000));
+        w.trade.cities[0].open = false;
+        assert!(w.open_trade_route(0).is_err(), "5000 or more in debt");
+        assert_eq!(w.treasury, -5999);
     }
 
     #[test]

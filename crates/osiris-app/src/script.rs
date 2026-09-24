@@ -31,6 +31,8 @@ pub struct ScriptView {
     /// Camera zoom for the screenshot.
     pub zoom: Option<f32>,
     pub empire: Option<Option<usize>>,
+    /// A window over the empire map: confirm, nomoney or opened.
+    pub empire_popup: Option<String>,
     pub advisor: Option<String>,
     /// A popup to open over the overseer: salary, gift or donate.
     pub advisor_popup: Option<String>,
@@ -271,6 +273,11 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             ["empire"] => view.empire = Some(None),
             ["empire", c] => view.empire = Some(Some(c.parse()?)),
+            ["empire", c, popup] => {
+                view.empire = Some(Some(c.parse()?));
+                view.empire_popup = Some(popup.to_string());
+            }
+            ["openroute", c] => eprintln!("{step}: {:?} treasury {}", world.open_trade_route(c.parse()?), world.treasury),
             ["burn", p] => {
                 let (x, y) = parse_point(p)?;
                 let id = world.map.building.at_or(x, y, 0);

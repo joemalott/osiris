@@ -5,16 +5,20 @@
 //! pixels in from the screen's edges and 130 above its bottom. Each city is drawn
 //! with the image its kind and name give it, its name in dark red beside it, and a
 //! flag waving over it when a trade route to it can be opened or is open. Only open
-//! routes are drawn, a dot every few pixels along the way. In the original, traders
-//! on their way to and from the city also move along the open routes; Osiris's
-//! traders appear straight in the city, so none are drawn. Text comes from group 47
-//! and city names from group 195.
+//! routes are drawn, a dot every few pixels along the way. Traders do not travel the
+//! routes: they appear straight in the city. What the original moves along routes
+//! are armies: invaders marching on the city and troops sent to a distant battle
+//! (group 178 by land, 179 by sea), which Osiris does not draw yet. Text comes from
+//! group 47 and city names from group 195.
+//!
+//! Opening a route asks first, in the original's yes/no window (text group 5), and
+//! then shows the window saying the route is open (group 142).
 
 use osiris_formats::empire::city;
 use osiris_formats::{ImageLibrary, TextTable};
 use osiris_render::{Renderer, Space};
 use osiris_sim::World;
-use osiris_ui::{Font, PanelImages, draw_text, font, panel, text_width};
+use osiris_ui::{Font, PanelImages, draw_text, font, panel, rich_text, text_width};
 
 fn img(r: &mut Renderer, id: u32, x: f32, y: f32) {
     r.image(id, [x, y], [1.0; 4], Space::Screen);
@@ -41,6 +45,9 @@ const FOREIGN_IMAGE: [u8; 66] = [
 /// Resources counted in blocks or pieces rather than units: their amounts show in
 /// loads.
 const COUNTED: [usize; 7] = [10, 24, 25, 26, 28, 30, 35];
+/// How far right of the original's place the "N of M" amounts are drawn, to clear the
+/// widest tier badge (a quality-of-life change: the original overlaps them).
+const AMOUNT_SHIFT: f32 = 6.0;
 
 #[derive(Clone, Copy)]
 pub struct EmpireImages {
@@ -58,6 +65,8 @@ pub struct EmpireImages {
     icons: u32,
     context: u32,
     advisors: u32,
+    /// The OK and cancel buttons of the yes/no window: group 96, offsets 0 and 4.
+    ok_cancel: u32,
 }
 
 impl EmpireImages {
@@ -76,6 +85,7 @@ impl EmpireImages {
             icons: lib.group_id("Expansion", 3, 0)?,
             context: g(134)?,
             advisors: g(106)?,
+            ok_cancel: g(96)?,
         })
     }
 
@@ -99,13 +109,24 @@ impl EmpireImages {
     }
 }
 
+/// A window over the empire map.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EmpirePopup {
+    /// "Pay to open this land/water trade route?" for a city.
+    Confirm(usize),
+    /// The treasury is 5000 or more in debt: no route can be opened.
+    NoMoney,
+    /// "New trade route established." after opening the route to a city.
+    Opened(usize),
+}
+
 /// What a click in the empire window did.
 pub enum EmpireClick {
     Nothing,
     Close,
     /// The button to the Overseer of Commerce.
     Advisor,
-    /// Asked to open the selected city's trade route.
+    /// Agreed to pay to open the selected city's trade route.
     OpenRoute(usize),
 }
 
@@ -120,6 +141,7 @@ pub struct EmpireWindow {
     centred: bool,
     /// Seconds the window has been open, for the flags.
     clock: f32,
+    popup: Option<EmpirePopup>,
 }
 
 impl EmpireWindow {
@@ -156,6 +178,22 @@ impl EmpireWindow {
 
     pub fn select(&mut self, city: Option<usize>) {
         self.selected = city;
+    }
+
+    pub fn show(&mut self, popup: Option<EmpirePopup>) {
+        self.popup = popup;
+    }
+
+    pub fn popup(&self) -> Option<EmpirePopup> {
+        self.popup
+    }
+
+    /// Right-click: the only window it closes is the one saying there is no money
+    /// ("Right-click to continue"); the others wait for their buttons.
+    pub fn right_click(&mut self) {
+        if self.popup == Some(EmpirePopup::NoMoney) {
+            self.popup = None;
+        }
     }
 
     pub fn tick(&mut self, dt: f32) {
@@ -201,6 +239,26 @@ impl EmpireWindow {
         [20.0, screen[1] - 110.0, 28.0, 28.0]
     }
 
+    /// The top-left of the original's 640x480 layout, centred on the screen.
+    fn origin(screen: [f32; 2]) -> [f32; 2] {
+        [((screen[0] - 640.0) / 2.0).floor(), ((screen[1] - 480.0) / 2.0).floor()]
+    }
+
+    /// The yes/no window: 480x160 at (80, 80), yes (the tick) at (256, 100) and no
+    /// at (192, 100) in it, each 34 pixels square.
+    fn yes_no(screen: [f32; 2]) -> ([f32; 2], [f32; 4], [f32; 4]) {
+        let o = Self::origin(screen);
+        let at = [o[0] + 80.0, o[1] + 80.0];
+        (at, [at[0] + 256.0, at[1] + 100.0, 34.0, 34.0], [at[0] + 192.0, at[1] + 100.0, 34.0, 34.0])
+    }
+
+    /// The route-opened window's buttons: to the Overseer of Commerce, and back to
+    /// the map.
+    fn opened_buttons(screen: [f32; 2]) -> ([f32; 4], [f32; 4]) {
+        let o = Self::origin(screen);
+        ([o[0] + 92.0, o[1] + 248.0, 28.0, 28.0], [o[0] + 522.0, o[1] + 252.0, 24.0, 24.0])
+    }
+
     fn inside(r: [f32; 4], p: [f32; 2]) -> bool {
         p[0] >= r[0] && p[1] >= r[1] && p[0] < r[0] + r[2] && p[1] < r[1] + r[3]
     }
@@ -217,6 +275,9 @@ impl EmpireWindow {
 
     pub fn click(&mut self, r: &Renderer, world: &World, images: &EmpireImages, p: [f32; 2]) -> EmpireClick {
         let screen = r.screen;
+        if let Some(popup) = self.popup {
+            return self.popup_click(popup, screen, p);
+        }
         if Self::inside(Self::close_button(screen), p) {
             return EmpireClick::Close;
         }
@@ -227,12 +288,42 @@ impl EmpireWindow {
             && Self::inside(Self::open_button(screen), p)
             && world.trade.cities.get(c).is_some_and(|c| c.trades() && !c.open)
         {
-            return EmpireClick::OpenRoute(c);
+            // The original asks before paying, unless the treasury is 5000 or more in
+            // debt; short of that the route opens even into debt.
+            self.popup = Some(if world.out_of_money() { EmpirePopup::NoMoney } else { EmpirePopup::Confirm(c) });
+            return EmpireClick::Nothing;
         }
         if Self::inside(Self::view(screen), p) {
             match self.city_at(r, world, images, p) {
                 Some(c) => self.selected = Some(c),
                 None => self.drag = Some((p, self.scroll)),
+            }
+        }
+        EmpireClick::Nothing
+    }
+
+    fn popup_click(&mut self, popup: EmpirePopup, screen: [f32; 2], p: [f32; 2]) -> EmpireClick {
+        match popup {
+            EmpirePopup::Confirm(c) => {
+                let (_, yes, no) = Self::yes_no(screen);
+                if Self::inside(yes, p) {
+                    self.popup = None;
+                    return EmpireClick::OpenRoute(c);
+                }
+                if Self::inside(no, p) {
+                    self.popup = None;
+                }
+            }
+            EmpirePopup::NoMoney => {}
+            EmpirePopup::Opened(_) => {
+                let (advisor, close) = Self::opened_buttons(screen);
+                if Self::inside(advisor, p) {
+                    self.popup = None;
+                    return EmpireClick::Advisor;
+                }
+                if Self::inside(close, p) {
+                    self.popup = None;
+                }
             }
         }
         EmpireClick::Nothing
@@ -277,6 +368,63 @@ impl EmpireWindow {
         r.set_clip(None);
         self.draw_frame(r, images, v);
         self.draw_panel(r, panels, world, text, images);
+        if let Some(popup) = self.popup {
+            self.draw_popup(r, panels, world, text, images, popup);
+        }
+    }
+
+    fn draw_popup(&self, r: &mut Renderer, panels: &PanelImages, world: &World, text: &TextTable, images: &EmpireImages, popup: EmpirePopup) {
+        let screen = r.screen;
+        let t = |g: usize, i: usize| text.get(g, i).unwrap_or("").trim().to_owned();
+        let centred = |r: &mut Renderer, f: Font, s: &str, x: f32, y: f32, w: f32| {
+            let tw = text_width(r, f, s) as f32;
+            draw_text(r, f, s, x + ((w - tw) / 2.0).max(0.0).floor(), y, font::BLACK);
+        };
+        let button = |r: &mut Renderer, id: u32, b: [f32; 4]| img(r, id + Self::inside(b, self.cursor) as u32, b[0], b[1]);
+        match popup {
+            EmpirePopup::Confirm(_) | EmpirePopup::NoMoney => {
+                // Title and question from group 5: 2 and 3 for a land route, 4 and 5 for
+                // a water route, 119 and 120 for no money.
+                let id = match popup {
+                    EmpirePopup::Confirm(c) if world.trade.cities.get(c).is_some_and(|c| c.sea) => 4,
+                    EmpirePopup::Confirm(_) => 2,
+                    _ => 119,
+                };
+                let (at, yes, no) = Self::yes_no(screen);
+                panel::outer_panel(r, panels, at[0], at[1], 30, 10);
+                centred(r, Font::LargeBlackOnLight, &t(5, id), at[0], at[1] + 20.0, 480.0);
+                // A line under 420 pixels is centred; longer text wraps 420 wide from 30 in.
+                let body = t(5, id + 1);
+                if text_width(r, Font::NormalBlackOnLight, &body) < 420 {
+                    centred(r, Font::NormalBlackOnLight, &body, at[0], at[1] + 60.0, 480.0);
+                } else {
+                    wrapped(r, &body, at[0] + 30.0, at[1] + 60.0, 420.0);
+                }
+                if popup == EmpirePopup::NoMoney {
+                    centred(r, Font::NormalBlackOnLight, &t(13, 1), at[0], at[1] + 128.0, 480.0);
+                } else {
+                    button(r, images.ok_cancel, yes);
+                    button(r, images.ok_cancel + 4, no);
+                }
+            }
+            EmpirePopup::Opened(c) => {
+                // Group 142: the title, the note about the Overseer of Commerce and, for a
+                // water route, the reminder that ships need a dock.
+                let o = Self::origin(screen);
+                panel::outer_panel(r, panels, o[0] + 80.0, o[1] + 64.0, 30, 14);
+                centred(r, Font::LargeBlackOnLight, &t(142, 0), o[0] + 80.0, o[1] + 80.0, 480.0);
+                if world.trade.cities.get(c).is_some_and(|c| c.sea) {
+                    wrapped(r, &t(142, 1), o[0] + 112.0, o[1] + 120.0, 416.0);
+                    wrapped(r, &t(142, 3), o[0] + 112.0, o[1] + 184.0, 416.0);
+                } else {
+                    wrapped(r, &t(142, 1), o[0] + 112.0, o[1] + 152.0, 416.0);
+                }
+                draw_text(r, Font::NormalBlackOnLight, &t(142, 2), o[0] + 128.0, o[1] + 256.0, font::BLACK);
+                let (advisor, close) = Self::opened_buttons(screen);
+                button(r, images.advisors + 4 * 3, advisor);
+                button(r, images.context + 4, close);
+            }
+        }
     }
 
     /// The flag's frame, 1 to its frame count, at its animation speed.
@@ -409,7 +557,9 @@ impl EmpireWindow {
         }
         // The route is open: what has been sold and bought this year of what it allows,
         // as "N of M". Each number is drawn after a blank sign slot and followed by a
-        // blank, 4 pixels each in this font.
+        // blank, 4 pixels each in this font. The original starts the first number 22
+        // pixels in, under the tier badge (13 in, up to 13 wide); Osiris moves the text
+        // 6 pixels right so the badge covers none of it.
         let amount = |r: &mut Renderer, res: usize, x: f32, y: f32| {
             let traded = route.map_or(0, |rt| rt.traded[res]);
             let limit = world.trade_limit(i, res as u16).max(traded);
@@ -417,6 +567,7 @@ impl EmpireWindow {
             let (a, of, b) = (shown(traded), t(12), shown(limit));
             let wa = text_width(r, Font::SmallPlain, &a) as f32;
             let wof = text_width(r, Font::SmallPlain, &of) as f32;
+            let x = x + AMOUNT_SHIFT;
             draw_text(r, Font::SmallPlain, &a, x + 22.0, y, font::BLACK);
             draw_text(r, Font::SmallPlain, &of, x + 24.0 + wa, y, font::BLACK);
             draw_text(r, Font::SmallPlain, &b, x + 26.0 + wa + wof, y, font::BLACK);
@@ -442,6 +593,13 @@ impl EmpireWindow {
             amount(r, res, x, y + 8.0);
         }
     }
+}
+
+/// Normal black text wrapped `w` wide, three pixels above `y` like single lines.
+fn wrapped(r: &mut Renderer, s: &str, x: f32, y: f32, w: f32) {
+    let opts = rich_text::Options { font: Font::NormalBlackOnLight, width: w as i32, paragraph_indent: 0 };
+    let laid = rich_text::layout(s, &opts, &mut rich_text::RendererMeasure::new(r));
+    rich_text::draw(r, &laid, [x, y - 3.0], laid.height as f32, 0.0, font::BLACK);
 }
 
 /// The dots along a route: from each waypoint to the next, one every `step` pixels.

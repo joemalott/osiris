@@ -613,7 +613,10 @@ impl Game {
                 crate::empire_window::EmpireClick::Close => self.empire = None,
                 crate::empire_window::EmpireClick::Advisor => self.open_advisor(crate::advisors::Advisor::Trade),
                 crate::empire_window::EmpireClick::OpenRoute(c) => match self.world.open_trade_route(c) {
-                    Ok(()) => self.sound("BUTTON.WAV"),
+                    Ok(()) => {
+                        e.show(Some(crate::empire_window::EmpirePopup::Opened(c)));
+                        self.sound("BUTTON.WAV");
+                    }
                     Err(why) => self.say(why),
                 },
                 crate::empire_window::EmpireClick::Nothing => {}
@@ -1024,6 +1027,13 @@ impl Game {
                     self.select_company(c);
                 }
             }
+            return;
+        }
+        if self.dialog.is_none()
+            && let Some(e) = &mut self.empire
+            && e.popup().is_some()
+        {
+            e.right_click();
             return;
         }
         if self.dialog.take().is_some() || self.empire.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() || std::mem::take(&mut self.difficulty_panel) {
