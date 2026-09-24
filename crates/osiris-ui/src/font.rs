@@ -117,6 +117,19 @@ pub fn text_width(r: &Renderer, font: Font, text: &str) -> i32 {
     w
 }
 
+/// Width of `text` as the original measures it to centre it (FUN_004cbf30): as drawn,
+/// except that the two large fonts count a space as 10 pixels and a pixel more for
+/// each glyph, so centred large text sits a little left of the middle.
+pub fn centring_width(r: &Renderer, font: Font, text: &str) -> i32 {
+    let w = text_width(r, font, text);
+    if !matches!(font, Font::LargeBlackOnLight | Font::LargeBlackOnDark) {
+        return w;
+    }
+    let spaces = text.chars().filter(|&c| c == ' ').count() as i32;
+    let glyphs = text.chars().filter(|&c| c != ' ' && glyph_id(font, cp1252(c)).is_some_and(|id| r.record(id).is_some())).count() as i32;
+    w + spaces * (10 - font.def().space) + glyphs
+}
+
 pub const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 pub const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 

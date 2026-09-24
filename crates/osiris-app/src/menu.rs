@@ -7,7 +7,7 @@ use osiris_formats::{MissionPak, Scenario, TextTable};
 use osiris_render::{Renderer, Space, WHITE};
 use osiris_sim::Rules;
 use osiris_sim::ratings::MissionResult;
-use osiris_ui::{Font, PanelImages, draw_text, font, panel, rich_text, text_width};
+use osiris_ui::{Font, PanelImages, centring_width, draw_text, font, panel, rich_text, text_width};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -375,7 +375,7 @@ fn bg_text(r: &mut Renderer, f: Font, s: &str, x: f32, y: f32) {
 /// Text centred in a band `w` wide from `x`, as the original centres it: flush left
 /// when it is wider.
 fn bg_centred(r: &mut Renderer, f: Font, s: &str, x: f32, y: f32, w: f32) {
-    let tw = text_width(r, f, s) as f32;
+    let tw = centring_width(r, f, s) as f32;
     let dx = ((w - tw) / 2.0).max(0.0).floor();
     draw_text(r, f, s, x + dx, y, text_color(f));
 }
