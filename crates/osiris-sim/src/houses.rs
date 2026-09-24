@@ -5,8 +5,16 @@
 //! when its desirability reaches the evolve threshold and it already satisfies the
 //! next level's needs; it devolves when desirability drops to the devolve threshold or
 //! it no longer satisfies its own level's needs.
+//!
+//! Four 1x1 houses of the same small level in a square merge into one 2x2 house that
+//! holds four times the people. A spacious apartment, an elegant residence and a
+//! stately manor need a bigger footprint (2x2, 3x3, 4x4) to evolve, taking in the
+//! houses, clear land and gardens around them; devolving gives the land back.
 
+use crate::buildings::{BuildingId, kind};
+use crate::map::terrain;
 use crate::rules::Rules;
+use crate::world::World;
 
 /// One row of the model file's house table.
 #[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
@@ -107,6 +115,9 @@ pub struct House {
     /// Crime risk, 0-1000; at 1000 the house sends out a thief.
     #[serde(default)]
     pub crime: i32,
+    /// Four small lots joined into one 2x2 house, which holds four times the people.
+    #[serde(default)]
+    pub merged: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -202,14 +213,14 @@ impl House {
         if self.goods[0] < model.pottery {
             return Err(Need::Pottery);
         }
+        if model.beer > 0 && self.goods[3] <= 0 {
+            return Err(Need::Beer);
+        }
         if self.goods[2] < model.linen {
             return Err(Need::Linen);
         }
         if self.goods[1] < model.jewelry {
             return Err(Need::Jewelry);
-        }
-        if model.beer > 0 && self.goods[3] <= 0 {
-            return Err(Need::Beer);
         }
         Ok(())
     }
@@ -274,5 +285,509 @@ pub fn decay(c: &mut Coverage) {
     }
     for t in &mut c.temples {
         dec(t);
+    }
+}
+
+/// The level a house must grow to leave, and the size it grows to: a spacious
+/// apartment becomes a 2x2 residence, an elegant residence a 3x3 manor, a stately
+/// manor a 4x4 estate.
+fn expands_to(level: u8) -> Option<i32> {
+    match level {
+        9 => Some(2),
+        13 => Some(3),
+        17 => Some(4),
+        _ => None,
+    }
+}
+
+/// Where a growing house may put its new top-left corner, tried in this order: in
+/// place, up and left, left, up.
+const EXPAND_CORNERS: [(i32, i32); 4] = [(0, 0), (-1, -1), (-1, 0), (0, -1)];
+
+/// Terrain that stops a house growing onto a tile: all but groundwater, meadow,
+/// fountain and irrigation range and floodplain (and Osiris's own bridge flag).
+const EXPAND_BLOCKING: u32 = 0xeefe_d77f | terrain::BRIDGE;
+
+const SENET_HOUSE: u16 = 32;
+const ZOO: u16 = 226;
+
+/// The tiles of the `n` x `n` block at `(x, y)`.
+fn block(x: i32, y: i32, n: i32) -> impl Iterator<Item = (i32, i32)> {
+    (0..n).flat_map(move |dy| (0..n).map(move |dx| (x + dx, y + dy)))
+}
+
+/// A household's people, foods and goods, as handed on when houses merge or split.
+#[derive(Debug, Clone, Copy, Default)]
+struct Share {
+    population: i32,
+    foods: [i32; FOOD_TYPES],
+    goods: [i32; 4],
+}
+
+impl Share {
+    fn of(h: &House) -> Self {
+        Self { population: h.population, foods: h.foods, goods: h.goods }
+    }
+
+    fn add(&mut self, o: Share) {
+        self.population += o.population;
+        for i in 0..FOOD_TYPES {
+            self.foods[i] += o.foods[i];
+        }
+        for i in 0..4 {
+            self.goods[i] += o.goods[i];
+        }
+    }
+
+    /// Splits it `parts` ways: the first share keeps the remainders.
+    fn split(self, parts: i32) -> (Share, Share) {
+        let each = Share { population: self.population / parts, foods: self.foods.map(|f| f / parts), goods: self.goods.map(|g| g / parts) };
+        let first = Share {
+            population: each.population + self.population % parts,
+            foods: std::array::from_fn(|i| each.foods[i] + self.foods[i] % parts),
+            goods: std::array::from_fn(|i| each.goods[i] + self.goods[i] % parts),
+        };
+        (first, each)
+    }
+
+    fn set(self, h: &mut House) {
+        h.population = self.population;
+        h.foods = self.foods;
+        h.goods = self.goods;
+    }
+}
+
+impl World {
+    /// How many people a house holds: its level's capacity, four times over when merged.
+    pub fn house_capacity(&self, id: BuildingId) -> i32 {
+        let Some(h) = self.buildings.get(id).and_then(|b| b.house.as_ref()) else { return 0 };
+        self.balance.house(h.level).max_people * if h.merged { 4 } else { 1 }
+    }
+
+    /// Tick 39: every occupied house evolves, stays or devolves. Small houses first try
+    /// to merge with their neighbours; houses outgrowing their footprint expand.
+    pub(crate) fn evolve_houses(&mut self) {
+        let ids: Vec<BuildingId> = self.buildings.iter().filter(|b| b.is_house()).map(|b| b.id).collect();
+        for id in ids {
+            let occupied = self.buildings.get(id).and_then(|b| b.house.as_ref()).filter(|h| h.population > 0);
+            let Some(level) = occupied.map(|h| h.level) else { continue };
+            if level <= 9 {
+                self.merge_house(id);
+            }
+            let Some(b) = self.buildings.get_mut(id) else { continue };
+            let des = b.desirability;
+            let Some(h) = b.house.as_mut() else { continue };
+            match h.progress(&self.balance.houses, des, &self.rules) {
+                Progress::Evolve if (level as usize) + 1 < self.balance.houses.len() => {
+                    h.devolve_delay = 0;
+                    match expands_to(level) {
+                        Some(n) => self.expand_house(id, n),
+                        None => self.set_house_level(id, level + 1),
+                    }
+                }
+                Progress::Decay if level > 0 => {
+                    // Two checks' grace: it devolves on the third failed check in a row.
+                    h.devolve_delay += 1;
+                    if h.devolve_delay > 2 {
+                        h.devolve_delay = 0;
+                        self.devolve_house(id);
+                    }
+                }
+                _ => h.devolve_delay = 0,
+            }
+        }
+    }
+
+    /// Four 1x1 houses of the same level in a square, this one at its top left, merge
+    /// into a 2x2 house (on five days in eight, by the tile's random byte).
+    fn merge_house(&mut self, id: BuildingId) {
+        let Some(b) = self.buildings.get(id) else { return };
+        let Some(h) = &b.house else { return };
+        if h.merged || b.size != 1 || self.map.random.at_or(b.x, b.y, 0) & 7 >= 5 {
+            return;
+        }
+        let level = h.level;
+        let fits = block(b.x, b.y, 2).all(|(x, y)| {
+            let other = self.map.building.at_or(x, y, 0);
+            self.map.terrain_is(x, y, terrain::BUILDING)
+                && (other == id
+                    || self.buildings.get(other).filter(|o| o.size == 1).and_then(|o| o.house.as_ref()).is_some_and(|o| o.level == level && !o.merged))
+        });
+        if fits {
+            let (x, y) = (b.x, b.y);
+            self.absorb_block(id, x, y, 2);
+            if let Some(h) = self.buildings.get_mut(id).and_then(|b| b.house.as_mut()) {
+                h.merged = true;
+            }
+            self.set_house_level(id, level);
+        }
+    }
+
+    /// The corner of an `n` x `n` block the house can grow onto, if any: first over
+    /// houses no grander than itself, then also over clear land, then also over gardens.
+    fn expansion_corner(&self, id: BuildingId, n: i32) -> Option<(i32, i32)> {
+        let b = self.buildings.get(id)?;
+        let level = b.house.as_ref()?.level;
+        let absorbable = |x: i32, y: i32| {
+            let other = self.map.building.at_or(x, y, 0);
+            other == id || self.buildings.get(other).and_then(|o| o.house.as_ref()).is_some_and(|o| o.level <= level)
+        };
+        for pass in 0..3 {
+            for (dx, dy) in EXPAND_CORNERS {
+                let (cx, cy) = (b.x + dx, b.y + dy);
+                let fits = block(cx, cy, n).all(|(x, y)| {
+                    let t = self.map.terrain.at_or(x, y, 0);
+                    if !self.map.contains(x, y) {
+                        false
+                    } else if pass > 0 && t & EXPAND_BLOCKING == 0 {
+                        true
+                    } else if t & terrain::BUILDING != 0 {
+                        absorbable(x, y)
+                    } else {
+                        pass == 2 && t & terrain::GARDEN != 0
+                    }
+                });
+                if fits {
+                    return Some((cx, cy));
+                }
+            }
+        }
+        None
+    }
+
+    /// The house grows onto an `n` x `n` block and becomes the next level; with no room
+    /// to grow it stays as it is.
+    pub fn expand_house(&mut self, id: BuildingId, n: i32) {
+        let Some((x, y)) = self.expansion_corner(id, n) else { return };
+        let Some(h) = self.buildings.get_mut(id).and_then(|b| b.house.as_mut()) else { return };
+        h.merged = false;
+        let level = h.level + 1;
+        self.absorb_block(id, x, y, n);
+        self.set_house_level(id, level);
+    }
+
+    /// Makes house `id` the `n` x `n` block at `(x, y)`. Other houses on it that span
+    /// several tiles break up first; then everyone on the block moves in with their
+    /// foods and goods, and the land is built over.
+    fn absorb_block(&mut self, id: BuildingId, x: i32, y: i32, n: i32) {
+        let others = |w: &World| -> Vec<BuildingId> {
+            let mut found: Vec<BuildingId> = Vec::new();
+            for (xx, yy) in block(x, y, n) {
+                let other = w.map.building.at_or(xx, yy, 0);
+                if other != id && w.map.terrain_is(xx, yy, terrain::BUILDING) && w.buildings.get(other).is_some_and(|o| o.is_house()) && !found.contains(&other) {
+                    found.push(other);
+                }
+            }
+            found
+        };
+        for other in others(self) {
+            if self.buildings.get(other).is_some_and(|o| o.size > 1) {
+                self.break_up_house(other);
+            }
+        }
+        let mut moved = Share::default();
+        for other in others(self) {
+            let Some(o) = self.buildings.remove(other) else { continue };
+            for (xx, yy) in o.tiles() {
+                self.map.building.set(xx, yy, 0);
+            }
+            if let Some(h) = &o.house {
+                moved.add(Share::of(h));
+            }
+        }
+        let Some(b) = self.buildings.get_mut(id) else { return };
+        for (xx, yy) in b.tiles().collect::<Vec<_>>() {
+            self.map.building.set(xx, yy, 0);
+        }
+        b.x = x;
+        b.y = y;
+        b.size = n;
+        if let Some(h) = b.house.as_mut() {
+            let mut all = Share::of(h);
+            all.add(moved);
+            all.set(h);
+        }
+        for (xx, yy) in block(x, y, n) {
+            self.map.terrain.update(xx, yy, |t| (t & !(terrain::MEADOW | terrain::SHRUB | terrain::TREE | terrain::GARDEN)) | terrain::BUILDING);
+            self.map.building.set(xx, yy, id);
+        }
+        self.refresh_road_access(id);
+    }
+
+    /// Shrinks house `id` to `size` at its corner; returns the tiles it no longer covers.
+    fn shrink_house(&mut self, id: BuildingId, size: i32) -> Vec<(i32, i32)> {
+        let Some(b) = self.buildings.get_mut(id) else { return Vec::new() };
+        let (x, y) = (b.x, b.y);
+        let freed: Vec<(i32, i32)> = b.tiles().filter(|&(xx, yy)| xx >= x + size || yy >= y + size).collect();
+        b.size = size;
+        for &(xx, yy) in &freed {
+            self.map.building.set(xx, yy, 0);
+            self.map.terrain.update(xx, yy, |t| t & !terrain::BUILDING);
+        }
+        freed
+    }
+
+    /// A new 1x1 house of `level` at `(x, y)` holding `share`.
+    fn new_house_lot(&mut self, level: u8, x: i32, y: i32, share: Share) {
+        let id = self.create_building(kind::HOUSE_FIRST + level as u16, x, y);
+        if let Some(h) = self.buildings.get_mut(id).and_then(|b| b.house.as_mut()) {
+            share.set(h);
+            h.happiness = 50;
+        }
+        self.set_house_level(id, level);
+    }
+
+    /// A house spanning several tiles breaks up into 1x1 houses sharing out its people
+    /// and goods: a merged house into four of its level, a residence into four
+    /// spacious apartments, a manor into nine.
+    fn break_up_house(&mut self, id: BuildingId) {
+        let Some(b) = self.buildings.get(id) else { return };
+        let Some(h) = &b.house else { return };
+        let (level, parts) = match (h.merged, b.size) {
+            (true, _) => (h.level, 4),
+            (false, 2) => (9, 4),
+            (false, 3) => (9, 9),
+            _ => return,
+        };
+        let (first, each) = Share::of(h).split(parts);
+        let freed = self.shrink_house(id, 1);
+        if let Some(h) = self.buildings.get_mut(id).and_then(|b| b.house.as_mut()) {
+            h.merged = false;
+            first.set(h);
+        }
+        self.set_house_level(id, level);
+        for (x, y) in freed {
+            self.new_house_lot(level, x, y, each);
+        }
+    }
+
+    /// One level down. A residence breaks up into four spacious apartments; a manor
+    /// shrinks to a 2x2 residence and an estate to a 3x3 manor, keeping a sixth (an
+    /// eighth) of their people and goods and leaving gardens on the rest of the land.
+    fn devolve_house(&mut self, id: BuildingId) {
+        let Some(level) = self.buildings.get(id).and_then(|b| b.house.as_ref()).map(|h| h.level) else { return };
+        match level {
+            10 => self.break_up_house(id),
+            14 | 18 => {
+                let (size, parts) = if level == 14 { (2, 6) } else { (3, 8) };
+                let Some(h) = self.buildings.get_mut(id).and_then(|b| b.house.as_mut()) else { return };
+                let (kept, _) = Share::of(h).split(parts);
+                let lost = h.population - kept.population;
+                kept.set(h);
+                self.population -= lost;
+                self.census.remove(&self.rng, lost);
+                let garden = self.defs.terrain.garden;
+                for (x, y) in self.shrink_house(id, size) {
+                    self.map.terrain.update(x, y, |t| t | terrain::GARDEN);
+                    let pattern = if y & 1 == 0 { [0, 1, 0, 1] } else { [2, 3, 2, 3] };
+                    self.map.set_single_image(x, y, garden + pattern[(x & 3) as usize]);
+                }
+                self.set_house_level(id, level - 1);
+                self.refresh_road_access(id);
+            }
+            _ => self.set_house_level(id, level - 1),
+        }
+        self.evict_overflow(id);
+    }
+
+    /// An emptied house becomes a vacant lot; one spanning several tiles breaks up into
+    /// 1x1 lots.
+    pub(crate) fn make_vacant_lot(&mut self, id: BuildingId) {
+        let freed = self.shrink_house(id, 1);
+        if let Some(h) = self.buildings.get_mut(id).and_then(|b| b.house.as_mut()) {
+            h.merged = false;
+            h.population = 0;
+        }
+        self.set_house_level(id, 0);
+        for (x, y) in freed {
+            self.new_house_lot(0, x, y, Share::default());
+        }
+    }
+
+    /// People above a house's capacity leave as homeless.
+    fn evict_overflow(&mut self, id: BuildingId) {
+        let cap = self.house_capacity(id);
+        let Some(b) = self.buildings.get(id) else { return };
+        let Some(h) = &b.house else { return };
+        let extra = h.population - cap;
+        if extra <= 0 {
+            return;
+        }
+        let (x, y) = b.road.unwrap_or((b.x, b.y));
+        if let Some(h) = self.buildings.get_mut(id).and_then(|b| b.house.as_mut()) {
+            h.population = cap;
+        }
+        self.population -= extra;
+        self.census.remove(&self.rng, extra);
+        let fid = self.figures.spawn(crate::people::figure_kind::HOMELESS, x, y, crate::figures::Travel::Land);
+        if let Some(f) = self.figures.get_mut(fid) {
+            f.amount = extra;
+        }
+    }
+
+    /// The part of every house's entertainment that comes from the city as a whole: a
+    /// fifth of the average share of the people its booths (400 each), bandstands
+    /// (700), pavilions (1200), senet houses (5000) and zoos (7500) could entertain. A
+    /// pavilion also counts as a bandstand and a booth, a bandstand as a booth.
+    pub(crate) fn entertainment_base(&self) -> i32 {
+        let staffed = |k: u16| self.buildings.iter().filter(|b| b.kind == k && b.workers > 0).count() as i32;
+        let (booths, bandstands, pavilions) = (staffed(kind::BOOTH), staffed(kind::BANDSTAND), staffed(kind::PAVILION));
+        let pop = self.population;
+        let pct = |served: i32| if pop > 0 { (served * 100 / pop).min(100) } else { 0 };
+        let sum = pct(400 * (booths + bandstands + pavilions))
+            + pct(700 * (bandstands + pavilions))
+            + pct(1200 * pavilions)
+            + pct(5000 * staffed(SENET_HOUSE))
+            + pct(7500 * staffed(ZOO));
+        sum / 5 / 5
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::map::mask;
+
+    /// The Sandbox map, and the top-left corner of a clear 8x8 patch of it.
+    fn sandbox() -> Option<(World, i32, i32)> {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.is_dir() {
+            return None;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).expect("open image library");
+        let scenario = osiris_formats::Scenario::load_map(&data.join("Maps/Sandbox.map")).expect("load map");
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).expect("load defs"));
+        let model_text = std::fs::read(data.join("Pharaoh_Model_Normal.txt")).expect("read model");
+        let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&model_text)).expect("parse model");
+        let balance = std::sync::Arc::new(crate::balance::Balance::from_model(&model));
+        let mut world = World::new(&scenario, defs, balance);
+        world.start(&scenario);
+        let (w, h) = (world.map.width, world.map.height);
+        let (x, y) = (0..h - 8)
+            .flat_map(|y| (0..w - 8).map(move |x| (x, y)))
+            .find(|&(x, y)| world.map.area_clear_of(x, y, 8, mask::NOT_CLEAR))
+            .expect("a clear patch");
+        Some((world, x, y))
+    }
+
+    fn house(world: &mut World, level: u8, x: i32, y: i32, population: i32) -> BuildingId {
+        let id = world.create_building(kind::HOUSE_FIRST + level as u16, x, y);
+        world.buildings.get_mut(id).unwrap().house.as_mut().unwrap().population = population;
+        world.population += population;
+        world.census.add(&world.rng, population);
+        id
+    }
+
+    fn get(world: &World, id: BuildingId) -> (&crate::buildings::Building, &House) {
+        let b = world.buildings.get(id).expect("building");
+        (b, b.house.as_ref().expect("house"))
+    }
+
+    #[test]
+    fn four_lots_of_a_level_merge() {
+        let Some((mut world, x, y)) = sandbox() else { return };
+        world.map.random.set(x, y, 0);
+        let ids: Vec<BuildingId> = [(0, 0), (1, 0), (0, 1), (1, 1)].iter().map(|&(dx, dy)| house(&mut world, 2, x + dx, y + dy, 5)).collect();
+        house(&mut world, 3, x + 2, y, 5);
+        world.merge_house(ids[0]);
+        let (b, h) = get(&world, ids[0]);
+        assert_eq!((b.size, h.merged, h.level, h.population), (2, true, 2, 20));
+        assert!(ids[1..].iter().all(|&id| world.buildings.get(id).is_none()));
+        assert_eq!(world.house_capacity(ids[0]), 4 * world.balance.house(2).max_people);
+        assert_eq!(world.population, 25);
+        // A different level next door keeps a 2x2 of level 3 lots from forming.
+        world.map.random.set(x + 2, y, 0);
+        let lone = world.map.building.at_or(x + 2, y, 0);
+        world.merge_house(lone);
+        assert_eq!(world.buildings.get(lone).unwrap().size, 1);
+    }
+
+    #[test]
+    fn apartments_expand_into_residences_and_break_up_again() {
+        let Some((mut world, x, y)) = sandbox() else { return };
+        let (hx, hy) = (x + 3, y + 3);
+        let id = house(&mut world, 9, hx, hy, 18);
+        // A humbler neighbour on the block moves in; clear land is built over.
+        house(&mut world, 4, hx + 1, hy + 1, 10);
+        world.expand_house(id, 2);
+        let (b, h) = get(&world, id);
+        assert_eq!((b.x, b.y, b.size, h.level, h.merged, h.population), (hx, hy, 2, 10, false, 28));
+        assert!(block(hx, hy, 2).all(|(tx, ty)| world.map.building.at_or(tx, ty, 0) == id));
+        assert_eq!(world.house_capacity(id), world.balance.house(10).max_people);
+        // Devolving gives four spacious apartments sharing the people.
+        world.buildings.get_mut(id).unwrap().house.as_mut().unwrap().population = 30;
+        world.devolve_house(id);
+        let parts: Vec<(u8, i32, i32)> = block(hx, hy, 2)
+            .map(|(tx, ty)| {
+                let (b, h) = get(&world, world.map.building.at_or(tx, ty, 0));
+                (h.level, b.size, h.population)
+            })
+            .collect();
+        assert_eq!(parts, vec![(9, 1, 9), (9, 1, 7), (9, 1, 7), (9, 1, 7)]);
+    }
+
+    #[test]
+    fn a_house_boxed_in_stays_put() {
+        let Some((mut world, x, y)) = sandbox() else { return };
+        let (hx, hy) = (x + 3, y + 3);
+        let id = house(&mut world, 9, hx, hy, 18);
+        // Every 2x2 block holding the house also holds a residence tile or rock.
+        for (dx, dy) in [(1, 0), (0, 1), (1, 1), (-1, -1), (-1, 0), (0, -1)] {
+            world.map.terrain.update(hx + dx, hy + dy, |t| t | terrain::ROCK);
+        }
+        assert_eq!(world.expansion_corner(id, 2), None);
+        world.expand_house(id, 2);
+        let (b, h) = get(&world, id);
+        assert_eq!((b.size, h.level), (1, 9));
+    }
+
+    #[test]
+    fn manors_shrink_to_residences_leaving_gardens() {
+        let Some((mut world, x, y)) = sandbox() else { return };
+        let id = house(&mut world, 13, x, y, 60);
+        world.expand_house(id, 3);
+        assert_eq!(get(&world, id).0.size, 3);
+        assert_eq!(get(&world, id).1.level, 14);
+        world.devolve_house(id);
+        let (b, h) = get(&world, id);
+        assert_eq!((b.size, h.level, h.population), (2, 13, 60 / 6 + 60 % 6));
+        assert_eq!(world.population, 10);
+        let gardens = block(x, y, 3).filter(|&(tx, ty)| world.map.terrain_is(tx, ty, terrain::GARDEN)).count();
+        assert_eq!(gardens, 5);
+    }
+
+    #[test]
+    fn any_visit_gives_the_full_entertainment() {
+        let mut h = House::default();
+        h.coverage.juggler = 1;
+        h.derive_culture(0);
+        assert_eq!(h.entertainment, 10);
+        h.coverage.musician = 96;
+        h.coverage.dancer = 5;
+        h.coverage.senet = 96;
+        h.derive_culture(3);
+        assert_eq!(h.entertainment, 103.min(100));
+        let mut h = House::default();
+        h.coverage.juggler = 50;
+        h.coverage.musician = 50;
+        h.coverage.senet = 50;
+        h.coverage.zoo = 50;
+        h.derive_culture(0);
+        assert_eq!(h.entertainment, 100);
+    }
+
+    #[test]
+    fn leavers_come_from_the_humblest_houses() {
+        let Some((mut world, x, y)) = sandbox() else { return };
+        let high = house(&mut world, 5, x, y, 13);
+        let low = house(&mut world, 1, x + 2, y, 3);
+        let mid = house(&mut world, 2, x + 4, y, 9);
+        world.create_emigrants(8);
+        // All three from the hut (which empties to a vacant lot), then four, then one.
+        assert_eq!(get(&world, low).1.population, 0);
+        assert_eq!(get(&world, low).1.level, 0);
+        assert_eq!(get(&world, mid).1.population, 5);
+        assert_eq!(get(&world, high).1.population, 12);
+        assert_eq!(world.population, 17);
     }
 }

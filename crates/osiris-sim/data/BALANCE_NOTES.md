@@ -107,11 +107,11 @@ time.
 
 Monthly, in this fixed order: collect taxes, pay wages, pay interest, pay salary
 (pharaoh's own stipend). Tax income per house is `population * tax_rate_multiplier`
-(the multiplier is a per-house-level constant already in the model data, scaled by
-a difficulty money-multiplier table). The amount actually banked each month is only
-half of that theoretical tax base times the player's tax rate percentage
-(`tax / 2 * tax_percentage / 100`), and only for houses currently covered by a tax
-collector's route. Wages paid = `wage_rate * workers_employed / 10 / 12` (a monthly
+(the multiplier is a per-house-level constant already in the model data). Pharaoh.exe
+0x4599d0 sums that separately for commoners (below common manor) and nobles over
+houses a tax collector has visited, and banks `sum * tax_rate / 100 * 50 / 100` for
+each; the 50 comes from a per-difficulty table that holds 50 for every difficulty
+(Akhenaten's `house_tax_multipliers` [300, 200, 150, 100, 75] are not applied). Wages paid = `wage_rate * workers_employed / 10 / 12` (a monthly
 fraction of an implied annual wage bill). Interest accrues only while the treasury
 is negative, at a fixed annual rate divided by 12; the treasury going below -5000
 marks the city "out of money." Once a year, a tribute payment is computed from a

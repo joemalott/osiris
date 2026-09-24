@@ -123,6 +123,8 @@ struct RawBuilding {
     text_id: Option<i32>,
     #[serde(default)]
     variants: Option<toml::Value>,
+    #[serde(default)]
+    variants_merged: Option<toml::Value>,
     #[serde(flatten)]
     extra: toml::Table,
 }
@@ -161,6 +163,8 @@ pub struct BuildingDef {
     pub anims: std::collections::BTreeMap<String, Anim>,
     /// House variants (level images), when present.
     pub variants: Vec<u32>,
+    /// A small house level's images for four lots merged into one 2x2 house.
+    pub variants_merged: Vec<u32>,
     pub needs: Vec<String>,
     pub flags: Vec<String>,
     pub inputs: Vec<String>,
@@ -420,6 +424,7 @@ impl Defs {
                 image: b.image.as_ref().and_then(|r| resolve(lib, r)).map_or(0, |a| a.image),
                 anims: b.anims.iter().filter_map(|(k, r)| Some((k.clone(), resolve(lib, r)?))).collect(),
                 variants: b.variants.as_ref().map(|v| resolve_variants(lib, v)).unwrap_or_default(),
+                variants_merged: b.variants_merged.as_ref().map(|v| resolve_variants(lib, v)).unwrap_or_default(),
                 needs: b.needs,
                 flags: b.flags,
                 inputs: b.inputs,
