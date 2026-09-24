@@ -198,7 +198,7 @@ impl World {
             priorities,
             by_category,
         };
-        self.unemployment = if available > 0 { self.labor.unemployed * 100 / available } else { 0 };
+        self.unemployment = if available > 0 { (self.labor.unemployed as i64 * 100 / available as i64) as i32 } else { 0 };
     }
 }
 
