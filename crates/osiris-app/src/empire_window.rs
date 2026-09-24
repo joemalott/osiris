@@ -26,10 +26,18 @@ fn img(r: &mut Renderer, id: u32, x: f32, y: f32) {
 
 const MAP_W: f32 = 1200.0;
 const MAP_H: f32 = 1600.0;
-/// The frame's bars are 16 pixels thick; the map ends 130 pixels above the bottom
-/// of the screen, where the panel's top bar is.
+/// The frame's bars are 16 pixels thick; the map ends 120 pixels above the bottom
+/// of the screen, where the panel's top bar is (Akhenaten's ui_empire_window.js:
+/// `start_pos (16,16)`, `finish_pos (32,136)`, so the view's bottom edge sits at
+/// `start_pos.y + (screen height - finish_pos.y)` = `16 + height - 136` = `height - 120`).
 const BAR: f32 = 16.0;
-const PANEL_TOP: f32 = 130.0;
+const PANEL_TOP: f32 = 120.0;
+/// The paneling art's own divider bar and corner pieces are drawn 20 pixels above
+/// `PANEL_TOP`, so their top edge lands flush with the view boundary once the bar's
+/// own height is added (Akhenaten's ui_empire_chrome.js `draw_paneling`: the bottom
+/// rows tile at `max_pos.y - 140, -100, -60, -20` and the divider `hbar`/`cross` sit
+/// at `max_pos.y - 140`).
+const DIVIDER: f32 = 140.0;
 const TEXT: usize = 47;
 const CITY_NAMES: usize = 195;
 /// City names on the map: 0x40e4 in the game's 555 colour.
@@ -218,25 +226,27 @@ impl EmpireWindow {
         self.drag = None;
     }
 
-    /// The left edge of the trade panel's 500-pixel layout.
+    /// The screen's horizontal centre: the trade panel's buttons and columns are laid
+    /// out from here, not from a fixed-width box (Akhenaten's ui_empire_trade_panel.js
+    /// `empire_window_layout_ui`, which positions everything from `centerX`).
     fn panel_x(screen: [f32; 2]) -> f32 {
-        ((screen[0] - 500.0) / 2.0).floor()
+        (screen[0] / 2.0).floor()
     }
 
     fn open_button(screen: [f32; 2]) -> [f32; 4] {
-        [Self::panel_x(screen) + 50.0, screen[1] - 40.0, 400.0, 20.0]
+        [Self::panel_x(screen) - 220.0, screen[1] - 40.0, 440.0, 20.0]
     }
 
     fn help_button(screen: [f32; 2]) -> [f32; 4] {
-        [20.0, screen[1] - 44.0, 27.0, 27.0]
+        [16.0, screen[1] - 40.0, 27.0, 27.0]
     }
 
     fn close_button(screen: [f32; 2]) -> [f32; 4] {
-        [screen[0] - 44.0, screen[1] - 44.0, 24.0, 24.0]
+        [screen[0] - 40.0, screen[1] - 40.0, 24.0, 24.0]
     }
 
     fn advisor_button(screen: [f32; 2]) -> [f32; 4] {
-        [20.0, screen[1] - 110.0, 28.0, 28.0]
+        [16.0, screen[1] - 121.0, 28.0, 28.0]
     }
 
     /// The top-left of the original's 640x480 layout, centred on the screen.
@@ -252,11 +262,18 @@ impl EmpireWindow {
         (at, [at[0] + 256.0, at[1] + 100.0, 34.0, 34.0], [at[0] + 192.0, at[1] + 100.0, 34.0, 34.0])
     }
 
+    /// The route-opened window's own top-left: Akhenaten's ui_trade_opened_window.js
+    /// centres a 30x14 tile panel on the screen directly, not nested 80 pixels into
+    /// the 640x480 layout the way Osiris drew it before.
+    fn opened_origin(screen: [f32; 2]) -> [f32; 2] {
+        [((screen[0] - 480.0) / 2.0).floor(), ((screen[1] - 224.0) / 2.0).floor()]
+    }
+
     /// The route-opened window's buttons: to the Overseer of Commerce, and back to
     /// the map.
     fn opened_buttons(screen: [f32; 2]) -> ([f32; 4], [f32; 4]) {
-        let o = Self::origin(screen);
-        ([o[0] + 92.0, o[1] + 248.0, 28.0, 28.0], [o[0] + 522.0, o[1] + 252.0, 24.0, 24.0])
+        let o = Self::opened_origin(screen);
+        ([o[0] + 12.0, o[1] + 184.0, 28.0, 28.0], [o[0] + 442.0, o[1] + 188.0, 24.0, 24.0])
     }
 
     fn inside(r: [f32; 4], p: [f32; 2]) -> bool {
@@ -408,18 +425,20 @@ impl EmpireWindow {
                 }
             }
             EmpirePopup::Opened(c) => {
-                // Group 142: the title, the note about the Overseer of Commerce and, for a
-                // water route, the reminder that ships need a dock.
-                let o = Self::origin(screen);
-                panel::outer_panel(r, panels, o[0] + 80.0, o[1] + 64.0, 30, 14);
-                centred(r, Font::LargeBlackOnLight, &t(142, 0), o[0] + 80.0, o[1] + 80.0, 480.0);
+                // Akhenaten's ui_trade_opened_window.js: its own 30x14 tile panel
+                // centred on the screen (group 142: the title, the note about the
+                // Overseer of Commerce and, for a water route, the reminder that ships
+                // need a dock).
+                let o = Self::opened_origin(screen);
+                panel::outer_panel(r, panels, o[0], o[1], 30, 14);
+                centred(r, Font::LargeBlackOnLight, &t(142, 0), o[0], o[1] + 16.0, 480.0);
                 if world.trade.cities.get(c).is_some_and(|c| c.sea) {
-                    wrapped(r, &t(142, 1), o[0] + 112.0, o[1] + 120.0, 416.0);
-                    wrapped(r, &t(142, 3), o[0] + 112.0, o[1] + 184.0, 416.0);
+                    wrapped(r, &t(142, 1), o[0] + 32.0, o[1] + 56.0, 416.0);
+                    wrapped(r, &t(142, 3), o[0] + 32.0, o[1] + 120.0, 416.0);
                 } else {
-                    wrapped(r, &t(142, 1), o[0] + 112.0, o[1] + 152.0, 416.0);
+                    wrapped(r, &t(142, 1), o[0] + 32.0, o[1] + 88.0, 416.0);
                 }
-                draw_text(r, Font::NormalBlackOnLight, &t(142, 2), o[0] + 128.0, o[1] + 256.0, font::BLACK);
+                centred(r, Font::NormalBlackOnLight, &t(142, 2), o[0] + 48.0, o[1] + 192.0, 384.0);
                 let (advisor, close) = Self::opened_buttons(screen);
                 button(r, images.advisors + 4 * 3, advisor);
                 button(r, images.context + 4, close);
@@ -440,7 +459,7 @@ impl EmpireWindow {
         let screen = r.screen;
         let (vert, horiz, cross, bottom) = (images.bars, images.bars + 1, images.bars + 2, images.bars + 3);
         let (w, h) = (screen[0], screen[1]);
-        for y in [h - 120.0, h - 80.0, h - 40.0] {
+        for y in [h - DIVIDER, h - DIVIDER + 40.0, h - DIVIDER + 80.0, h - DIVIDER + 120.0] {
             let mut x = 0.0;
             while x < w - 70.0 {
                 img(r, bottom, x, y);
@@ -448,7 +467,7 @@ impl EmpireWindow {
             }
             img(r, bottom, w - 70.0, y);
         }
-        for y in [0.0, h - PANEL_TOP, h - BAR] {
+        for y in [0.0, h - DIVIDER, h - BAR] {
             let mut x = 0.0;
             while x < w - 86.0 {
                 img(r, horiz, x, y);
@@ -469,7 +488,7 @@ impl EmpireWindow {
                 y += 86.0;
             }
             img(r, vert, x, end - 86.0);
-            for cy in [0.0, h - PANEL_TOP] {
+            for cy in [0.0, h - DIVIDER] {
                 img(r, cross, x, cy);
             }
             if end == h {
@@ -494,11 +513,11 @@ impl EmpireWindow {
         }
 
         let Some((i, c)) = self.selected.and_then(|i| world.trade.cities.get(i).map(|c| (i, c))) else {
-            centre(r, Font::NormalBlackOnLight, &t(9), sh - 76.0);
+            centre(r, Font::NormalBlackOnLight, &t(9), sh - 60.0);
             return;
         };
         let name = text.get(CITY_NAMES, c.name_id as usize).unwrap_or("?");
-        centre(r, Font::LargeBlackOnLight, name, sh - 118.0);
+        centre(r, Font::LargeBlackOnLight, name, sh - 122.0);
         if !c.trades() {
             let what = match c.city_type {
                 city::OURS => 1,
@@ -506,10 +525,10 @@ impl EmpireWindow {
                 city::EGYPTIAN => 13,
                 _ => 0,
             };
-            centre(r, Font::NormalBlackOnLight, &t(what), sh - 46.0);
+            centre(r, Font::NormalBlackOnLight, &t(what), sh - 60.0);
             return;
         }
-        let x0 = Self::panel_x(screen);
+        let cx = Self::panel_x(screen);
         let route = world.trade.routes.get(c.route as usize);
         // A good shows only while the route allows some of it this year.
         let goods = |buys: bool| {
@@ -529,19 +548,22 @@ impl EmpireWindow {
             r.rect([x, y + h - 1.0], [w, 1.0], font::WHITE, Space::Screen);
         };
         if !c.open {
-            label(r, Font::NormalBlackOnLight, &t(5), x0 + 50.0, sh - 75.0);
+            // Not yet open: what the city would sell and buy, stacked (Akhenaten's
+            // city_want_sell_title/items at centerX-220/-170, y sellItemsTop = sh-90;
+            // city_want_buy_title/items at the same x, y buyItemsTop+20 = sh-70).
+            label(r, Font::NormalBlackOnLight, &t(5), cx - 220.0, sh - 90.0);
             for (k, &res) in goods(false).iter().enumerate() {
-                let x = x0 + 100.0 + 32.0 * k as f32;
-                bevel(r, x, sh - 80.0);
-                img(r, images.icon(res as u16), x + 1.0, sh - 79.0);
-                tier_badge(r, res, x + 13.0, sh - 79.0);
+                let x = cx - 170.0 + 32.0 * k as f32;
+                bevel(r, x, sh - 95.0);
+                img(r, images.icon(res as u16), x + 1.0, sh - 94.0);
+                tier_badge(r, res, x + 13.0, sh - 94.0);
             }
-            label(r, Font::NormalBlackOnLight, &t(4), x0 + 50.0, sh - 55.0);
+            label(r, Font::NormalBlackOnLight, &t(4), cx - 220.0, sh - 70.0);
             for (k, &res) in goods(true).iter().enumerate() {
-                let x = x0 + 100.0 + 32.0 * k as f32;
-                bevel(r, x, sh - 58.0);
-                img(r, images.icon(res as u16), x + 1.0, sh - 58.0);
-                tier_badge(r, res, x + 13.0, sh - 58.0);
+                let x = cx - 170.0 + 32.0 * k as f32;
+                bevel(r, x, sh - 73.0);
+                img(r, images.icon(res as u16), x + 1.0, sh - 73.0);
+                tier_badge(r, res, x + 13.0, sh - 73.0);
             }
             let b = Self::open_button(screen);
             panel::button_border(r, panels, b[0], b[1], b[2] as i32, b[3] as i32, Self::inside(b, self.cursor));
@@ -549,7 +571,7 @@ impl EmpireWindow {
             // then the unit, each followed by a blank.
             let unit = text.get(8, if c.cost == 1 { 0 } else { 1 }).unwrap_or("");
             let cost = c.cost.to_string();
-            let x = x0 + 60.0 + 6.0;
+            let x = cx - 220.0 + 10.0;
             let x = x + label(r, Font::NormalBlackOnLight, &cost, x, sh - 35.0) + 6.0;
             let x = x + label(r, Font::NormalBlackOnLight, unit, x, sh - 35.0) + 6.0;
             label(r, Font::NormalBlackOnLight, &raw(if c.sea { 7 } else { 6 }), x, sh - 35.0);
@@ -572,25 +594,31 @@ impl EmpireWindow {
             draw_text(r, Font::SmallPlain, &of, x + 24.0 + wa, y, font::BLACK);
             draw_text(r, Font::SmallPlain, &b, x + 26.0 + wa + wof, y, font::BLACK);
         };
-        label(r, Font::NormalBlackOnLight, &t(11), x0 + 30.0, sh - 108.0);
-        for (k, &res) in goods(false).iter().enumerate() {
-            let (x, y) = (x0 + 135.0 * (k % 2) as f32, sh - 93.0 + 20.0 * (k / 2) as f32);
+        // The city's sales (what we buy from it) sit on the right, its purchases (what
+        // we sell it) on the left: Akhenaten's city_sell_title/items (text group 47 id
+        // 11, city.city_sells_resource) are at centerX+250/+100, and city_buy_title/
+        // items (id 10, city.city_buys_resource) at centerX-300/-430; both titles sit
+        // at infoTop = sh-121, both item blocks at sellItemsTop = buyItemsTop = sh-90.
+        r.rect([cx, sh - 90.0], [1.0, 76.0], font::BLACK, Space::Screen);
+        label(r, Font::NormalBlackOnLight, &t(10), cx - 300.0, sh - 121.0);
+        for (k, &res) in goods(true).iter().enumerate() {
+            let (x, y) = (cx - 430.0 + 135.0 * (k % 2) as f32, sh - 90.0 + 20.0 * (k / 2) as f32);
             bevel(r, x, y + 1.0);
             img(r, images.icon(res as u16), x + 1.0, y + 2.0);
             tier_badge(r, res, x + 13.0, y);
-            // A good the city both sells and buys has its amount in the Bought column only.
-            if !c.buys[res] {
-                amount(r, res, x, y + 8.0);
-            }
+            amount(r, res, x, y + 8.0);
         }
-        r.rect([x0 + 240.0, sh - 93.0], [1.0, 76.0], font::BLACK, Space::Screen);
-        label(r, Font::NormalBlackOnLight, &t(10), x0 + 380.0, sh - 108.0);
-        for (k, &res) in goods(true).iter().enumerate() {
-            let (x, y) = (x0 + 280.0 + 135.0 * (k % 2) as f32, sh - 93.0 + 20.0 * (k / 2) as f32);
+        label(r, Font::NormalBlackOnLight, &t(11), cx + 250.0, sh - 121.0);
+        for (k, &res) in goods(false).iter().enumerate() {
+            let (x, y) = (cx + 100.0 + 135.0 * (k % 2) as f32, sh - 90.0 + 20.0 * (k / 2) as f32);
             bevel(r, x, y);
             img(r, images.icon(res as u16), x + 1.0, y + 1.0);
             tier_badge(r, res, x + 13.0, y);
-            amount(r, res, x, y + 8.0);
+            // A good the city both sells and buys has its amount in the Bought column
+            // (the left-hand one, above) only.
+            if !c.buys[res] {
+                amount(r, res, x, y + 8.0);
+            }
         }
     }
 }
