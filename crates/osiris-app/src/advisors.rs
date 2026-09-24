@@ -1482,11 +1482,11 @@ fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
     let rating = format!("{} {}", ui.t(G, 11), world.ratings.monument);
     ui.label(Font::NormalBlackOnLight, &rating, px + 60.0, py + 42.0);
     // The scenario's monuments, each with how it stands. Akhenaten's monuments_panel
-    // is only 8 tiles tall (its rows show a compact "phase/total pct%" that never
-    // wraps); Osiris shows a full sentence per monument that needs the extra row
-    // height, but the panel must still stay clear of burial_panel at py+238, so it is
-    // capped at 10 tiles rather than the original's 8.
-    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 64.0, 36, 10);
+    // is 8 tiles tall (ui_advisor_monuments.js pos[32,60] size[36,8], ending at
+    // py+188, clear of the burial_title at py+200): the original's rows show a
+    // compact "phase/total pct%" that never wraps, but Osiris shows a full sentence
+    // per monument, so rows still get extra height (66px) within this shorter panel.
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 64.0, 36, 8);
     let slots: Vec<u16> = world.scenario_monuments.iter().copied().filter(|&m| m > 0).collect();
     for (i, &code) in slots.iter().enumerate() {
         let y = py + 70.0 + 66.0 * i as f32;
@@ -1516,21 +1516,23 @@ fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
         };
         ui.wrapped(Font::NormalWhiteOnDark, &lines.join(" "), px + 60.0, y + 16.0, 33.0 * 16.0);
     }
-    // Burial provisions: what is needed, what has been sent, and what is in storage
-    // (ui_advisor_monuments.js: burial_title at [60,200], burial_hint at [60,218],
-    // burial_panel at [32,238] size[36,8]).
+    // Burial provisions: what is needed, what has been sent, and what is in storage.
+    // Akhenaten's ui_advisor_monuments.js has burial_title at [60,200], burial_hint at
+    // [60,218] and burial_panel at [32,238] size[36,8], right under its monuments_panel
+    // (8 tiles); Osiris's monuments_panel is 10 tiles for its wordier lines (see above),
+    // so this whole block is pushed down 32px to clear it instead.
     let burial_title = ui.t(G, 10);
-    ui.label(Font::NormalBlackOnLight, &burial_title, px + 60.0, py + 200.0);
+    ui.label(Font::NormalBlackOnLight, &burial_title, px + 60.0, py + 232.0);
     let hint = ui.t(G, 3);
-    ui.label(Font::NormalBlackOnLight, &hint, px + 60.0, py + 218.0);
-    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 238.0, 36, 8);
+    ui.label(Font::NormalBlackOnLight, &hint, px + 60.0, py + 250.0);
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 270.0, 36, 8);
     let needs = world.burial_needs();
     if needs.is_empty() {
         let none = ui.t(G, 12);
-        ui.centred(Font::NormalWhiteOnDark, &none, px + 32.0, py + 294.0, 36.0 * 16.0);
+        ui.centred(Font::NormalWhiteOnDark, &none, px + 32.0, py + 326.0, 36.0 * 16.0);
     }
     for (i, &(r, need, sent)) in needs.iter().take(6).enumerate() {
-        let (cx, cy) = (px + 48.0 + 280.0 * (i % 2) as f32, py + 268.0 + 34.0 * (i / 2) as f32);
+        let (cx, cy) = (px + 48.0 + 280.0 * (i % 2) as f32, py + 300.0 + 34.0 * (i / 2) as f32);
         let rect = [cx - 4.0, cy - 4.0, 270.0, 32.0];
         ui.icon(r, cx, cy);
         let line = format!("{} / {} {}", sent / 100, need / 100, ui.t(RESOURCE_NAMES, r as usize));
