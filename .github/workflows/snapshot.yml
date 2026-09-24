@@ -17,53 +17,7 @@ concurrency:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            name: osiris-macos-arm64
-          - os: windows-latest
-            name: osiris-windows-x64
-          - os: ubuntu-22.04
-            name: osiris-linux-x64
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Linux build dependencies
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
-
-      - name: macOS app bundle
-        if: runner.os == 'macOS'
-        run: |
-          brew install imagemagick
-          sh packaging/macos/bundle.sh
-          cp LICENSE README.md dist/
-          cd dist && zip -qry ../${{ matrix.name }}.zip Osiris.app LICENSE README.md
-
-      - name: Windows build
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          cargo build --release -p osiris-app
-          mkdir -p out && cp target/release/osiris.exe LICENSE README.md out/
-          cd out && 7z a -tzip ../${{ matrix.name }}.zip . > /dev/null
-
-      - name: Linux build
-        if: runner.os == 'Linux'
-        run: |
-          cargo build --release -p osiris-app
-          mkdir -p out/osiris && cp target/release/osiris LICENSE README.md out/osiris/
-          tar -C out -czf ${{ matrix.name }}.tar.gz osiris
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.name }}
-          path: ${{ matrix.name }}.*
+    uses: ./.github/workflows/build.yml
 
   release:
     needs: build

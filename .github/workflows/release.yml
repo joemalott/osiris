@@ -1,0 +1,37 @@
+# Pushing a version tag (v0.1.0, v0.2.0, ...) builds Osiris for macOS, Windows and
+# Linux and publishes them as that version's release. No game data is built or shipped.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Name the archives after the version
+        run: |
+          cd artifacts
+          for f in osiris-*; do mv "$f" "${f/osiris-/osiris-${GITHUB_REF_NAME}-}"; done
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --verify-tag \
+            --title "Osiris ${GITHUB_REF_NAME#v}" \
+            --generate-notes \
+            --notes "You need your own copy of Pharaoh's game data: put its PharaohData folder next to the app (see the README). Downloads: macOS (Apple Silicon) .zip, Windows x64 .zip, Linux x64 .tar.gz."
