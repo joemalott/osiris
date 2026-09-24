@@ -30,7 +30,11 @@ pub mod kind {
     pub const GRANARY: u16 = 71;
     pub const STORAGE_YARD: u16 = 72;
     pub const ARCHITECT_POST: u16 = 81;
-    pub const VILLAGE_PALACE: u16 = 84;
+    /// The original's palaces (its types 84 and 85 are unused entries).
+    pub const VILLAGE_PALACE: u16 = 187;
+    pub const TOWN_PALACE: u16 = 188;
+    pub const CITY_PALACE: u16 = 189;
+    pub const PALACES: [u16; 3] = [VILLAGE_PALACE, TOWN_PALACE, CITY_PALACE];
     pub const TAX_COLLECTOR: u16 = 86;
     pub const WELL: u16 = 92;
     pub const BURNING_RUIN: u16 = 99;

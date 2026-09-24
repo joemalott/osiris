@@ -237,6 +237,7 @@ impl World {
         world.upgrade_statues();
         world.upgrade_traders();
         world.upgrade_defenses();
+        world.upgrade_palaces();
         Ok(world)
     }
 }

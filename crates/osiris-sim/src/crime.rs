@@ -24,8 +24,8 @@ const THIEF_LOITER: i32 = 40;
 const THEFT_PCT: i32 = 9;
 /// Buildings a thief robs, with their weight in the treasury's share.
 const MANSIONS: [u16; 3] = [77, 78, 79];
-const TREASURY_WEIGHTS: [(u16, i32); 6] = [(84, 50), (85, 50), (189, 50), (86, 2), (87, 2), (184, 3)];
-const PALACES: [u16; 3] = [84, 85, 189];
+const TREASURY_WEIGHTS: [(u16, i32); 6] = [(187, 50), (188, 50), (189, 50), (86, 2), (87, 2), (184, 3)];
+const PALACES: [u16; 3] = crate::buildings::kind::PALACES;
 
 mod thief_action {
     pub const LOITERING: u16 = 1;

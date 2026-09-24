@@ -447,7 +447,7 @@ impl World {
         let weight = |k: u16, level: u8| -> i32 {
             match priority {
                 0 => matches!(k, kind::GRANARY | kind::STORAGE_YARD | kind::BAZAAR) as i32 * 10 + self.is_farm(k) as i32 * 8,
-                1 => matches!(k, kind::VILLAGE_PALACE | kind::TAX_COLLECTOR) as i32 * 10,
+                1 => (kind::PALACES.contains(&k) || k == kind::TAX_COLLECTOR) as i32 * 10,
                 2 => level as i32,
                 3 => matches!(k, crate::military::FORT_ARCHERS | crate::military::FORT_INFANTRY | crate::military::FORT_CHARIOTEERS | 55 | 94) as i32 * 10,
                 _ => 1,

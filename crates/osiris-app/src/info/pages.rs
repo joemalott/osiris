@@ -42,8 +42,8 @@ mod k {
     pub const MANSION_FIRST: u16 = 77;
     pub const MANSION_LAST: u16 = 79;
     pub const ARCHITECT: u16 = 81;
-    pub const VILLAGE_PALACE: u16 = 84;
-    pub const TOWN_PALACE: u16 = 85;
+    pub const VILLAGE_PALACE: u16 = 187;
+    pub const TOWN_PALACE: u16 = 188;
     pub const TAX_COLLECTOR: u16 = 86;
     pub const TAX_COLLECTOR_2: u16 = 87;
     pub const WELL: u16 = 92;

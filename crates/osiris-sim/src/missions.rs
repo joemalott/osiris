@@ -102,7 +102,7 @@ const ALWAYS: [u16; 3] = [kind::ROAD, kind::VACANT_LOT, kind::WELL];
 /// trainer, the tower gatehouse, the dike, the food mill and the industry office.
 const NEVER_BUILT: [u16; 5] = [37, 302, 337, 360, 361];
 /// The palaces and the mansions, for ranks 0-5, 6-7 and 8-10.
-const RANKED: [[u16; 3]; 2] = [[kind::VILLAGE_PALACE, 85, 189], [77, 78, 79]];
+const RANKED: [[u16; 3]; 2] = [kind::PALACES, [77, 78, 79]];
 /// Difficulty column used from per-difficulty tables (Normal).
 const DIFFICULTY: usize = 2;
 
@@ -114,7 +114,30 @@ fn goal(t: &toml::Table, key: &str) -> Goal {
     }
 }
 
+/// Earlier Osiris builds' village and town palaces (types 84 and 85, unused entries in
+/// the original), and the original's types they are now.
+const OLD_PALACES: [(u16, u16); 2] = [(84, kind::VILLAGE_PALACE), (85, kind::TOWN_PALACE)];
+
 impl World {
+    /// A saved game's palaces of the old types become the original's, in the city and
+    /// in the lists of what may be built.
+    pub(crate) fn upgrade_palaces(&mut self) {
+        let new = |k: u16| OLD_PALACES.iter().find(|p| p.0 == k).map_or(k, |p| p.1);
+        for b in self.buildings.iter_mut() {
+            b.kind = new(b.kind);
+        }
+        let swap = |set: &mut BTreeSet<u16>| *set = set.iter().map(|&k| new(k)).collect();
+        if let Some(m) = &mut self.mission {
+            swap(&mut m.allowed);
+            for k in m.unlocks.iter_mut().flat_map(|u| u.enable.iter_mut()) {
+                *k = new(*k);
+            }
+        }
+        if let Some(set) = &mut self.scenario_allowed {
+            swap(set);
+        }
+    }
+
     fn building_kind(&self, key: &str) -> Option<u16> {
         self.defs.building_by_key(key).map(|b| b.id)
     }
@@ -511,7 +534,7 @@ pub(crate) fn scenario_allowed(scenario: &osiris_formats::Scenario, trade: &crat
     allow(&[kind::MORTUARY], f(22));
     allow(&[kind::TAX_COLLECTOR], f(23));
     allow(&[184], f(24));
-    allow(&[kind::VILLAGE_PALACE, 85, 189], f(25));
+    allow(&kind::PALACES, f(25));
     allow(&[77, 78, 79], f(26));
     allow(&[crate::defenses::ROADBLOCK], f(27));
     allow(&[82], f(28));
@@ -592,12 +615,30 @@ mod tests {
         assert!(world.is_allowed(kind::STORAGE_YARD));
         // Rank 7 gets the town palace only.
         assert!(!world.is_allowed(kind::VILLAGE_PALACE));
-        assert!(world.is_allowed(85));
-        assert!(!world.is_allowed(189));
+        assert!(world.is_allowed(kind::TOWN_PALACE));
+        assert!(!world.is_allowed(kind::CITY_PALACE));
+        assert!(!world.is_allowed(84) && !world.is_allowed(85));
         // Never in the original's menus.
         for k in NEVER_BUILT {
             assert!(!world.is_allowed(k));
         }
+    }
+
+    #[test]
+    fn palaces_and_mansions_are_the_originals() {
+        let Some(mut world) = load(|_| {}) else { return };
+        // The original's table: palaces 187-189 of 4, 5 and 6 tiles, mansions of 3, 4
+        // and 5; the model prices the palaces at 900, 1000 and 1200.
+        let size = |k: u16| world.defs.building(k).map(|d| d.size);
+        assert_eq!(kind::PALACES.map(size), [Some(4), Some(5), Some(6)]);
+        assert_eq!([77, 78, 79].map(size), [Some(3), Some(4), Some(5)]);
+        assert_eq!(kind::PALACES.map(|k| world.balance.stats(k).cost), [900, 1000, 1200]);
+        // A game saved with the old palace types gets the original's.
+        let old = world.create_building(84, 60, 60);
+        world.scenario_allowed = Some([84, 85].into_iter().collect());
+        world.upgrade_palaces();
+        assert_eq!(world.buildings.get(old).map(|b| b.kind), Some(kind::VILLAGE_PALACE));
+        assert_eq!(world.scenario_allowed, Some([kind::VILLAGE_PALACE, kind::TOWN_PALACE].into_iter().collect()));
     }
 
     #[test]

@@ -1001,7 +1001,7 @@ min_houses_coverage = 50
 [[building]]
 id = 79
 key = "dynasty_mansion"
-size = 4
+size = 5
 labor = "government"
 figure = "governor"
 image = { pack = "Pharaoh_General", group = 87, offset = 0 }
@@ -1042,7 +1042,7 @@ max_length = 8
 min_length = 2
 
 [[building]]
-id = 84
+id = 187
 key = "village_palace"
 size = 4
 labor = "government"
@@ -1055,7 +1055,7 @@ help = "message_building_palace"
 info_sound = "Wavs/palace.wav"
 
 [[building]]
-id = 85
+id = 188
 key = "town_palace"
 size = 5
 labor = "government"

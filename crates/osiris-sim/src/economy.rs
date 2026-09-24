@@ -70,7 +70,7 @@ const WOOD_CUTTERS: u16 = 108;
 const REED_GATHERERS: u16 = 195;
 const FISHING_WHARF: u16 = 76;
 const SENET_HOUSE: u16 = 32;
-const PALACES: [u16; 3] = [kind::VILLAGE_PALACE, 85, 189];
+const PALACES: [u16; 3] = kind::PALACES;
 const BRICKWORKS: u16 = 204;
 /// Ticks a gatherer spends cutting once it reaches its tree or reeds.
 const GATHER_TICKS: i32 = 300;
