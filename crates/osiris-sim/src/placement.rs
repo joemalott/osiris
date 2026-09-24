@@ -72,6 +72,14 @@ impl World {
                     tiles.extend([(0, 0), (1, 0), (0, 1), (1, 1)].map(|(dx, dy)| own(bx + dx, by + dy, Some(why))));
                 }
             }
+        } else if k == crate::defenses::GATEHOUSE {
+            tiles.extend(self.gatehouse_tiles(x, y).into_iter().map(|((xx, yy), why)| own(xx, yy, why)));
+        } else if crate::defenses::is_tower(k) {
+            for yy in y..y + 2 {
+                for xx in x..x + 2 {
+                    tiles.push(own(xx, yy, self.tower_tile_problem(xx, yy)));
+                }
+            }
         } else if let Some(cut) = self.royal_tomb_tiles(k, x, y) {
             // A royal tomb's bulk in the cliffs, and its entrance just outside.
             tiles.extend(cut.into_iter().map(|((xx, yy), why)| own(xx, yy, why)));

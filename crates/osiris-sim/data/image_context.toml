@@ -1026,7 +1026,37 @@ variants = 1
 
 [[wall_gatehouse]]
 tiles = [0, 2, 1, 2, 0, 2, 1, 2]
-offsets = [32, 31, 32, 31]
+offsets = [30, 29, 30, 29]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [1, 2, 1, 2, 1, 2, 0, 2]
+offsets = [29, 32, 31, 30]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [0, 2, 1, 2, 1, 2, 1, 2]
+offsets = [30, 29, 32, 31]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [1, 2, 0, 2, 1, 2, 1, 2]
+offsets = [31, 30, 29, 32]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [1, 2, 1, 2, 0, 2, 1, 2]
+offsets = [32, 31, 30, 29]
+canal = 0
+variants = 1
+
+[[wall_gatehouse]]
+tiles = [1, 1, 1, 1, 1, 1, 1, 1]
+offsets = [33, 33, 33, 33]
 canal = 0
 variants = 1
 

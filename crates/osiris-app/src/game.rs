@@ -151,6 +151,8 @@ pub struct Game {
     overlay_images: Option<OverlayImages>,
     /// A menu choice for the app to carry out (leave the game, load, save, quit).
     pub request: Option<MenuAction>,
+    /// A click on the lost-mission screen, for its buttons to take.
+    lost_click: Option<[f32; 2]>,
     /// Next entry of the problem list to jump to.
     problem_cursor: usize,
     /// Build categories with nothing to build, refreshed daily.
@@ -209,6 +211,7 @@ impl Game {
             last_overlay: View::Water,
             overlay_images: None,
             request: None,
+            lost_click: None,
             problem_cursor: 0,
             empty: Vec::new(),
             empty_day: None,
@@ -392,7 +395,8 @@ impl Game {
                 self.music_timer = 5.0;
             }
         }
-        if self.paused || self.dialog.is_some() {
+        // A lost city stands still behind the lost-mission screen.
+        if self.paused || self.dialog.is_some() || self.world.lost {
             return;
         }
         let ms = ms_per_tick(self.speed);
@@ -481,7 +485,7 @@ impl Game {
             Tool::None => None,
             Tool::Road => Some(Command::Road { start, end }),
             Tool::Clear => Some(Command::Clear { x0: start.0, y0: start.1, x1: end.0, y1: end.1 }),
-            Tool::Build(k) if k == kind::VACANT_LOT || k == osiris_sim::irrigation::DITCH => {
+            Tool::Build(k) if k == kind::VACANT_LOT || k == osiris_sim::irrigation::DITCH || k == osiris_sim::defenses::WALL => {
                 Some(Command::Build { kind: k, x: start.0, y: start.1, x1: end.0, y1: end.1 })
             }
             Tool::Build(k) => {
@@ -593,6 +597,10 @@ impl Game {
                 self.dialog = None;
                 self.sound("BUTTON.WAV");
             }
+            return None;
+        }
+        if self.world.lost {
+            self.lost_click = Some(self.cursor);
             return None;
         }
         if let Some(p) = &mut self.rules_panel {
@@ -802,8 +810,12 @@ impl Game {
         self.show_overlay(last);
     }
 
-    /// Taking up a statue tool picks one of its looks at random, facing the viewer.
+    /// Taking up a statue tool picks one of its looks at random, facing the viewer; a
+    /// gatehouse starts at facing 1, as in the original.
     fn pick_statue_look(&mut self, k: u16) {
+        if k == osiris_sim::defenses::GATEHOUSE {
+            self.world.gatehouse_facing = 1;
+        }
         let Some(d) = self.world.defs.building(k).filter(|d| d.has_flag("is_statue")) else { return };
         let n = d.variants.len().max(1) as u128;
         let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |t| t.as_nanos());
@@ -815,10 +827,14 @@ impl Game {
         matches!(self.tool, Tool::Build(k) if self.world.defs.building(k).is_some_and(|d| d.has_flag("is_statue")))
     }
 
-    /// R while holding a statue: turn it a quarter.
+    /// R while holding a statue: turn it a quarter; while holding a gatehouse: turn
+    /// it across the other way.
     pub fn rotate_statue(&mut self) {
         if self.holding_statue() {
             self.world.statue_facing = (self.world.statue_facing + 1) % 4;
+        }
+        if self.tool == Tool::Build(osiris_sim::defenses::GATEHOUSE) {
+            self.world.gatehouse_facing ^= 1;
         }
     }
 
@@ -1053,6 +1069,7 @@ impl Game {
             Command::Road { start, end } => self.world.road_path(start, end).unwrap_or_else(|| vec![end]),
             Command::Clear { x0, y0, x1, y1 } => rect(x0, y0, x1, y1),
             Command::Build { kind: k, x, y, x1, y1 } if k == kind::VACANT_LOT => rect(x, y, x1, y1),
+            Command::Build { kind: k, x, y, x1, y1 } if k == osiris_sim::defenses::WALL => self.world.wall_sites(x, y, x1, y1),
             Command::Build { kind: k, x, y, x1, y1 } if k == osiris_sim::irrigation::DITCH => self.world.ditch_path((x, y), (x1, y1)).unwrap_or_else(|| vec![(x1, y1)]),
             Command::Build { kind: k, x, y, .. } if osiris_sim::temple_complex::is_upgrade(k) => vec![(x, y)],
             Command::Build { kind: k, x, y, .. } => {
@@ -1337,8 +1354,52 @@ impl Game {
         if let Some(l) = &self.message_list {
             l.draw(r, &self.images.panels, &self.world, &self.messages, &self.text);
         }
+        if self.world.lost && self.dialog.is_none() && self.world.messages.is_empty() {
+            self.draw_lost(r);
+        }
         if let Some(d) = &mut self.dialog {
             d.draw(r);
+        }
+    }
+
+    /// The original's screen for a lost mission: "Defeat!" (or "Out of Time!") with
+    /// its text, then New Game and, for a campaign mission, Replay mission. (Its
+    /// third choice when time runs out, Lower Difficulty, waits on a difficulty
+    /// setting.)
+    fn draw_lost(&mut self, r: &mut Renderer) {
+        const W: i32 = 34;
+        const H: i32 = 15;
+        let img = *self.ui_images.get_or_insert_with(|| crate::widgets::UiImages::load(&r.library).expect("ui images"));
+        let (w, h) = (W as f32 * 16.0, H as f32 * 16.0);
+        let x = ((r.screen[0] - w) / 2.0).floor();
+        let y = ((r.screen[1] - h) / 2.0).floor();
+        osiris_ui::panel::outer_panel(r, &self.images.panels, x, y, W, H);
+        let click = self.lost_click.take();
+        let replay = self.world.mission.is_some();
+        let mut ui = crate::widgets::Ui { r, panels: &self.images.panels, img, text: &self.text, cursor: self.cursor, click };
+        let (title, body) = if self.world.lost_to_time() { (38, 39) } else { (1, 16) };
+        let t = ui.t(62, title);
+        ui.centred(Font::LargeBlackOnLight, &t, x, y + 16.0, w);
+        let t = ui.t(62, body);
+        ui.wrapped(Font::NormalBlackOnLight, &t, x + 32.0, y + 52.0, w - 64.0);
+        let by = y + h - 48.0;
+        let mut choice = None;
+        let buttons: Vec<(usize, MenuAction)> = if replay { vec![(6, MenuAction::MainMenu), (37, MenuAction::Replay)] } else { vec![(6, MenuAction::MainMenu)] };
+        let bw = if replay { 144.0 } else { 416.0 };
+        let gap = (w - bw * buttons.len() as f32) / (buttons.len() as f32 + 1.0);
+        for (i, (label, action)) in buttons.into_iter().enumerate() {
+            let bx = (x + gap + i as f32 * (bw + gap)).floor();
+            let rect = [bx, by, bw, 25.0];
+            osiris_ui::panel::large_label(ui.r, ui.panels, bx, by, (bw / 16.0) as i32, ui.hot(rect) as u32);
+            let t = ui.t(62, label);
+            ui.centred(Font::NormalBlackOnLight, &t, bx, by + 6.0, bw);
+            if ui.clicked(rect) {
+                choice = Some(action);
+            }
+        }
+        if let Some(a) = choice {
+            self.sound("BUTTON.WAV");
+            self.request = Some(a);
         }
     }
 }

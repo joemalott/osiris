@@ -409,6 +409,10 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     eprintln!("{name}: {:?}", &v[..v.len().min(6)]);
                 }
             }
+            // Ends the game lost, to show the lost-mission screen.
+            ["lose"] => world.lost = true,
+            // The build tool's gatehouse facing (0 or 1) for later builds.
+            ["gatehouse", f] => world.gatehouse_facing = f.parse()?,
             // The build tool's statue look (0..) and facing (0-3) for later builds.
             ["statue", v, f] => {
                 world.statue_variant = v.parse()?;

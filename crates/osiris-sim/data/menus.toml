@@ -125,7 +125,7 @@ items = ["small_mastaba", "medium_mastaba", "large_mastaba", "small_royal_tomb",
 [[menu]]
 key = "defenses"
 icon = { pack = "Pharaoh_General", group = 117, offset = 12 }
-items = ["mud_wall", "mud_tower", "mud_gatehouse", "tower_gatehouse", "decorative_gatehouse", "brick_wall", "brick_tower", "brick_gatehouse"]
+items = ["wall", "tower", "gatehouse"]
 
 [[menu]]
 key = "default"
