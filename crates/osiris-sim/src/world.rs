@@ -145,6 +145,9 @@ pub struct World {
     /// The mission is lost (the city fell, or time ran out).
     #[serde(default)]
     pub lost: bool,
+    /// The "Defeat!" message has been shown: the next loss ends the game.
+    #[serde(default)]
+    pub defeat_shown: bool,
     /// Years the scenario allows to meet its goals, and years to survive to win.
     #[serde(default)]
     pub time_limit: Option<i32>,
@@ -183,6 +186,10 @@ pub struct World {
     pub statue_variant: u8,
     #[serde(skip, default = "default_statue_facing")]
     pub statue_facing: u8,
+    /// The build tool's gatehouse facing (0 or 1, R turns it); the original starts
+    /// each gatehouse at 1.
+    #[serde(skip, default = "default_statue_facing")]
+    pub gatehouse_facing: u8,
     /// Rotating variant counters of the road/earthquake context tables. Saved so a
     /// reloaded game re-images roads exactly as the running one would.
     #[serde(default)]
@@ -225,6 +232,7 @@ impl World {
         world.upgrade_monuments();
         world.upgrade_companies();
         world.upgrade_statues();
+        world.upgrade_defenses();
         Ok(world)
     }
 }
@@ -283,6 +291,7 @@ impl World {
             earthquakes: crate::earthquakes::Earthquakes::from_scenario(scenario),
             won: false,
             lost: false,
+            defeat_shown: false,
             time_limit: info.win.time_limit.enabled.then_some(info.win.time_limit.value).filter(|&y| y > 0),
             survival: info.win.survival_time.enabled.then_some(info.win.survival_time.value).filter(|&y| y > 0),
             migration_params: Default::default(),
@@ -297,6 +306,7 @@ impl World {
             test_full_staff: false,
             statue_variant: 0,
             statue_facing: 1,
+            gatehouse_facing: 1,
             exit_point: (info.exit_point.x, info.exit_point.y),
             counters: ContextCounters::default(),
             wind: 0,

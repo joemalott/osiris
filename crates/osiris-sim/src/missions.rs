@@ -344,12 +344,42 @@ impl World {
                 self.won = true;
                 self.messages.push_back("victory".to_owned());
             }
-            Some(false) => {
-                self.lost = true;
-                let key = if self.survival.is_some() && self.time_limit.is_none() { "message_mission_defeat" } else { "out_of_time" };
-                self.messages.push_back(key.to_owned());
-            }
+            Some(false) => self.lose(false),
             None => {}
+        }
+    }
+
+    /// The mission is lost, as the original takes it: the first time it only shows
+    /// "Defeat!" (message 311) and the game ends when next judged, except that a
+    /// time limit running out on Easy or harder ends it at once. `fell`: the city fell
+    /// to invaders rather than running out of time.
+    pub(crate) fn lose(&mut self, fell: bool) {
+        if self.won || self.lost {
+            return;
+        }
+        if self.defeat_shown || self.out_of_time_at_once(fell) {
+            self.lost = true;
+        } else {
+            self.defeat_shown = true;
+            self.messages.push_back("message_mission_defeat".to_owned());
+        }
+    }
+
+    fn out_of_time_at_once(&self, fell: bool) -> bool {
+        !fell && self.time_limit.is_some() && DIFFICULTY >= 1
+    }
+
+    /// Whether the game ended with time run out (the original's "Out of Time!" screen,
+    /// which offers a lower difficulty) rather than in plain defeat.
+    pub fn lost_to_time(&self) -> bool {
+        self.lost && !self.invasions.lost && self.out_of_time_at_once(false)
+    }
+
+    /// Each tick: once "Defeat!" has been read the game ends (the original judges the
+    /// mission every tick, and the city stands still while the message is open).
+    pub(crate) fn settle_defeat(&mut self) {
+        if self.defeat_shown && !self.lost && !self.won {
+            self.lost = true;
         }
     }
 }
@@ -489,9 +519,9 @@ pub(crate) fn scenario_allowed(scenario: &osiris_formats::Scenario, trade: &crat
     allow(&[kind::GARDENS], f(30));
     allow(&[38], f(31));
     allow(&[41, 42, 43], f(32));
-    allow(&[crate::defenses::MUD_WALL], f(33));
-    allow(&[crate::defenses::MUD_TOWER], f(34));
-    allow(&[crate::defenses::MUD_GATEHOUSE], f(35));
+    allow(&[crate::defenses::WALL], f(33));
+    allow(&[crate::defenses::TOWER], f(34));
+    allow(&[crate::defenses::GATEHOUSE], f(35));
     allow(&[95], f(36));
     allow(&[45], f(37));
     allow(&[44], f(38));
@@ -582,7 +612,11 @@ mod tests {
         world.time.year = world.scenario_events.start_year + 3;
         world.population = 0;
         world.check_victory();
-        assert!(world.lost, "time up without the goals loses");
+        // Defeat is shown first; the game ends when next judged.
+        assert!(!world.lost && world.defeat_shown);
+        assert_eq!(world.messages.back().map(String::as_str), Some("message_mission_defeat"));
+        world.settle_defeat();
+        assert!(world.lost && !world.lost_to_time(), "time up without the goals loses");
     }
 
     #[test]
@@ -596,7 +630,8 @@ mod tests {
         assert!(!world.lost);
         world.time.year += 1;
         world.check_victory();
-        assert!(world.lost && world.messages.back().is_some_and(|m| m == "out_of_time"));
+        // On Normal the game ends at once, with no "Defeat!" first.
+        assert!(world.lost && world.lost_to_time() && !world.defeat_shown);
         assert_eq!((time_limit_grace(0), time_limit_grace(1), time_limit_grace(2)), (7, 2, 0));
     }
 

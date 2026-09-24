@@ -94,7 +94,7 @@ pub struct Building {
     /// Direction the next roaming walker sets off in; rotates by a quarter turn per walker.
     #[serde(default)]
     pub roam_dir: u8,
-    /// Which way a venue faces over its roads (0..4).
+    /// Which way a venue faces over its roads (0..4), or a gatehouse runs (0, 1).
     #[serde(default)]
     pub orientation: u8,
     /// A storage yard's eight spaces: resource and units in each.

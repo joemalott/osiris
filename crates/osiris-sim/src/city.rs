@@ -11,6 +11,7 @@ const WELL_RADIUS: i32 = 2;
 
 impl World {
     pub(crate) fn run_tick(&mut self) {
+        self.settle_defeat();
         self.rng.next();
         let roll = self.time.advance();
         self.update_floods();

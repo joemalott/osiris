@@ -550,14 +550,16 @@ impl World {
             f.moving = false;
             f.route.clear();
             f.attack_tick += 1;
-            if f.attack_tick < 24 {
+            // The defences take a blow every 4 ticks and fall once past their count.
+            let hp = crate::defenses::hit_points(b.kind);
+            if f.attack_tick < if hp.is_some() { 4 } else { 24 } {
                 return;
             }
             f.attack_tick = 0;
-            let attack = self.fighter_stats(fid).attack.max(1);
+            let attack = if hp.is_some() { 1 } else { self.fighter_stats(fid).attack.max(1) };
             let Some(b) = self.buildings.get_mut(target) else { return };
             b.enemy_damage += attack;
-            if b.enemy_damage > BUILDING_HP {
+            if b.enemy_damage > hp.unwrap_or(BUILDING_HP) {
                 // Walls crumble; everything else is put to the torch.
                 if crate::defenses::is_defense(b.kind) {
                     self.wreck(target, false);
@@ -649,8 +651,9 @@ impl World {
         }
     }
 
-    /// Daily: a city with invaders in it is lost when its people have dwindled to a
-    /// quarter of their peak and the invaders outnumber its soldiers, or are gone.
+    /// Daily: a city with invaders in it falls when its people have dwindled to a
+    /// quarter of their peak and the invaders outnumber its soldiers, or are gone
+    /// ("Defeat!" first, then the game ends).
     pub(crate) fn check_siege(&mut self) {
         self.invasions.peak_population = self.invasions.peak_population.max(self.population);
         if self.invasions.lost {
@@ -665,8 +668,7 @@ impl World {
         // (A city not yet settled cannot fall.)
         if self.invasions.peak_population > 0 && (dwindled || self.population <= 0) {
             self.invasions.lost = true;
-            self.lost = true;
-            self.messages.push_back("message_mission_defeat".to_owned());
+            self.lose(true);
         }
     }
 }

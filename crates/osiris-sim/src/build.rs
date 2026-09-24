@@ -9,11 +9,14 @@ impl World {
         self.defs.building(k).map_or(1, |d| d.size.max(1))
     }
 
-    /// The tiles building type `k` covers, across and down: a monument's or temple
-    /// complex's own shape, otherwise its square.
+    /// The tiles building type `k` covers, across and down: a monument's, temple
+    /// complex's or gatehouse's own shape, otherwise its square.
     pub fn footprint_of(&self, k: u16) -> (i32, i32) {
         if crate::temple_complex::is_complex(k) {
             return crate::temple_complex::SIZE;
+        }
+        if k == crate::defenses::GATEHOUSE {
+            return crate::defenses::gatehouse_footprint(self.gatehouse_facing);
         }
         self.monument_footprint(k).unwrap_or_else(|| {
             let s = self.size_of(k);
@@ -221,7 +224,11 @@ impl World {
     /// Adds a building without charging for it.
     pub fn create_building(&mut self, k: u16, x: i32, y: i32) -> BuildingId {
         let size = self.size_of(k);
-        let dims = self.monument_footprint(k).or_else(|| crate::temple_complex::is_complex(k).then_some(crate::temple_complex::SIZE));
+        let gatehouse = k == crate::defenses::GATEHOUSE;
+        let dims = self
+            .monument_footprint(k)
+            .or_else(|| crate::temple_complex::is_complex(k).then_some(crate::temple_complex::SIZE))
+            .or_else(|| gatehouse.then(|| crate::defenses::gatehouse_footprint(self.gatehouse_facing)));
         let (fw, fh) = dims.unwrap_or((size, size));
         let image = self.statue_image(k).unwrap_or_else(|| self.defs.building(k).map_or(0, |d| d.image));
         let mut b = Building {
@@ -234,6 +241,7 @@ impl World {
             fire_risk: 0,
             damage_risk: 0,
             stock: vec![0; 40],
+            orientation: if gatehouse { self.gatehouse_facing } else { 0 },
             ..Default::default()
         };
         if kind::is_house(k) {
@@ -258,12 +266,14 @@ impl World {
             self.place_storage_yard(id);
         } else if crate::temple_complex::is_complex(k) {
             self.place_temple_complex(id);
+        } else if gatehouse {
+            self.place_defense(id);
         } else if dims.is_some() {
             self.place_monument(id);
         } else if crate::military::fort_soldier(k).is_some() {
             self.map.set_footprint(x, y, size, image);
             self.place_fort(id);
-        } else if crate::defenses::is_wall(k) || crate::defenses::is_gatehouse(k) || k == crate::defenses::ROADBLOCK {
+        } else if crate::defenses::is_defense(k) || k == crate::defenses::ROADBLOCK {
             self.map.set_footprint(x, y, size, image);
             self.place_defense(id);
         } else {
@@ -300,7 +310,7 @@ impl World {
             self.remove_fort(id);
         }
         let Some(b) = self.buildings.remove(id) else { return };
-        let defense = (crate::defenses::is_wall(b.kind) || crate::defenses::is_gatehouse(b.kind) || b.kind == crate::defenses::ROADBLOCK).then_some((b.kind, b.x, b.y));
+        let defense = (crate::defenses::is_defense(b.kind) || b.kind == crate::defenses::ROADBLOCK).then_some((b.kind, b.x, b.y, b.footprint()));
         let parts = b.monument.as_ref().map(|m| Self::part_tiles(&m.parts)).unwrap_or_default();
         let part_tiles = parts.into_iter().map(|(px, py)| (b.x + px, b.y + py));
         for (xx, yy) in b.tiles().chain(part_tiles).collect::<Vec<_>>() {
@@ -323,8 +333,8 @@ impl World {
             self.population -= h.population;
             self.census.remove(&self.rng, h.population);
         }
-        if let Some((k, x, y)) = defense {
-            self.remove_defense(k, x, y);
+        if let Some((k, x, y, dims)) = defense {
+            self.remove_defense(k, x, y, dims);
         }
         if crate::royal_tombs::is_royal_tomb(b.kind) {
             self.remove_royal_tomb(b.kind, b.x, b.y);

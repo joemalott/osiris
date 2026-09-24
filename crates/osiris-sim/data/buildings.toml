@@ -1582,12 +1582,13 @@ min_houses_coverage = 50
 
 [[building]]
 id = 169
-key = "brick_wall"
+key = "wall"
 size = 1
 text_id = 166
 image = { pack = "Pharaoh_General", group = 138, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 138, offset = 27 } }
+anims = { preview = { pack = "Pharaoh_General", group = 138, offset = 26 } }
 flags = ["is_wall", "is_defense"]
+help = "message_building_defensive_structures"
 
 [[building]]
 id = 170
@@ -1623,11 +1624,13 @@ min_houses_coverage = 50
 
 [[building]]
 id = 173
-key = "clay_tower"
+key = "tower"
 size = 2
 text_id = 170
 labor = "military"
-flags = ["is_wall", "is_defense"]
+image = { pack = "Pharaoh_General", group = 135, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 135, offset = 0 } }
+flags = ["is_defense", "is_tower"]
 help = "message_building_defensive_structures"
 fire_proof = true
 min_houses_coverage = 50
@@ -1833,12 +1836,17 @@ help = "message_work_camp_history"
 info_sound = "Wavs/eng_r.wav"
 search_radius = 100
 
+# Two towers astride a road, five tiles long (see defenses.rs). The towers wear the
+# patron god's look (Osiris, Ra, Ptah, Seth, Bast); the road's two tiles are road_a
+# and road_b.
 [[building]]
 id = 202
-key = "decorative_gatehouse"
-size = 5
-flags = ["is_defense", "is_wall", "is_gatehouse"]
-text_id = 90
+key = "gatehouse"
+size = 2
+image = { pack = "Pharaoh_General", group = 161, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 161, offset = 0 }, tower_osiris = { pack = "Pharaoh_General", group = 217, offset = 0 }, tower_ra = { pack = "Pharaoh_General", group = 213, offset = 0 }, tower_ptah = { pack = "Pharaoh_General", group = 216, offset = 0 }, tower_seth = { pack = "Pharaoh_General", group = 214, offset = 0 }, tower_bast = { pack = "Pharaoh_General", group = 215, offset = 0 }, road_a = { pack = "Pharaoh_General", group = 219, offset = 0 }, road_b = { pack = "Pharaoh_General", group = 218, offset = 0 } }
+flags = ["is_defense", "is_gatehouse"]
+text_id = 168
 help = "message_building_defensive_structures"
 
 [[building]]
