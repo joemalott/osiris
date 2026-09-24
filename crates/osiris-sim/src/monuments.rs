@@ -374,8 +374,6 @@ pub type Scaffold = (Vec<(u32, (i32, i32))>, (i32, i32));
 
 /// Phases that level the site.
 const LEVELING_PHASES: u8 = 2;
-/// Laborers one monument takes at a time.
-const MAX_LABORERS: usize = 5;
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Monument {
@@ -1029,7 +1027,8 @@ impl World {
                 let b = self.buildings.get(id)?;
                 let m = b.monument.as_ref()?;
                 let def = monument_def(b.kind)?;
-                if !def.laborers(m.phase) || busy.iter().filter(|b| b.0 == id).count() >= MAX_LABORERS {
+                // (As many laborers as there are tiles free: the original sets no limit.)
+                if !def.laborers(m.phase) {
                     return None;
                 }
                 let block = if crate::pyramids::blockwise(def.style) {
