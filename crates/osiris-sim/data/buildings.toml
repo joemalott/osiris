@@ -628,7 +628,7 @@ id = 51
 key = "scribal_school"
 size = 2
 labor = "education"
-figure = "teacher"
+figure = "scriber"
 image = { pack = "Pharaoh_General", group = 42, offset = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 42, offset = 0 }, work = { pack = "Pharaoh_General", group = 42, offset = 1, frames = 11, x = 2, y = -25, duration = 4 }, papyrus = { pack = "Pharaoh_General", group = 207, offset = 0, x = 61, y = 14 } }
 inputs = ["papyrus"]

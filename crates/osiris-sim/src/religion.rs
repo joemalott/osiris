@@ -1,6 +1,6 @@
 //! The gods: Osiris, Ra, Ptah, Seth and Bast. A scenario makes each god unknown, known
 //! (a local god) or the city's patron. Each known god's mood follows how much of the
-//! city its shrines, temples and temple complexes reach (a patron's count double),
+//! city its shrines, temples and temple complexes reach (a patron needs twice as many),
 //! lifted by recent festivals and held near indifference in small towns. A god far
 //! from content gathers wrath and, once enough has gathered, curses the city; a god
 //! well pleased gathers favour and blesses it. Festivals honour one god at a time.
@@ -42,8 +42,6 @@ pub struct God {
     pub target: i32,
     pub wrath: i32,
     pub favour: i32,
-    pub blessing_done: bool,
-    pub curse_done: bool,
     pub months_since_festival: i32,
     /// Share of the city this god's buildings reach, percent.
     pub coverage: i32,
@@ -51,7 +49,7 @@ pub struct God {
 
 impl Default for God {
     fn default() -> Self {
-        Self { status: status::UNKNOWN, mood: 50, target: 50, wrath: 0, favour: 0, blessing_done: false, curse_done: false, months_since_festival: 0, coverage: 0 }
+        Self { status: status::UNKNOWN, mood: 50, target: 50, wrath: 0, favour: 0, months_since_festival: 0, coverage: 0 }
     }
 }
 
@@ -101,8 +99,9 @@ impl World {
         self.buildings.iter().filter(|b| b.kind == k && b.workers > 0).count() as i32
     }
 
-    fn all_of(&self, k: u16) -> i32 {
-        self.buildings.iter().filter(|b| b.kind == k).count() as i32
+    /// Shrines count only with road access.
+    fn with_road(&self, k: u16) -> i32 {
+        self.buildings.iter().filter(|b| b.kind == k && b.road.is_some()).count() as i32
     }
 
     /// Monthly: each known god's coverage, and the average.
@@ -116,8 +115,8 @@ impl World {
                 self.religion.gods[g].coverage = 0;
                 continue;
             }
-            let (shrine, temple) = if st == status::PATRON { (300, 750) } else { (150, 375) };
-            let people = shrine * self.all_of(SHRINE_FIRST + g as u16)
+            let (shrine, temple) = if st == status::PATRON { (150, 375) } else { (300, 750) };
+            let people = shrine * self.with_road(SHRINE_FIRST + g as u16)
                 + temple * self.active(TEMPLE_FIRST + g as u16)
                 + 8000 * self.active(COMPLEX_FIRST + g as u16);
             let cov = if pop > 0 { (people * 100 / pop).min(100) } else { 0 };
@@ -128,8 +127,11 @@ impl World {
         self.religion.coverage_common = if known > 0 { total / known } else { 0 };
     }
 
-    /// Every tick: moods drift toward their targets, and one god gathers wrath or favour.
-    pub(crate) fn update_gods_tick(&mut self) {
+    /// Daily: moods drift a point toward their targets, and one god picked at random
+    /// gathers favour (2 at 90 or more, 1 at 80-89) or wrath (1 at 11-20, 2 at 10 or
+    /// less), up to 50. A god above 50 loses its wrath, one below 50 its favour. On
+    /// the first day of the month the god picked acts.
+    pub(crate) fn update_gods_day(&mut self) {
         if !self.rules.gods_enabled || self.religion.gods.is_empty() {
             return;
         }
@@ -139,35 +141,35 @@ impl World {
             } else if g.mood > g.target {
                 g.mood -= 1;
             }
-            if g.mood > 50 {
-                g.curse_done = false;
-            }
-            if g.mood < 50 {
-                g.blessing_done = false;
-            }
         }
         let pick = (self.rng.byte() as usize) % GODS;
         let g = &mut self.religion.gods[pick];
-        if g.status == status::UNKNOWN {
-            return;
+        if g.status != status::UNKNOWN {
+            // Normal difficulty.
+            match g.mood {
+                m if m >= 90 => g.favour += 2,
+                m if m >= 80 => g.favour += 1,
+                m if m > 20 => {}
+                m if m > 10 => g.wrath += 1,
+                _ => g.wrath += 2,
+            }
+            if g.mood == 50 {
+                g.wrath = 0;
+            }
+            g.wrath = g.wrath.min(MAX_COUNTER);
+            g.favour = g.favour.min(MAX_COUNTER);
         }
-        // Normal difficulty.
-        let mut wrath = 0;
-        if g.mood <= 10 {
-            wrath += 2;
+        for g in &mut self.religion.gods {
+            if g.mood < 50 {
+                g.favour = 0;
+            }
+            if g.mood > 50 {
+                g.wrath = 0;
+            }
         }
-        if g.mood <= 20 {
-            wrath += 1;
+        if self.time.day == 0 {
+            self.gods_act(pick);
         }
-        g.wrath = if g.mood > 50 { 0 } else { (g.wrath + wrath).min(MAX_COUNTER) };
-        let mut favour = 0;
-        if g.mood >= 90 {
-            favour += 2;
-        }
-        if g.mood >= 80 {
-            favour += 1;
-        }
-        g.favour = if g.mood < 50 { 0 } else { (g.favour + favour).min(MAX_COUNTER) };
     }
 
     /// Monthly: coverage and moods, then blessings and curses, and festivals.
@@ -187,7 +189,6 @@ impl World {
             let target = g.coverage + 12 - g.months_since_festival.min(40);
             g.target = target.clamp(0, 100).clamp(lo, hi);
         }
-        self.gods_act();
         // A warning when the gods are angry.
         self.religion.wrath_message_delay = (self.religion.wrath_message_delay - 1).max(0);
         let least = self.religion.known().map(|(_, g)| g.mood).min().unwrap_or(50);
@@ -205,35 +206,24 @@ impl World {
         }
     }
 
-    /// A god with enough wrath curses the city; one with enough favour, after a recent
-    /// festival, blesses it.
-    fn gods_act(&mut self) {
-        let angry = self.religion.known().filter(|(_, g)| g.wrath > 0).max_by_key(|(_, g)| g.wrath).map(|(i, _)| i);
-        if let Some(i) = angry {
-            let g = &self.religion.gods[i];
-            let (wrath, recent) = (g.wrath, g.months_since_festival);
-            if recent > 3 && (wrath >= MAX_COUNTER || wrath > 19) && !g.curse_done {
-                let major = wrath >= MAX_COUNTER;
-                let g = &mut self.religion.gods[i];
-                g.wrath = 0;
-                g.curse_done = true;
-                g.mood = (g.mood + if major { 30 } else { 12 }).min(100);
-                self.curse(i, major);
-                return;
-            }
-        }
-        let happy = self.religion.known().filter(|(_, g)| g.favour > 0).max_by_key(|(_, g)| g.favour).map(|(i, _)| i);
-        if let Some(i) = happy {
-            let g = &self.religion.gods[i];
-            let (favour, recent) = (g.favour, g.months_since_festival);
-            if recent < 15 && favour > 19 && !g.blessing_done {
-                let major = favour >= MAX_COUNTER;
-                let g = &mut self.religion.gods[i];
-                g.favour = 0;
-                g.blessing_done = true;
-                g.mood = (g.mood - if major { 30 } else { 12 }).max(0);
-                self.bless(i, major);
-            }
+    /// The god picked that day acts: with all 50 favour and a festival within 15
+    /// months it gives a major blessing, with 20 and one within 14 a minor one;
+    /// otherwise, with all 50 wrath and no festival for more than 3 months, a major
+    /// curse, with 20 a minor one. A blessing calms its mood by 30 or 12, a curse
+    /// lifts it by as much.
+    fn gods_act(&mut self, god: usize) {
+        let Some(g) = self.religion.gods.get_mut(god).filter(|g| g.status != status::UNKNOWN) else { return };
+        let recent = g.months_since_festival;
+        if g.favour >= 20 && recent < 15 {
+            let major = g.favour >= MAX_COUNTER;
+            g.favour = 0;
+            g.mood -= if major { 30 } else { 12 };
+            self.bless(god, major);
+        } else if recent > 3 && g.wrath > 19 {
+            let major = g.wrath >= MAX_COUNTER;
+            g.wrath = 0;
+            g.mood += if major { 30 } else { 12 };
+            self.curse(god, major);
         }
     }
 
@@ -403,7 +393,10 @@ impl World {
                     "message_wrath_of_bast"
                 }
             }
-            _ => "message_wrath_of_bast_2",
+            _ => {
+                self.start_plague(true);
+                "message_bast_is_upset"
+            }
         };
         self.post(key, None, true);
     }

@@ -74,13 +74,7 @@ impl World {
         let s = self.buildings.get_mut(school).expect("present");
         s.walkers[0] = fid;
         let needed = self.balance.stats(s.kind).employees.max(1);
-        s.spawn_delay = match s.workers * 100 / needed {
-            p if p >= 100 => 3,
-            p if p >= 75 => 7,
-            p if p >= 50 => 15,
-            p if p >= 25 => 29,
-            _ => 44,
-        };
+        s.spawn_delay = crate::services::spawn_delay_days(s.kind, s.workers, needed).unwrap_or(0);
     }
 
     /// Tick 31: venues with shows running send their performers roaming.
@@ -94,19 +88,20 @@ impl World {
                 self.buildings.get_mut(id).expect("present").spawn_delay -= 1;
                 continue;
             }
-            let Some(slot) = (0..3).find(|&s| b.shows[s] > 0 && b.performers[s] == 0) else { continue };
+            // A pavilion sends out every performer it lacks at once; the smaller venues
+            // one at a time.
+            let mut slots: Vec<usize> = (0..3).filter(|&s| b.shows[s] > 0 && b.performers[s] == 0).collect();
+            if b.kind != kind::PAVILION {
+                slots.truncate(1);
+            }
             let needed = self.workers_needed(b.kind).max(1);
-            let delay = match b.workers * 100 / needed {
-                p if p >= 100 => 0,
-                p if p >= 75 => 1,
-                p if p >= 50 => 3,
-                p if p >= 25 => 7,
-                _ => 15,
-            };
-            if let Some(fid) = self.spawn_roaming_figure(id, PERFORMERS[slot].0) {
-                let b = self.buildings.get_mut(id).expect("present");
-                b.performers[slot] = fid;
-                b.spawn_delay = delay;
+            let delay = crate::services::spawn_delay_days(b.kind, b.workers, needed).unwrap_or(0);
+            for slot in slots {
+                if let Some(fid) = self.spawn_roaming_figure(id, PERFORMERS[slot].0) {
+                    let b = self.buildings.get_mut(id).expect("present");
+                    b.performers[slot] = fid;
+                    b.spawn_delay = delay;
+                }
             }
         }
     }

@@ -13,7 +13,8 @@ pub mod figure_kind {
     pub const ARCHITECT: u16 = 8;
     pub const FIREMAN: u16 = 10;
     pub const PRIEST: u16 = 27;
-    pub const TEACHER: u16 = 28;
+    /// The scribal school's walker (the original's "scriber"; its "teacher" is unused).
+    pub const TEACHER: u16 = 29;
     pub const LIBRARIAN: u16 = 30;
     pub const DENTIST: u16 = 31;
     pub const PHYSICIAN: u16 = 32;
@@ -33,18 +34,32 @@ mod action {
     pub const RETURNING: u16 = 2;
 }
 
-/// Days until the next walker, by staffing percentage.
-fn spawn_delay_days(workers: i32, needed: i32) -> Option<i32> {
+/// Days a building waits between walkers, at 100%, 75%, 50%, 25% and any staffing.
+pub fn walker_delays(k: u16) -> [i32; 5] {
+    match k {
+        kind::APOTHECARY | kind::MORTUARY | crate::ratings::DENTIST | crate::ratings::PHYSICIAN => [3, 7, 15, 29, 44],
+        kind::JUGGLER_SCHOOL | kind::CONSERVATORY | kind::BOOTH | kind::BANDSTAND => [3, 7, 15, 29, 44],
+        kind::DANCE_SCHOOL => [5, 10, 20, 35, 60],
+        kind::PAVILION => [6, 12, 20, 40, 70],
+        kind::SCRIBAL_SCHOOL | kind::LIBRARY => [5, 10, 25, 50, 100],
+        60..=69 => [3, 7, 10, 15, 20],
+        kind::WATER_SUPPLY => [1, 3, 7, 15, 29],
+        _ => [0, 1, 3, 7, 15],
+    }
+}
+
+/// Days until building `k`'s next walker at its staffing; none when unstaffed.
+pub fn spawn_delay_days(k: u16, workers: i32, needed: i32) -> Option<i32> {
     if workers <= 0 || needed <= 0 {
         return None;
     }
-    let pct = workers * 100 / needed;
-    Some(match pct {
-        p if p >= 100 => 0,
-        p if p >= 75 => 1,
-        p if p >= 50 => 3,
-        p if p >= 25 => 7,
-        _ => 15,
+    let d = walker_delays(k);
+    Some(match workers * 100 / needed {
+        p if p >= 100 => d[0],
+        p if p >= 75 => d[1],
+        p if p >= 50 => d[2],
+        p if p >= 25 => d[3],
+        _ => d[4],
     })
 }
 
@@ -104,8 +119,11 @@ impl World {
                 continue;
             }
             let needed = self.workers_needed(b.kind);
-            // Labor seeker: looks for houses when the building has none nearby.
-            if needed > 0 && !self.rules.global_labor_pool && b.walkers[1] == 0 && b.houses_covered < 50 {
+            // Labor seeker: looks for houses while the building's walkers have passed
+            // fewer than 51 of them lately (101 for the police, fire, architects',
+            // courthouse, recruiter and hunting lodge, whose walkers reach fewer).
+            let seek_below = if matches!(b.kind, 55 | 81 | 95 | 115 | 167 | 184) { 101 } else { 51 };
+            if needed > 0 && !self.rules.global_labor_pool && b.walkers[1] == 0 && b.houses_covered < seek_below {
                 self.spawn_roamer(id, figure_kind::LABOR_SEEKER, 1);
             }
             let Some(b) = self.buildings.get(id) else { continue };
@@ -117,7 +135,7 @@ impl World {
             if !is_roamer(kind) || b.walkers[0] != 0 {
                 continue;
             }
-            let Some(delay) = spawn_delay_days(b.workers, needed.max(1)) else { continue };
+            let Some(delay) = spawn_delay_days(b.kind, b.workers, needed.max(1)) else { continue };
             if b.spawn_delay > 0 {
                 if let Some(b) = self.buildings.get_mut(id) {
                     b.spawn_delay -= 1;
@@ -187,17 +205,37 @@ impl World {
                 let houses: Vec<BuildingId> = seen.iter().copied().filter(|&id| self.buildings.get(id).is_some_and(|b| b.house.as_ref().is_some_and(|h| h.population > 0))).collect();
                 self.patrol(kind, x, y, &houses);
             }
-            figure_kind::HERBALIST => self.cure_plagued_near(x, y),
             figure_kind::PRIEST => self.priest_blessings(home_kind, x, y, &seen),
             _ => {}
         }
+        // Firemen and architects take their post's model column j (100 and 50 on
+        // Normal) off a building's fire or collapse risk for each of its tiles around
+        // them; physicians and herbalists likewise take theirs (25) off a house's
+        // disease or malaria risk.
+        if matches!(kind, figure_kind::FIREMAN | figure_kind::ARCHITECT | figure_kind::PHYSICIAN | figure_kind::HERBALIST) {
+            let relief = self.balance.stats(home_kind).j;
+            for yy in y - SERVICE_RADIUS..=y + SERVICE_RADIUS {
+                for xx in x - SERVICE_RADIUS..=x + SERVICE_RADIUS {
+                    let id = self.map.building.at_or(xx, yy, 0);
+                    let Some(b) = self.buildings.get_mut(id) else { continue };
+                    let risk = match kind {
+                        figure_kind::FIREMAN => &mut b.fire_risk,
+                        figure_kind::ARCHITECT => &mut b.damage_risk,
+                        figure_kind::PHYSICIAN => match b.house.as_mut() {
+                            Some(h) => &mut h.disease_risk,
+                            None => continue,
+                        },
+                        _ => match b.house.as_mut() {
+                            Some(h) => &mut h.malaria_risk,
+                            None => continue,
+                        },
+                    };
+                    *risk = (*risk - relief).max(0);
+                }
+            }
+        }
         for id in seen {
             let Some(b) = self.buildings.get_mut(id) else { continue };
-            match kind {
-                figure_kind::FIREMAN => b.fire_risk = 0,
-                figure_kind::ARCHITECT => b.damage_risk = 0,
-                _ => {}
-            }
             let Some(h) = b.house.as_mut() else { continue };
             if h.population <= 0 {
                 continue;
@@ -206,14 +244,8 @@ impl World {
             let c = &mut h.coverage;
             match kind {
                 figure_kind::WATER_CARRIER => c.water_supply = VISIT,
-                figure_kind::HERBALIST => {
-                    c.apothecary = VISIT;
-                    h.common_health = h.common_health.max(50);
-                }
-                figure_kind::PHYSICIAN => {
-                    c.physician = VISIT;
-                    h.common_health = (h.common_health + 1).min(100);
-                }
+                figure_kind::HERBALIST => c.apothecary = VISIT,
+                figure_kind::PHYSICIAN => c.physician = VISIT,
                 figure_kind::DENTIST => c.dentist = VISIT,
                 figure_kind::EMBALMER => c.mortuary = VISIT,
                 figure_kind::TEACHER => c.school = VISIT,
@@ -223,16 +255,12 @@ impl World {
                 crate::entertainment::MUSICIAN => c.musician = VISIT,
                 crate::entertainment::DANCER => c.dancer = VISIT,
                 figure_kind::PRIEST => {
-                    // Temples and shrines of each god: Osiris, Ra, Ptah, Seth, Bast.
-                    let god = match home_kind {
-                        60..=64 => Some((home_kind - 60) as usize),
-                        65..=69 => Some((home_kind - 65) as usize),
-                        140..=144 => None,
-                        _ => None,
-                    };
-                    match god {
-                        Some(g) => c.temples[g] = VISIT,
-                        None => c.shrine = VISIT,
+                    // Temples and complexes of each god: Osiris, Ra, Ptah, Seth, Bast.
+                    // Shrines send no priests and give houses no access.
+                    match home_kind {
+                        60..=64 => c.temples[(home_kind - 60) as usize] = VISIT,
+                        65..=69 => c.temples[(home_kind - 65) as usize] = VISIT,
+                        _ => {}
                     }
                 }
                 _ => {}
@@ -263,13 +291,15 @@ impl World {
         if !calms && !cleanses {
             return;
         }
-        for &id in seen {
-            let Some(h) = self.buildings.get_mut(id).and_then(|b| b.house.as_mut()) else { continue };
-            if calms {
-                h.criminal_active = (h.criminal_active - 1).max(0);
-            }
-            if cleanses {
-                h.plague_days = 0;
+        if calms {
+            let calm = self.balance.stats(crate::temple_complex::OSIRIS_COMPLEX + god as u16).j;
+            self.calm_houses(seen, calm);
+        }
+        if cleanses {
+            for &id in seen {
+                if let Some(h) = self.buildings.get_mut(id).and_then(|b| b.house.as_mut()) {
+                    h.quarantine = 0;
+                }
             }
         }
     }

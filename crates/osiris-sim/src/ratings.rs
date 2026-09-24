@@ -169,7 +169,6 @@ impl World {
         self.ratings.coverage = c;
         self.update_prosperity_max();
         self.update_monument_rating();
-        self.update_health();
         let history = &mut self.ratings.population_history;
         history.push(self.population);
         if history.len() > 400 {
@@ -178,28 +177,6 @@ impl World {
         self.update_debt();
         let r = &mut self.ratings;
         r.kingdom = r.kingdom.clamp(0, r.kingdom_cap);
-    }
-
-    /// City health: the share of people who have a doctor (an apothecary for huts, a
-    /// physician above) and food; health moves toward it two points a month.
-    fn update_health(&mut self) {
-        let pop = self.population;
-        if pop < 200 {
-            self.ratings.health = 50;
-            self.ratings.health_target = 50;
-            return;
-        }
-        let mut healthy = 0;
-        for h in self.buildings.iter().filter_map(|b| b.house.as_ref()).filter(|h| h.population > 0) {
-            let cared = if h.level <= 1 { h.coverage.apothecary > 0 } else { h.coverage.physician > 0 && h.days_without_food == 0 };
-            healthy += if cared { h.population } else { h.population / 4 };
-        }
-        let target = healthy * 100 / pop;
-        // Isis's altar (a complex to Bast) makes the city healthier.
-        let target = if self.complex_blessing(crate::temple_complex::BAST, crate::temple_complex::ALTAR) { (target * 105 / 100).min(100) } else { target };
-        let r = &mut self.ratings;
-        r.health_target = target;
-        r.health = if r.health < target { (r.health + 2).min(target) } else { (r.health - 2).max(target) }.clamp(0, 100);
     }
 
     /// The prosperity cap: the average of what each occupied house's level allows.

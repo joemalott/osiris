@@ -19,7 +19,9 @@ pub struct HouseModel {
     pub education: i32,
     pub bazaar: i32,
     pub dentist: i32,
-    pub physician: i32,
+    /// Column i, labelled "physician" in the model file, is the magistrate need: the
+    /// original checks it against a courthouse magistrate's visits.
+    pub magistrate: i32,
     pub health: i32,
     pub food_types: i32,
     pub pottery: i32,
@@ -91,20 +93,20 @@ pub struct House {
     /// Sentiment updates in a row without food (up to 3).
     #[serde(default)]
     pub days_without_food: i32,
-    /// How healthy the household is, 0-100; it drifts toward what its apothecary,
-    /// physician and dentist give it.
-    #[serde(default = "half")]
-    pub common_health: i32,
-    /// Days of plague left.
+    /// Disease and malaria risks, 0-1000; at 1000 the household is wiped out.
     #[serde(default)]
-    pub plague_days: i32,
-    /// Crime brewing in an unhappy household, 0-100.
+    pub disease_risk: i32,
     #[serde(default)]
-    pub criminal_active: i32,
-}
-
-fn half() -> i32 {
-    50
+    pub malaria_risk: i32,
+    /// Months until malaria spreading from a nearby house reaches this one (0 none).
+    #[serde(default)]
+    pub malaria_countdown: i32,
+    /// Months of quarantine left after plague or disease: no one moves in.
+    #[serde(default)]
+    pub quarantine: i32,
+    /// Crime risk, 0-1000; at 1000 the house sends out a thief.
+    #[serde(default)]
+    pub crime: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -116,7 +118,7 @@ pub enum Need {
     Education,
     Religion,
     Dentist,
-    Physician,
+    Magistrate,
     Health,
     Food,
     Pottery,
@@ -141,29 +143,27 @@ impl House {
         self.population <= 0
     }
 
-    /// Recomputes entertainment/education/health/religion from coverage.
+    /// Recomputes entertainment/education/health/religion from coverage. Entertainment
+    /// is the city's venue coverage (`city_entertainment_base`) plus 10 for a juggler,
+    /// 20 a musician, 30 a dancer and 40 a senet player, and a zoo adds 40 (or tops it
+    /// up to 100 from 61). Education is 1 for a school or library and 2 for both;
+    /// religion counts the gods whose priests visit; health is 1 each for physician
+    /// and mortuary.
     pub fn derive_culture(&mut self, city_entertainment_base: i32) {
         let c = &self.coverage;
-        // Each performer type contributes up to its share of 100.
         let mut ent = city_entertainment_base;
-        ent += c.juggler.min(100) * 10 / 50;
-        ent += c.musician.min(100) * 10 / 40;
-        ent += c.dancer.min(100) * 10 / 40;
-        ent += c.senet.min(100) * 10 / 25;
-        ent += c.zoo.min(100) * 10 / 25;
-        self.entertainment = ent.min(100);
-        self.education = if c.school > 0 || c.library > 0 {
-            if c.school > 0 && c.library > 0 {
-                if c.academy > 0 { 3 } else { 2 }
-            } else {
-                1
+        for (visits, points) in [(c.juggler, 10), (c.musician, 20), (c.dancer, 30), (c.senet, 40)] {
+            if visits > 0 {
+                ent += points;
             }
-        } else {
-            0
-        };
-        let temples = c.temples.iter().filter(|&&t| t > 0).count() as i32;
-        self.gods = if temples == 0 && c.shrine > 0 { 1 } else { temples };
-        self.health = (c.apothecary > 0) as i32 + (c.physician > 0) as i32;
+        }
+        if c.zoo > 0 {
+            ent = if ent < 61 { ent + 40 } else { 100 };
+        }
+        self.entertainment = ent.min(100);
+        self.education = (c.school > 0) as i32 + (c.library > 0) as i32;
+        self.gods = c.temples.iter().filter(|&&t| t > 0).count() as i32;
+        self.health = (c.physician > 0) as i32 + (c.mortuary > 0) as i32;
     }
 
     /// Whether this house has what `model` asks for; the first unmet need otherwise.
@@ -189,8 +189,8 @@ impl House {
         if (self.coverage.dentist <= 0) & (model.dentist > 0) {
             return Err(Need::Dentist);
         }
-        if (self.coverage.physician <= 0) & (model.physician > 0) {
-            return Err(Need::Physician);
+        if (self.coverage.magistrate <= 0) & (model.magistrate > 0) {
+            return Err(Need::Magistrate);
         }
         if self.health < model.health {
             return Err(Need::Health);

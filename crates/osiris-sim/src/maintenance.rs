@@ -1,7 +1,7 @@
 //! Fire and collapse. Once a day every building's collapse risk grows by its model
-//! value, and on roughly one day in eight its fire risk grows too; past 1000 it
-//! collapses into rubble or burns. Firemen and architects reset these risks (see
-//! `services`). Burning ruins smoulder for a while, may spread fire, then turn to rubble.
+//! value, and on roughly one day in eight its fire risk grows by one to five times its
+//! model value; at 1000 it collapses into rubble or burns. Passing firemen and
+//! architects wear these risks down (see `services`). Burning ruins smoulder for a while, may spread fire, then turn to rubble.
 
 use crate::buildings::{Building, BuildingId, kind};
 use crate::figures::Travel;
@@ -18,31 +18,50 @@ impl World {
         def.is_some_and(|d| d.int("fire_proof").unwrap_or(0) != 0) || b.kind == kind::BURNING_RUIN
     }
 
-    /// Tick 44.
+    /// Tick 44. Every building's collapse risk grows by its model value (huts and
+    /// anything on the floodplain stay at 0) and it collapses at 1000. Otherwise a
+    /// fresh draw gives a multiplier of 1-5, and on the one day in eight its hash
+    /// matches, fire risk grows by the model value times it (plus 3 in the desert);
+    /// an empty house or a building with no fire risk goes back to 0. It burns at 1000.
     pub(crate) fn check_fire_and_collapse(&mut self) {
         self.rng.next();
         let global = self.rng.byte() & 7;
+        let desert = self.climate == 2;
         let mut collapse = Vec::new();
         let mut burn = Vec::new();
         for id in self.buildings.ids() {
             let Some(b) = self.buildings.get(id) else { continue };
+            if b.kind == kind::BURNING_RUIN {
+                continue;
+            }
             let stats = self.balance.stats(b.kind);
             let fire_proof = self.fire_proof(b);
-            let empty_hut = b.house.as_ref().is_some_and(|h| h.population <= 0 && h.level == 0);
+            let on_floodplain = self.map.terrain_is(b.x, b.y, terrain::FLOODPLAIN);
             let hashed = (b.id as i32 + self.map.random.at_or(b.x, b.y, 0) as i32) & 7;
             let (rules_fire, rules_collapse) = (self.rules.fire, self.rules.collapse);
             let Some(b) = self.buildings.get_mut(id) else { continue };
-            if rules_collapse && b.kind != kind::BURNING_RUIN {
+            if rules_collapse {
                 b.damage_risk += stats.damage_risk;
-                if b.damage_risk > THRESHOLD {
+                if b.house.as_ref().is_some_and(|h| h.level < 2) || on_floodplain {
+                    b.damage_risk = 0;
+                }
+                if b.damage_risk >= THRESHOLD {
                     collapse.push(id);
                     continue;
                 }
             }
-            if rules_fire && !fire_proof && !empty_hut && hashed == global {
-                b.fire_risk += stats.fire_risk;
+            self.rng.next();
+            let times = self.rng.short() % 5 + 1;
+            if !rules_fire || hashed != global {
+                continue;
             }
-            if b.fire_risk > THRESHOLD {
+            match &b.house {
+                Some(h) if h.population < 1 => b.fire_risk = 0,
+                Some(_) => b.fire_risk += stats.fire_risk * times,
+                None if stats.fire_risk == 0 || fire_proof => b.fire_risk = 0,
+                None => b.fire_risk += stats.fire_risk * times + if desert { 3 } else { 0 },
+            }
+            if b.fire_risk >= THRESHOLD {
                 burn.push(id);
             }
         }
@@ -155,5 +174,53 @@ impl World {
                 break;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::world::{Command, Outcome, World};
+
+    fn sandbox() -> Option<World> {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.is_dir() {
+            return None;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).expect("open image library");
+        let scenario = osiris_formats::Scenario::load_map(&data.join("Maps/Sandbox.map")).expect("load map");
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).expect("load defs"));
+        let model_text = std::fs::read(data.join("Pharaoh_Model_Normal.txt")).expect("read model");
+        let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&model_text)).expect("parse model");
+        let balance = std::sync::Arc::new(crate::balance::Balance::from_model(&model));
+        let mut world = World::new(&scenario, defs, balance);
+        world.start(&scenario);
+        Some(world)
+    }
+
+    /// On the days its hash comes up, a building's fire risk grows by one to five times
+    /// its model value.
+    #[test]
+    fn fire_risk_grows_by_one_to_five_times_the_model_value() {
+        let Some(mut world) = sandbox() else { return };
+        world.rules.fire = true;
+        world.rules.collapse = true;
+        let k = crate::buildings::kind::BAZAAR;
+        assert!(matches!(world.apply(&Command::Build { kind: k, x: 160, y: 127, x1: 160, y1: 127 }), Outcome::Done { .. }));
+        let id = world.map.building.at_or(160, 127, 0);
+        let inc = world.balance.stats(k).fire_risk;
+        assert!(inc > 0);
+        let mut steps = Vec::new();
+        for _ in 0..400 {
+            let before = world.buildings.get(id).expect("standing").fire_risk;
+            world.check_fire_and_collapse();
+            let Some(b) = world.buildings.get_mut(id) else { break };
+            if b.fire_risk != before {
+                steps.push(b.fire_risk - before);
+            }
+            b.fire_risk = 0;
+        }
+        assert!(steps.len() > 20, "{steps:?}");
+        assert!(steps.iter().all(|&s| s % inc == 0 && (inc..=5 * inc).contains(&s)), "{steps:?}");
+        assert!(steps.iter().any(|&s| s > inc), "{steps:?}");
     }
 }

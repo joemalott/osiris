@@ -245,7 +245,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 eprintln!("  kingdom {} wages {}", world.ratings.kingdom, world.finance.kingdom_wages);
             }
             ["health"] => {
-                let houses: Vec<(i32, i32, i32, i32)> = world.buildings.iter().filter_map(|b| b.house.as_ref().filter(|h| h.population > 0).map(|h| (h.population, h.common_health, h.plague_days, h.criminal_active))).collect();
+                let houses: Vec<(i32, i32, i32, i32)> = world.buildings.iter().filter_map(|b| b.house.as_ref().filter(|h| h.population > 0).map(|h| (h.population, h.disease_risk, h.quarantine, h.crime))).collect();
                 let plagued = houses.iter().filter(|h| h.2 > 0).count();
                 let crime: i32 = houses.iter().map(|h| h.3).max().unwrap_or(0);
                 let wanderers: Vec<u16> = world.figures.iter().filter(|f| matches!(f.kind, 22 | 23 | 98)).map(|f| f.kind).collect();

@@ -93,7 +93,7 @@ impl Balance {
                 education: h.education as i32,
                 bazaar: h.market as i32,
                 dentist: h.dentist as i32,
-                physician: h.physician as i32,
+                magistrate: h.physician as i32,
                 health: h.health as i32,
                 food_types: h.food as i32,
                 pottery: h.pottery as i32,

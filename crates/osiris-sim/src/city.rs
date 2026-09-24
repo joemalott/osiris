@@ -21,8 +21,8 @@ impl World {
                 self.check_unlocks();
                 self.check_milestones();
                 self.update_trade_problems();
-                self.update_house_health();
                 self.update_crime();
+                self.update_gods_day();
                 self.update_recruiters();
                 self.check_siege();
             }
@@ -39,7 +39,6 @@ impl World {
             23 => self.update_migration(),
             25 => self.update_labor(),
             27 => self.update_wells(),
-            28 => self.update_shrines(),
             33 => {
                 self.update_farms();
                 self.update_venues();
@@ -60,23 +59,26 @@ impl World {
                 self.guild_walkers();
                 self.artisan_walkers();
             }
-            9 => self.decay_house_services(),
+            35 => self.decay_house_services(),
             32 => self.update_trade(),
             36 => self.update_culture(),
             38 => self.update_building_desirability(),
             39 => self.evolve_houses(),
             43 => self.update_burning_ruins(),
-            45 => self.update_monuments(),
+            45 => {
+                self.update_monuments();
+                self.release_criminals();
+            }
             44 => self.check_fire_and_collapse(),
             48 => self.decay_tax_coverage(),
             _ => {}
         }
-        self.update_gods_tick();
         self.update_figures();
         if roll.week {
             self.consume_food();
             self.consume_goods();
             self.update_sentiment();
+            self.crime_half_month();
         }
         if roll.month {
             self.migration.newcomers_this_month = 0;
@@ -84,7 +86,7 @@ impl World {
             self.regrow_herds();
             self.update_gods_month();
             self.update_ratings_month();
-            self.check_outbreak();
+            self.update_health_month();
             self.pay_salary();
             self.update_funerals();
             self.update_invasions();
@@ -230,23 +232,6 @@ impl World {
         }
     }
 
-    /// Tick 28: houses within three tiles of a shrine have access to religion.
-    fn update_shrines(&mut self) {
-        let shrines: Vec<(i32, i32, i32)> = self
-            .buildings
-            .iter()
-            .filter(|b| (kind::SHRINE_OSIRIS..=kind::SHRINE_BAST).contains(&b.kind))
-            .map(|b| (b.x, b.y, b.size))
-            .collect();
-        for b in self.buildings.iter_mut() {
-            let Some(h) = b.house.as_mut() else { continue };
-            let near = shrines.iter().any(|&(sx, sy, ss)| {
-                b.x + b.size > sx - 3 && b.x <= sx + ss - 1 + 3 && b.y + b.size > sy - 3 && b.y <= sy + ss - 1 + 3
-            });
-            h.coverage.shrine = if near { crate::services::VISIT } else { 0 };
-        }
-    }
-
     fn decay_house_services(&mut self) {
         // Under a complex to Bast, what services leave behind lasts twice as long.
         if self.complex_blessing(crate::temple_complex::BAST, 0) && self.time.day % 2 == 1 {
@@ -259,10 +244,28 @@ impl World {
         }
     }
 
+    /// Daily: each house's entertainment, education, health and religion. The city's
+    /// share of entertainment is the average coverage of booths, bandstands, pavilions,
+    /// senet houses and zoos (400, 700, 1200, 5000 and 7500 people each), over 5. A
+    /// staffed bandstand also counts as a booth, and a pavilion as both.
     fn update_culture(&mut self) {
+        const SENET_HOUSE: u16 = 32;
+        const ZOO: u16 = 226;
+        let staffed = |k: u16| self.buildings.iter().filter(|b| b.kind == k && b.workers > 0).count() as i32;
+        let (booths, bandstands, pavilions) = (staffed(kind::BOOTH), staffed(kind::BANDSTAND), staffed(kind::PAVILION));
+        let venues = [
+            (booths + bandstands + pavilions, 400),
+            (bandstands + pavilions, 700),
+            (pavilions, 1200),
+            (staffed(SENET_HOUSE), 5000),
+            (staffed(ZOO), 7500),
+        ];
+        let pop = self.population;
+        let total: i32 = venues.iter().map(|&(n, serves)| if pop > 0 { (n * serves * 100 / pop).min(100) } else { 0 }).sum();
+        let base = total / 5 / 5;
         for b in self.buildings.iter_mut() {
             if let Some(h) = b.house.as_mut() {
-                h.derive_culture(0);
+                h.derive_culture(base);
             }
         }
     }
