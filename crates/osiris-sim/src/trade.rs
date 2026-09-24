@@ -3,11 +3,11 @@
 //! Each trading city lies at the end of a land or sea route. Once the player opens a
 //! route, the city sends a trader along it every few days (one at a time); after
 //! walking the route on the empire map it arrives at the city's entry point as a
-//! caravan with two donkeys. The caravan visits storage yards, each ten ticks buying one
-//! load of a good the player exports and selling one load of a good the player
+//! caravan with two donkeys. The caravan visits storage yards, each eleven ticks buying
+//! one load of a good the player exports and selling one load of a good the player
 //! imports, up to eight loads each way, until it has nothing left to do or no yard
-//! will deal with it. It keeps selling one good until it can't, then moves on to the
-//! next in turn (the city remembers where it got to for the next caravan).
+//! will deal with it. It sells the goods in turn, a load of each (the rotation is
+//! shared by every caravan).
 //! Each route allows only so much of each good a year (1500, 2500 or 4000 units).
 
 use crate::buildings::{BuildingId, kind};
@@ -27,7 +27,7 @@ const SEA_ENTRY_DELAY: i32 = 30;
 /// delay in this range is chosen per trip).
 const LAND_MOVE_DELAY: (i32, i32) = (1, 4);
 /// Ticks between a caravan's deals at a storage yard.
-const DEAL_TICKS: i32 = 10;
+const DEAL_TICKS: i32 = 11;
 /// Loads a caravan buys at most, and sells at most.
 const CARAVAN_LOADS: i32 = 8;
 /// Default prices (buy, sell) per load, used when a scenario has none.
@@ -244,21 +244,14 @@ impl World {
         self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD).map(|b| self.stored(b.id, r)).sum()
     }
 
-    /// A route's yearly allowance of `r`, moved up or down a step by Ra's favour.
+    /// A route's yearly allowance of `r`, moved by Ra's favour: one step up (anything
+    /// under 1500 becomes 1500) or one or more steps down through 4000, 2500, 1500 and
+    /// nothing. Other amounts pass unchanged except that a step up lifts them to 1500.
     pub fn trade_limit(&self, city: usize, r: u16) -> i32 {
         let Some(c) = self.trade.cities.get(city) else { return 0 };
         let base = self.trade.routes.get(c.route as usize).map_or(0, |rt| rt.limit[r as usize]);
-        if base <= 0 {
-            return 0;
-        }
-        const TIERS: [i32; 4] = [0, 1500, 2500, 4000];
-        let tier = TIERS.iter().position(|&t| t >= base).unwrap_or(3) as i32;
-        let bonus = match self.religion.ra_trade_boost {
-            b if b >= 2 => 0,
-            b => b,
-        };
-        let t = (tier + bonus).clamp(0, 3) as usize;
-        if bonus == 0 { base } else { TIERS[t] }
+        let bonus = if self.religion.ra_trade_boost >= 2 { 0 } else { self.religion.ra_trade_boost };
+        adjust_limit(base, bonus)
     }
 
     fn limit_reached(&self, city: usize, r: u16) -> bool {
@@ -315,7 +308,8 @@ impl World {
             status::IMPORT_AS_NEEDED => self.trade_level(r),
             _ => return false,
         };
-        c.sells[r as usize] && !self.limit_reached(city, r) && self.yards_stored(r) < want
+        // Nothing comes in while the treasury is 5000 or more in the red.
+        c.sells[r as usize] && self.treasury > -5000 && !self.limit_reached(city, r) && self.yards_stored(r) < want
     }
 
     /// Whether any trading city sells (or buys) `r`, and whether its route is open.
@@ -433,27 +427,46 @@ impl World {
                 self.caravan_arrives(i);
             }
         }
+        // Each open city counts down to its next trader: every fifth day by land, every
+        // 31st by sea. It may have as many traders out as the mean tier of its goods'
+        // allowances (1-3), and the countdown waits while they are all out. The count
+        // starts again even when trouble keeps the trader home. At most one trader
+        // enters a day.
         for city in 0..self.trade.cities.len() {
             let c = &self.trade.cities[city];
+            if !c.open || !c.trades() {
+                continue;
+            }
+            let tiers: Vec<i32> = (1..RESOURCES)
+                .filter(|&r| c.sells[r] || c.buys[r])
+                .map(|r| self.trade_limit(city, r as u16))
+                .filter(|&l| l > 0)
+                .map(|l| if l <= 1500 { 1 } else if l <= 2500 { 2 } else { 3 })
+                .collect();
+            let route = &self.trade.routes[c.route as usize];
+            if tiers.is_empty() || route.points.is_empty() {
+                continue;
+            }
+            let slots = ((tiers.iter().sum::<i32>() + tiers.len() as i32 - 1) / tiers.len() as i32).clamp(1, 3) as usize;
+            if self.trade.traders.iter().filter(|t| t.city == city && !t.returning).count() >= slots {
+                continue;
+            }
             // Ships need a working dock. Ra's wrath, storms, sandstorms and sieges keep
             // traders away.
             let troubled = c.siege_months > 0 || if c.sea { self.scenario_events.sea_problem_days > 0 } else { self.scenario_events.land_problem_days > 0 };
-            if !c.open || !c.trades() || (c.sea && !self.sea_trade_open()) || troubled || self.religion.ra_no_traders_months > 0 {
-                continue;
-            }
-            let route = &self.trade.routes[c.route as usize];
-            let any = (1..RESOURCES).any(|r| (c.sells[r] || c.buys[r]) && route.limit[r] > 0);
-            if !any || route.points.is_empty() || self.trade.traders.iter().any(|t| t.city == city) {
-                continue;
-            }
+            let blocked = (c.sea && !self.sea_trade_open()) || troubled || self.religion.ra_no_traders_months > 0;
             let c = &mut self.trade.cities[city];
             if c.entry_delay > 0 {
                 c.entry_delay -= 1;
                 continue;
             }
             c.entry_delay = if c.sea { SEA_ENTRY_DELAY } else { LAND_ENTRY_DELAY };
+            if blocked {
+                continue;
+            }
             let delay = LAND_MOVE_DELAY.0 + self.rng.byte() % (LAND_MOVE_DELAY.1 - LAND_MOVE_DELAY.0 + 1);
             self.trade.traders.push(EmpireTrader { city, delay, delay_max: delay, ..Default::default() });
+            break;
         }
     }
 
@@ -499,23 +512,36 @@ impl World {
         self.trade.traders.get(f.target as usize).map(|t| t.city)
     }
 
-    /// Picks the storage yard a caravan deals with next, preferring near yards that
-    /// hold goods it can buy or have room for goods it sells.
+    /// Picks the storage yard a caravan deals with next: of the yards it could buy from
+    /// or sell to, the one nearest after a penalty of 32, less 4 for each space holding
+    /// a good it buys and, when it has goods to sell, 16 for each empty space and 8 for
+    /// each space holding under 400 of the good it sells next. Yards left at 32 or
+    /// more are passed over.
     fn caravan_next_yard(&mut self, fid: FigureId, not: Option<BuildingId>) {
         let Some(city) = self.trader_city(fid) else { return };
         let Some(f) = self.figures.get(fid) else { return };
         let from = (f.x, f.y);
         let exports: Vec<u16> = (1..RESOURCES as u16).filter(|&r| self.can_export(city, r)).collect();
         let imports: Vec<u16> = (1..RESOURCES as u16).filter(|&r| self.can_import(city, r)).collect();
+        let next = self.next_import_for(city);
         let best = self
             .buildings
             .iter()
             .filter(|b| b.kind == kind::STORAGE_YARD && b.road.is_some() && Some(b.id) != not)
+            .filter(|b| exports.iter().any(|&r| self.stored(b.id, r) >= LOAD) || imports.iter().any(|&r| self.storage_room(b.id, r) >= LOAD))
             .filter_map(|b| {
                 let mut penalty = 32;
-                penalty -= 4 * exports.iter().filter(|&&r| self.stored(b.id, r) >= LOAD).count() as i32;
-                if imports.iter().any(|&r| self.storage_room(b.id, r) >= LOAD) {
-                    penalty -= 16;
+                for &(r, n) in &b.spaces {
+                    if n > 0 && exports.contains(&r) {
+                        penalty -= 4;
+                    }
+                    if !imports.is_empty() {
+                        if n == 0 {
+                            penalty -= 16;
+                        } else if Some(r) == next && n < crate::storage::SPACE_UNITS {
+                            penalty -= 8;
+                        }
+                    }
                 }
                 (penalty < 32).then(|| ((b.x - from.0).abs().max((b.y - from.1).abs()) + penalty, b.id))
             })
@@ -570,8 +596,17 @@ impl World {
         }
     }
 
+    /// The good caravans from `city` would sell us next: the first importable one from
+    /// the rotation onward.
+    fn next_import_for(&self, city: usize) -> Option<u16> {
+        let start = self.trade.next_import.max(1) as usize;
+        (0..RESOURCES - 1).map(|i| (1 + (start - 1 + i) % (RESOURCES - 1)) as u16).find(|&r| self.can_import(city, r))
+    }
+
     /// One round of dealing at a yard: buy a load, then sell a load. False if neither
-    /// was possible.
+    /// was possible. The caravan buys the good in the last of the yard's spaces holding
+    /// one it wants (nothing if any of them is down to its last part load), and sells
+    /// the goods it has in turn, a load of each, the rotation moving on each sale.
     fn caravan_deal(&mut self, fid: FigureId, yard: BuildingId) -> bool {
         let Some(city) = self.trader_city(fid) else { return false };
         let Some(f) = self.figures.get(fid) else { return false };
@@ -579,8 +614,22 @@ impl World {
         let (capacity, bought, sold) = (f.roam_left, f.amount, f.cargo as i32 * LOAD);
         let route = self.trade.cities[city].route as usize;
         let mut dealt = false;
+        let wanted = || {
+            let spaces = self.buildings.get(yard).map_or_else(Vec::new, |b| b.spaces.clone());
+            let mut pick = None;
+            for (r, n) in spaces {
+                if n <= 0 || !self.can_export(city, r) {
+                    continue;
+                }
+                if self.stored(yard, r) < LOAD {
+                    return None;
+                }
+                pick = Some(r);
+            }
+            pick
+        };
         if bought + LOAD <= capacity
-            && let Some(r) = (1..RESOURCES as u16).find(|&r| self.can_export(city, r) && self.stored(yard, r) >= LOAD)
+            && let Some(r) = wanted()
         {
             self.take_stored(yard, r, LOAD);
             let price = self.sell_price(r);
@@ -598,7 +647,7 @@ impl World {
         if sold + LOAD <= capacity
             && let Some(r) = turn.find(|&r| self.can_import(city, r) && self.storage_room(yard, r) >= LOAD)
         {
-            self.trade.next_import = r;
+            self.trade.next_import = 1 + r % (RESOURCES as u16 - 1);
             self.add_stored(yard, r, LOAD);
             let price = self.buy_price(r);
             self.treasury -= price;
@@ -646,5 +695,29 @@ impl World {
         for r in &mut self.trade.routes {
             r.traded.iter_mut().for_each(|t| *t = 0);
         }
+    }
+}
+
+/// The original's Ra adjustment of a yearly allowance (units) by `bonus` steps.
+fn adjust_limit(base: i32, bonus: i32) -> i32 {
+    match bonus {
+        1 => match base {
+            1500 => 2500,
+            2500 | 4000 => 4000,
+            b if b < 1500 => 1500,
+            b => b,
+        },
+        -1 => match base {
+            4000 => 2500,
+            2500 => 1500,
+            1500 => 0,
+            b => b,
+        },
+        b if b <= -2 => match base {
+            4000 => 1500,
+            2500 | 1500 => 0,
+            b => b,
+        },
+        _ => base,
     }
 }
