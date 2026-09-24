@@ -884,7 +884,7 @@ impl Game {
                 self.set_autosave(on);
                 self.autosave_changed = true;
             }
-            MenuAction::Sound => self.sound_window = Some(crate::sound_options::SoundWindow::new(self.sound_prefs)),
+            MenuAction::Sound => self.sound_window = Some(crate::sound_options::SoundWindow),
             MenuAction::Difficulty => {
                 self.difficulty_panel = true;
                 self.sound("BUTTON.WAV");
@@ -1637,22 +1637,14 @@ impl Game {
         let click = self.sound_click.take();
         match w.draw(r, &self.images.panels, img, &self.text, self.cursor, click, &mut self.sound_prefs, self.audio.as_deref()) {
             crate::sound_options::Outcome::Open => {}
-            crate::sound_options::Outcome::Keep => {
-                self.sound_window = None;
-                self.sound_changed = true;
-            }
-            crate::sound_options::Outcome::Cancelled => self.sound_window = None,
+            crate::sound_options::Outcome::Changed => self.sound_changed = true,
+            crate::sound_options::Outcome::Closed => self.sound_window = None,
         }
     }
 
-    /// Closes the Sound options window as Cancel does; whether it was open.
+    /// Closes the Sound options window; whether it was open.
     fn cancel_sound_window(&mut self) -> bool {
-        let Some(w) = self.sound_window.take() else { return false };
-        self.sound_prefs = w.before();
-        if let Some(a) = &self.audio {
-            self.sound_prefs.apply(a);
-        }
-        true
+        self.sound_window.take().is_some()
     }
 
     /// The original's Difficulty window (Options menu): the level between arrows. A

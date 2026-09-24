@@ -1,9 +1,10 @@
 //! Sound options, as the original's window (Options > Sound, text group 46): music,
 //! speech, sound effects and city sounds, each switched on or off by its button and
-//! set between quiet and loud with a pair of arrows. OK keeps the changes, Cancel
-//! puts back what was set when the window opened. The settings are the player's,
-//! kept in the user folder (`sound.txt`) for every game, and the window also opens
-//! from the family menu (the original only has it in the city).
+//! set between quiet and loud with a pair of arrows. Unlike the original there is
+//! no Cancel: every change is heard and saved at once, and OK (or a click outside,
+//! or a right-click) closes the window. The settings are the player's, kept in the
+//! user folder (`sound.txt`) for every game, and the window also opens from the
+//! family menu (the original only has it in the city).
 
 use crate::widgets::{Ui, UiImages};
 use osiris_audio::Audio;
@@ -28,10 +29,10 @@ pub struct SoundPrefs {
 }
 
 impl Default for SoundPrefs {
-    /// Music starts well below the rest, which it otherwise drowns.
+    /// Quiet to start with; music lowest, as it otherwise drowns the rest.
     fn default() -> Self {
         let on = |volume| Channel { on: true, volume };
-        Self { music: on(35), speech: on(100), effects: on(80), city: on(80) }
+        Self { music: on(20), speech: on(60), effects: on(40), city: on(40) }
     }
 }
 
@@ -78,33 +79,22 @@ impl SoundPrefs {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Outcome {
     Open,
-    /// Closed with OK: store the settings.
-    Keep,
-    /// Closed with Cancel: the settings are back as they were.
-    Cancelled,
+    /// The settings changed: store them.
+    Changed,
+    Closed,
 }
 
-/// The open window, holding the settings it opened with for Cancel.
-pub struct SoundWindow {
-    before: SoundPrefs,
-}
+/// The open window.
+pub struct SoundWindow;
 
 /// Window size in 16-pixel panel blocks.
 const W: i32 = 24;
 const H: i32 = 18;
 
 impl SoundWindow {
-    pub fn new(prefs: SoundPrefs) -> Self {
-        Self { before: prefs }
-    }
-
-    /// The settings the window opened with.
-    pub fn before(&self) -> SoundPrefs {
-        self.before
-    }
-
     /// Draws the window centred on the screen and handles `click`. Changes apply to
-    /// `prefs` (and the sound) at once, so the player hears them.
+    /// `prefs` (and the sound) at once, so the player hears them; a click outside the
+    /// window closes it.
     #[allow(clippy::too_many_arguments)]
     pub fn draw(&mut self, r: &mut Renderer, panels: &PanelImages, img: UiImages, text: &TextTable, cursor: [f32; 2], click: Option<[f32; 2]>, prefs: &mut SoundPrefs, audio: Option<&Audio>) -> Outcome {
         let (w, h) = (W as f32 * 16.0, H as f32 * 16.0);
@@ -135,23 +125,18 @@ impl SoundWindow {
             }
             ui.label(Font::SmallPlain, &format!("{}%", c.volume), x + 326.0, ry + 4.0);
         }
-        let ok = [x + w / 2.0 - 40.0, y + h - 40.0 - 12.0, 34.0, 34.0];
-        let cancel = [x + w / 2.0 + 20.0, y + h - 40.0 - 12.0, 34.0, 34.0];
-        let keep = ui.image_button(img.ok_cancel + ui.hot(ok) as u32, ok[0], ok[1], ok[2], ok[3]);
-        let back = ui.image_button(img.ok_cancel + 4 + ui.hot(cancel) as u32, cancel[0], cancel[1], cancel[2], cancel[3]);
-        if back {
-            *prefs = self.before;
-        }
-        if (*prefs != before || back)
-            && let Some(a) = audio
-        {
+        let ok = [x + (w - 34.0) / 2.0, y + h - 52.0, 34.0, 34.0];
+        let close = ui.image_button(img.ok_cancel + ui.hot(ok) as u32, ok[0], ok[1], ok[2], ok[3]);
+        let outside = ui.click.is_some_and(|[cx, cy]| cx < x || cy < y || cx >= x + w || cy >= y + h);
+        let changed = *prefs != before;
+        if changed && let Some(a) = audio {
             prefs.apply(a);
             a.play_effect("BUTTON.WAV");
         }
-        if keep {
-            Outcome::Keep
-        } else if back {
-            Outcome::Cancelled
+        if close || outside {
+            Outcome::Closed
+        } else if changed {
+            Outcome::Changed
         } else {
             Outcome::Open
         }

@@ -515,7 +515,7 @@ impl App {
         let c = self.assets.campaign.clone();
         let result = match &choice {
             menu::Choice::Sound => {
-                self.sound_window = Some(sound_options::SoundWindow::new(self.sound));
+                self.sound_window = Some(sound_options::SoundWindow);
                 return;
             }
             menu::Choice::Quit => {
@@ -959,14 +959,7 @@ impl ApplicationHandler for App {
                 match &mut self.screen {
                     Some(Screen::Menu(_)) if self.sound_window.is_some() => match (button, state) {
                         (MouseButton::Left, ElementState::Pressed) => self.sound_click = Some(at),
-                        (MouseButton::Right, ElementState::Pressed) => {
-                            if let Some(w) = self.sound_window.take() {
-                                self.sound = w.before();
-                                if let Some(a) = &self.audio {
-                                    self.sound.apply(a);
-                                }
-                            }
-                        }
+                        (MouseButton::Right, ElementState::Pressed) => self.sound_window = None,
                         _ => {}
                     },
                     Some(Screen::Menu(m)) => match (button, state) {
@@ -1078,11 +1071,8 @@ impl App {
                             let img = crate::widgets::UiImages::load(&r.library).expect("ui images");
                             match w.draw(r, p, img, &text, cursor, click, sound, audio) {
                                 sound_options::Outcome::Open => {}
-                                sound_options::Outcome::Keep => {
-                                    sound.save(&user_dir());
-                                    *window = None;
-                                }
-                                sound_options::Outcome::Cancelled => *window = None,
+                                sound_options::Outcome::Changed => sound.save(&user_dir()),
+                                sound_options::Outcome::Closed => *window = None,
                             }
                         }
                     }
@@ -1412,7 +1402,7 @@ fn run(mut args: Args) -> Result<()> {
             game.empire = Some(e);
         }
         if view.sound {
-            game.sound_window = Some(sound_options::SoundWindow::new(game.sound_prefs));
+            game.sound_window = Some(sound_options::SoundWindow);
         }
         if view.difficulty {
             game.difficulty_panel = true;
