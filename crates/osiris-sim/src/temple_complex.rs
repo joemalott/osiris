@@ -55,6 +55,11 @@ pub fn complex_god(k: u16) -> Option<usize> {
     is_complex(k).then(|| (k - OSIRIS_COMPLEX) as usize)
 }
 
+/// The god and upgrade bit of an altar or oracle tool.
+pub fn upgrade_of(k: u16) -> Option<(usize, u8)> {
+    UPGRADES.iter().find(|u| u.0 == k).map(|u| (u.1, u.2))
+}
+
 pub fn is_upgrade(k: u16) -> bool {
     UPGRADES.iter().any(|u| u.0 == k)
 }

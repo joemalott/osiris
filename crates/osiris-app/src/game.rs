@@ -373,6 +373,12 @@ impl Game {
     }
 
     fn building_name(&self, k: u16) -> String {
+        // "Altar of Sebek", "Oracle of Min" and the rest, two to a god.
+        if let Some((god, bit)) = osiris_sim::temple_complex::upgrade_of(k)
+            && let Some(name) = self.text.get(189, god * 2 + usize::from(bit == osiris_sim::temple_complex::ORACLE))
+        {
+            return name.to_owned();
+        }
         self.text
             .get(TEXT_BUILDING_NAMES, k as usize)
             .map(str::to_owned)
