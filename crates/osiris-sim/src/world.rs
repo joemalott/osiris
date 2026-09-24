@@ -58,7 +58,7 @@ pub enum Outcome {
     Invalid(&'static str),
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct World {
     pub map: Map,
     pub time: GameTime,

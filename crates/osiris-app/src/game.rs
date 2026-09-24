@@ -10,12 +10,17 @@ use crate::info::InfoPanel;
 use crate::minimap::Minimap;
 use osiris_audio::Audio;
 use osiris_formats::{Message, MessageTable, TextTable};
-use osiris_render::Renderer;
+use osiris_render::{Paint, Renderer};
 use osiris_sim::buildings::kind;
+use osiris_sim::placement::GhostImage;
 use osiris_sim::{Command, Outcome, World};
 use osiris_ui::dialog::MessageDialog;
 use osiris_ui::{Font, draw_text, font};
 use std::sync::Arc;
+
+/// What a placement ghost was worked out for: the tool, where it goes, the statue
+/// and gatehouse choices, and the day (the city under it may have changed since).
+type GhostKey = (u16, i32, i32, u8, u8, u8, u64);
 
 /// Game speeds in percent. Up to 100% these follow the original's ladder; above it
 /// they are multiples of normal speed, up to 200x.
@@ -107,6 +112,8 @@ pub struct Game {
     pub paused: bool,
     pub sidebar: Sidebar,
     cart_images: Option<crate::anims::CartImages>,
+    /// The held building's ghost, and what it was worked out for.
+    ghost: Option<(GhostKey, Vec<GhostImage>)>,
     images: SidebarImages,
     text: Arc<TextTable>,
     entries: Vec<Entry>,
@@ -179,6 +186,7 @@ impl Game {
             paused: false,
             sidebar: Sidebar::default(),
             cart_images: None,
+            ghost: None,
             images,
             text,
             entries: Vec::new(),
@@ -324,6 +332,7 @@ impl Game {
                 w.rules = self.world.rules.clone();
                 self.world = w;
                 self.map_changed = true;
+                self.ghost = None;
             }
             Err(e) => self.say(&e),
         }
@@ -822,16 +831,13 @@ impl Game {
         self.show_overlay(last);
     }
 
-    /// Taking up a statue tool picks one of its looks at random, facing the viewer; a
+    /// Taking up a statue tool starts at its first look, facing the viewer; a
     /// gatehouse starts at facing 1, as in the original.
     fn pick_statue_look(&mut self, k: u16) {
         if k == osiris_sim::defenses::GATEHOUSE {
             self.world.gatehouse_facing = 1;
         }
-        let Some(d) = self.world.defs.building(k).filter(|d| d.has_flag("is_statue")) else { return };
-        let n = d.variants.len().max(1) as u128;
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |t| t.as_nanos());
-        self.world.statue_variant = (nanos / 1000 % n) as u8;
+        self.world.statue_variant = 0;
         self.world.statue_facing = 1;
     }
 
@@ -839,22 +845,29 @@ impl Game {
         matches!(self.tool, Tool::Build(k) if self.world.defs.building(k).is_some_and(|d| d.has_flag("is_statue")))
     }
 
-    /// R while holding a statue: turn it a quarter; while holding a gatehouse: turn
-    /// it across the other way.
+    /// R while holding a statue: its next look, and after the last look the first
+    /// one turned a quarter (the original's one counter through all sixteen);
+    /// while holding a gatehouse: turn it across the other way.
     pub fn rotate_statue(&mut self) {
-        if self.holding_statue() {
-            self.world.statue_facing = (self.world.statue_facing + 1) % 4;
+        if let Tool::Build(k) = self.tool
+            && let Some(n) = self.world.defs.building(k).filter(|d| d.has_flag("is_statue")).map(|d| d.variants.len().max(1))
+        {
+            self.world.statue_variant = ((self.world.statue_variant as usize + 1) % n) as u8;
+            if self.world.statue_variant == 0 {
+                self.world.statue_facing = (self.world.statue_facing + 1) % 4;
+            }
         }
         if self.tool == Tool::Build(osiris_sim::defenses::GATEHOUSE) {
             self.world.gatehouse_facing ^= 1;
         }
     }
 
-    /// Ctrl+R while holding a statue: its next look.
-    pub fn next_statue_look(&mut self) {
-        let Tool::Build(k) = self.tool else { return };
-        let Some(n) = self.world.defs.building(k).filter(|d| d.has_flag("is_statue")).map(|d| d.variants.len().max(1)) else { return };
-        self.world.statue_variant = ((self.world.statue_variant as usize + 1) % n) as u8;
+    /// Ctrl+R while holding a statue: turn it a quarter, keeping its look. Not in
+    /// the original (only R, through every look before each turn).
+    pub fn turn_statue(&mut self) {
+        if self.holding_statue() {
+            self.world.statue_facing = (self.world.statue_facing + 1) % 4;
+        }
     }
 
     /// Picks up building `k` as the tool, if this mission allows it.
@@ -941,6 +954,7 @@ impl Game {
         }
         if let Some(cmd) = self.pending_command() {
             let snapshot = self.world.save().ok();
+            self.ghost = None;
             match self.world.apply(&cmd) {
                 Outcome::NotEnoughMoney => self.say("Not enough money"),
                 Outcome::Blocked => self.say("Can't build there"),
@@ -1044,22 +1058,26 @@ impl Game {
         self.message = Some((text.to_owned(), 3.0));
     }
 
-    /// The tiles to mark under the cursor, what the held tool would cost, and (for a
-    /// building that can't go there) why not. A building's tiles come from the
-    /// simulation's placement preview, each green where it may go and red where it
-    /// blocks, so what shows green is what builds.
-    fn highlights(&mut self) -> (Vec<Highlight>, Option<i32>, Option<&'static str>) {
-        let ok = [0.3, 1.0, 0.3, 0.45];
-        let bad = [1.0, 0.2, 0.2, 0.45];
+    /// The tiles to mark under the cursor, the held building's ghost, what the held
+    /// tool would cost, and (for a building that can't go there) why not. As in the
+    /// original, a building that may go where the cursor is shows its ghost, tinted
+    /// green; otherwise its tiles from the simulation's placement preview, each
+    /// green where it may go and red where it blocks, so what shows green is what
+    /// builds. Houses, roads and the like show only tiles.
+    fn highlights(&mut self) -> (Vec<Highlight>, Vec<GhostImage>, Option<i32>, Option<&'static str>) {
+        let ok = Paint::Filter(city_view::PLACE_OK);
+        let bad = Paint::Filter(city_view::PLACE_BAD);
+        let mark = |(x, y): (i32, i32), paint: Paint| Highlight { x, y, color: osiris_render::WHITE, paint };
         let Some(cmd) = self.pending_command() else {
-            let mut tiles: Vec<Highlight> = self.hover.map(|(x, y)| Highlight { x, y, color: [1.0, 1.0, 1.0, 0.25] }).into_iter().collect();
+            let tint = |(x, y): (i32, i32), color: [f32; 4]| Highlight { x, y, color, paint: Paint::Silhouette };
+            let mut tiles: Vec<Highlight> = self.hover.map(|t| tint(t, [1.0, 1.0, 1.0, 0.25])).into_iter().collect();
             // The selected company's soldiers.
             if let Some(c) = self.selected_company.and_then(|c| self.world.military.companies.get(c)) {
                 for f in c.soldiers.iter().filter_map(|&s| self.world.figures.get(s)) {
-                    tiles.push(Highlight { x: f.x, y: f.y, color: [1.0, 0.85, 0.2, 0.35] });
+                    tiles.push(tint((f.x, f.y), [1.0, 0.85, 0.2, 0.35]));
                 }
             }
-            return (tiles, None, None);
+            return (tiles, Vec::new(), None, None);
         };
         let est = self.world.estimate(&cmd);
         let cost = match est {
@@ -1067,7 +1085,7 @@ impl Game {
             _ => None,
         };
         let affordable = cost.is_some_and(|c| c <= self.world.treasury);
-        let color = if affordable { ok } else { bad };
+        let paint = if affordable { ok } else { bad };
         let rect = |x0: i32, y0: i32, x1: i32, y1: i32| {
             let mut v = Vec::new();
             for y in y0.min(y1)..=y0.max(y1) {
@@ -1083,24 +1101,49 @@ impl Game {
             Command::Build { kind: k, x, y, x1, y1 } if k == kind::VACANT_LOT => rect(x, y, x1, y1),
             Command::Build { kind: k, x, y, x1, y1 } if k == osiris_sim::defenses::WALL => self.world.wall_sites(x, y, x1, y1),
             Command::Build { kind: k, x, y, x1, y1 } if k == osiris_sim::irrigation::DITCH => self.world.ditch_path((x, y), (x1, y1)).unwrap_or_else(|| vec![(x1, y1)]),
-            Command::Build { kind: k, x, y, .. } if osiris_sim::temple_complex::is_upgrade(k) => vec![(x, y)],
+            Command::Build { kind: k, x, y, .. } if osiris_sim::temple_complex::is_upgrade(k) => {
+                // An altar or oracle goes in its fixed place on the complex under the
+                // cursor; anywhere else the original shows three tiles square in red.
+                if affordable {
+                    return (Vec::new(), self.ghost(k, x, y), cost, None);
+                }
+                let why = match est {
+                    Outcome::Invalid(why) => Some(why),
+                    _ => Some("Not enough money"),
+                };
+                return (rect(x - 1, y - 1, x + 1, y + 1).into_iter().map(|t| mark(t, bad)).collect(), Vec::new(), cost, why);
+            }
             Command::Build { kind: k, x, y, .. } => {
                 let preview = self.world.placement_preview(k, x, y);
                 // Money only matters once the ground will do.
                 let poor = preview.result.is_ok() && !affordable;
                 let why = preview.result.err().or(poor.then_some("Not enough money"));
-                // The tiles that themselves break a rule are the deepest red.
-                let culprit = [1.0, 0.0, 0.0, 0.6];
-                let color = |t: &osiris_sim::placement::PreviewTile| match (t.blocked, t.red || poor) {
-                    (Some(_), _) => culprit,
-                    (None, true) => bad,
-                    (None, false) => ok,
-                };
-                let marks = preview.tiles.iter().map(|t| Highlight { x: t.x, y: t.y, color: color(t) }).collect();
-                return (marks, cost, why);
+                if why.is_none() && self.world.has_ghost(k) {
+                    let ghost = self.ghost(k, x, y);
+                    if !ghost.is_empty() {
+                        return (Vec::new(), ghost, cost, None);
+                    }
+                }
+                let marks = preview.tiles.iter().map(|t| mark((t.x, t.y), if t.red || poor { bad } else { ok })).collect();
+                return (marks, Vec::new(), cost, why);
             }
         };
-        (tiles.into_iter().map(|(x, y)| Highlight { x, y, color }).collect(), cost, None)
+        (tiles.into_iter().map(|t| mark(t, paint)).collect(), Vec::new(), cost, None)
+    }
+
+    /// The ghost of building `k` placed at `(x, y)`, worked out again only when
+    /// something it depends on changes.
+    fn ghost(&mut self, k: u16, x: i32, y: i32) -> Vec<GhostImage> {
+        let w = &self.world;
+        let key = (k, x, y, w.statue_variant, w.statue_facing, w.gatehouse_facing, w.time.total_ticks / 51);
+        match &self.ghost {
+            Some((have, images)) if *have == key => images.clone(),
+            _ => {
+                let images = w.placement_ghost(k, x, y);
+                self.ghost = Some((key, images.clone()));
+                images
+            }
+        }
     }
 
     fn sprites(&mut self, r: &Renderer) -> Vec<Sprite> {
@@ -1234,7 +1277,7 @@ impl Game {
             }
             return;
         }
-        let (marks, cost, why) = self.highlights();
+        let (marks, ghost, cost, why) = self.highlights();
         let marker = self.world.defs.terrain.empty_land;
         let sprites = self.sprites(r);
         let overlays = if self.view_overlay.is_some() { Vec::new() } else { self.overlays(r) };
@@ -1255,7 +1298,7 @@ impl Game {
                 })
                 .collect(),
         });
-        self.view.draw(r, &self.world.map, &marks, marker, &sprites, &overlays, draw.as_ref());
+        self.view.draw(r, &self.world.map, &marks, &ghost, marker, &sprites, &overlays, draw.as_ref());
         self.draw_overlay(r, cost, why);
     }
 

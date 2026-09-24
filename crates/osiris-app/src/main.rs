@@ -819,7 +819,7 @@ fn key_pressed(g: &mut game::Game, code: KeyCode, ctrl: bool) {
         (KeyCode::KeyM, false) => g.try_tool(kind::BAZAAR),
         (KeyCode::KeyT, false) => g.try_tool(kind::WATER_SUPPLY),
         (KeyCode::KeyR, false) => g.rotate_statue(),
-        (KeyCode::KeyR, true) => g.next_statue_look(),
+        (KeyCode::KeyR, true) => g.turn_statue(),
         _ => {}
     }
 }

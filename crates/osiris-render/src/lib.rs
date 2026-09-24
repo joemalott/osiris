@@ -38,6 +38,8 @@ enum PageSource {
 
 struct Batch {
     source: PageSource,
+    /// Drawn with the multiplying pipeline ([`Paint::Filter`]).
+    multiply: bool,
     clip: Option<[f32; 4]>,
     start: u32,
     end: u32,
@@ -90,6 +92,23 @@ pub enum Paint {
     Normal,
     /// Only the texture's shape is kept, filled with the tint colour.
     Silhouette,
+    /// Texture colours with each 5-6-5 channel ANDed with the bits of a 16-bit
+    /// colour, as the original tints a building's placement ghost (0x1fe3 keeps
+    /// only green).
+    Masked(u16),
+    /// Only the texture's shape is kept, and what is already drawn under it keeps
+    /// only the bits of a 16-bit 5-6-5 colour, as the original marks placement tiles.
+    /// A channel the mask cuts to its low bits is darkened to what those bits hold
+    /// on average (a multiply; the original ANDs the screen's pixels).
+    Filter(u16),
+}
+
+impl Paint {
+    /// The multiply factor per channel that stands in for ANDing with `mask`.
+    fn filter_tint(mask: u16) -> [f32; 4] {
+        let keep = |bits: u16, max: u16| if bits == max { 1.0 } else { bits as f32 / max as f32 / 2.0 };
+        [keep(mask >> 11, 31), keep(mask >> 5 & 63, 63), keep(mask & 31, 31), 1.0]
+    }
 }
 
 pub const WHITE: [f32; 4] = [1.0; 4];
@@ -98,6 +117,8 @@ pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
+    /// Multiplies what is drawn by the fragment colour.
+    multiply_pipeline: wgpu::RenderPipeline,
     globals: wgpu::Buffer,
     globals_bind: wgpu::BindGroup,
     page_layout: wgpu::BindGroupLayout,
@@ -184,7 +205,7 @@ impl Renderer {
         let attrs = wgpu::vertex_attr_array![
             0 => Float32x2, 1 => Float32x2, 2 => Float32x2, 3 => Float32x2, 4 => Float32x4, 5 => Uint32
         ];
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let make_pipeline = |blend: wgpu::BlendState| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("sprite"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -203,7 +224,7 @@ impl Renderer {
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(blend),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -215,6 +236,11 @@ impl Renderer {
             multisample: Default::default(),
             multiview_mask: None,
             cache: None,
+        });
+        let pipeline = make_pipeline(wgpu::BlendState::ALPHA_BLENDING);
+        let multiply_pipeline = make_pipeline(wgpu::BlendState {
+            color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Dst, dst_factor: wgpu::BlendFactor::Zero, operation: wgpu::BlendOperation::Add },
+            alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("atlas"),
@@ -231,6 +257,7 @@ impl Renderer {
             device,
             queue,
             pipeline,
+            multiply_pipeline,
             globals,
             globals_bind,
             page_layout,
@@ -328,20 +355,29 @@ impl Renderer {
         space: Space,
         paint: Paint,
     ) {
+        // bit 0 screen space, 1 silhouette, 2 masked, 3 filter; bits 16-31 the mask.
+        let (mode, mask, color) = match paint {
+            Paint::Normal => (0, 0, color),
+            Paint::Silhouette => (2, 0, color),
+            Paint::Masked(m) => (4, m, color),
+            Paint::Filter(m) => (8, m, Paint::filter_tint(m)),
+        };
         let inst = Instance {
             pos,
             size,
             uv0,
             uv1,
             color,
-            flags: (space == Space::Screen) as u32 | ((paint == Paint::Silhouette) as u32) << 1,
+            flags: (space == Space::Screen) as u32 | mode | (mask as u32) << 16,
         };
+        let multiply = matches!(paint, Paint::Filter(_));
         let idx = self.instances.len() as u32;
         let clip = self.clip;
         match self.batches.last_mut() {
-            Some(b) if b.source == source && b.clip == clip => b.end = idx + 1,
+            Some(b) if b.source == source && b.clip == clip && b.multiply == multiply => b.end = idx + 1,
             _ => self.batches.push(Batch {
                 source,
+                multiply,
                 clip,
                 start: idx,
                 end: idx + 1,
@@ -593,10 +629,14 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.globals_bind, &[]);
             pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
+            let mut multiply = None;
             for b in &self.batches {
+                if multiply != Some(b.multiply) {
+                    pass.set_pipeline(if b.multiply { &self.multiply_pipeline } else { &self.pipeline });
+                    multiply = Some(b.multiply);
+                }
                 let bind_group = match b.source {
                     PageSource::Atlas(p) => &self.atlas.pages[p as usize].bind_group,
                     PageSource::Dynamic(p) => &self.dynamic[p as usize].bind_group,
