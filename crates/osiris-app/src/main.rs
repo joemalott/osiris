@@ -359,15 +359,12 @@ fn family_text(assets: &Assets) -> menu::FamilyText {
         back_button: t(292, 4),
         enter_name: t(31, 0),
         continue_button: t(13, 5),
-        cancel_button: t(12, 0),
         delete_title: t(5, 90),
         delete_body: t(5, 91),
         exists_title: t(5, 92),
         exists_body: t(5, 93),
         none_title: t(5, 94),
         none_body: t(5, 95),
-        yes: t(18, 1),
-        no: t(18, 0),
     }
 }
 
