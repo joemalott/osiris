@@ -299,7 +299,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let plagued = houses.iter().filter(|h| h.2 > 0).count();
                 let crime: i32 = houses.iter().map(|h| h.3).max().unwrap_or(0);
                 let wanderers: Vec<u16> = world.figures.iter().filter(|f| matches!(f.kind, 22 | 23 | 98)).map(|f| f.kind).collect();
-                eprintln!("  health {} target {} houses {} plagued {plagued} max crime {crime} sentiment {} wanderers {:?} treasury {}", world.ratings.health, world.ratings.health_target, houses.len(), world.sentiment, wanderers, world.treasury);
+                eprintln!("  health {} target {} houses {} plagued {plagued} max crime {crime} sentiment {} wanderers {:?} treasury {} migration {:?}", world.ratings.health, world.ratings.health_target, houses.len(), world.sentiment, wanderers, world.treasury, world.migration);
                 let log: Vec<&str> = world.notices.log.iter().map(|n| n.key.as_str()).filter(|k| k.contains("plague") || k.contains("disease") || k.contains("malaria") || k.contains("crime")).collect();
                 eprintln!("  log {log:?}");
             }
