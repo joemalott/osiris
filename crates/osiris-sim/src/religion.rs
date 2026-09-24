@@ -14,6 +14,9 @@ pub const RA: usize = 1;
 pub const PTAH: usize = 2;
 pub const SETH: usize = 3;
 pub const BAST: usize = 4;
+/// The five gods' names, by index, for messages outside the game's own text (the
+/// cheat box's "god not worshipped" feedback; see `crate::cheats`).
+pub const NAMES: [&str; GODS] = ["Osiris", "Ra", "Ptah", "Seth", "Bast"];
 
 pub mod status {
     pub const UNKNOWN: u8 = 0;
@@ -263,13 +266,24 @@ impl World {
         self.rng.below(2) == 1
     }
 
-    /// Makes god `god` bless or curse the city now (for testing).
+    /// Makes god `god` bless or curse the city now: for testing, and the original's
+    /// per-god cheat codes (see `cheats.rs`), which just ask for one of these on the
+    /// spot rather than waiting on the god's mood.
     pub fn god_acts_now(&mut self, god: usize, blessing: bool, major: bool) {
         if blessing {
             self.bless(god, major);
         } else {
             self.curse(god, major);
         }
+    }
+
+    /// "Fury of Seth": sends every warship, transport and fishing boat to the bottom.
+    /// Unlike the per-god cheats above, the original doesn't gate this one on Seth
+    /// being worshipped, so it calls the same effect `curse(SETH, true)` can pick
+    /// directly rather than going through `god_acts_now`.
+    pub fn fury_of_seth(&mut self) {
+        self.sink_boats();
+        self.post("message_wrath_of_seth", None, true);
     }
 
     fn bless(&mut self, god: usize, major: bool) {
@@ -331,16 +345,20 @@ impl World {
                 "message_blessing_from_bast"
             }
             _ => {
-                // Bast throws a festival of her own, at once. It takes the place of
-                // any festival being prepared.
-                self.religion.festival = Some(PlannedFestival { god: OSIRIS, size: BAST_FESTIVAL, months_left: 1 });
-                self.religion.festival_slots.0 = 1;
-                self.post("message_small_blessing_from_bast", None, true);
-                self.update_festival_month();
+                self.bast_festival_now();
                 return;
             }
         };
         self.post(key, None, true);
+    }
+
+    /// Bast's minor blessing: she throws a festival of her own, at once, taking the
+    /// place of any festival being prepared. Also the original's "Meow" cheat.
+    pub fn bast_festival_now(&mut self) {
+        self.religion.festival = Some(PlannedFestival { god: OSIRIS, size: BAST_FESTIVAL, months_left: 1 });
+        self.religion.festival_slots.0 = 1;
+        self.post("message_small_blessing_from_bast", None, true);
+        self.update_festival_month();
     }
 
     fn curse(&mut self, god: usize, major: bool) {
@@ -460,8 +478,8 @@ impl World {
 
     /// Ptah's great blessing: of the storage yards holding any of his goods, the one
     /// holding the least has the good it holds least of topped up to its limit.
-    /// False if no yard holds any.
-    fn ptah_fills_yard(&mut self) -> bool {
+    /// False if no yard holds any. Also the original's "Supreme Craftsman" cheat.
+    pub fn ptah_fills_yard(&mut self) -> bool {
         let held = |w: &World, id: BuildingId| PTAH_GOODS.iter().map(|&r| w.stored(id, r)).sum::<i32>();
         let mut best: Option<(i32, BuildingId)> = None;
         for b in self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD) {
@@ -486,8 +504,9 @@ impl World {
     }
 
     /// Ptah's minor blessing: every shipwright, weaver or jeweller (one kind, picked
-    /// among those the city has) is stocked with 200 of its material.
-    fn ptah_stocks_workshops(&mut self) {
+    /// among those the city has) is stocked with 200 of its material. Also the
+    /// original's "Noble Djed" cheat.
+    pub fn ptah_stocks_workshops(&mut self) {
         let present: Vec<(u16, u16)> = PTAH_WORKSHOPS.into_iter().filter(|&(k, _)| self.buildings.iter().any(|b| b.kind == k)).collect();
         if present.is_empty() {
             return;
@@ -502,8 +521,8 @@ impl World {
     }
 
     /// Ptah's wrath: every building of one kind of industry, picked among those the
-    /// city has, burns. False if it has none.
-    fn ptah_razes_industry(&mut self) -> bool {
+    /// city has, burns. False if it has none. Also the original's "Big Dave" cheat.
+    pub fn ptah_razes_industry(&mut self) -> bool {
         let present: Vec<u16> = PTAH_INDUSTRIES.into_iter().filter(|&k| self.buildings.iter().any(|b| b.kind == k)).collect();
         if present.is_empty() {
             return false;
@@ -594,8 +613,8 @@ impl World {
     /// Bast's great blessing: every house's food and goods are filled up (food to six
     /// meals a head, goods to twice its level's need), and every bazaar's stock is
     /// doubled or raised to 800 grain, 600 of other foods and 400 of goods. Only what
-    /// is already there is filled.
-    fn bast_bounty(&mut self) {
+    /// is already there is filled. Also the original's "Cat Nip" cheat.
+    pub fn bast_bounty(&mut self) {
         let houses = self.balance.houses.clone();
         for b in self.buildings.iter_mut() {
             let big = b.size > 1;

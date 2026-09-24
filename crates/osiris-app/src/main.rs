@@ -330,6 +330,22 @@ fn save_progress(p: &progress::Progress, family: &str) {
     let _ = std::fs::write(family_progress_path(family), p.to_text());
 }
 
+/// The "Unlock All Missions" cheat (not in the original): plays the whole campaign
+/// through on paper, taking the first choice at every fork, so every mission on that
+/// route is marked won and can be started from the main menu.
+fn unlock_all_missions(p: &mut progress::Progress, c: &Campaign) {
+    loop {
+        match p.next.clone() {
+            progress::Next::Mission(m) => p.won(c, m),
+            progress::Next::Choice(_) => {
+                let Some(path) = p.choice(c).and_then(|(_, choices)| choices.first().map(|ch| ch.path_id)) else { break };
+                p.choose(c, path);
+            }
+            progress::Next::End => break,
+        }
+    }
+}
+
 /// The family pages' text, resolved from `Pharaoh_Text.eng` (group numbers are the
 /// original's own).
 fn family_text(assets: &Assets) -> menu::FamilyText {
@@ -856,15 +872,46 @@ impl ApplicationHandler for App {
                             }
                         }
                         Some(Screen::Menu(m)) if code == KeyCode::Escape => m.back(),
+                        // The original's cheat box (Ctrl+Alt+C): typed keys go to it
+                        // while it's open, as the family name box does in the menu.
+                        Some(Screen::Playing(g, _)) if g.wants_cheat_text() => {
+                            let text = match code {
+                                KeyCode::Backspace => Some("\u{8}".to_owned()),
+                                KeyCode::Enter | KeyCode::NumpadEnter => Some("\n".to_owned()),
+                                KeyCode::Escape => {
+                                    g.cancel_cheat_entry();
+                                    None
+                                }
+                                _ => event.text.as_ref().map(|t| t.to_string()),
+                            };
+                            if let Some(t) = text {
+                                g.type_cheat_text(&t);
+                            }
+                        }
                         Some(Screen::Playing(g, _)) if code == KeyCode::Escape && g.idle() => g.ask_to_leave(top_menu::MenuAction::MainMenu),
                         Some(Screen::Playing(g, _)) => {
                             let ctrl = [KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::SuperLeft, KeyCode::SuperRight]
                                 .iter()
                                 .any(|k| self.keys.contains(k));
-                            key_pressed(g, code, ctrl);
+                            let alt = [KeyCode::AltLeft, KeyCode::AltRight].iter().any(|k| self.keys.contains(k));
+                            if ctrl && alt && code == KeyCode::KeyC {
+                                g.toggle_cheat_entry();
+                            } else {
+                                key_pressed(g, code, ctrl);
+                            }
                         }
                         _ => {}
                     },
+                }
+                // "Unlock All Missions" (not in the original): touches the saved
+                // campaign progress, which lives with the app, not the world.
+                if let Some(Screen::Playing(g, _)) = &mut self.screen
+                    && std::mem::take(&mut g.cheat_unlock_missions)
+                {
+                    let mut p = load_progress(&self.assets.campaign, &self.family);
+                    unlock_all_missions(&mut p, &self.assets.campaign);
+                    save_progress(&p, &self.family);
+                    self.status = Some(("All missions unlocked".to_owned(), 3.0));
                 }
             }
             WindowEvent::CursorEntered { .. } => self.cursor_in = true,

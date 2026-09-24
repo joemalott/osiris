@@ -164,7 +164,8 @@ impl World {
 
     /// Plague strikes the house most at risk of disease (Bast's curse picks any
     /// house when none is) and a sick citizen sets out from it. Returns the house.
-    pub(crate) fn start_plague(&mut self, forced: bool) -> Option<u32> {
+    /// Also the original's "Kitty Litter" cheat.
+    pub fn start_plague(&mut self, forced: bool) -> Option<u32> {
         let mut house = self
             .buildings
             .iter()
