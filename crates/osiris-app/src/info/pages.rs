@@ -1023,7 +1023,9 @@ fn yard_page(ui: &Ui, world: &World, b: &Building) -> Page {
     }
     p.panel = Some((198.0, 5));
     p.staff = Some(198.0);
-    cart_line(ui, world, b, &mut p, 221.0);
+    // Clear of the staff row's own (possibly two-line) labor-availability text, which
+    // sits at panel+26 and can run to panel+56.
+    cart_line(ui, world, b, &mut p, 255.0);
     if total >= osiris_sim::storage::CAPACITY {
         p.bottom(85.0, ui.t(TEXT_YARD, 13));
     } else if !b.spaces.is_empty() && b.spaces.iter().all(|s| s.1 > 0) {
@@ -1094,12 +1096,13 @@ fn granary_page(ui: &Ui, world: &World, b: &Building) -> Page {
             p.rows.push(Row { resource: r, icon: [cx, cy], text: format!("{} {}", stock(b, r), ui.t(TEXT_RESOURCES, r as usize)), at: [cx + 34.0, cy + 7.0], yellow: false });
         }
     }
-    // Employee panel at [16,142] size [27,5], glyph at panel+6, cart line (the cart
-    // pusher's state) at panel+26 (notes/building_info.md 5.2: panel [16,142] size
-    // [27,5]; glyph [40,148]; desc [70,168]).
+    // Employee panel at [16,142] size [27,5], glyph at panel+6 (notes/building_info.md
+    // 5.2: panel [16,142] size [27,5]; glyph [40,148]). The cart line sits below the
+    // staff row's own (possibly two-line) labor-availability text, which already uses
+    // the panel+26 slot the doc's "desc[70,168]" describes.
     p.panel = Some((142.0, 5));
     p.staff = Some(142.0);
-    cart_line(ui, world, b, &mut p, 165.0);
+    cart_line(ui, world, b, &mut p, 199.0);
     p
 }
 
