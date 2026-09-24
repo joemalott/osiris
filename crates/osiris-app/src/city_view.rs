@@ -68,6 +68,9 @@ pub fn zoom_at(r: &mut Renderer, screen: [f32; 2], factor: f32) {
 /// A sprite standing on a tile (walkers), drawn after that tile's diagonal.
 #[derive(Debug, Clone, Copy)]
 pub struct Sprite {
+    /// Drawn before the buildings of its diagonal rather than after them (a figure
+    /// over a pyramid's far face, which the pyramid hides).
+    pub behind: bool,
     pub x: i32,
     pub y: i32,
     /// Offset from the tile's box top-left to the figure's foot point.
@@ -240,9 +243,11 @@ impl CityView {
         let before = r.instance_count();
         let [vx0, vy0, vx1, vy1] = r.world_view();
         let (w, h) = (map.width, map.height);
-        let mut people = sprites.to_vec();
+        let (mut hidden, mut people): (Vec<Sprite>, Vec<Sprite>) = sprites.iter().partition(|s| s.behind);
         people.sort_by_key(|s| (s.x + s.y, s.x));
+        hidden.sort_by_key(|s| (s.x + s.y, s.x));
         let mut next_person = 0;
+        let mut next_hidden = 0;
         let mut extras = overlays.to_vec();
         extras.sort_by_key(|o| (o.x + o.y, o.x));
         let mut next_extra = 0;
@@ -264,6 +269,12 @@ impl CityView {
         for d in 0..(w + h - 1) {
             let x_min = (d - (h - 1)).max(0);
             let x_max = d.min(w - 1);
+            while next_hidden < hidden.len() && hidden[next_hidden].x + hidden[next_hidden].y <= d {
+                let s = hidden[next_hidden];
+                let p = tile_to_world(map, s.x, s.y);
+                draw_sprite(r, s.image, [p[0] + s.offset.0 as f32 + 29.0, p[1] + s.offset.1 as f32 + 23.0]);
+                next_hidden += 1;
+            }
             for x in (x_min..=x_max).rev() {
                 self.draw_tile(r, map, x, d - x, overlay, false, [vx0, vy0, vx1, vy1]);
             }

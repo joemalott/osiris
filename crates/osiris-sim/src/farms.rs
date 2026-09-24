@@ -26,6 +26,9 @@ const MAX_PEASANTS_OUT: usize = 4;
 /// Tiles of a tomb's site a laborer works before he goes home (the original's count
 /// at 0x4ab4bf).
 const SITE_TOUCHES: i32 = 4;
+/// A laborer standing before he heads home.
+pub const PAUSE: u16 = 9;
+const TILE_WORK: u16 = crate::pyramids::TILE_WORK;
 
 impl World {
     pub fn is_farm(&self, k: u16) -> bool {
@@ -179,8 +182,7 @@ impl World {
             let Some(c) = self.buildings.get(camp) else { continue };
             let Some(road) = c.road else { continue };
             let (cx, cy, workers, delay) = (c.x, c.y, c.workers, c.spawn_delay);
-            // (A sled its laborer drags counts as his.)
-            let out = self.figures.iter().filter(|f| (f.kind == PEASANT || f.kind == crate::monuments::SLED) && f.home == camp && !f.dead).count();
+            let out = self.figures.iter().filter(|f| f.kind == PEASANT && f.home == camp && !f.dead).count();
             let staffed = workers * 100 / needed;
             let wait = match staffed {
                 s if s >= 100 => 3,
@@ -286,12 +288,28 @@ impl World {
         }
     }
 
+    /// A laborer goes home straight across country (the original's state 9).
+    pub(crate) fn send_laborer_home(&mut self, fid: u32) {
+        let Some(home) = self.figures.get(fid).map(|f| f.home) else { return };
+        let back = self.buildings.get(home).and_then(|b| b.road);
+        let map = &self.map;
+        let f = self.figures.get_mut(fid).expect("present");
+        f.action = 2;
+        f.travel = Travel::Any;
+        f.perch = None;
+        f.link = 0;
+        match back {
+            Some(r) if f.go_to(map, r) => {}
+            _ => f.dead = true,
+        }
+    }
+
     pub(crate) fn update_peasant(&mut self, fid: u32) {
         if self.figures.get(fid).is_some_and(|f| matches!(f.action, 5 | 6)) {
             self.update_lamp_carrier(fid);
             return;
         }
-        if self.figures.get(fid).is_some_and(|f| f.action == crate::monuments::HAULING) {
+        if self.figures.get(fid).is_some_and(|f| crate::monuments::is_hauling(f.action)) {
             self.update_hauler(fid);
             return;
         }
@@ -321,15 +339,20 @@ impl World {
                 }
                 return;
             }
-            // Home straight across country (the original's state 9).
-            let back = self.buildings.get(home).and_then(|b| b.road);
-            let map = &self.map;
+            // He stands a while where he worked, the ticks of his last touch run
+            // down again (the original's state 8), then goes home.
             let f = self.figures.get_mut(fid).expect("present");
-            f.action = 2;
-            match back {
-                Some(r) if f.go_to(map, r) => {}
-                _ => f.dead = true,
+            f.action = PAUSE;
+            f.counter = TILE_WORK as i32;
+            f.moving = false;
+            return;
+        }
+        if act == PAUSE {
+            f.counter -= 1;
+            if f.counter > 0 {
+                return;
             }
+            self.send_laborer_home(fid);
             return;
         }
         if act == 8 {

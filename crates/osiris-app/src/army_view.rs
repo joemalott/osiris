@@ -42,7 +42,7 @@ pub fn fighter_sprite(world: &World, f: &Figure) -> Option<Sprite> {
     let offset = f.pixel_offset();
     if missile {
         let a = world.defs.figure(f.kind)?.anims.get("walk")?;
-        return Some(Sprite { x: f.x, y: f.y, offset, image: a.image + f.direction as u32 % a.frames.max(1) });
+        return Some(Sprite { behind: false, x: f.x, y: f.y, offset, image: a.image + f.direction as u32 % a.frames.max(1) });
     }
     let (walk, attack, death) = fighter_anims(world, f)?;
     let image = match (f.action, attack, death) {
@@ -56,7 +56,7 @@ pub fn fighter_sprite(world: &World, f: &Figure) -> Option<Sprite> {
             walk.image + f.direction as u32 + 8 * frame
         }
     };
-    Some(Sprite { x: f.x, y: f.y, offset, image })
+    Some(Sprite { behind: false, x: f.x, y: f.y, offset, image })
 }
 
 /// A company's standard: its pole with the morale ball (lower the lower the
@@ -86,14 +86,14 @@ pub fn standard_sprites(r: &osiris_render::Renderer, world: &World, f: &Figure, 
     let (fx, fy) = f.pixel_offset();
     let (_, pole_x, pole_y) = rec(pole_image);
     let (left, mut top) = (fx - pole_x, fy - pole_y);
-    let mut out = vec![Sprite { x: f.x, y: f.y, offset: (fx, fy), image: pole_image }];
+    let mut out = vec![Sprite { behind: false, x: f.x, y: f.y, offset: (fx, fy), image: pole_image }];
     if let Some(image) = ball {
-        out.push(Sprite { x: f.x, y: f.y, offset: (fx, fy), image });
+        out.push(Sprite { behind: false, x: f.x, y: f.y, offset: (fx, fy), image });
     }
     for image in [flag_image, sign_image] {
         let (h, ox, oy) = rec(image);
         top -= h;
-        out.push(Sprite { x: f.x, y: f.y, offset: (left + ox, top + oy), image });
+        out.push(Sprite { behind: false, x: f.x, y: f.y, offset: (left + ox, top + oy), image });
     }
     out
 }

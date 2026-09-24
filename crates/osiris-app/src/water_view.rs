@@ -49,7 +49,7 @@ pub fn figure_sprite(world: &World, f: &Figure) -> Option<Sprite> {
         "work" => frame(a, ticks + f.id as u64 * 7),
         _ => 0,
     };
-    Some(Sprite { x: f.x, y: f.y, offset: f.pixel_offset(), image: a.image + f.direction as u32 + 8 * step })
+    Some(Sprite { behind: false, x: f.x, y: f.y, offset: f.pixel_offset(), image: a.image + f.direction as u32 + 8 * step })
 }
 
 /// Fish jumping at each fishing ground: bubbles, then a leap.
@@ -69,7 +69,7 @@ pub fn fishing_points(world: &World) -> Vec<Sprite> {
             let into = t % cycle.max(1);
             let bubbling = (bubbles.frames * bubbles.duration * 2) as u64;
             let image = if into < bubbling { bubbles.image + frame(bubbles, into) } else { jump.image + frame(jump, into - bubbling) };
-            Sprite { x, y, offset: (0, 0), image }
+            Sprite { behind: false, x, y, offset: (0, 0), image }
         })
         .collect()
 }

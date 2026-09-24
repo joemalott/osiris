@@ -8,8 +8,9 @@
 //! Then the courses rise. The blocks are built in lockstep: no block takes another
 //! unit of work until every block still building has caught up. A unit is a sixth
 //! of a course on one block, a stonemason's (or, for bricks, a bricklayer's) 110
-//! ticks, and a sled of 400 units of stone, bricks or limestone covers two of
-//! them. The inner blocks rise higher: a pyramid's centre has as many courses as
+//! ticks. A mason waits on his block until a laborer drags a sled of 400 units of
+//! stone, bricks or limestone up to him; it starts him and the mason on the block
+//! paired with his, so a sled covers two units. The inner blocks rise higher: a pyramid's centre has as many courses as
 //! the pyramid is large (small 2 .. grand 6), each ring outward one fewer. Every
 //! block's top course is its outer face: limestone casing on bent, true and
 //! mudbrick pyramids. Carpenters build a ramp on set blocks at each step of the
@@ -27,7 +28,7 @@ pub const TILE_WORK: u16 = 50;
 pub const UNIT_WORK: u16 = 110;
 pub const POLISH_WORK: u16 = 40;
 pub const RAMP_WORK: u16 = 30;
-/// Material a unit takes: half a sled.
+/// Material a unit counts for: half a sled.
 pub const UNIT_MATERIAL: i32 = 200;
 
 const STONE: u16 = 24;
@@ -245,6 +246,63 @@ const STEPPED_RAMP_PLACE: [(i8, i8); 18] = [
 /// Ticks a figure takes to cross a tile of a tomb.
 const PERCH_TICKS: u16 = 15;
 
+/// Where a figure's climb stands (the original's figure field 0x120): at the foot of
+/// the way up, moving over a block facing the viewer, moving over one facing away
+/// from him, or crossing the top to his block.
+pub const AT_FOOT: u8 = 1;
+pub const OVER_FRONT: u8 = 2;
+pub const OVER_BACK: u8 = 3;
+pub const CROSSING: u8 = 4;
+
+/// Blocks whose faces look away from the viewer: the -x and -y edges and the corners
+/// between them (`FUN_004f02f0`).
+fn back_face(kind: u8) -> bool {
+    matches!(kind, 0 | 1 | 4 | 7)
+}
+
+/// The pairs of blocks one sled serves, first block first (0x5f5f38): each size of
+/// pyramid uses the first 8, 18, 32, 50 or 72.
+const PAIRS: [(u8, u8); 72] = [
+    (0, 1), (2, 3), (4, 5), (6, 7), (8, 10), (9, 11), (12, 13), (14, 15), (16, 17), (18, 19), (20, 21), (22, 24), (23, 25),
+    (26, 28), (27, 29), (30, 31), (32, 33), (34, 35), (36, 37), (38, 39), (40, 41), (42, 43), (44, 46), (45, 47), (48, 50),
+    (49, 51), (52, 54), (53, 55), (56, 57), (58, 59), (60, 61), (62, 63), (64, 65), (66, 67), (68, 69), (70, 71), (72, 73),
+    (74, 76), (75, 77), (78, 80), (79, 81), (82, 84), (83, 85), (86, 88), (87, 89), (90, 91), (92, 93), (94, 95), (96, 97),
+    (98, 99), (100, 101), (102, 103), (104, 105), (106, 107), (108, 109), (110, 111), (112, 114), (113, 115), (116, 118),
+    (117, 119), (120, 122), (121, 123), (124, 126), (125, 127), (128, 130), (129, 131), (132, 133), (134, 135), (136, 137),
+    (138, 139), (140, 141), (142, 143),
+];
+const PAIR_COUNTS: [usize; 5] = [8, 18, 32, 50, 72];
+
+/// The same for mastabas (0x5f5d58).
+const MASTABA_PAIRS: [&[(u8, u8)]; 3] = [
+    &[(1, 2), (3, 4), (0, 5), (6, 7), (8, 9)],
+    &[(11, 12), (13, 10), (1, 2), (3, 4), (15, 14), (0, 5), (6, 7), (8, 9), (17, 16), (19, 20)],
+    &[
+        (21, 22), (23, 24), (25, 10), (11, 12), (26, 13), (1, 2), (27, 14), (3, 4), (28, 15), (0, 5), (29, 16), (6, 7), (30, 17),
+        (8, 9), (31, 18), (19, 20), (32, 33), (34, 35),
+    ],
+];
+
+/// Each ring of a pyramid's blocks: its first row's first and last block, and its last
+/// row's (0x5f5ca8).
+const RINGS: [(u8, u8, u8, u8); 6] = [(0, 1, 2, 3), (4, 7, 12, 15), (16, 21, 30, 35), (36, 43, 56, 63), (64, 73, 90, 99), (100, 111, 132, 143)];
+
+/// The next block round a pyramid's ring, the way a polisher walks it (`FUN_004f2190`):
+/// along the -y row toward -x, down the -x side, along the +y row toward +x and up the
+/// +x side.
+fn ring_next(i: usize) -> usize {
+    let Some(&(a, b, c, d)) = RINGS.iter().find(|r| (r.0 as usize..=r.3 as usize).contains(&i)) else { return i };
+    let (a, b, c, d) = (a as usize, b as usize, c as usize, d as usize);
+    match i {
+        _ if i == a => b + 1,
+        _ if i <= b => i - 1,
+        _ if i == d => c - 1,
+        _ if i >= c => i + 1,
+        _ if i % 2 == 1 => i - 2,
+        _ => i + 2,
+    }
+}
+
 /// A figure up on a pyramid or mastaba (the original's figure fields 0x42..0x4c): the
 /// block he comes from and his height there, the block he stands on or is heading
 /// for and his height there, and how far along the move he is.
@@ -259,12 +317,16 @@ pub struct Perch {
     pub steps: u16,
     /// The entry of the way up he last reached, plus one; 0 off it.
     pub route: u8,
+    /// Where his climb stands: [`AT_FOOT`], [`OVER_FRONT`], [`OVER_BACK`] or
+    /// [`CROSSING`].
+    #[serde(default)]
+    pub stage: u8,
 }
 
 impl Perch {
     /// At the foot of the way up, stepping onto it (`FUN_004f1cb0`).
     pub fn foot(block: u16) -> Self {
-        Perch { from: None, from_height: 0, block, height: 0, step: 1, steps: PERCH_TICKS, route: 0 }
+        Perch { from: None, from_height: 0, block, height: 0, step: 1, steps: PERCH_TICKS, route: 0, stage: AT_FOOT }
     }
 
     pub fn arrived(&self) -> bool {
@@ -531,7 +593,7 @@ impl World {
     }
 
     /// The blocks still building whose next unit comes first: those furthest behind.
-    fn frontier(&self, id: BuildingId) -> Vec<usize> {
+    pub(crate) fn frontier(&self, id: BuildingId) -> Vec<usize> {
         let Some((_, _, m)) = self.tomb(id) else { return Vec::new() };
         let low = m.blocks.iter().filter(|b| b.state == BUILDING).map(Block::progress).min();
         let Some(low) = low else { return Vec::new() };
@@ -539,7 +601,7 @@ impl World {
     }
 
     /// The blocks to polish next: the highest casing not yet polished.
-    fn polish_frontier(&self, id: BuildingId) -> Vec<usize> {
+    pub(crate) fn polish_frontier(&self, id: BuildingId) -> Vec<usize> {
         let Some((_, _, m)) = self.tomb(id) else { return Vec::new() };
         let high = m.blocks.iter().filter(|b| b.state == BUILT && b.counter > 0).map(Block::progress).max();
         let Some(high) = high else { return Vec::new() };
@@ -557,7 +619,7 @@ impl World {
 
     /// The craftsman a unit on block `i` wants: bricklayers lay bricks, stonemasons
     /// stone and limestone and do the polishing.
-    fn unit_craftsman(&self, id: BuildingId, i: usize) -> u16 {
+    pub(crate) fn unit_craftsman(&self, id: BuildingId, i: usize) -> u16 {
         match self.tomb_unit_material(id, i) {
             Some(BRICKS) => crate::monuments::BRICKLAYER,
             _ => crate::monuments::STONEMASON,
@@ -697,21 +759,94 @@ impl World {
         Some((x + 1, y + 19))
     }
 
+    /// The block of tomb `id` covering map tile `(x, y)`.
+    fn block_at(&self, id: BuildingId, (x, y): (i32, i32)) -> Option<usize> {
+        let b = self.buildings.get(id)?;
+        let m = b.monument.as_ref()?;
+        m.blocks.iter().position(|bl| (b.x + bl.x..b.x + bl.x + 2).contains(&x) && (b.y + bl.y..b.y + bl.y + 2).contains(&y))
+    }
+
+    /// The first of these offsets (in tiles) from block `i` that is another block of
+    /// the tomb.
+    fn neighbour(&self, id: BuildingId, i: usize, offsets: [(i32, i32); 3]) -> Option<usize> {
+        let (x, y) = self.block_tile(id, i)?;
+        offsets.iter().find_map(|&(dx, dy)| self.block_at(id, (x + dx, y + dy)))
+    }
+
+    /// The block whose drawing a figure up on a tomb is drawn with, as the original
+    /// files him on its tiles (`FUN_004f1d10`): stepping up at the foot, the block he
+    /// steps onto; crossing the top, the block in front of the one he is over, so that
+    /// block does not hide him; on the way up, by the block he comes from: over a back
+    /// face the block behind it, over a +y edge heading away from the viewer that
+    /// block, over the side corners the block he goes to, else the one he comes from.
+    fn perch_block(&self, id: BuildingId, p: &Perch, dir: u8) -> Option<usize> {
+        const FRONT: [(i32, i32); 3] = [(2, 2), (2, 0), (0, 2)];
+        const BEHIND: [(i32, i32); 3] = [(-2, -2), (-2, 0), (0, -2)];
+        let to = p.block as usize;
+        let Some(from) = p.from.map(|b| b as usize) else { return Some(to) };
+        let m = self.buildings.get(id)?.monument.as_ref()?;
+        if p.stage == OVER_FRONT || p.stage == OVER_BACK {
+            return Some(match m.blocks.get(from)?.kind {
+                0 | 7 => self.neighbour(id, from, BEHIND).unwrap_or(from),
+                1 | 3 => to,
+                5 if !matches!(dir, 0 | 5 | 6 | 7) => to,
+                _ => from,
+            });
+        }
+        let (a, b) = (self.block_tile(id, from)?, self.block_tile(id, to)?);
+        let (step, steps) = (p.step.min(p.steps) as i32, p.steps.max(1) as i32);
+        let over = self.block_at(id, (a.0 + (b.0 - a.0) * step / steps, a.1 + (b.1 - a.1) * step / steps)).unwrap_or(to);
+        Some(self.neighbour(id, over, FRONT).unwrap_or(over))
+    }
+
+    /// The block a ramp on block `i` is drawn after, if any (`FUN_004ef550`): a ramp
+    /// on a face toward the viewer at the start of a course above the first reaches
+    /// down over the block in front, so it (and whoever is on its block) waits for
+    /// that block to be drawn: the one past the +x+y corner, else past the +x side.
+    /// A stepped pyramid's ramps do so on the first half of each course above the
+    /// first, from any block but the back ones.
+    fn ramp_drawn_after(&self, id: BuildingId, i: usize) -> Option<usize> {
+        let (style, _, m) = self.tomb(id)?;
+        let b = m.blocks.get(i)?;
+        let at = self.ramp_at_shown(id, i)?;
+        let stepped = matches!(style, Style::Pyramid(Family::Stepped));
+        let deferred = at >= 7 && if stepped { (at - 1) % 6 < 3 && !matches!(b.kind, 0 | 4 | 7) } else { at % 6 == 1 && matches!(b.kind, 5 | 6) };
+        if !deferred {
+            return None;
+        }
+        let (x, y) = self.block_tile(id, i)?;
+        let (dx, dy) = if b.kind == 2 { (2, 2) } else { (2, 0) };
+        self.block_at(id, (x + dx, y + dy))
+    }
+
+    /// The progress block `i`'s ramp was built for, if one shows on it (a stepped
+    /// pyramid's partner block shows its partner's).
+    fn ramp_at_shown(&self, id: BuildingId, i: usize) -> Option<u8> {
+        let (_, var, m) = self.tomb(id)?;
+        let b = m.blocks.get(i)?;
+        if !b.ramp_shown {
+            return None;
+        }
+        let at = if b.ramp && b.ramp_at > 0 { b.ramp_at } else { RAMPS[var.min(4)].iter().find(|r| r.2 as usize == i).map_or(0, |r| r.1) };
+        (at > 0).then_some(at)
+    }
+
     /// Where a figure up on tomb `target` is drawn: the tile to sort him with (the
-    /// lower-left tile of the block he is over, as the original draws him with that
-    /// block) and his foot's offset from a walker's there, part way along his move
-    /// (`FUN_004f0d30`, `FUN_004f1d10`). `ground` is the tile he stepped up from at
-    /// the foot.
-    pub fn perch_sprite(&self, target: BuildingId, p: &Perch, ground: (i32, i32)) -> Option<((i32, i32), (i32, i32))> {
+    /// lower-left tile of the block the original draws him with), his foot's offset
+    /// from a walker's there, part way along his move (`FUN_004f0d30`, `FUN_004f1d10`),
+    /// and whether he goes before that block's image (over a face turned away from the
+    /// viewer, when no ramp is drawn with the block) or after it. `ground` is the tile
+    /// he stepped up from at the foot, `dir` his heading.
+    pub fn perch_sprite(&self, target: BuildingId, p: &Perch, ground: (i32, i32), dir: u8) -> Option<((i32, i32), (i32, i32), bool)> {
         let to_tile = self.block_tile(target, p.block as usize)?;
         let to = (to_tile.0, to_tile.1 + 1);
         let to_off = self.stand_offset(target, p.block as usize, p.height)?;
-        let (from_tile, from, from_off) = match p.from {
+        let (from, from_off) = match p.from {
             Some(b) => {
                 let t = self.block_tile(target, b as usize)?;
-                (t, (t.0, t.1 + 1), self.stand_offset(target, b as usize, p.from_height)?)
+                ((t.0, t.1 + 1), self.stand_offset(target, b as usize, p.from_height)?)
             }
-            None => (to_tile, ground, (0, 0)),
+            None => (ground, (0, 0)),
         };
         // A walker's foot moves 30 pixels across and 15 down a tile.
         let px = |(x, y): (i32, i32)| ((x - y) * 30, (x + y) * 15);
@@ -719,15 +854,73 @@ impl World {
         let start = (a.0 - b.0 + from_off.0, a.1 - b.1 + from_off.1);
         let (step, steps) = (p.step.min(p.steps) as i32, p.steps.max(1) as i32);
         let off = (start.0 + (to_off.0 - start.0) * step / steps, start.1 + (to_off.1 - start.1) * step / steps);
-        // The block under him part way across.
-        let (ix, iy) = (from_tile.0 + (to_tile.0 - from_tile.0) * step / steps, from_tile.1 + (to_tile.1 - from_tile.1) * step / steps);
-        let over = self.buildings.get(target).and_then(|bld| {
-            let m = bld.monument.as_ref()?;
-            m.blocks.iter().map(|bl| (bld.x + bl.x, bld.y + bl.y)).find(|&(x, y)| (x..x + 2).contains(&ix) && (y..y + 2).contains(&iy))
-        });
-        let sort = over.map_or(to, |(x, y)| (x, y + 1));
+        let mut block = self.perch_block(target, p, dir).unwrap_or(p.block as usize);
+        let m = self.buildings.get(target)?.monument.as_ref()?;
+        // Before the block over a back face, unless a ramp is drawn with it.
+        let takes_ramp = |i: usize| self.ramp_at_shown(target, i).is_some() || (0..m.blocks.len()).any(|j| self.ramp_drawn_after(target, j) == Some(i));
+        let mut behind = p.stage == OVER_BACK && !takes_ramp(block);
+        if let Some(n) = self.ramp_drawn_after(target, block) {
+            block = n;
+            behind = false;
+        }
+        let t = self.block_tile(target, block)?;
+        let sort = (t.0, t.1 + 1);
         let c = px(sort);
-        Some((sort, (off.0 + b.0 - c.0, off.1 + b.1 - c.1)))
+        Some((sort, (off.0 + b.0 - c.0, off.1 + b.1 - c.1), behind))
+    }
+
+    /// The blocks still building whose next unit comes first, nearest the head of the
+    /// way up first (`FUN_004f25c0`): the head is the first block of the way up as
+    /// high as they are, and a block counts as far off as the farther of it and its
+    /// sled partner.
+    pub(crate) fn frontier_by_head(&self, id: BuildingId) -> Vec<usize> {
+        let mut v = self.frontier(id);
+        let Some(&first) = v.first() else { return v };
+        let route = self.tomb_route(id);
+        let low = self.block_height(id, first);
+        let head = route.iter().find(|&&(_, h)| low <= h).or(route.last()).map_or(0, |r| r.0 as usize);
+        let Some(h) = self.block_tile(id, head) else { return v };
+        let d2 = |i: usize| self.block_tile(id, i).map_or(i32::MAX, |(x, y)| (x - h.0).pow(2) + (y - h.1).pow(2));
+        v.sort_by_key(|&i| (d2(i).max(self.sled_partner(id, i).map_or(0, |(p, _)| d2(p))), i));
+        v
+    }
+
+    /// The block sharing block `i`'s sleds, and whether `i` is the second of the pair
+    /// (`FUN_004f2720`).
+    pub(crate) fn sled_partner(&self, id: BuildingId, i: usize) -> Option<(usize, bool)> {
+        let (style, var, _) = self.tomb(id)?;
+        let pairs: &[(u8, u8)] = match style {
+            Style::Mastaba => MASTABA_PAIRS[var.min(2)],
+            _ => &PAIRS[..PAIR_COUNTS[var.min(4)]],
+        };
+        pairs.iter().find_map(|&(a, b)| match i {
+            _ if a as usize == i => Some((b as usize, false)),
+            _ if b as usize == i => Some((a as usize, true)),
+            _ => None,
+        })
+    }
+
+    /// The next block round block `i`'s ring.
+    pub(crate) fn ring_next(&self, id: BuildingId, i: usize) -> usize {
+        match self.tomb(id) {
+            Some((Style::Mastaba, _, _)) | None => i,
+            Some(_) => ring_next(i),
+        }
+    }
+
+    /// Whether block `i` is waiting for its ramp.
+    pub(crate) fn block_waits_for_ramp(&self, id: BuildingId, i: usize) -> bool {
+        self.tomb(id).and_then(|(_, _, m)| m.blocks.get(i)).is_some_and(Block::waiting_for_ramp)
+    }
+
+    /// Whether block `i`'s faces look away from the viewer.
+    pub(crate) fn block_faces_back(&self, id: BuildingId, i: usize) -> bool {
+        self.tomb(id).and_then(|(_, _, m)| m.blocks.get(i)).is_some_and(|b| back_face(b.kind))
+    }
+
+    /// Whether any unit of the tomb is still to be laid.
+    pub(crate) fn tomb_building(&self, id: BuildingId) -> bool {
+        self.tomb(id).is_some_and(|(_, _, m)| m.phase == RAISE && m.blocks.iter().any(|b| b.state == BUILDING))
     }
 
     /// Whether a tomb wants a craftsman of type `figure` at all.
@@ -803,47 +996,6 @@ impl World {
             Job::Ramp(_) => RAMP_WORK,
             Job::Part(_) => PART_WORK,
         }
-    }
-
-    /// What a tomb wants dragged over: for each material the frontier's next units
-    /// need, a sled while fewer units are paid for than blocks wait (never more
-    /// than the rest of the tomb needs).
-    pub(crate) fn tomb_material_wants(&self, id: BuildingId) -> Vec<(u16, i32)> {
-        let Some((_, _, m)) = self.tomb(id) else { return Vec::new() };
-        if m.phase != RAISE {
-            return Vec::new();
-        }
-        let mut wants: Vec<(u16, i32)> = Vec::new();
-        for i in self.frontier(id) {
-            if m.blocks[i].waiting_for_ramp() {
-                continue;
-            }
-            let Some(r) = self.tomb_unit_material(id, i) else { continue };
-            match wants.iter_mut().find(|w| w.0 == r) {
-                Some(w) => w.1 += UNIT_MATERIAL,
-                None => wants.push((r, UNIT_MATERIAL)),
-            }
-        }
-        let remaining = self.tomb_remaining(id);
-        // Units being laid have had their material already.
-        let mut in_hand: Vec<(u16, i32)> = Vec::new();
-        for &(_, c) in &m.craftsmen {
-            if let Some(Job::Unit(i)) = self.figures.get(c).filter(|f| f.cargo != 0).and_then(|f| crate::monuments::decode_tomb_job(f.amount))
-                && let Some(r) = self.tomb_unit_material(id, i)
-            {
-                Monument::add(&mut in_hand, r, UNIT_MATERIAL);
-            }
-        }
-        wants
-            .into_iter()
-            .filter_map(|(r, want)| {
-                let have = Monument::amount(&m.delivered, r) + Monument::amount(&m.in_flight, r);
-                let rest = remaining.iter().find(|x| x.0 == r).map_or(0, |x| x.1) - Monument::amount(&in_hand, r) - have;
-                let short = (want - have).min(rest);
-                // A full sled where the rest of the tomb needs that much.
-                (short > 0).then_some((r, crate::monuments::SLED_LOAD.min(rest)))
-            })
-            .collect()
     }
 
     /// Material the tomb's remaining units need, by resource.
@@ -1268,8 +1420,13 @@ impl World {
             } else {
                 b.level as i32 * COURSE_RAISE
             };
-            // The same corner of the block a figure's standing place is taken from.
-            out.push(((bld.x + b.x, bld.y + b.y + 1), image, (28 + dx, -17 - raise + dy)));
+            // The same corner of the block a figure's standing place is taken from; a
+            // ramp reaching over the block in front is sorted with that block.
+            let (sx, sy) = (bld.x + b.x, bld.y + b.y + 1);
+            let sort = self.ramp_drawn_after(id, i).and_then(|n| self.block_tile(id, n)).map_or((sx, sy), |(x, y)| (x, y + 1));
+            let px = |(x, y): (i32, i32)| ((x - y) * 30, (x + y) * 15);
+            let (o, c) = (px((sx, sy)), px(sort));
+            out.push((sort, image, (28 + dx + o.0 - c.0, -17 - raise + dy + o.1 - c.1)));
         }
         out
     }
@@ -1298,5 +1455,20 @@ mod tests {
         // The mortuary temple is just past the east face, on its middle rows.
         assert_eq!((complex_start(pyramid, 2), complex_start(pyramid, 3), complex_start(pyramid, 4)), (None, Some((12, 1)), Some((14, 1))));
         assert_eq!(complex_start(Style::Mastaba, 2), None);
+    }
+
+    #[test]
+    fn polishers_walk_round_each_ring() {
+        // The centre: 0, 2, 3, 1 and back (`FUN_004f2190`).
+        assert_eq!((ring_next(0), ring_next(2), ring_next(3), ring_next(1)), (2, 3, 1, 0));
+        // The next ring: along the -y row toward -x, down the -x side, along the +y row,
+        // up the +x side; every block once.
+        let mut seen = vec![4];
+        let mut b = ring_next(4);
+        while b != 4 {
+            seen.push(b);
+            b = ring_next(b);
+        }
+        assert_eq!(seen, [4, 8, 10, 12, 13, 14, 15, 11, 9, 7, 6, 5]);
     }
 }

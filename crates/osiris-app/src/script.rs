@@ -235,9 +235,9 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             // Everyone working a pyramid or mastaba: where they are and what they do.
             ["tombworkers"] => {
                 eprintln!("{step}: tick {}", world.time.total_ticks);
-                for f in world.figures.iter().filter(|f| matches!(f.kind, 79 | 80 | 81 | 86) || f.kind == osiris_sim::farms::PEASANT) {
+                for f in world.figures.iter().filter(|f| matches!(f.kind, 79 | 80 | 81 | 86 | 96) || f.kind == osiris_sim::farms::PEASANT) {
                     eprintln!(
-                        "  figure {} kind {} action {} at {},{} job {} paid {} work {} perch {:?} pose {:?}",
+                        "  figure {} kind {} action {} at {},{} job {} paid {} work {} link {} perch {:?} pose {:?}",
                         f.id,
                         f.kind,
                         f.action,
@@ -246,6 +246,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                         f.amount,
                         f.cargo,
                         f.counter,
+                        f.link,
                         f.perch,
                         world.tomb_pose(f)
                     );

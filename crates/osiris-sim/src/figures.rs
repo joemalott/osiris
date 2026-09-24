@@ -112,6 +112,10 @@ pub struct Figure {
     /// Up on a pyramid or mastaba: the block he stands on or is heading for.
     #[serde(default)]
     pub perch: Option<crate::pyramids::Perch>,
+    /// The figure this one works with: a sled's laborer and the mason he drags it to
+    /// (each names the other), or the one a sled puller or sled follows.
+    #[serde(default)]
+    pub link: FigureId,
 }
 
 impl Figure {
@@ -150,6 +154,7 @@ impl Figure {
             roam_wait: -1,
             centres: 0,
             perch: None,
+            link: 0,
         }
     }
 
