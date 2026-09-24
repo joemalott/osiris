@@ -130,13 +130,21 @@ enum Popup {
 }
 
 impl Advisors {
-    /// Opens a named popup (for scripted screenshots).
+    /// Opens a named popup (for scripted screenshots). "resource:R", "priority:C" and
+    /// "request:I" take a number after the colon.
     pub fn open_popup(&mut self, name: &str) {
-        self.popup = match name {
-            "salary" => Some(Popup::Salary),
-            "gift" => Some(Popup::Gift),
-            "donate" => Some(Popup::Donate(0)),
-            "burial" => Some(Popup::Burial(13, 0)),
+        let (head, arg) = name.split_once(':').map_or((name, None), |(h, a)| (h, a.parse::<usize>().ok()));
+        self.popup = match (head, arg) {
+            ("salary", _) => Some(Popup::Salary),
+            ("gift", _) => Some(Popup::Gift),
+            ("donate", _) => Some(Popup::Donate(0)),
+            ("burial", _) => Some(Popup::Burial(13, 0)),
+            ("prices", _) => Some(Popup::Prices),
+            ("festival", None) => Some(Popup::Festival(None)),
+            ("festival", Some(g)) => Some(Popup::Festival(Some(g))),
+            ("resource", Some(r)) => Some(Popup::Resource(r as u16)),
+            ("priority", Some(c)) => Some(Popup::Priority(c)),
+            ("request", Some(i)) => Some(Popup::Request(i, true)),
             _ => None,
         };
     }
@@ -314,15 +322,15 @@ fn labor(ui: &mut Ui, lock: u32, world: &mut World, [px, py]: [f32; 2], popup: &
         let (need, have) = world.labor.by_category.get(ci).copied().unwrap_or((0, 0));
         let prio = world.labor.priorities.get(ci).copied().unwrap_or(0);
         if prio > 0 {
-            ui.image(lock, row[0], y + 4.0);
-            draw_text(ui.r, Font::NormalWhiteOnDark, &prio.to_string(), row[0] + 15.0, y + 5.0, font::WHITE);
+            ui.image(lock, row[0] + 40.0, y + 4.0);
+            draw_text(ui.r, Font::NormalWhiteOnDark, &prio.to_string(), row[0] + 55.0, y + 5.0, font::WHITE);
         }
         let name = ui.t(G, id);
         let f = if ui.hot(row) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
-        draw_text(ui.r, f, &name, row[0] + 60.0, y + 5.0, font::WHITE);
-        draw_text(ui.r, Font::NormalWhiteOnDark, &need.to_string(), row[0] + 330.0, y + 5.0, font::WHITE);
+        draw_text(ui.r, f, &name, row[0] + 100.0, y + 5.0, font::WHITE);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &need.to_string(), row[0] + 370.0, y + 5.0, font::WHITE);
         let hf = if have == need { Font::NormalWhiteOnDark } else { Font::NormalYellow };
-        draw_text(ui.r, hf, &have.to_string(), row[0] + 430.0, y + 5.0, font::WHITE);
+        draw_text(ui.r, hf, &have.to_string(), row[0] + 470.0, y + 5.0, font::WHITE);
         if ui.clicked(row) {
             *popup = Some(Popup::Priority(ci));
         }
@@ -354,17 +362,22 @@ fn priority_popup(ui: &mut Ui, world: &mut World, category: usize) -> bool {
     let title = ui.t(G, 25);
     let tw = ui.width(Font::LargeBlackOnLight, &title);
     ui.label(Font::LargeBlackOnLight, &title, x + (w - tw) / 2.0, y + 16.0);
+    // The rank buttons sit at a fixed left margin (24), not centred: Akhenaten's
+    // ui_labor_priority_window.js has btn_areas at [24, 60], btn_priority at [34, 0]
+    // size [30, 30], for priority_rank_max() (9, the same as MAX_PRIORITY) ranks.
     let ranks = osiris_sim::labor::MAX_PRIORITY as usize;
-    let x0 = x + (w - 34.0 * ranks as f32) / 2.0;
+    let x0 = x + 24.0;
     for i in 0..ranks {
-        let rect = [x0 + 34.0 * i as f32, y + 50.0, 30.0, 30.0];
+        let rect = [x0 + 34.0 * i as f32, y + 60.0, 30.0, 30.0];
         if ui.button(rect, &(i + 1).to_string(), Font::LargeBlackOnLight) {
             world.set_labor_priority(category, i as u8 + 1);
             return true;
         }
     }
+    // The "no priority" button is centred (margin centerx:-140, matching half its own
+    // 280 width) with its bottom 40 pixels above the panel's bottom edge.
     let none = ui.t(G, 26);
-    if ui.button([x + (w - 200.0) / 2.0, y + 100.0, 200.0, 25.0], &none, Font::NormalBlackOnLight) {
+    if ui.button([x + (w - 280.0) / 2.0, y + h - 65.0, 280.0, 25.0], &none, Font::NormalBlackOnLight) {
         world.set_labor_priority(category, 0);
         return true;
     }
