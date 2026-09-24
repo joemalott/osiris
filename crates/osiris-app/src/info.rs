@@ -549,8 +549,8 @@ impl InfoPanel {
     }
 
     /// A house, 23 blocks tall as in the original (21 for a vacant lot): what keeps it
-    /// from evolving (or
-    /// makes it devolve), its food and goods, then its people, taxes and crime.
+    /// from evolving (or makes it devolve), its food and goods, then its people, taxes
+    /// and crime.
     fn house_window(&mut self, ui: &mut Ui, world: &World, b: &Building) -> Option<InfoAction> {
         let h = b.house.clone().expect("house");
         if h.population <= 0 {
