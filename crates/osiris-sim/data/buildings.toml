@@ -21,6 +21,7 @@ show_in_debug = false
 id = 6
 key = "mud_wall"
 size = 1
+text_id = 139
 image = { pack = "Pharaoh_General", group = 138, offset = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 138, offset = 27 } }
 flags = ["is_wall", "is_defense"]
@@ -45,6 +46,7 @@ irrigation_radius = 2
 id = 8
 key = "irrigation_ditch"
 size = 1
+text_id = 141
 image = { pack = "Pharaoh_Terrain", group = 33, offset = 0 }
 anims = { preview = { pack = "Pharaoh_Terrain", group = 33, offset = 0 }, set_begin = { pack = "Pharaoh_Terrain", group = 9, offset = 0 } }
 flags = ["no_road_access"]
@@ -695,7 +697,7 @@ figure = "ballista"
 image = { pack = "Pharaoh_General", group = 135, offset = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 135, offset = 0 } }
 flags = ["is_wall", "is_defense"]
-text_id = 159
+text_id = 91
 help = "message_building_defensive_structures"
 fire_proof = true
 min_houses_coverage = 50
@@ -1084,7 +1086,7 @@ figure = "tax_collector"
 image = { pack = "Pharaoh_General", group = 64, offset = 0, x = 0, y = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 64, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 64, offset = 1, frames = 11, x = 10, y = 10 } }
 flags = ["is_tax_collector", "is_administration"]
-text_id = 120
+text_id = 106
 help = "message_building_tax_collector"
 info_sound = "Wavs/taxfarm.wav"
 
@@ -1135,6 +1137,7 @@ min_houses_coverage = 100
 id = 99
 key = "burning_ruin"
 size = 1
+text_id = 111
 image = { pack = "Pharaoh_Terrain", group = 36, offset = 0 }
 anims = { fire0 = { pack = "Pharaoh_Terrain", group = 36, offset = 1, frames = 8, duration = 2 }, base1 = { pack = "Pharaoh_Terrain", group = 36, offset = 9 }, fire1 = { pack = "Pharaoh_Terrain", group = 36, offset = 10, frames = 8, duration = 2 }, base2 = { pack = "Pharaoh_Terrain", group = 36, offset = 18 }, fire2 = { pack = "Pharaoh_Terrain", group = 36, offset = 19, frames = 8, duration = 2 }, base3 = { pack = "Pharaoh_Terrain", group = 36, offset = 27 }, fire3 = { pack = "Pharaoh_Terrain", group = 36, offset = 28, frames = 8, duration = 2 } }
 flags = ["draw_normal_anim"]
@@ -1282,7 +1285,7 @@ anims = { preview = { pack = "Pharaoh_General", group = 170, offset = 0 }, work 
 needs = ["rock"]
 flags = ["is_extractor", "is_industry", "draw_normal_anim"]
 outputs = ["limestone"]
-text_id = 162
+text_id = 119
 help = "message_building_stone_quarries"
 production_rate = 100
 progress_max = 200
@@ -1447,7 +1450,7 @@ image = { pack = "Pharaoh_Terrain", group = 23, offset = 0 }
 anims = { preview = { pack = "Pharaoh_Terrain", group = 23, offset = 0 }, work = { pack = "Pharaoh_Terrain", group = 23, offset = 0 }, top = { pack = "Pharaoh_Terrain", group = 23, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 210 } }
 needs = ["water_access", "shoreline"]
 flags = ["is_water_crossing", "is_infrastructure"]
-text_id = 91
+text_id = 159
 help = "message_game_concept_water_crossings"
 fire_proof = true
 
@@ -1580,6 +1583,7 @@ min_houses_coverage = 50
 id = 169
 key = "brick_wall"
 size = 1
+text_id = 166
 image = { pack = "Pharaoh_General", group = 138, offset = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 138, offset = 27 } }
 flags = ["is_wall", "is_defense"]
@@ -1591,7 +1595,7 @@ size = 1
 image = { pack = "Pharaoh_General", group = 218, offset = 0 }
 anims = { base_n = { pack = "Pharaoh_General", group = 218, offset = 0 }, base_second_n = { pack = "Pharaoh_General", group = 219, offset = 0 }, base_cover_n = { pack = "Pharaoh_General", group = 220, offset = 0 }, base_w = { pack = "Pharaoh_General", group = 218, offset = 1 }, base_second_w = { pack = "Pharaoh_General", group = 219, offset = 1 }, base_cover_w = { pack = "Pharaoh_General", group = 220, offset = 1 } }
 flags = ["is_wall", "is_gatehouse"]
-text_id = 90
+text_id = 167
 help = "message_building_defensive_structures"
 
 [[building]]
@@ -1601,13 +1605,14 @@ size = 1
 image = { pack = "Pharaoh_General", group = 218, offset = 0 }
 anims = { base_n = { pack = "Pharaoh_General", group = 218, offset = 0 }, base_second_n = { pack = "Pharaoh_General", group = 219, offset = 0 }, base_cover_n = { pack = "Pharaoh_General", group = 220, offset = 0 }, base_w = { pack = "Pharaoh_General", group = 218, offset = 1 }, base_second_w = { pack = "Pharaoh_General", group = 219, offset = 1 }, base_cover_w = { pack = "Pharaoh_General", group = 220, offset = 1 } }
 flags = ["is_defense", "is_wall"]
-text_id = 90
+text_id = 168
 help = "message_building_defensive_structures"
 
 [[building]]
 id = 172
 key = "brick_tower"
 size = 2
+text_id = 169
 labor = "military"
 figure = "ballista"
 flags = ["is_wall", "is_tower"]
@@ -1619,6 +1624,7 @@ min_houses_coverage = 50
 id = 173
 key = "clay_tower"
 size = 2
+text_id = 170
 labor = "military"
 flags = ["is_wall", "is_defense"]
 help = "message_building_defensive_structures"
@@ -1629,6 +1635,7 @@ min_houses_coverage = 50
 id = 177
 key = "carpenters_guild"
 size = 2
+text_id = 171
 labor = "infrastructure"
 figure = "carpenter"
 image = { pack = "Pharaoh_General", group = 91, offset = 0 }
@@ -1936,7 +1943,7 @@ anims = { preview = { pack = "Pharaoh_General", group = 38, offset = 0 }, work =
 needs = ["rock"]
 flags = ["is_extractor", "is_industry", "draw_normal_anim"]
 outputs = ["granite"]
-text_id = 162
+text_id = 192
 help = "message_building_stone_quarries"
 info_sound = "Wavs/marble.wav"
 production_rate = 100
@@ -1968,7 +1975,7 @@ anims = { preview = { pack = "Pharaoh_General", group = 197, offset = 0 }, work 
 needs = ["rock"]
 flags = ["is_extractor", "is_industry", "draw_normal_anim"]
 outputs = ["sandstone"]
-text_id = 162
+text_id = 194
 help = "message_building_stone_quarries"
 production_rate = 100
 progress_max = 200

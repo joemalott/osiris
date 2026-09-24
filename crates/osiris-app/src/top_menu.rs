@@ -167,6 +167,11 @@ impl TopMenu {
         }
         // Status fields right-aligned before the sidebar.
         let mut x = r.screen[0] - crate::sidebar::WIDTH - 10.0;
+        // On a narrow screen the fields move right, over the sidebar's end of the
+        // bar, rather than run into the menu headers.
+        let widths: f32 = status.iter().map(|s| text_width(r, Font::NormalBlackOnLight, s) as f32 + 30.0).sum::<f32>() - 30.0;
+        let headers_end = self.headers.last().map_or(0.0, |h| h.x + h.w) + 16.0;
+        x += (headers_end - (x - widths)).clamp(0.0, (r.screen[0] - 40.0 - x).max(0.0));
         for s in status.iter().rev() {
             let w = text_width(r, Font::NormalBlackOnLight, s) as f32;
             x -= w;
