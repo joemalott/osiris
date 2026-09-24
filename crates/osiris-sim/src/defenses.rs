@@ -232,7 +232,8 @@ impl World {
                 if !self.map.terrain_is(xx, yy, terrain::WALL) {
                     continue;
                 }
-                let tiles = NEIGHBOURS.map(|(dx, dy)| u8::from(self.map.terrain_is(xx + dx, yy + dy, terrain::WALL)));
+                // The wall table marks the neighbours that are not wall: 1 is open, 0 wall.
+                let tiles = NEIGHBOURS.map(|(dx, dy)| u8::from(!self.map.terrain_is(xx + dx, yy + dy, terrain::WALL)));
                 let mut counters = Vec::new();
                 let mut image = crate::tiles::match_context(&self.defs.contexts.wall, &mut counters, tiles);
                 let beside = (0..8).step_by(2).any(|i| {
@@ -413,6 +414,20 @@ mod tests {
         assert!(sites.iter().all(|&(x, y)| (10..=20).contains(&x) && (10..=11).contains(&y)));
         assert_eq!(world.wall_sites(10, 10, 9, 16).len(), 14, "down the column, two thick");
         assert_eq!(world.wall_sites(10, 10, 10, 10), vec![(10, 10)]);
+    }
+
+    #[test]
+    fn a_wall_faces_run_along_it() {
+        let Some(mut world) = sandbox() else { return };
+        let base = world.defs.building(WALL).map(|d| d.image).expect("wall image");
+        // Along x: open north and south, walls east and west, the image whose face
+        // runs along the x axis; along y the other one; alone, the post.
+        assert!(matches!(build(&mut world, WALL, (160, 134), (164, 134)), Outcome::Done { items: 5, .. }));
+        assert!(matches!(build(&mut world, WALL, (168, 134), (168, 138)), Outcome::Done { items: 5, .. }));
+        assert!(matches!(build(&mut world, WALL, (172, 136), (172, 136)), Outcome::Done { items: 1, .. }));
+        assert_eq!(world.map.images.at_or(162, 134, 0), base + 1);
+        assert_eq!(world.map.images.at_or(168, 136, 0), base + 4);
+        assert_eq!(world.map.images.at_or(172, 136, 0), base + 26);
     }
 
     #[test]

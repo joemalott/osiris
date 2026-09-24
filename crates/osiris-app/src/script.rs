@@ -154,6 +154,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             // Holds building tool K with the cursor on tile x,y for the screenshot.
             ["hold", k, p] => view.hold = Some((k.parse()?, parse_point(p)?)),
             ["treasury", n] => world.treasury = n.parse()?,
+            ["gatefacing", n] => world.gatehouse_facing = n.parse::<u8>()?.min(1),
             // The placement preview of building K with the cursor on x,y: each tile's verdict.
             ["preview", k, p] => {
                 let k: u16 = k.parse()?;

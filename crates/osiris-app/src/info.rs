@@ -748,9 +748,9 @@ impl InfoPanel {
         } else if is(tr::CANAL) {
             7
         } else if is(tr::WALL) {
-            // A brick wall, or the mud wall.
-            let brick = world.buildings.iter().any(|b| b.kind == 169 && b.x == x && b.y == y);
-            if brick { 23 } else { 24 }
+            // The original's wall (type 169) is "Wall"; its "Brick wall" belongs to
+            // type 168, which it never offers.
+            24
         } else if is(tr::RUBBLE) {
             8
         } else if is(tr::MEADOW) {
