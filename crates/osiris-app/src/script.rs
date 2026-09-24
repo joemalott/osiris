@@ -100,6 +100,19 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     start.elapsed(), worst, world.population, world.treasury, world.figures.len(), world.buildings.iter().count()
                 );
             }
+            // Every figure of kind K: where it is, what it is doing and where it is going.
+            ["figs", k] => {
+                let k: u16 = k.parse()?;
+                for f in world.figures.iter().filter(|f| f.kind == k) {
+                    eprintln!("  fig {} at ({},{}) action {} dest {:?} route {} moving {} counter {} stuck {} foe {} target {}", f.id, f.x, f.y, f.action, f.destination, f.route.len(), f.moving, f.counter, f.stuck, f.foe, f.target);
+                }
+            }
+            // A tile's terrain bits and building.
+            ["tile", p] => {
+                let (x, y) = parse_point(p)?;
+                let id = world.map.building.at_or(x, y, 0);
+                eprintln!("  tile {x},{y}: terrain {:#x} building {id} kind {:?}", world.map.terrain.at_or(x, y, 0), world.buildings.get(id).map(|b| b.kind));
+            }
             ["view", p] => view.centre = Some(parse_point(p)?),
             ["info", p] => view.info = Some(parse_point(p)?),
             ["dialogs"] => view.keep_dialogs = true,
