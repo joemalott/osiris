@@ -639,6 +639,7 @@ mod tests {
         world.rules.collapse = false;
         world.test_full_staff = true;
         world.treasury = 100_000;
+        world.scenario_allowed = None;
         Some(world)
     }
 
