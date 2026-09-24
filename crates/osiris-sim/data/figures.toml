@@ -5,6 +5,8 @@
 # offset resolved from FIGURE_x self-reference constants where used, e.g. big_image);
 # category/permission = simplified enum keys; text_id/help = meta text id and help link;
 # remaining scalar params (speed_mult, max_roam_length, max_damage, terrain_usage, ...) kept as-is.
+# The roaming walkers' max_roam_length is checked against the original's walker actions
+# (water carrier 384; magistrate 640; juggler, senet player and zookeeper 512).
 
 [[figure]]
 id = 1
@@ -158,7 +160,7 @@ category = "citizen"
 permission = "entertainer"
 anims = { walk = { pack = "SprMain", group = 130, offset = 0, frames = 12 }, death = { pack = "SprMain", group = 131, offset = 0, frames = 8, loop = false }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 15 } }
 max_damage = 20
-max_roam_length = 640
+max_roam_length = 512
 overlay = "booth"
 record_path = true
 
@@ -191,7 +193,7 @@ category = "citizen"
 permission = "entertainer"
 anims = { walk = { pack = "SprMain", group = 132, offset = 0, frames = 12 }, death = { pack = "SprMain", group = 133, offset = 0, frames = 8, loop = false }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 18 } }
 max_damage = 20
-max_roam_length = 640
+max_roam_length = 512
 overlay = "senet_house"
 
 [[figure]]
@@ -688,7 +690,7 @@ terrain_usage = "any"
 id = 87
 key = "water_carrier"
 anims = { walk = { pack = "SprMain", group = 59, offset = 0, frames = 12 }, death = { pack = "SprMain", group = 60, offset = 0, frames = 8, loop = false }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 87 } }
-max_roam_length = 640
+max_roam_length = 384
 overlay = "water"
 record_path = true
 terrain_usage = "roads"
@@ -713,7 +715,7 @@ anims = { walk = { pack = "SprMain", group = 212, offset = 0, frames = 12 }, dea
 text_id = 210
 help = "message_history_defensive_structures"
 max_damage = 10
-max_roam_length = 800
+max_roam_length = 640
 overlay = "couthouse"
 terrain_usage = "roads"
 
@@ -812,7 +814,7 @@ category = "citizen"
 permission = "entertainer"
 anims = { walk = { pack = "SprMain2", group = 35, offset = 0, frames = 12 }, death = { pack = "SprMain2", group = 36, offset = 0, frames = 7, loop = false }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 105 } }
 max_damage = 20
-max_roam_length = 640
+max_roam_length = 512
 overlay = "zoo"
 terrain_usage = "roads"
 

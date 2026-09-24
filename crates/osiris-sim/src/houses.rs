@@ -619,7 +619,7 @@ impl World {
         }
         self.population -= extra;
         self.census.remove(&self.rng, extra);
-        let fid = self.figures.spawn(crate::people::figure_kind::HOMELESS, x, y, crate::figures::Travel::Land);
+        let fid = self.figures.spawn(crate::people::figure_kind::HOMELESS, x, y, crate::figures::Travel::PreferRoads);
         if let Some(f) = self.figures.get_mut(fid) {
             f.amount = extra;
         }

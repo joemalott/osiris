@@ -94,7 +94,7 @@ impl World {
             && h.population > 0
         {
             let (x, y) = b.road.unwrap_or((b.x, b.y));
-            let fid = self.figures.spawn(HOMELESS, x, y, Travel::Land);
+            let fid = self.figures.spawn(HOMELESS, x, y, Travel::PreferRoads);
             if let Some(f) = self.figures.get_mut(fid) {
                 f.amount = h.population;
             }

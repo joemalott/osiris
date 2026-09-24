@@ -325,7 +325,7 @@ impl World {
                         let settled = if self.buildings.get(house).is_some() { self.add_people(house, n) } else { 0 };
                         if settled < n {
                             // No room after all: they wander off to find another home.
-                            let fid = self.figures.spawn(figure_kind::HOMELESS, x, y, Travel::Land);
+                            let fid = self.figures.spawn(figure_kind::HOMELESS, x, y, Travel::PreferRoads);
                             if let Some(h) = self.figures.get_mut(fid) {
                                 h.amount = n - settled;
                             }
