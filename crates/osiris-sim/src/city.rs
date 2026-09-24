@@ -75,6 +75,7 @@ impl World {
             45 => {
                 self.update_monuments();
                 self.release_criminals();
+                self.traffic.decay();
             }
             44 => self.check_fire_and_collapse(),
             48 => self.decay_tax_coverage(),
@@ -158,6 +159,15 @@ impl World {
                 crate::docks::DOCKER => self.update_docker(fid),
                 crate::water::FERRY_BOAT => self.update_ferry_boat(fid),
                 _ => {}
+            }
+            // Every walker reaching a tile centre marks the tile's traffic.
+            if let Some(f) = self.figures.get_mut(fid)
+                && f.centres > 0
+            {
+                let (n, kind, x, y) = (std::mem::take(&mut f.centres), f.kind, f.x, f.y);
+                for _ in 0..n {
+                    self.traffic.note(&self.map, kind, x, y);
+                }
             }
             if self.figures.get(fid).is_some_and(|f| f.dead) {
                 let f = self.figures.get(fid).expect("checked").clone();

@@ -116,10 +116,6 @@ impl World {
         self.defs.resources.iter().position(|k| k == key).map(|i| i as u16)
     }
 
-    fn distance(&self, id: BuildingId, from: (i32, i32)) -> i32 {
-        self.buildings.get(id).map_or(i32::MAX, |b| (b.x - from.0).abs().max((b.y - from.1).abs()))
-    }
-
     /// Whether building `k` produces through the daily progress of an industry (farms,
     /// the hunting lodge, gatherers and the fishing wharf have their own rules).
     fn is_industry(&self, k: u16) -> bool {
@@ -289,9 +285,39 @@ impl World {
         }
     }
 
-    /// The nearest of `candidates` to `from` whose room for the goods is positive.
+    /// Of `candidates`, the one first reached from `from` by road, as the original
+    /// chooses between destinations: a road search outward from `from` (north, east,
+    /// south, west) that stops at the first tile that is a candidate's road access, the
+    /// last listed winning a shared tile. None when no candidate can be reached; a lone
+    /// candidate is taken as is.
     fn nearest(&self, candidates: impl Iterator<Item = BuildingId>, from: (i32, i32)) -> Option<BuildingId> {
-        candidates.min_by_key(|&id| (self.distance(id, from), id))
+        let list: Vec<(BuildingId, (i32, i32))> = candidates.filter_map(|id| Some((id, self.buildings.get(id)?.road?))).collect();
+        if list.len() <= 1 {
+            return list.first().map(|c| c.0);
+        }
+        let map = &self.map;
+        if !map.contains(from.0, from.1) {
+            return None;
+        }
+        let w = map.width;
+        let mut seen = vec![false; (w * map.height) as usize];
+        seen[(from.1 * w + from.0) as usize] = true;
+        let mut queue = std::collections::VecDeque::from([from]);
+        while let Some((x, y)) = queue.pop_front() {
+            if let Some(&(id, _)) = list.iter().rev().find(|c| c.1 == (x, y)) {
+                return Some(id);
+            }
+            for d in [0, 2, 4, 6] {
+                let (nx, ny) = (x + crate::map::NEIGHBOURS[d].0, y + crate::map::NEIGHBOURS[d].1);
+                if !map.contains(nx, ny) || std::mem::replace(&mut seen[(ny * w + nx) as usize], true) {
+                    continue;
+                }
+                if crate::figures::passable(map, Travel::Roads, nx, ny) || list.iter().any(|c| c.1 == (nx, ny)) {
+                    queue.push_back((nx, ny));
+                }
+            }
+        }
+        None
     }
 
     /// Room building `id` has for `r` as a delivery target (storage by its orders, a
@@ -325,19 +351,21 @@ impl World {
     }
 
     /// The building using `r` that a load of it should go to: the one holding least,
-    /// then with least on its way, then the nearest. It must have room for a whole
-    /// load beyond what it holds, and more than what is on its way.
+    /// then with least on its way, then the nearest by road. It must have room for a
+    /// whole load beyond what it holds, and more than what is on its way.
     fn user_for(&self, r: u16, from: (i32, i32), staffed: bool) -> Option<BuildingId> {
-        self.buildings
+        let users: Vec<((i32, i32), BuildingId)> = self
+            .buildings
             .iter()
             .filter(|b| !storage::is_storage(b.kind) && (!staffed || b.workers > 0) && self.inputs_of(b.kind).contains(&r) && b.road.is_some())
             .filter_map(|b| {
                 let (stock, cap) = (b.stock[r as usize], site_cap(b.kind));
                 let coming = self.incoming(b.id, r);
-                (stock + LOAD <= cap && stock + coming < cap).then_some((stock, coming, self.distance(b.id, from), b.id))
+                (stock + LOAD <= cap && stock + coming < cap).then_some(((stock, coming), b.id))
             })
-            .min()
-            .map(|t| t.3)
+            .collect();
+        let least = users.iter().map(|u| u.0).min()?;
+        self.nearest(users.iter().filter(|u| u.0 == least).map(|u| u.1), from)
     }
 
     /// Where a producer's cart takes `r`, in the original's order: gold to a staffed
@@ -506,7 +534,7 @@ impl World {
         if b.workers * 2 < needed {
             return;
         }
-        let from = (b.x, b.y);
+        let from = b.road.unwrap_or((b.x, b.y));
         let held: Vec<(u16, i32)> = {
             let mut v: Vec<(u16, i32)> = Vec::new();
             for &(r, n) in &b.spaces {
@@ -700,7 +728,7 @@ impl World {
             let mut out = self.figures.iter().filter(|f| f.kind == figure && f.home == id && !f.dead).count() as i32;
             while out < wanted {
                 let Some(spot) = self.harvest_spot(k, road) else { break };
-                let fid = self.figures.spawn(figure, road.0, road.1, Travel::Land);
+                let fid = self.figures.spawn(figure, road.0, road.1, Travel::PreferRoads);
                 let map = &self.map;
                 if let Some(f) = self.figures.get_mut(fid) {
                     f.home = id;

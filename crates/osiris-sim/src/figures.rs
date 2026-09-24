@@ -12,10 +12,15 @@ pub type FigureId = u32;
 /// How a figure may travel, which decides the tiles its routes can use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Travel {
-    /// Roads only (service walkers, cart pushers).
+    /// Roads, plus ramps and rubble (service walkers, cart pushers): the original's
+    /// road-only routing over its citizen route grid.
     Roads,
-    /// Any passable land, preferring nothing (immigrants, animals, hunters).
+    /// Anywhere people can walk (immigrants, soldiers, peasants, animals): see
+    /// `citizen_ground`.
     Land,
+    /// By road if a road route exists, else over land (the homeless, caravans,
+    /// gatherers): the original tries its road search before its land search.
+    PreferRoads,
     /// Open river water (boats); see `water::navigable`.
     Water,
     /// Invaders: as on land, but a gatehouse bars the way like a wall.
@@ -91,6 +96,16 @@ pub struct Figure {
     /// A bazaar buyer's haul: each resource on its list and what it has picked up.
     #[serde(default)]
     pub carried: Vec<(u16, i32)>,
+    /// Roamers: still on the first leg out to a road eight tiles from home, and how
+    /// many more junctions may fail their random pick before they turn back toward
+    /// that spot (-1 = not yet counting).
+    #[serde(default)]
+    pub roam_out: bool,
+    #[serde(default)]
+    pub roam_wait: i8,
+    /// Tile centres reached this tick, for the traffic tally.
+    #[serde(skip)]
+    pub centres: u8,
 }
 
 impl Figure {
@@ -125,6 +140,9 @@ impl Figure {
             attack_tick: 0,
             stuck: 0,
             carried: Vec::new(),
+            roam_out: false,
+            roam_wait: -1,
+            centres: 0,
         }
     }
 
@@ -148,6 +166,46 @@ impl Figure {
     }
 }
 
+/// What a tile is to people on foot, as the original's citizen route grid rates it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ground {
+    /// Roads (and the gatehouses and roadblocks on them).
+    Road,
+    /// Access ramps and rubble: walkers bound for a building may use them like road.
+    Rough,
+    /// Open land: clear ground, trees, scrub, marsh, dunes, dry floodplain, canals.
+    Open,
+}
+
+/// How the citizen route grid rates terrain `t`, or `None` where people can't walk: a
+/// dike or flooded floodplain blocks; then a road is road, a ramp rough; buildings
+/// block; a canal, dry floodplain, trees, scrub, marsh and dunes are open; rubble is
+/// rough; rock, water, walls, ore, gardens and raised ground block; the rest is open.
+pub fn citizen_ground(t: u32) -> Option<Ground> {
+    use terrain::*;
+    if t & DIKE != 0 || t & (WATER | FLOODPLAIN) == WATER | FLOODPLAIN {
+        return None;
+    }
+    if t & ROAD != 0 {
+        // A road across water is only walkable as a bridge or ferry crossing.
+        return (t & WATER == 0).then_some(Ground::Road);
+    }
+    if t & ACCESS_RAMP != 0 {
+        return Some(Ground::Rough);
+    }
+    if t & (BUILDING | GATEHOUSE) != 0 {
+        return None;
+    }
+    if t & (CANAL | FLOODPLAIN | TREE | SHRUB | MARSHLAND | DUNE) != 0 {
+        return Some(Ground::Open);
+    }
+    if t & RUBBLE != 0 {
+        return Some(Ground::Rough);
+    }
+    const BLOCKING: u32 = !(GROUNDWATER | MEADOW | FOUNTAIN_RANGE | IRRIGATION_RANGE | BRIDGE);
+    (t & BLOCKING == 0).then_some(Ground::Open)
+}
+
 /// Whether a figure travelling by `travel` may stand on `(x, y)`.
 pub fn passable(map: &Map, travel: Travel, x: i32, y: i32) -> bool {
     if !map.contains(x, y) {
@@ -157,13 +215,8 @@ pub fn passable(map: &Map, travel: Travel, x: i32, y: i32) -> bool {
     // A working ferry's crossing, or a bridge, counts as road for people on foot.
     let ferry = t & (terrain::FERRY_ROUTE | terrain::BRIDGE) != 0;
     match travel {
-        Travel::Roads => t & (terrain::ROAD | terrain::ACCESS_RAMP) != 0 && t & terrain::WATER == 0 || ferry,
-        // People on foot step over irrigation ditches.
-        Travel::Land => {
-            t & terrain::ROAD != 0 && t & terrain::WATER == 0
-                || t & (mask::IMPASSABLE | terrain::BUILDING) & !terrain::CANAL == 0
-                || ferry
-        }
+        Travel::Roads => ferry || citizen_ground(t).is_some_and(|g| g != Ground::Open),
+        Travel::Land | Travel::PreferRoads => ferry || citizen_ground(t).is_some(),
         Travel::Water => crate::water::navigable(map, x, y),
         // Invaders cross trees, scrub, marsh, dunes, rubble, gardens, canals, ramps and
         // dry floodplain (the original's route grid for non-citizens); buildings, walls
@@ -197,6 +250,9 @@ pub fn find_route(map: &Map, travel: Travel, from: (i32, i32), to: (i32, i32)) -
     if !map.contains(from.0, from.1) || !map.contains(to.0, to.1) {
         return None;
     }
+    if travel == Travel::PreferRoads {
+        return find_route(map, Travel::Roads, from, to).or_else(|| find_route(map, Travel::Land, from, to));
+    }
     let (w, h) = (map.width, map.height);
     let idx = |x: i32, y: i32| (y * w + x) as usize;
     let mut came = vec![u8::MAX; (w * h) as usize];
@@ -204,7 +260,7 @@ pub fn find_route(map: &Map, travel: Travel, from: (i32, i32), to: (i32, i32)) -
     came[idx(from.0, from.1)] = 8;
     let dirs: &[u8] = match travel {
         Travel::Roads => &[0, 2, 4, 6],
-        Travel::Land | Travel::Water | Travel::Hostile => &[0, 2, 4, 6, 1, 3, 5, 7],
+        Travel::Land | Travel::PreferRoads | Travel::Water | Travel::Hostile => &[0, 2, 4, 6, 1, 3, 5, 7],
     };
     // The destination may be a building entrance off the road network; allow it.
     let ok = |x: i32, y: i32| (x, y) == to || passable(map, travel, x, y);
@@ -288,6 +344,7 @@ impl Figure {
             if self.progress >= 15 {
                 self.progress = 0;
                 self.moving = false;
+                self.centres = self.centres.saturating_add(1);
             }
         }
         Step::Moving
@@ -390,6 +447,48 @@ mod tests {
             map.terrain.set(3, 0, bits);
             assert_eq!(passable(&map, Travel::Hostile, 3, 0), open, "{bits:#x}");
         }
+    }
+
+    #[test]
+    fn people_cross_rough_ground_but_road_walkers_keep_to_roads() {
+        use terrain::*;
+        let mut map = open_map(3, 1);
+        for (bits, land, roads) in [
+            (FLOODPLAIN, true, false),
+            (TREE | SHRUB, true, false),
+            (MARSHLAND, true, false),
+            (DUNE, true, false),
+            (CANAL, true, false),
+            (MEADOW | GROUNDWATER, true, false),
+            (RUBBLE, true, true),
+            (ACCESS_RAMP, true, true),
+            (ROAD | BUILDING, true, true),
+            (ROAD | DIKE, false, false),
+            (WATER | FLOODPLAIN, false, false),
+            (ROAD | WATER, false, false),
+            (BUILDING, false, false),
+            (ROCK, false, false),
+            (GARDEN, false, false),
+            (ELEVATION, false, false),
+        ] {
+            map.terrain.set(1, 0, bits);
+            assert_eq!(passable(&map, Travel::Land, 1, 0), land, "land {bits:#x}");
+            assert_eq!(passable(&map, Travel::Roads, 1, 0), roads, "roads {bits:#x}");
+        }
+    }
+
+    #[test]
+    fn preferring_roads_takes_the_road_when_there_is_one() {
+        // Row 0 is a road looping round a clear row 1.
+        let mut map = open_map(5, 3);
+        for (x, y) in [(0, 1), (0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (4, 1)] {
+            map.terrain.set(x, y, terrain::ROAD);
+        }
+        let road = find_route(&map, Travel::PreferRoads, (0, 1), (4, 1)).unwrap();
+        assert_eq!(road.len(), 6);
+        map.terrain.set(2, 0, 0);
+        let land = find_route(&map, Travel::PreferRoads, (0, 1), (4, 1)).unwrap();
+        assert_eq!(land.len(), 4);
     }
 
     #[test]

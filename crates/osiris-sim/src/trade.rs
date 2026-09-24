@@ -512,7 +512,7 @@ impl World {
 
     fn caravan_arrives(&mut self, trader: usize) {
         let (x, y) = self.entry_point;
-        let fid = self.figures.spawn(TRADE_CARAVAN, x, y, Travel::Land);
+        let fid = self.figures.spawn(TRADE_CARAVAN, x, y, Travel::PreferRoads);
         let capacity = CARAVAN_LOADS * LOAD;
         if let Some(f) = self.figures.get_mut(fid) {
             f.target = trader as u32;

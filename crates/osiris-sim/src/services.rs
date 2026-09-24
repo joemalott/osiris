@@ -34,6 +34,90 @@ mod action {
     pub const RETURNING: u16 = 2;
 }
 
+/// Building kinds whose tiles roamers won't step onto.
+const ROADBLOCK: u16 = 138;
+const FERRY: u16 = 136;
+
+/// The original's tally of recent walker traffic on each tile: ten 3-bit counters in a
+/// word, one per kind of service (see `traffic_shift`), raised by one (up to 7) as
+/// such a walker reaches the tile centre and lowered by one every 20 days. Setting a
+/// counter keeps only the word's low 16 bits besides it, as the original's mask does,
+/// so raising a low counter (or any other walker passing) wipes the high ones.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Traffic {
+    grid: Option<crate::grid::Grid<u32>>,
+    days: u8,
+}
+
+/// Bit offset of kind `k`'s traffic counter: water carriers 0, firemen 1, architects 2,
+/// constables and magistrates 3, entertainers 4, scribes and librarians 5, priests 6,
+/// tax collectors and labor seekers 7, market traders 8, the four healers 9 (times
+/// three bits); every other walker's slot is -1, which lands on the top three bits.
+fn traffic_shift(k: u16) -> u32 {
+    let slot: i32 = match k {
+        87 => 0,
+        10 => 1,
+        8 => 2,
+        40 | 88 | 89 => 3,
+        15..=18 | 105 => 4,
+        29 | 30 => 5,
+        27 | 64 => 6,
+        5 | 7 => 7,
+        26 | 39 | 66 => 8,
+        31..=34 => 9,
+        _ => -1,
+    };
+    (slot * 3) as u32 & 31
+}
+
+/// Replaces the 3-bit counter at `shift` in `word` by `v` the original's way.
+fn set_counter(word: u32, shift: u32, v: u32) -> u32 {
+    (word & ((7 << shift) ^ 0xffff)) | (v << shift)
+}
+
+impl Traffic {
+    /// Kind `k`'s counter on `(x, y)`.
+    pub fn at(&self, k: u16, x: i32, y: i32) -> u32 {
+        self.grid.as_ref().map_or(0, |g| g.at_or(x, y, 0) >> traffic_shift(k) & 7)
+    }
+
+    /// A walker of kind `k` reaches `(x, y)`.
+    pub(crate) fn note(&mut self, map: &crate::map::Map, k: u16, x: i32, y: i32) {
+        let g = self.grid.get_or_insert_with(|| crate::grid::Grid::new(map.width, map.height));
+        let shift = traffic_shift(k);
+        g.update(x, y, |w| {
+            let v = w >> shift & 7;
+            if v < 7 { set_counter(w, shift, v + 1) } else { w }
+        });
+    }
+
+    /// Tick 45: every 20th day each tile's ten counters drop by one.
+    pub(crate) fn decay(&mut self) {
+        self.days += 1;
+        if self.days < 20 {
+            return;
+        }
+        self.days = 0;
+        let Some(g) = self.grid.as_mut() else { return };
+        let (w, h) = (g.width(), g.height());
+        for y in 0..h {
+            for x in 0..w {
+                g.update(x, y, |mut word| {
+                    if word != 0 {
+                        for shift in (0..30).step_by(3) {
+                            let v = word >> shift & 7;
+                            if v != 0 {
+                                word = set_counter(word, shift, v - 1);
+                            }
+                        }
+                    }
+                    word
+                });
+            }
+        }
+    }
+}
+
 /// Days a building waits between walkers, at 100%, 75%, 50%, 25% and any staffing.
 pub fn walker_delays(k: u16) -> [i32; 5] {
     match k {
@@ -90,20 +174,34 @@ impl World {
         }
     }
 
-    /// Sends a `kind` walker roaming from `home`'s road.
+    /// Sends a `kind` walker roaming from `home`'s road. As in the original he first
+    /// walks to the road nearest (within six tiles) the spot eight tiles from the
+    /// building's corner in its next direction (north, east, south, west in turn), and
+    /// only roams from there, his roam length counting from that arrival.
     pub(crate) fn spawn_roaming_figure(&mut self, home: BuildingId, kind: u16) -> Option<FigureId> {
         let b = self.buildings.get(home)?;
         let (rx, ry) = b.road?;
         let dir = b.roam_dir;
+        let (dx, dy) = NEIGHBOURS[dir as usize % 8];
+        let out = (
+            (b.x + 8 * dx).clamp(0, self.map.width - 1),
+            (b.y + 8 * dy).clamp(0, self.map.height - 1),
+        );
+        let out = crate::buildings::road_within(&self.map, out.0, out.1, 1, 6);
         let roam = self.max_roam(kind);
         let fid = self.figures.spawn(kind, rx, ry, Travel::Roads);
-        let turn_seed = self.rng.byte();
+        let map = &self.map;
         if let Some(f) = self.figures.get_mut(fid) {
             f.home = home;
             f.action = action::ROAMING;
             f.roam_left = roam;
-            f.roam_turn = if turn_seed & 1 == 0 { 2 } else { -2 };
-            f.direction = dir;
+            f.roam_turn = 2;
+            f.roam_wait = -1;
+            f.roam_out = out.is_some_and(|t| f.go_to(map, t));
+            if !f.roam_out {
+                f.destination = Some((rx, ry));
+                f.route.clear();
+            }
         }
         if let Some(b) = self.buildings.get_mut(home) {
             b.roam_dir = (b.roam_dir + 2) % 8;
@@ -309,37 +407,107 @@ impl World {
         }
     }
 
-    /// Picks the next road direction for a roamer standing on a tile centre.
-    pub(crate) fn roam_direction(&mut self, fid: u32) -> Option<u8> {
-        let f = self.figures.get(fid)?;
-        let (x, y) = (f.x, f.y);
-        let came_from = (f.direction + 4) % 8;
-        let roads: Vec<u8> = (0..8u8)
-            .step_by(2)
-            .filter(|&d| {
-                let (dx, dy) = NEIGHBOURS[d as usize];
-                self.map.terrain_is(x + dx, y + dy, terrain::ROAD) && !self.map.terrain_is(x + dx, y + dy, terrain::WATER) && self.roamer_may_enter(x + dx, y + dy)
-            })
-            .collect();
-        match roads.len() {
-            0 => None,
-            1 => Some(roads[0]),
-            _ => {
-                let turn = f.roam_turn;
-                let mut dir = if roads.len() == 2 {
-                    f.direction
-                } else {
-                    ((f.counter + self.map.random.at_or(x, y, 0) as i32) & 6) as u8
-                };
-                for _ in 0..4 {
-                    if roads.contains(&dir) && dir != came_from {
-                        return Some(dir);
-                    }
-                    dir = ((dir as i32 + turn as i32).rem_euclid(8)) as u8;
+    /// The roads a roamer of kind `k` may take from `(x, y)`, by direction, and how
+    /// many: road or ramp tiles in the four directions, not into a roadblock (which
+    /// only the plague-stricken pass) or a ferry landing. Where more than two meet,
+    /// only those its kind has walked least lately count.
+    fn roam_roads(&self, k: u16, x: i32, y: i32) -> ([bool; 8], usize) {
+        let mut roads = [false; 8];
+        for d in (0..8).step_by(2) {
+            let (nx, ny) = (x + NEIGHBOURS[d].0, y + NEIGHBOURS[d].1);
+            let blocker = self.buildings.get(self.map.building.at_or(nx, ny, 0)).is_some_and(|b| b.kind == FERRY || b.kind == ROADBLOCK && k != crate::health::PLAGUED_CITIZEN);
+            roads[d] = self.map.terrain_is(nx, ny, terrain::ROAD | terrain::ACCESS_RAMP) && crate::figures::passable(&self.map, Travel::Roads, nx, ny) && !blocker;
+        }
+        let mut n = roads.iter().filter(|&&r| r).count();
+        if n > 2 {
+            let seen = |d: usize| self.traffic.at(k, x + NEIGHBOURS[d].0, y + NEIGHBOURS[d].1);
+            let least = (0..8).filter(|&d| roads[d]).map(seen).min().unwrap_or(0);
+            for (d, road) in roads.iter_mut().enumerate() {
+                if *road && seen(d) > least {
+                    *road = false;
+                    n -= 1;
                 }
-                roads.iter().copied().find(|&d| d != came_from).or(Some(roads[0]))
             }
         }
+        (roads, n)
+    }
+
+    /// Points a roamer at the road nearest in turning order to the direction of its
+    /// roam's first destination, turning the way that finds it sooner (clockwise on a
+    /// tie), and gives it five junctions before it tries again.
+    fn roam_toward_destination(&mut self, fid: u32) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let (x, y) = (f.x, f.y);
+        let start = f.destination.and_then(|d| crate::figures::direction_to((x, y), d)).unwrap_or(0) as usize;
+        let road = |d: usize| d.is_multiple_of(2) && self.map.terrain_is(x + NEIGHBOURS[d].0, y + NEIGHBOURS[d].1, terrain::ROAD);
+        let cw = (0..8).map(|i| (start + i) % 8).position(road);
+        let ccw = (0..8).map(|i| (start + 8 - i) % 8).position(road);
+        let cw = cw.map_or((8, 0), |i| (i, (start + i) % 8));
+        let ccw = ccw.map_or((8, 4), |i| (i, (start + 8 - i) % 8));
+        let f = self.figures.get_mut(fid).expect("present");
+        if cw.0 <= ccw.0 {
+            f.direction = cw.1 as u8;
+            f.roam_turn = 2;
+        } else {
+            f.direction = ccw.1 as u8;
+            f.roam_turn = -2;
+        }
+        f.roam_wait = 5;
+    }
+
+    /// Picks the next road direction for a roamer standing on a tile centre, as the
+    /// original does: a dead end turns it round; on a road with two ways it keeps on,
+    /// else turns its turning way, but never back; at a junction it tries a way picked
+    /// from the tile's random value, and when that fails it counts down to turning
+    /// toward its first destination, then turns its way from there. None when no
+    /// road leads on.
+    pub(crate) fn roam_direction(&mut self, fid: u32) -> Option<u8> {
+        let f = self.figures.get_mut(fid)?;
+        f.counter += 1;
+        let (k, x, y) = (f.kind, f.x, f.y);
+        let mut came_from = Some((f.direction as usize + 4) % 8);
+        let (roads, n) = self.roam_roads(k, x, y);
+        if n == 0 {
+            return None;
+        }
+        if n == 1 {
+            return (0..8).step_by(2).find(|&d| roads[d]).map(|d| d as u8);
+        }
+        if n == 2 {
+            if self.figures.get(fid)?.roam_wait == -1 {
+                self.roam_toward_destination(fid);
+                came_from = None;
+            }
+        } else {
+            let random = self.map.random.at_or(x, y, 0) as i32;
+            let f = self.figures.get_mut(fid)?;
+            let pick = ((random + f.counter) & 6) as usize;
+            f.direction = pick as u8;
+            if !roads[pick] || Some(pick) == came_from {
+                f.roam_wait = f.roam_wait.saturating_sub(1);
+                if f.roam_wait < 1 {
+                    self.roam_toward_destination(fid);
+                    came_from = None;
+                }
+            } else {
+                return Some(pick as u8);
+            }
+        }
+        let f = self.figures.get(fid)?;
+        let mut dir = f.direction as i32;
+        for _ in 0..5 {
+            if roads[dir as usize] && Some(dir as usize) != came_from {
+                return Some(dir as u8);
+            }
+            dir += f.roam_turn as i32;
+            if dir > 6 {
+                dir = 0;
+            }
+            if dir < 0 {
+                dir = 6;
+            }
+        }
+        (0..8).step_by(2).find(|&d| roads[d] && Some(d) != came_from).map(|d| d as u8)
     }
 
     pub(crate) fn update_roamer(&mut self, fid: u32) {
@@ -392,40 +560,69 @@ impl World {
         }
         match act {
             action::ROAMING => {
-                let at_centre = !self.figures.get(fid).is_some_and(|f| f.moving);
-                if at_centre {
-                    let (x, y) = self.figures.get(fid).map(|f| (f.x, f.y)).unwrap_or_default();
-                    self.provide_service(kind, home, x, y);
-                    let done = self.figures.get(fid).is_some_and(|f| f.roam_left <= 0);
-                    let next = if done { None } else { self.roam_direction(fid) };
+                // The roam length counts every tick out; when it's spent he heads for a
+                // road within two tiles of home.
+                let f = self.figures.get_mut(fid).expect("present");
+                f.roam_left -= 1;
+                if f.roam_left <= 0 {
+                    let target = self.buildings.get(home).and_then(|b| crate::buildings::road_within(&self.map, b.x, b.y, b.size, 2).or(b.road));
                     let map = &self.map;
-                    let Some(f) = self.figures.get_mut(fid) else { return };
-                    match next {
+                    let f = self.figures.get_mut(fid).expect("present");
+                    f.action = action::RETURNING;
+                    f.roam_out = false;
+                    match target {
+                        Some(t) if f.go_to(map, t) => {}
+                        _ => f.dead = true,
+                    }
+                    return;
+                }
+                if f.roam_out {
+                    // The first leg serves as he goes, like any walk.
+                    let (x, y, moving) = (f.x, f.y, f.moving);
+                    if !moving {
+                        self.provide_service(kind, home, x, y);
+                    }
+                    let max = self.max_roam(kind);
+                    let map = &self.map;
+                    let f = self.figures.get_mut(fid).expect("present");
+                    match f.walk(map) {
+                        Step::Moving => return,
+                        Step::Arrived => f.roam_left = max,
+                        Step::Blocked | Step::Lost => {}
+                    }
+                    f.roam_out = false;
+                    f.roam_wait = 100;
+                    f.route.clear();
+                }
+                let (x, y, at_centre) = self.figures.get(fid).map(|f| (f.x, f.y, !f.moving)).unwrap_or_default();
+                if at_centre {
+                    self.provide_service(kind, home, x, y);
+                    match self.roam_direction(fid) {
                         Some(d) => {
+                            let f = self.figures.get_mut(fid).expect("present");
                             f.route.clear();
                             f.route.push_back(d);
-                            f.counter += 1;
                         }
                         None => {
-                            f.action = action::RETURNING;
-                            let target = self.buildings.get(home).and_then(|b| b.road);
-                            match target {
-                                Some(t) if f.go_to(map, t) => {}
-                                _ => f.dead = true,
-                            }
+                            // Nowhere to go: his roam is over.
+                            self.figures.get_mut(fid).expect("present").roam_left = 0;
                             return;
                         }
                     }
                 }
                 let map = &self.map;
-                if let Some(f) = self.figures.get_mut(fid) {
-                    f.roam_left -= f.speed as i32;
-                    if f.walk(map) == Step::Blocked {
-                        f.route.clear();
-                    }
+                if let Some(f) = self.figures.get_mut(fid)
+                    && f.walk(map) == Step::Blocked
+                {
+                    f.route.clear();
                 }
             }
             _ => {
+                // Walking home, he still serves at each tile.
+                let (x, y, moving) = self.figures.get(fid).map(|f| (f.x, f.y, f.moving)).unwrap_or_default();
+                if !moving {
+                    self.provide_service(kind, home, x, y);
+                }
                 let map = &self.map;
                 let Some(f) = self.figures.get_mut(fid) else { return };
                 match f.walk(map) {
@@ -434,5 +631,44 @@ impl World {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn traffic_counters_rise_decay_and_low_ones_wipe_high_ones() {
+        let map = crate::map::Map {
+            width: 2,
+            height: 1,
+            terrain: crate::grid::Grid::new(2, 1),
+            images: crate::grid::Grid::new(2, 1),
+            edges: crate::grid::Grid::new(2, 1),
+            bitfields: crate::grid::Grid::new(2, 1),
+            elevation: crate::grid::Grid::new(2, 1),
+            random: crate::grid::Grid::new(2, 1),
+            fertility: crate::grid::Grid::new(2, 1),
+            moisture: crate::grid::Grid::new(2, 1),
+            vegetation: crate::grid::Grid::new(2, 1),
+            building: crate::grid::Grid::new(2, 1),
+            border: Vec::new(),
+        };
+        let mut t = Traffic::default();
+        for _ in 0..9 {
+            t.note(&map, figure_kind::PHYSICIAN, 0, 0);
+        }
+        assert_eq!(t.at(figure_kind::PHYSICIAN, 0, 0), 7);
+        // A water carrier's counter sits in the low bits; setting it clears the rest.
+        t.note(&map, figure_kind::WATER_CARRIER, 0, 0);
+        assert_eq!((t.at(figure_kind::WATER_CARRIER, 0, 0), t.at(figure_kind::PHYSICIAN, 0, 0)), (1, 0));
+        t.note(&map, figure_kind::FIREMAN, 0, 0);
+        for _ in 0..19 {
+            t.decay();
+        }
+        assert_eq!(t.at(figure_kind::FIREMAN, 0, 0), 1);
+        t.decay();
+        assert_eq!((t.at(figure_kind::FIREMAN, 0, 0), t.at(figure_kind::WATER_CARRIER, 0, 0)), (0, 0));
     }
 }

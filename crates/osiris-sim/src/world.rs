@@ -73,6 +73,9 @@ pub struct World {
     pub buildings: Buildings,
     pub figures: Figures,
     pub desirability: Grid<i8>,
+    /// Recent service-walker traffic per tile, which steers roamers at junctions.
+    #[serde(default)]
+    pub traffic: crate::services::Traffic,
     pub population: i32,
     /// 0..=100; how content the citizens are.
     pub sentiment: i32,
@@ -247,6 +250,7 @@ impl World {
             buildings: Buildings::default(),
             figures: Figures::default(),
             desirability: Grid::new(w, h),
+            traffic: Default::default(),
             population: 0,
             sentiment: 60,
             unemployment: 0,
