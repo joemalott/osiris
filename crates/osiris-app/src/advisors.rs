@@ -940,7 +940,7 @@ fn education(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Advis
     }
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 108.0, 36, 6);
     let c = world.ratings.coverage.clone();
-    let rows = [(18, osiris_sim::ratings::SCHOOL, 75, c.school, 4), (20, osiris_sim::ratings::ACADEMY, 100, c.academy, 5), (22, osiris_sim::ratings::LIBRARY, 800, c.library, 6)];
+    let rows = [(18, osiris_sim::ratings::SCHOOL, osiris_sim::ratings::SCHOOL_SERVES, c.school, 4), (20, osiris_sim::ratings::ACADEMY, 100, c.academy, 5), (22, osiris_sim::ratings::LIBRARY, 800, c.library, 6)];
     for (i, &(name_id, k, serves, cov, who)) in rows.iter().enumerate() {
         let y = py + 118.0 + 25.0 * i as f32;
         let x = px + 40.0;

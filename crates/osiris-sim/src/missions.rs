@@ -71,7 +71,7 @@ pub struct Goal {
 pub struct Goals {
     pub population: Goal,
     pub housing_count: Goal,
-    /// 1-based house level (1 = crude hut).
+    /// The house level (0 = crude hut) that many houses must reach.
     pub housing_level: Goal,
     pub culture: Goal,
     pub prosperity: Goal,
@@ -186,12 +186,6 @@ impl World {
             religion_enabled: raw.funds.get("religion_enabled").and_then(|v| v.as_bool()).unwrap_or(true),
             player_rank: raw.funds.get("player_rank").and_then(|v| v.as_integer()).unwrap_or(0) as u8,
         };
-        if let Some(f) = mission.initial_funds {
-            self.treasury = f;
-        }
-        if let Some(t) = mission.house_tax_pct {
-            self.finance.tax_multiplier_pct = t;
-        }
         if let Some(m) = &mission.start_message {
             self.messages.push_back(m.clone());
         }
@@ -269,8 +263,12 @@ impl World {
         if g.population.enabled && self.population < g.population.value {
             return false;
         }
+        // The monument goal also wants every burial provision delivered.
+        if g.monuments.enabled && !self.burial_complete() {
+            return false;
+        }
         if g.housing_count.enabled || g.housing_level.enabled {
-            let min_level = (g.housing_level.value.max(1) - 1) as u8;
+            let min_level = g.housing_level.value.max(0) as u8;
             let count = self
                 .buildings
                 .iter()

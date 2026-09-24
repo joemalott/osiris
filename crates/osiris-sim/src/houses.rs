@@ -750,7 +750,7 @@ mod tests {
         assert_eq!(get(&world, id).1.level, 14);
         world.devolve_house(id);
         let (b, h) = get(&world, id);
-        assert_eq!((b.size, h.level, h.population), (2, 13, 60 / 6 + 60 % 6));
+        assert_eq!((b.size, h.level, h.population), (2, 13, 10));
         assert_eq!(world.population, 10);
         let gardens = block(x, y, 3).filter(|&(tx, ty)| world.map.terrain_is(tx, ty, terrain::GARDEN)).count();
         assert_eq!(gardens, 5);
@@ -766,7 +766,7 @@ mod tests {
         h.coverage.dancer = 5;
         h.coverage.senet = 96;
         h.derive_culture(3);
-        assert_eq!(h.entertainment, 103.min(100));
+        assert_eq!(h.entertainment, 100);
         let mut h = House::default();
         h.coverage.juggler = 50;
         h.coverage.musician = 50;

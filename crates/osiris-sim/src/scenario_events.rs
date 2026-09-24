@@ -377,11 +377,16 @@ impl World {
                 }
             }
             event::WAGE_INCREASE | event::WAGE_DECREASE => {
+                // The Kingdom's wage stays between 5 and 45 (as the city sees it, Ra's
+                // oracle taking two off); a change past that is ignored.
                 let raise = e.kind == event::WAGE_INCREASE;
-                let delta = amount.max(1);
-                self.finance.kingdom_wages = (self.finance.kingdom_wages + if raise { delta } else { -delta }).max(0);
-                let f = if raise { up } else { down };
-                phrases = Some((f("wage_change_title"), f("wage_change_initial_announcement"), f("wage_change_no_reason") + "_A"));
+                let wage = self.finance.kingdom_wages + if raise { amount } else { -amount };
+                let ra = if self.complex_blessing(crate::temple_complex::RA, crate::temple_complex::ORACLE) { -2 } else { 0 };
+                if (5..=45).contains(&(wage + ra)) {
+                    self.finance.kingdom_wages = wage;
+                    let f = if raise { up } else { down };
+                    phrases = Some((f("wage_change_title"), f("wage_change_initial_announcement"), f("wage_change_no_reason") + "_A"));
+                }
             }
             event::CONTAMINATED_WATER => {
                 if self.population > 200 {
@@ -425,11 +430,23 @@ impl World {
                     }
                     let route = tc.route as usize;
                     if let Some(rt) = self.trade.routes.get_mut(route) {
-                        const TIERS: [i32; 4] = [0, 1500, 2500, 4000];
-                        let tier = TIERS.iter().position(|&t| t >= rt.limit[r]).unwrap_or(3) as i32;
-                        let next = (tier + if raise { 1 } else { -1 }).clamp(1, 3) as usize;
-                        rt.limit[r] = TIERS[next];
-                        changed = Some(c);
+                        // A year's quota steps between 0, 1500, 2500 and 4000; one
+                        // already at the end of the way it moves stays.
+                        let v = rt.limit[r] / 100;
+                        let next = match (raise, v) {
+                            (true, v) if v >= 40 => None,
+                            (true, v) if v >= 25 => Some(40),
+                            (true, v) if v >= 15 => Some(25),
+                            (true, _) => Some(15),
+                            (false, v) if v <= 0 => None,
+                            (false, v) if v >= 26 => Some(25),
+                            (false, v) if v >= 16 => Some(15),
+                            (false, _) => Some(0),
+                        };
+                        if let Some(n) = next {
+                            rt.limit[r] = n * 100;
+                            changed = Some(c);
+                        }
                     }
                 }
                 if let Some(c) = changed {
@@ -443,8 +460,12 @@ impl World {
                 let delta = if raise { amount } else { -amount };
                 if let Some(p) = self.trade.prices.get_mut(resource as usize) {
                     let before = *p;
-                    p.0 = (p.0 + delta).max(2);
-                    p.1 = (p.1 + delta).max(0);
+                    if raise {
+                        *p = (p.0 + delta, p.1 + delta);
+                    } else if p.1 > 0 {
+                        // A cut to nothing leaves the good worth 2 to buy and 0 to sell.
+                        *p = if amount < p.1 { (p.0 + delta, p.1 + delta) } else { (2, 0) };
+                    }
                     if *p != before {
                         let f = if raise { up } else { down };
                         phrases = Some((f("price_change_title"), f("price_change_initial_announcement"), f("price_change_no_reason") + "_A"));
@@ -461,17 +482,21 @@ impl World {
                 phrases = self.city_status_change(&e, city);
             }
             event::FAILED_FLOOD => {
-                self.adjust_next_flood_quality(-100);
+                // The next flood is 30 to 100 points worse, in tens.
+                let q = (3 + self.rng.below(8)) * 10;
+                self.adjust_next_flood_quality(-q);
                 phrases = Some(("flood_fails_title".into(), "flood_fails_initial_announcement".into(), "flood_fails_no_reason_A".into()));
             }
             event::PERFECT_FLOOD => {
-                self.adjust_next_flood_quality(100);
+                let q = (3 + self.rng.below(8)) * 10;
+                self.adjust_next_flood_quality(q);
                 phrases = Some(("perfect_flood_title".into(), "perfect_flood_initial_announcement".into(), "perfect_flood_no_reason_A".into()));
             }
             event::GIFT => {
                 let side = e.side();
                 if resource == DEBEN {
                     self.treasury += amount;
+                    self.finance.this_year.donated += amount;
                     phrases = Some((format!("gift_title_{side}"), format!("gift_cash_granted_{side}"), format!("gift_no_reason_{side}_A")));
                 } else if resource > 0 && amount > 0 {
                     let units = if amount >= 100 { amount } else { amount * 100 };
@@ -688,7 +713,7 @@ impl World {
     pub fn can_send_request(&self, i: usize) -> bool {
         let Some(e) = self.scenario_events.list.get(i) else { return false };
         match e.resource {
-            DEBEN => self.treasury > e.amount,
+            DEBEN => self.treasury >= e.amount,
             TROOPS => self.kingdom_service_strength() > 0 && self.military.battle.is_none(),
             r => self.city_stored(r) >= e.units(),
         }

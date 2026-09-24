@@ -8,6 +8,8 @@ use crate::world::World;
 
 /// Monthly salary of each rank, village elder to Pharaoh.
 pub const SALARIES: [i32; 11] = [0, 2, 5, 8, 12, 20, 30, 40, 60, 80, 100];
+/// The last rank, Pharaoh himself: he owes no tribute.
+pub const PHARAOH_RANK: u8 = 10;
 /// The treasury below which no salary is paid.
 const SALARY_DEBT_LIMIT: i32 = -5000;
 /// Gift sizes (modest, generous, lavish): cost is savings / rate + minimum.
@@ -22,7 +24,10 @@ const DYNASTY_MANSION: u16 = 79;
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Governor {
-    /// The salary rank the governor pays himself.
+    /// The rank the scenario gives the governor.
+    #[serde(default)]
+    pub assigned_rank: u8,
+    /// The salary rank the governor pays himself; it starts at his rank.
     pub salary_rank: u8,
     pub savings: i32,
     /// Gifts sent recently, and months since the last.
@@ -30,10 +35,17 @@ pub struct Governor {
     pub months_since_gift: i32,
 }
 
+impl Governor {
+    /// A new governor of the given rank, drawing that rank's salary.
+    pub fn with_rank(rank: u8) -> Self {
+        Self { assigned_rank: rank, salary_rank: rank, ..Default::default() }
+    }
+}
+
 impl World {
     /// The rank Pharaoh has given the governor.
     pub fn assigned_rank(&self) -> u8 {
-        self.mission.as_ref().map_or(0, |m| m.player_rank)
+        self.governor.assigned_rank
     }
 
     pub fn has_mansion(&self) -> bool {
@@ -56,12 +68,12 @@ impl World {
         self.governor.savings += pay;
     }
 
-    /// Yearly: Pharaoh judges the salary the governor takes.
+    /// Yearly: Pharaoh judges the salary the governor takes: a point lost per rank
+    /// drawn above his own, one gained for drawing below it.
     pub(crate) fn salary_year(&mut self) {
-        let assigned = self.assigned_rank() as i32;
-        let delta = self.governor.salary_rank as i32 - assigned;
+        let delta = self.governor.salary_rank as i32 - self.assigned_rank() as i32;
         if delta > 0 {
-            self.ratings.change_kingdom(-delta - if assigned != 0 { 1 } else { 0 });
+            self.ratings.change_kingdom(-delta);
         } else if delta < 0 {
             self.ratings.change_kingdom(1);
         }

@@ -419,7 +419,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     }
                 }
             }
-            ["monlist"] => eprintln!("monuments {:?} complex gods {:?} debt rate {}", world.scenario_monuments, world.complex_gods, world.debt_rate),
+            ["monlist"] => eprintln!("monuments {:?} complex gods {:?} debt rate {} burial {:?}", world.scenario_monuments, world.complex_gods, world.debt_rate, world.burial_needs()),
             // Puts groundwater under a rectangle, for testing wells anywhere.
             ["groundwater", a, b] => {
                 let (a, b) = (parse_point(a)?, parse_point(b)?);
@@ -447,6 +447,14 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     }
                 }
                 eprintln!("{:?} pop {} sentiment {} migration {:?} houses {levels:?}", world.time, world.population, world.sentiment, world.migration);
+            }
+            ["taxrate", n] => world.finance.tax_rate = n.parse::<i32>()?.clamp(0, 25),
+            ["ratings"] => {
+                let (r, f, l) = (&world.ratings, &world.finance, &world.labor);
+                eprintln!(
+                    "{} {:?} pop {} treasury {} culture {} prosperity {}/{} monument {} kingdom {} | work {}/{} needed {} short {} unemployed {}% | last year {:?} tribute unpaid {}",
+                    world.time.year, world.time.month, world.population, world.treasury, r.culture, r.prosperity, r.prosperity_max, r.monument, r.kingdom, l.employed, l.available, l.needed, l.shortage, world.unemployment, f.last_year, r.tribute_unpaid_years
+                );
             }
             ["report"] => {
                 let houses: Vec<String> = world

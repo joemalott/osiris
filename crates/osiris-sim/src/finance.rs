@@ -33,6 +33,20 @@ pub struct Finance {
     pub last_year_balance: i32,
     #[serde(default = "kingdom_wages")]
     pub kingdom_wages: i32,
+    /// What the Kingdom lends the city the first time it runs out of money.
+    #[serde(default)]
+    pub rescue_loan: i32,
+    /// Whether that loan has been given.
+    #[serde(default)]
+    pub rescued: bool,
+    /// Months the city has ended in debt in a row, and the years of it so far.
+    #[serde(default)]
+    pub months_in_debt: i32,
+    #[serde(default)]
+    pub debt_years: i32,
+    /// The city has been told it is in debt again, since it was last out of it.
+    #[serde(default)]
+    pub debt_warned: bool,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -53,6 +67,23 @@ pub struct YearTotals {
     /// The governor's salary.
     #[serde(default)]
     pub salary: i32,
+    /// Money given to the city: the Kingdom's rescue loan and gifts of deben.
+    #[serde(default)]
+    pub donated: i32,
+    /// The wage level summed over the months, for the year's average.
+    #[serde(default)]
+    pub wage_months: i32,
+}
+
+impl YearTotals {
+    /// Income as the Kingdom counts it for tribute and prosperity.
+    pub fn income(&self) -> i32 {
+        self.taxes + self.exports + self.gold + self.donated
+    }
+
+    pub fn expenses(&self) -> i32 {
+        self.imports + self.wages + self.construction + self.interest + self.salary
+    }
 }
 
 impl Default for Finance {
@@ -60,14 +91,23 @@ impl Default for Finance {
         Self {
             tax_rate: 7,
             wages: 30,
-            tax_multiplier_pct: 150,
+            tax_multiplier_pct: TAX_COLLECTED_PCT,
             this_year: YearTotals::default(),
             last_year: YearTotals::default(),
             last_year_balance: 0,
             kingdom_wages: KINGDOM_WAGES,
+            rescue_loan: 0,
+            rescued: false,
+            months_in_debt: 0,
+            debt_years: 0,
+            debt_warned: false,
         }
     }
 }
+
+/// Kingdom rating lost for each further year in debt (Normal difficulty); the tenth
+/// and later all cost the last.
+const DEBT_YEAR_PENALTY: [i32; 10] = [-5, -10, -20, -35, -50, -50, -50, -50, -50, -50];
 
 impl World {
     /// The month's tax on `population` people living at house `level`.
@@ -102,9 +142,10 @@ impl World {
         let (taxes, _) = self.monthly_tax_estimate();
         self.treasury += taxes;
         self.finance.this_year.taxes += taxes;
-        let wages = self.finance.wages * self.labor.employed / 10 / 12;
+        let wages = self.finance.wages * self.labor.employed / 120;
         self.treasury -= wages;
         self.finance.this_year.wages += wages;
+        self.finance.this_year.wage_months += self.finance.wages;
         if self.treasury < 0 {
             // The scenario's rate; a temple complex to Ra lowers it by five.
             let ra = if self.complex_blessing(crate::temple_complex::RA, 0) { 5 } else { 0 };
@@ -112,6 +153,57 @@ impl World {
             let interest = (-self.treasury) * rate / 100 / 12;
             self.treasury -= interest;
             self.finance.this_year.interest += interest;
+        }
+    }
+
+    /// Monthly, after the salary: every twelfth month in a row that ends in debt costs
+    /// kingdom rating, more each year.
+    pub(crate) fn count_debt_months(&mut self) {
+        let f = &mut self.finance;
+        if self.treasury >= 0 {
+            f.months_in_debt = 0;
+            f.debt_years = 0;
+            return;
+        }
+        f.months_in_debt += 1;
+        if f.months_in_debt % 12 == 0 {
+            f.debt_years = (f.debt_years + 1).min(DEBT_YEAR_PENALTY.len() as i32);
+            let penalty = DEBT_YEAR_PENALTY[f.debt_years as usize - 1];
+            self.ratings.change_kingdom(penalty);
+            self.post("message_debt_anniversary", None, true);
+        }
+    }
+
+    /// Daily: the first time the treasury goes below zero the Kingdom lends the
+    /// scenario's rescue sum, and (unless the governor is Pharaoh) the city's
+    /// prosperity drops by three. Later debts are only announced.
+    pub(crate) fn check_bankruptcy(&mut self) {
+        let f = &mut self.finance;
+        if self.treasury >= 0 {
+            f.months_in_debt = 0;
+            f.debt_years = 0;
+            f.debt_warned = false;
+            return;
+        }
+        if f.rescued {
+            if !f.debt_warned {
+                f.debt_warned = true;
+                self.post("message_debt_again", None, true);
+            }
+            return;
+        }
+        f.rescued = true;
+        let loan = f.rescue_loan;
+        f.this_year.donated += loan;
+        self.treasury += loan;
+        if loan <= 0 {
+            return;
+        }
+        if self.assigned_rank() == crate::kingdom::PHARAOH_RANK {
+            self.post("message_out_of_money_again", None, true);
+        } else {
+            self.ratings.prosperity = (self.ratings.prosperity - 3).max(0);
+            self.post("message_out_of_money", None, true);
         }
     }
 
@@ -139,5 +231,17 @@ impl World {
                 h.coverage.tax = (h.coverage.tax - 1).max(0);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debt_penalties_grow_each_year() {
+        assert_eq!(&DEBT_YEAR_PENALTY[..4], &[-5, -10, -20, -35]);
+        let y = YearTotals { taxes: 100, exports: 50, gold: 10, donated: 5, imports: 20, wages: 30, construction: 40, interest: 1, salary: 2, ..Default::default() };
+        assert_eq!((y.income(), y.expenses()), (165, 93));
     }
 }

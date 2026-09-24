@@ -236,6 +236,9 @@ struct MenusFile {
     menu: Vec<Menu>,
 }
 
+/// Building type ids the original game has (0-236); higher ids are Osiris's own.
+const ORIGINAL_BUILDING_TYPES: usize = 237;
+
 #[derive(Default)]
 pub struct Defs {
     pub contexts: ContextTables,
@@ -434,15 +437,13 @@ impl Defs {
                 extra: b.extra,
             });
         }
-        // Buildings whose config doesn't name a labor category use the original's table.
+        // The original's buildings hire in the categories of its own table (and those it
+        // leaves out hire no one); only buildings beyond it keep their config's.
         let labor: toml::Table = toml::from_str(include_str!("../data/labor_categories.toml"))
             .map_err(|e| format!("labor_categories.toml: {e}"))?;
-        for (id, cat) in &labor {
-            let (Ok(id), Some(cat)) = (id.parse::<usize>(), cat.as_str()) else { continue };
-            if let Some(Some(b)) = buildings.get_mut(id)
-                && b.labor.is_none()
-            {
-                b.labor = Some(cat.to_owned());
+        for (id, b) in buildings.iter_mut().enumerate().take(ORIGINAL_BUILDING_TYPES) {
+            if let Some(b) = b {
+                b.labor = labor.get(&id.to_string()).and_then(|c| c.as_str()).map(str::to_owned);
             }
         }
         let menus: MenusFile = toml::from_str(include_str!("../data/menus.toml"))

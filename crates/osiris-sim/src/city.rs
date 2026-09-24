@@ -1,5 +1,5 @@
 //! The per-tick schedule. Like the original, city-wide systems each run on a fixed
-//! tick of the 50-tick day, and walkers move every tick.
+//! tick of the 51-tick day, and walkers move every tick.
 
 use crate::buildings::kind;
 use crate::desirability::{self, Influence};
@@ -25,6 +25,7 @@ impl World {
                 self.update_recruiters();
                 self.check_siege();
             }
+            4 => self.check_bankruptcy(),
             7 => {
                 for id in self.buildings.ids() {
                     self.refresh_road_access(id);
@@ -82,11 +83,12 @@ impl World {
         if roll.month {
             self.migration.newcomers_this_month = 0;
             self.advance_month_finance();
+            self.pay_salary();
+            self.count_debt_months();
             self.regrow_herds();
             self.update_gods_month();
             self.update_ratings_month();
             self.update_health_month();
-            self.pay_salary();
             self.update_funerals();
             self.update_invasions();
             self.update_morale_month();
@@ -94,6 +96,16 @@ impl World {
             self.process_scenario_events();
             self.update_sieges();
             self.update_all_roads();
+            if roll.year {
+                self.advance_year_finance();
+                self.reset_trade_year();
+                self.pay_tribute();
+            }
+            self.update_ratings(roll.year);
+            // A temple complex to Ra raises the Kingdom's regard each year.
+            if roll.year && self.complex_blessing(crate::temple_complex::RA, 0) {
+                self.ratings.change_kingdom(1);
+            }
             let years = self.time.year - self.scenario_events.start_year;
             let survived = self.survival.is_some_and(|n| years >= n);
             if !self.won && !self.lost && (self.goals_met() || survived) {
@@ -104,15 +116,6 @@ impl World {
                 self.lost = true;
                 self.messages.push_back("out_of_time".to_owned());
             }
-        }
-        if roll.year {
-            self.advance_year_finance();
-            // A temple complex to Ra raises the Kingdom's regard each year.
-            if self.complex_blessing(crate::temple_complex::RA, 0) {
-                self.ratings.change_kingdom(1);
-            }
-            self.reset_trade_year();
-            self.update_ratings_year();
         }
     }
 
