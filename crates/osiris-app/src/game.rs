@@ -475,7 +475,7 @@ impl Game {
             Tool::None => None,
             Tool::Road => Some(Command::Road { start, end }),
             Tool::Clear => Some(Command::Clear { x0: start.0, y0: start.1, x1: end.0, y1: end.1 }),
-            Tool::Build(k) if k == kind::VACANT_LOT => {
+            Tool::Build(k) if k == kind::VACANT_LOT || k == osiris_sim::irrigation::DITCH => {
                 Some(Command::Build { kind: k, x: start.0, y: start.1, x1: end.0, y1: end.1 })
             }
             Tool::Build(k) => {
@@ -1043,6 +1043,7 @@ impl Game {
             Command::Road { start, end } => self.world.road_path(start, end).unwrap_or_else(|| vec![end]),
             Command::Clear { x0, y0, x1, y1 } => rect(x0, y0, x1, y1),
             Command::Build { kind: k, x, y, x1, y1 } if k == kind::VACANT_LOT => rect(x, y, x1, y1),
+            Command::Build { kind: k, x, y, x1, y1 } if k == osiris_sim::irrigation::DITCH => self.world.ditch_path((x, y), (x1, y1)).unwrap_or_else(|| vec![(x1, y1)]),
             Command::Build { kind: k, x, y, .. } if osiris_sim::temple_complex::is_upgrade(k) => vec![(x, y)],
             Command::Build { kind: k, x, y, .. } => {
                 let preview = self.world.placement_preview(k, x, y);

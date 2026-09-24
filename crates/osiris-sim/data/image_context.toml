@@ -1216,63 +1216,65 @@ offsets = [24, 24, 24, 24]
 canal = 0
 variants = 1
 
+# Irrigation ditches, from the original executable's table: "canal" is the
+# ditch shape id (0 for a lone ditch, which under a road takes the road's line).
 [[canal]]
 tiles = [1, 2, 1, 2, 0, 2, 0, 2]
-offsets = [4, 7, 6, 5]
+offsets = [2, 5, 4, 3]
 canal = 7
 variants = 1
 
 [[canal]]
 tiles = [0, 2, 1, 2, 1, 2, 0, 2]
-offsets = [5, 4, 7, 6]
+offsets = [3, 2, 5, 4]
 canal = 8
 variants = 1
 
 [[canal]]
 tiles = [0, 2, 0, 2, 1, 2, 1, 2]
-offsets = [6, 5, 4, 7]
+offsets = [4, 3, 2, 5]
 canal = 9
 variants = 1
 
 [[canal]]
 tiles = [1, 2, 0, 2, 0, 2, 1, 2]
-offsets = [7, 6, 5, 4]
+offsets = [5, 4, 3, 2]
 canal = 10
 variants = 1
 
 [[canal]]
 tiles = [1, 2, 0, 2, 1, 2, 0, 2]
-offsets = [2, 3, 2, 3]
+offsets = [1, 0, 1, 0]
 canal = 5
 variants = 1
 
 [[canal]]
 tiles = [0, 2, 1, 2, 0, 2, 1, 2]
-offsets = [3, 2, 3, 2]
+offsets = [0, 1, 0, 1]
 canal = 6
 variants = 1
 
 [[canal]]
 tiles = [1, 2, 0, 2, 0, 2, 0, 2]
-offsets = [2, 3, 2, 3]
+offsets = [1, 0, 1, 0]
 canal = 1
 variants = 1
 
 [[canal]]
 tiles = [0, 2, 1, 2, 0, 2, 0, 2]
-offsets = [3, 2, 3, 2]
+offsets = [0, 1, 0, 1]
 canal = 2
 variants = 1
 
 [[canal]]
 tiles = [0, 2, 0, 2, 1, 2, 0, 2]
-offsets = [2, 3, 2, 3]
+offsets = [1, 0, 1, 0]
 canal = 3
 variants = 1
 
 [[canal]]
 tiles = [0, 2, 0, 2, 0, 2, 1, 2]
-offsets = [3, 2, 3, 2]
+offsets = [0, 1, 0, 1]
 canal = 4
 variants = 1
 
@@ -1308,7 +1310,7 @@ variants = 1
 
 [[canal]]
 tiles = [2, 2, 2, 2, 2, 2, 2, 2]
-offsets = [2, 2, 2, 2]
+offsets = [1, 1, 1, 1]
 canal = 0
 variants = 1
 

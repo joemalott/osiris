@@ -135,7 +135,8 @@ impl World {
             if !is_roamer(kind) || b.walkers[0] != 0 {
                 continue;
             }
-            let Some(delay) = spawn_delay_days(b.kind, b.workers, needed.max(1)) else { continue };
+            let delay = if b.kind == kind::WATER_SUPPLY { self.water_supply_delay(b) } else { spawn_delay_days(b.kind, b.workers, needed.max(1)) };
+            let Some(delay) = delay else { continue };
             if b.spawn_delay > 0 {
                 if let Some(b) = self.buildings.get_mut(id) {
                     b.spawn_delay -= 1;

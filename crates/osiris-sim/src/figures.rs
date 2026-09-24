@@ -154,9 +154,10 @@ pub fn passable(map: &Map, travel: Travel, x: i32, y: i32) -> bool {
     let ferry = t & (terrain::FERRY_ROUTE | terrain::BRIDGE) != 0;
     match travel {
         Travel::Roads => t & (terrain::ROAD | terrain::ACCESS_RAMP) != 0 && t & terrain::WATER == 0 || ferry,
+        // People on foot step over irrigation ditches.
         Travel::Land => {
             t & terrain::ROAD != 0 && t & terrain::WATER == 0
-                || t & (mask::IMPASSABLE | terrain::BUILDING) == 0
+                || t & (mask::IMPASSABLE | terrain::BUILDING) & !terrain::CANAL == 0
                 || ferry
         }
         Travel::Water => crate::water::navigable(map, x, y),

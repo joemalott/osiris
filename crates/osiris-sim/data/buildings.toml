@@ -31,7 +31,8 @@ id = 7
 key = "water_lift"
 size = 2
 labor = "infrastructure"
-image = { pack = "Pharaoh_General", group = 151, offset = 0 }
+image = { pack = "Pharaoh_Terrain", group = 50, offset = 0 }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 50, offset = 0 }, work_n = { pack = "SprAmbient", group = 1, offset = 1, frames = 12, x = 50, y = 15, duration = 8 }, work_e = { pack = "SprAmbient", group = 2, offset = 1, frames = 12, x = 54, y = 14, duration = 8 }, work_s = { pack = "SprAmbient", group = 3, offset = 1, frames = 12, x = 60, y = 15, duration = 8 }, work_w = { pack = "SprAmbient", group = 4, offset = 1, frames = 12, x = 68, y = 20, duration = 8 } }
 needs = ["water_access", "shoreline", "floodplain_shoreline"]
 flags = ["draw_normal_anim"]
 text_id = 107

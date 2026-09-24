@@ -38,7 +38,10 @@ impl World {
             22 => self.update_room(),
             23 => self.update_migration(),
             25 => self.update_labor(),
-            27 => self.update_wells(),
+            27 => {
+                self.update_irrigation();
+                self.update_wells();
+            }
             33 => {
                 self.update_farms();
                 self.update_venues();

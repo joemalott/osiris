@@ -88,6 +88,10 @@ pub fn building_animations(cx: &AnimContext, out: &mut Vec<Overlay>) {
             shore(cx, b, out);
             continue;
         }
+        if b.kind == osiris_sim::irrigation::WATER_LIFT {
+            water_lift(cx, b, out);
+            continue;
+        }
         let active = if b.kind == kind::BURNING_RUIN { b.progress > 0 } else { b.kind == kind::WELL || b.workers > 0 };
         if active {
             working(cx, b, out);
@@ -160,6 +164,20 @@ fn shore(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
         && let Some(f) = cx.frame(a, a.frames, phase)
     {
         cx.sprite(out, dx, dy, (a.x, a.y), a.image + 4 * f);
+    }
+}
+
+/// A water lift's shaduf, swinging while the lift is staffed and has water: one
+/// animation per facing.
+fn water_lift(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
+    if !cx.world.lift_pumping(b) {
+        return;
+    }
+    let key = ["work_n", "work_e", "work_s", "work_w"][b.orientation as usize % 4];
+    if let Some(a) = cx.anim(b, key)
+        && let Some(f) = cx.frame(a, a.frames, b.id as u64 * 7)
+    {
+        cx.sprite(out, b.x, b.y + b.size - 1, (a.x, a.y), a.image + f);
     }
 }
 

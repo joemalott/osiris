@@ -357,6 +357,34 @@ impl World {
         }
     }
 
+    /// Tiles whose ditches the Nile fills each day, row by row: with the flood out, the
+    /// row at the flood's edge and the two behind it toward the river; otherwise the row
+    /// at the river's edge, with the dry bank beside the floodplain where it meets the
+    /// river.
+    pub(crate) fn river_ditch_sources(&self) -> Vec<(i32, i32)> {
+        let level = self.floods.flood_progress;
+        let mut tiles = Vec::new();
+        for (i, list) in [level.min(MAX_ROWS - 1), level + 1, level + 2].into_iter().enumerate() {
+            if i > 0 && list >= MAX_ROWS {
+                continue;
+            }
+            let row = (MAX_ROWS - 1 - list) as usize;
+            tiles.extend(self.floods.row_tiles.get(row).into_iter().flatten().copied());
+            if row == 0 && self.has_floodplain() {
+                let map = &self.map;
+                let open_water = |x: i32, y: i32| crate::map::NEIGHBOURS.iter().any(|&(dx, dy)| map.terrain_is(x + dx, y + dy, terrain::WATER) && !map.terrain_is(x + dx, y + dy, terrain::FLOODPLAIN | terrain::DIKE));
+                for y in 0..map.height {
+                    for x in 0..map.width {
+                        if map.terrain_is(x, y, terrain::CANAL) && !map.terrain_is(x, y, terrain::WATER) && crate::irrigation::floodplain_bank(map, x, y) && open_water(x, y) {
+                            tiles.push((x, y));
+                        }
+                    }
+                }
+            }
+        }
+        tiles
+    }
+
     fn roll_next_flood_quality(&mut self) {
         self.floods.season = self.floods.season_initial;
         self.floods.duration = self.floods.duration_initial;
@@ -434,6 +462,8 @@ impl World {
             });
             self.set_flood_land_image(x, y);
         }
+        // Ditches come back out of the water, and those beside open into it or not.
+        self.ditch_images_in(x - 1, y - 1, x + 1, y + 1);
     }
 
     fn set_flood_water_image(&mut self, x: i32, y: i32) {

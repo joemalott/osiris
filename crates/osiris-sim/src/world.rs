@@ -401,6 +401,7 @@ impl World {
             }
         }
         rules.roads_in(map, x0 - 1, y0 - 1, x0 + radius - 2, y0 + radius - 2);
+        self.ditch_images_in(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
         Outcome::Done { items, cost }
     }
 
@@ -437,16 +438,7 @@ impl World {
     /// The tiles of the routed path from `start` to `end`, walking back from the end
     /// toward the start the way the original does.
     pub fn road_path(&self, start: (i32, i32), end: (i32, i32)) -> Option<Vec<(i32, i32)>> {
-        const PREFERENCE: [[usize; 4]; 8] = [
-            [0, 2, 6, 4],
-            [0, 2, 6, 4],
-            [2, 4, 0, 6],
-            [2, 4, 0, 6],
-            [4, 6, 2, 0],
-            [4, 6, 2, 0],
-            [6, 0, 4, 2],
-            [6, 0, 4, 2],
-        ];
+        const PREFERENCE: [[usize; 4]; 8] = ROUTE_PREFERENCE;
         let w = self.map.width;
         let dist = self.road_distances(start);
         let at = |x: i32, y: i32| {
@@ -504,6 +496,19 @@ impl World {
         Outcome::Done { items, cost }
     }
 }
+
+/// The neighbours a routed road or ditch tries next when walking back from its end,
+/// by the direction toward its start.
+pub(crate) const ROUTE_PREFERENCE: [[usize; 4]; 8] = [
+    [0, 2, 6, 4],
+    [0, 2, 6, 4],
+    [2, 4, 0, 6],
+    [2, 4, 0, 6],
+    [4, 6, 2, 0],
+    [4, 6, 2, 0],
+    [6, 0, 4, 2],
+    [6, 0, 4, 2],
+];
 
 /// The original's coarse 8-way direction from `from` toward `to`, by sign only.
 pub fn general_direction(from: (i32, i32), to: (i32, i32)) -> Option<usize> {

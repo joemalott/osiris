@@ -68,6 +68,11 @@ pub struct TerrainImages {
     pub plaza: u32,
     /// Garden tiles (`Pharaoh_General` group 59).
     pub garden: u32,
+    /// Irrigation ditches (`Pharaoh_Terrain` group 9): watered, then the same dry.
+    pub canal: u32,
+    /// Water lifts (`Pharaoh_Terrain` group 50): four facings in the river, then dry
+    /// and watered on the floodplain's bank.
+    pub water_lift: u32,
 }
 
 /// A sprite reference as written in the data files.
@@ -387,6 +392,8 @@ impl Defs {
             cliff: lib.group_id("Expansion", 33, 0).map_err(|e| e.to_string())?,
             plaza: lib.group_id("Pharaoh_General", 168, 0).map_err(|e| e.to_string())?,
             garden: lib.group_id("Pharaoh_General", 59, 0).map_err(|e| e.to_string())?,
+            canal: t(9)?,
+            water_lift: t(50)?,
         };
         let figures_raw: FiguresFile = toml::from_str(include_str!("../data/figures.toml"))
             .map_err(|e| format!("figures.toml: {e}"))?;

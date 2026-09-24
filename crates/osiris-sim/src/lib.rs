@@ -25,6 +25,7 @@ pub mod floods;
 pub mod food;
 pub mod houses;
 pub mod invasions;
+pub mod irrigation;
 pub mod kingdom;
 pub mod labor;
 pub mod grid;
