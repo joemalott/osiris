@@ -137,16 +137,6 @@ impl World {
         self.redraw_walls_around(x, y, 2);
     }
 
-    /// The nearest piece of the defences to `from` within `range` tiles.
-    pub(crate) fn nearest_defense(&self, from: (i32, i32), range: i32) -> Option<BuildingId> {
-        self.buildings
-            .iter()
-            .filter(|b| is_defense(b.kind))
-            .map(|b| ((b.x - from.0).abs().max((b.y - from.1).abs()), b.id))
-            .filter(|&(d, _)| d <= range)
-            .min()
-            .map(|(_, id)| id)
-    }
 
     /// The first staffed tower without a sentry, if any.
     pub(crate) fn tower_wanting_sentry(&self) -> Option<BuildingId> {

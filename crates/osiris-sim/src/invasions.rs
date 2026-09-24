@@ -405,6 +405,34 @@ impl World {
         None
     }
 
+    /// The nearest building an invader at `from` can walk up to, and the tile beside it
+    /// he would stand on: what he batters when his way to the target is shut.
+    fn nearest_reachable_building(&self, from: (i32, i32)) -> Option<(BuildingId, (i32, i32))> {
+        let map = &self.map;
+        let (w, h) = (map.width, map.height);
+        if !map.contains(from.0, from.1) {
+            return None;
+        }
+        let mut seen = vec![false; (w * h) as usize];
+        let mut queue = std::collections::VecDeque::from([from]);
+        seen[(from.1 * w + from.0) as usize] = true;
+        while let Some((x, y)) = queue.pop_front() {
+            for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1)] {
+                let id = map.building.at_or(x + dx, y + dy, 0);
+                if self.buildings.get(id).is_some_and(|b| !matches!(b.kind, crate::military::FORT_GROUND | kind::ROAD | kind::BURNING_RUIN)) {
+                    return Some((id, (x, y)));
+                }
+            }
+            for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if crate::figures::passable(map, Travel::Hostile, nx, ny) && !std::mem::replace(&mut seen[(ny * w + nx) as usize], true) {
+                    queue.push_back((nx, ny));
+                }
+            }
+        }
+        None
+    }
+
     /// What an army goes for: the buildings its orders name, nearest first.
     fn choose_target(&self, army: usize, from: (i32, i32)) -> Option<BuildingId> {
         let priority = self.invasions.armies.get(army)?.priority;
@@ -554,7 +582,7 @@ impl World {
             let slot = f.slot as usize;
             let mut ring: Vec<(i32, i32)> = (by - 1..=by + h)
                 .flat_map(|yy| (bx - 1..=bx + w).map(move |xx| (xx, yy)))
-                .filter(|&(xx, yy)| (xx == bx - 1 || yy == by - 1 || xx == bx + w || yy == by + h) && crate::figures::passable(&self.map, Travel::Land, xx, yy))
+                .filter(|&(xx, yy)| (xx == bx - 1 || yy == by - 1 || xx == bx + w || yy == by + h) && crate::figures::passable(&self.map, Travel::Hostile, xx, yy))
                 .collect();
             ring.sort_by_key(|&(xx, yy)| (xx - x).abs() + (yy - y).abs());
             // A wall is attacked from the near side.
@@ -563,19 +591,24 @@ impl World {
             let map = &self.map;
             let f = self.figures.get_mut(fid).expect("present");
             if !f.go_to(map, spot) {
-                // Walled off: batter the nearest part of the wall instead. If there is
-                // none, the target is unreachable for some other reason (an island
-                // across water, say): back off further each consecutive failure so a
-                // permanently unreachable target isn't searched for (a full-map scan)
-                // again every 50 ticks forever.
+                // Hemmed in, by walls or by the city itself: as in the original, they
+                // batter whatever stands in their way, the nearest building they can
+                // get at. If there is none (an island across water, say), back off
+                // further each consecutive failure so a permanently unreachable target
+                // isn't searched for (a full-map scan) again every 50 ticks forever.
                 f.destination = Some(spot);
                 f.counter = stuck_backoff(f.stuck);
                 f.stuck = f.stuck.saturating_add(1);
-                let wall = self.nearest_defense((x, y), i32::MAX);
-                if let (Some(w), Some(a)) = (wall, self.invasions.armies.get_mut(army))
-                    && a.target != w
-                {
-                    a.target = w;
+                if let Some((w, tile)) = self.nearest_reachable_building((x, y)) {
+                    if let Some(a) = self.invasions.armies.get_mut(army) {
+                        a.target = w;
+                    }
+                    let map = &self.map;
+                    if let Some(f) = self.figures.get_mut(fid)
+                        && f.go_to(map, tile)
+                    {
+                        f.counter = 0;
+                    }
                 }
                 return;
             }
@@ -681,5 +714,23 @@ mod tests {
             }
         }
         assert!(world.invasions.armies.len() >= 2, "armies {}", world.invasions.armies.len());
+    }
+
+    #[test]
+    fn hemmed_in_invaders_find_a_building_to_batter() {
+        use crate::map::terrain;
+        let Some(mut world) = mission(1) else { return };
+        let (w, h) = (world.map.width, world.map.height);
+        // A well with open ground for five tiles west of it.
+        let clear = |world: &World, x: i32, y: i32| (x - 6..=x).all(|xx| world.can_place(kind::WELL, xx, y).is_ok());
+        let (x, y) = (6..h - 1).flat_map(|y| (6..w - 1).map(move |x| (x, y))).find(|&(x, y)| clear(&world, x, y)).expect("open ground");
+        assert!(matches!(world.apply(&crate::world::Command::Build { kind: kind::WELL, x, y, x1: x, y1: y }), crate::world::Outcome::Done { .. }));
+        let well = world.map.building.at_or(x, y, 0);
+        // Rubble between the invader and the well is no bar.
+        for xx in x - 4..x - 1 {
+            world.map.terrain.set(xx, y, terrain::RUBBLE);
+        }
+        let found = world.nearest_reachable_building((x - 5, y));
+        assert_eq!(found, Some((well, (x - 1, y))));
     }
 }
