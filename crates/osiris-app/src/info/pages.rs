@@ -208,8 +208,9 @@ struct Page {
     /// The output's icon at the top left.
     icon: Option<u16>,
     rows: Vec<Row>,
-    /// Text lines: y, and text wrapped at 400 pixels from x 32.
-    lines: Vec<(f32, String)>,
+    /// Text lines: y, text and wrap width, from x 32; `line` defaults the width to 400
+    /// pixels, `line_narrow` is for text that shares its row with a picture.
+    lines: Vec<(f32, String, f32)>,
     /// The dark panel: its y and height in blocks.
     panel: Option<(f32, i32)>,
     /// The employee row's y.
@@ -229,7 +230,14 @@ impl Page {
 
     fn line(&mut self, y: f32, text: String) {
         if !text.is_empty() {
-            self.lines.push((y, text));
+            self.lines.push((y, text, 400.0));
+        }
+    }
+
+    /// A line sharing its row with a picture, wrapped to `width` pixels instead of 400.
+    fn line_narrow(&mut self, y: f32, text: String, width: f32) {
+        if !text.is_empty() {
+            self.lines.push((y, text, width));
         }
     }
 
@@ -262,8 +270,8 @@ impl InfoPanel {
         for (lx, ly, text) in &page.labels {
             ui.label(Font::NormalBlackOnLight, text, x + lx, y + ly);
         }
-        for (ly, text) in &page.lines {
-            ui.wrapped(Font::NormalBlackOnLight, text, x + 32.0, y + ly, 400.0);
+        for (ly, text, width) in &page.lines {
+            ui.wrapped(Font::NormalBlackOnLight, text, x + 32.0, y + ly, *width);
         }
         if let Some((py, blocks)) = page.panel {
             panel::inner_panel(ui.r, ui.panels, x + 16.0, y + py, 27, blocks);
@@ -556,16 +564,18 @@ fn page(ui: &Ui, world: &World, b: &Building) -> Option<Page> {
             p
         }
         k::WATER_SUPPLY => {
-            // 17 blocks, not 16 (notes/building_info.md 1.4: "water supply, water lift |
-            // 29x17").
-            let mut p = Page::new(17, t(108, 0));
+            // 16 blocks: notes/building_info.md 1.4 (Akhenaten only) says 17, but its
+            // "Decompile facts" section (checked against the exe) gives only 14/16/18/
+            // 19/22/24 as real window sizes, and groups water supply with the police
+            // station's "generic pattern" (7.4), which is 16.
+            let mut p = Page::new(16, t(108, 0));
             // One line per worker short, from all five down to none.
             p.line(63.0, if no_road { road_line() } else { t(108, (7 - b.workers.clamp(0, 5)) as usize) });
             p.staffed();
             p
         }
         k::WATER_LIFT => {
-            let mut p = Page::new(17, t(107, 0));
+            let mut p = Page::new(16, t(107, 0));
             // A lift with no water beside it or ditch to feed it says so.
             p.line(63.0, if no_road { road_line() } else if b.workers <= 0 { t(107, 2) } else if b.water == 0 { t(107, 3) } else { t(107, 1) });
             p.staffed();
@@ -605,15 +615,19 @@ fn page(ui: &Ui, world: &World, b: &Building) -> Option<Page> {
         k::BOOTH | k::BANDSTAND | k::PAVILION | k::SENET_HOUSE => venue_page(ui, world, b),
         k::TEMPLE_FIRST..=k::COMPLEX_LAST => {
             // 18 blocks tall (notes/building_info.md "Decompile facts": class 2 = 18
-            // blocks), with the god picture at (190,134); its text group has only a
-            // name and description, no priest status line, so the description always
-            // shows once there is road access (notes/building_info.md 7.1).
+            // blocks). Quoting notes/building_info.md 7.1 verbatim, since this line has
+            // been miscopied before: "Title, employee panel at [16,56] size [27,4],
+            // overlay, mothball, help, close, and a god picture at [190,134]... Temple
+            // text groups 92-96 have only name and description, so there is no priest
+            // status line. Show the description (id 1) as the text line." The
+            // description sits in a narrower column than usual so it doesn't run under
+            // the picture.
             let god = ((kind - k::TEMPLE_FIRST) % 5) as u32;
             let mut p = Page::new(18, t(92 + god as usize, 0));
             p.panel = Some((56.0, 4));
             p.staff = Some(62.0);
-            p.line(128.0, if no_road { road_line() } else { t(92 + god as usize, 1) });
             p.picture = Some((ui.img.gods + 21 + god, [190.0, 134.0]));
+            p.line_narrow(128.0, if no_road { road_line() } else { t(92 + god as usize, 1) }, 150.0);
             p
         }
         k::SHRINE_FIRST..=k::SHRINE_LAST => {
@@ -973,6 +987,8 @@ fn shipwright_page(ui: &Ui, world: &World, b: &Building) -> Page {
 }
 
 fn yard_page(ui: &Ui, world: &World, b: &Building) -> Page {
+    // 22 blocks tall (notes/building_info.md "Decompile facts": anything not in the
+    // named size classes is 22 blocks).
     let mut p = Page::new(22, ui.t(TEXT_YARD, 0));
     let total = world.total_stored(b.id);
     if b.road.is_none() {
@@ -980,7 +996,15 @@ fn yard_page(ui: &Ui, world: &World, b: &Building) -> Page {
     } else if total == 0 {
         p.line(56.0, ui.t(TEXT_YARD, 22));
     } else {
-        // What it holds, in two columns of four.
+        // "Storing N units." and "Space for N units." (notes/building_info.md 5.1;
+        // "units." is group 8 id 17, used unconditionally, not the singular/plural
+        // 8.10/8.11 pair `units()` picks for a walker's cargo line).
+        let space = (osiris_sim::storage::CAPACITY - total).max(0);
+        let words = ui.t(TEXT_GENERAL, 17);
+        p.labels.push((24.0, 95.0, format!("{} {} {}", ui.t(TEXT_YARD, 2), total, words)));
+        p.labels.push((220.0, 95.0, format!("{} {} {}", ui.t(TEXT_YARD, 3), space, words)));
+        // What it holds, in a 3x3 grid of up to 9 resources (notes/building_info.md 5.1:
+        // icons at x 32/172/292, rows 30px apart starting at y 110).
         let mut held: Vec<(u16, i32)> = Vec::new();
         for &(r, n) in &b.spaces {
             if n <= 0 {
@@ -992,14 +1016,15 @@ fn yard_page(ui: &Ui, world: &World, b: &Building) -> Page {
             }
         }
         held.sort();
-        for (i, &(r, n)) in held.iter().take(8).enumerate() {
-            let (cx, cy) = if i < 4 { (10.0, 45.0 + 30.0 * i as f32) } else { (220.0, 45.0 + 30.0 * (i - 4) as f32) };
-            p.rows.push(Row { resource: r, icon: [cx, cy], text: yard_amount(ui, r, n), at: [cx + 24.0, cy + 7.0], yellow: false });
+        const COLUMNS: [f32; 3] = [32.0, 172.0, 292.0];
+        for (i, &(r, n)) in held.iter().take(9).enumerate() {
+            let (cx, cy) = (COLUMNS[i / 3], 110.0 + 30.0 * (i % 3) as f32);
+            p.rows.push(Row { resource: r, icon: [cx, cy], text: yard_amount(ui, r, n), at: [cx + 22.0, cy + 4.0], yellow: false });
         }
     }
-    p.panel = Some((183.0, 5));
-    p.staff = Some(188.0);
-    cart_line(ui, world, b, &mut p, 228.0);
+    p.panel = Some((198.0, 5));
+    p.staff = Some(198.0);
+    cart_line(ui, world, b, &mut p, 221.0);
     if total >= osiris_sim::storage::CAPACITY {
         p.bottom(85.0, ui.t(TEXT_YARD, 13));
     } else if !b.spaces.is_empty() && b.spaces.iter().all(|s| s.1 > 0) {
@@ -1047,6 +1072,10 @@ fn cart_line(ui: &Ui, world: &World, b: &Building, p: &mut Page, y: f32) {
 }
 
 fn granary_page(ui: &Ui, world: &World, b: &Building) -> Page {
+    // 18 blocks: notes/building_info.md 5.2 (from Akhenaten's ui_granary_info.js) says
+    // 17, but that section predates the doc's "Decompile facts" (checked against the
+    // exe), whose size classes are only 14/16/18/19/22/24 — granary is the same shape
+    // and complexity as the temple, confirmed class 2 = 18 blocks there.
     const G: usize = super::TEXT_GRANARY;
     let mut p = Page::new(18, ui.t(G, 0));
     if b.road.is_none() {
@@ -1054,44 +1083,56 @@ fn granary_page(ui: &Ui, world: &World, b: &Building) -> Page {
     } else {
         let total = world.total_stored(b.id);
         let words = ui.t(TEXT_GENERAL, 17);
+        // "Storing N units." / "Space for N units.", at y+60 (notes/building_info.md
+        // 5.2: storing/free_space at [34,60]/[220,60]).
         let storing = format!("{} {} {}", ui.t(G, 2), total, words);
         let space = format!("{} {} {}", ui.t(G, 3), (osiris_sim::storage::CAPACITY - total).max(0), words);
-        p.labels.push((34.0, 40.0, storing));
-        p.labels.push((220.0, 40.0, space));
+        p.labels.push((34.0, 60.0, storing));
+        p.labels.push((220.0, 60.0, space));
         // The city's foods, two to a column.
         for (i, &r) in city_foods(world).iter().enumerate() {
             let (cx, cy) = (if i < 2 { 34.0 } else { 240.0 }, if i % 2 == 0 { 68.0 } else { 92.0 });
             p.rows.push(Row { resource: r, icon: [cx, cy], text: format!("{} {}", stock(b, r), ui.t(TEXT_RESOURCES, r as usize)), at: [cx + 34.0, cy + 7.0], yellow: false });
         }
     }
-    p.panel = Some((163.0, 5));
-    p.staff = Some(163.0);
-    cart_line(ui, world, b, &mut p, 200.0);
+    // Employee panel at [16,142] size [27,5], glyph at panel+6, cart line (the cart
+    // pusher's state) at panel+26 (notes/building_info.md 5.2: panel [16,142] size
+    // [27,5]; glyph [40,148]; desc [70,168]).
+    p.panel = Some((142.0, 5));
+    p.staff = Some(142.0);
+    cart_line(ui, world, b, &mut p, 165.0);
     p
 }
 
 fn bazaar_page(ui: &Ui, world: &World, b: &Building) -> Page {
+    // Group 97, size 29x16 (notes/building_info.md 6).
     const G: usize = super::TEXT_BAZAAR;
     let mut p = Page::new(16, ui.t(G, 0));
+    // The one warning_text slot always sits at (32,36), whichever sentence fills it
+    // (notes/building_info.md 6).
     if b.road.is_none() {
-        p.line(56.0, ui.t(TEXT_FRAME, 25));
+        p.line(36.0, ui.t(TEXT_FRAME, 25));
     } else if b.workers <= 0 {
-        p.line(56.0, ui.t(G, 2));
+        p.line(36.0, ui.t(G, 2));
     } else {
         let foods = city_foods(world);
         if foods.iter().all(|&r| stock(b, r) <= 0) {
-            p.line(45.0, ui.t(G, 4));
+            p.line(36.0, ui.t(G, 4));
         }
+        // Food icons at y 85, text at y 90; goods icons at y 110, text at y 114
+        // (notes/building_info.md 6).
         for (i, &r) in foods.iter().enumerate() {
             let cx = 32.0 + 110.0 * i as f32;
-            p.rows.push(Row { resource: r, icon: [cx, 84.0], text: stock(b, r).to_string(), at: [cx + 32.0, 84.0], yellow: !b.bazaar_buys(r) });
+            p.rows.push(Row { resource: r, icon: [cx, 85.0], text: stock(b, r).to_string(), at: [cx + 32.0, 90.0], yellow: !b.bazaar_buys(r) });
         }
         for (i, r) in [resource::POTTERY, resource::LUXURY_GOODS, resource::LINEN, resource::BEER].into_iter().enumerate() {
             let cx = 32.0 + 110.0 * i as f32;
-            p.rows.push(Row { resource: r, icon: [cx, 104.0], text: stock(b, r).to_string(), at: [cx + 32.0, 110.0], yellow: !b.bazaar_buys(r) });
+            p.rows.push(Row { resource: r, icon: [cx, 110.0], text: stock(b, r).to_string(), at: [cx + 32.0, 114.0], yellow: !b.bazaar_buys(r) });
         }
     }
-    p.panel = Some((128.0, 5));
+    // Employee panel [16,136] size [27,4] (notes/building_info.md 6), the same 4-block
+    // panel every simple building uses.
+    p.panel = Some((136.0, 4));
     p.staff = Some(142.0);
     if b.walkers[0] != 0 {
         p.dark.push((64.0, 184.0, ui.t(G, 11)));
