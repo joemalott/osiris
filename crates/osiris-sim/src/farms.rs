@@ -101,7 +101,7 @@ impl World {
         let outputs: Vec<u16> = def.outputs.iter().filter_map(|k| self.resource_id(k)).collect();
         let Some(&main) = outputs.first() else { return };
         let mut produce = b.progress * 100 / PROGRESS_MAX * 8;
-        if floodplain && self.religion.osiris_double_harvest_days > 0 {
+        if floodplain && self.religion.osiris_double_harvest {
             produce *= 2;
         }
         let tiles: Vec<(i32, i32)> = b.tiles().collect();
@@ -126,11 +126,17 @@ impl World {
     }
 
     /// Flood hook: harvest every floodplain farm before the water arrives.
+    /// Osiris's doubled harvest is spent on the first floodplain harvest.
     pub(crate) fn harvest_floodplain_farms(&mut self) {
+        let mut any = false;
         for id in self.buildings.ids() {
             if self.is_floodplain_farm(id) {
                 self.harvest(id, true);
+                any = true;
             }
+        }
+        if any {
+            self.religion.osiris_double_harvest = false;
         }
     }
 

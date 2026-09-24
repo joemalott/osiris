@@ -314,6 +314,10 @@ impl World {
         if new_state == FloodState::Farmable && old_state != FloodState::Farmable {
             self.reset_floodplain_farms();
         }
+        // Once the flood is in, it has done Osiris's work.
+        if new_state == FloodState::Inundated && self.religion.osiris_flood_destroys == 2 {
+            self.religion.osiris_flood_destroys = 0;
+        }
 
         if self.floods.flood_progress != self.floods.flood_progress_target {
             self.floods.flood_progress_tick += 1;
@@ -342,6 +346,11 @@ impl World {
     /// Changes the quality of the next flood (Osiris's blessings and curses).
     pub fn adjust_next_flood_quality(&mut self, delta: i32) {
         self.floods.quality_next = (self.floods.quality_next + delta).clamp(0, 100);
+    }
+
+    /// The month of the flood's season (season / 30).
+    pub(crate) fn flood_month(&self) -> i32 {
+        self.floods.season / 30 % 12
     }
 
     pub fn has_floodplain(&self) -> bool {
@@ -411,7 +420,21 @@ impl World {
         // Buildings (floodplain farms) are never turned into water tiles; `is_flooded`
         // reports they're underwater regardless, and farms.rs handles their own state via
         // the Imminent/Farmable hooks.
-        let is_building = self.map.terrain_is(x, y, terrain::BUILDING);
+        let mut is_building = self.map.terrain_is(x, y, terrain::BUILDING);
+        // Osiris's anger: the flood destroys the farms it reaches.
+        let farm = self.map.building.at_or(x, y, 0);
+        if flooding && is_building && self.religion.osiris_flood_destroys != 0 && self.is_floodplain_farm(farm) {
+            self.religion.osiris_flood_destroys = 2;
+            let tiles: Vec<(i32, i32)> = self.buildings.get(farm).map(|b| b.tiles().collect()).unwrap_or_default();
+            self.demolish(farm);
+            is_building = self.map.terrain_is(x, y, terrain::BUILDING);
+            for (tx, ty) in tiles {
+                if (tx, ty) != (x, y) && self.is_flooded(tx, ty) {
+                    let r = self.floods.rows.get(tx, ty).unwrap_or(0) as i32;
+                    self.flood_tile(tx, ty, true, r);
+                }
+            }
+        }
         if flooding {
             if !is_building {
                 self.map.terrain.update(x, y, |t| {

@@ -320,7 +320,12 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             // Lets the city raise a temple complex to god `g`.
             ["allowcomplex", g] => world.complex_gods[g.parse::<usize>()?.min(4)] = true,
             // A god blesses or curses the city now: god index, bless|curse, major|minor.
-            ["god", g, what, size] => world.god_acts_now(g.parse()?, *what == "bless", *size == "major"),
+            ["god", g, what, size] => {
+                let before = world.messages.len();
+                world.god_acts_now(g.parse()?, *what == "bless", *size == "major");
+                let keys: Vec<&str> = world.messages.iter().skip(before).map(String::as_str).collect();
+                eprintln!("{step}: posted {keys:?}");
+            }
             // Starts the scenario's earthquake now, or one at a tile with a severity.
             ["quake"] => eprintln!("{step}: started {}", world.quake_now(None, None)),
             ["quake", p, n] => eprintln!("{step}: started {}", world.quake_now(Some(parse_point(p)?), Some(n.parse()?))),

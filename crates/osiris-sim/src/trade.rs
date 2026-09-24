@@ -240,7 +240,7 @@ impl World {
     /// What the city earns for a load it exports; Ra's great blessing adds half again.
     pub fn sell_price(&self, r: u16) -> i32 {
         let price = self.trade.prices.get(r as usize).map_or(0, |p| p.1);
-        if self.religion.ra_trade_boost >= 2 { price * 3 / 2 } else { price }
+        if self.religion.ra_export_months > 0 { price * 150 / 100 } else { price }
     }
 
     pub fn buy_price(&self, r: u16) -> i32 {
@@ -252,14 +252,14 @@ impl World {
         self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD).map(|b| self.stored(b.id, r)).sum()
     }
 
-    /// A route's yearly allowance of `r`, moved by Ra's favour: one step up (anything
-    /// under 1500 becomes 1500) or one or more steps down through 4000, 2500, 1500 and
-    /// nothing. Other amounts pass unchanged except that a step up lifts them to 1500.
+    /// A route's yearly allowance of `r`, moved by Ra's blessings and curses.
     pub fn trade_limit(&self, city: usize, r: u16) -> i32 {
         let Some(c) = self.trade.cities.get(city) else { return 0 };
         let base = self.trade.routes.get(c.route as usize).map_or(0, |rt| rt.limit[r as usize]);
-        let bonus = if self.religion.ra_trade_boost >= 2 { 0 } else { self.religion.ra_trade_boost };
-        adjust_limit(base, bonus)
+        if base <= 0 {
+            return 0;
+        }
+        crate::religion::ra_allowance(self.religion.ra_trade_steps(), base)
     }
 
     fn limit_reached(&self, city: usize, r: u16) -> bool {
@@ -725,43 +725,19 @@ impl World {
     }
 }
 
-/// The original's Ra adjustment of a yearly allowance (units) by `bonus` steps.
-fn adjust_limit(base: i32, bonus: i32) -> i32 {
-    match bonus {
-        1 => match base {
-            1500 => 2500,
-            2500 | 4000 => 4000,
-            b if b < 1500 => 1500,
-            b => b,
-        },
-        -1 => match base {
-            4000 => 2500,
-            2500 => 1500,
-            1500 => 0,
-            b => b,
-        },
-        b if b <= -2 => match base {
-            4000 => 1500,
-            2500 | 1500 => 0,
-            b => b,
-        },
-        _ => base,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::adjust_limit;
+    use crate::religion::ra_allowance;
 
     #[test]
     fn ra_moves_allowances_a_step() {
-        assert_eq!(adjust_limit(1500, 1), 2500);
-        assert_eq!(adjust_limit(4000, 1), 4000);
-        assert_eq!(adjust_limit(0, 1), 1500);
-        assert_eq!(adjust_limit(4000, -1), 2500);
-        assert_eq!(adjust_limit(1500, -1), 0);
-        assert_eq!(adjust_limit(4000, -3), 1500);
-        assert_eq!(adjust_limit(2500, -2), 0);
-        assert_eq!(adjust_limit(1200, -1), 1200);
+        assert_eq!(ra_allowance(1, 1500), 2500);
+        assert_eq!(ra_allowance(1, 4000), 4000);
+        assert_eq!(ra_allowance(1, 0), 1500);
+        assert_eq!(ra_allowance(-1, 4000), 2500);
+        assert_eq!(ra_allowance(-1, 1500), 0);
+        assert_eq!(ra_allowance(-3, 4000), 1500);
+        assert_eq!(ra_allowance(-2, 2500), 0);
+        assert_eq!(ra_allowance(-1, 1200), 1200);
     }
 }
