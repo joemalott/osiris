@@ -623,14 +623,15 @@ impl InfoPanel {
         let (done_line, fine) = if brick {
             (41, 40)
         } else if def.style == Style::Sphinx {
-            // Rough shape, fine carving, then painting.
+            // Rough shape, fine carving, then painting (steps 1-5, 6-13, 14-15).
             (48, match phase {
-                p if p < 4 => 45,
-                p if p < 8 => 46,
+                p if p < 7 => 45,
+                p if p < 15 => 46,
                 _ => 47,
             })
         } else if obelisk {
-            (44, if phase >= 4 { 43 } else { 42 })
+            // Carpenters' scaffolding, then the masons' carving.
+            (44, if def.crew(phase).contains(&mon::CARPENTER) { 42 } else { 43 })
         } else {
             (38, if matches!(def.style, Style::Pyramid(mon::Family::Stepped)) { 37 } else { 31 })
         };

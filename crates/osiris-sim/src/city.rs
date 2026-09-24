@@ -37,6 +37,7 @@ impl World {
             20 => {
                 self.update_production();
                 self.grow_crops();
+                self.build_up_carpenters();
             }
             22 => self.update_room(),
             23 => self.update_migration(),
