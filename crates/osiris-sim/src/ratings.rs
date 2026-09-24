@@ -1,11 +1,12 @@
 //! The four ratings the Pharaoh judges a city by, and the mission goals set on them.
 //!
-//! Culture (monthly) adds points for how much of the city booths, temples, schools,
-//! libraries and academies reach. Prosperity moves once a year, up for a profit, work
-//! for everyone, fair wages, fine houses and luxury exports, down for the opposite,
-//! and never above what the city's houses allow. The monument rating (monthly) counts
-//! each monument's worth by how far it has been built. The kingdom rating falls with
-//! debt and neglect and rises with success.
+//! Culture (monthly) is the worst of eleven services' scores, each read off its
+//! coverage. Prosperity moves every three months, by last year's accounts, work,
+//! wages, food, trade, housing and tribute, and never above what the city's houses
+//! allow. The monument rating (monthly) grows with the square root of the worth of the
+//! scenario's monuments built so far and the burial provisions sent. The kingdom
+//! rating moves once a year with tribute, profit, salary and progress toward the goals,
+//! and with debt, gifts, requests and the gods whenever they happen.
 
 use crate::buildings::kind;
 use crate::world::World;
@@ -13,19 +14,44 @@ use crate::world::World;
 /// Kingdom rating a new city starts with (Normal difficulty).
 const STARTING_KINGDOM: i32 = 50;
 
-/// Coverage percentage steps and the culture points they give, per source.
-const STEPS: [i32; 5] = [100, 85, 70, 50, 30];
-const ENTERTAINMENT_POINTS: [i32; 5] = [25, 18, 12, 8, 3];
-const RELIGION_POINTS: [i32; 5] = [30, 22, 14, 9, 3];
-const SCHOOL_POINTS: [i32; 5] = [15, 10, 6, 4, 1];
-const LIBRARY_POINTS: [i32; 5] = [20, 14, 8, 4, 2];
-const ACADEMY_POINTS: [i32; 5] = [10, 7, 4, 2, 1];
+/// Culture: for each service, its coverage slot, the scores for coverage at or below
+/// the first step, below each next step, and at or above the last, and the steps.
+const CULTURE: [(usize, [i32; 7], [i32; 6]); 11] = [
+    (JUGGLERS, [5, 15, 25, 40, 55, 75, 100], [0, 20, 40, 60, 80, 100]),
+    (MUSICIANS, [10, 20, 30, 45, 60, 80, 100], [0, 20, 40, 60, 80, 100]),
+    (DANCERS, [15, 25, 35, 50, 65, 85, 100], [0, 20, 40, 60, 80, 100]),
+    (SENET, [50, 55, 65, 75, 85, 95, 100], [0, 20, 40, 60, 80, 100]),
+    (ZOO, [70, 75, 80, 85, 90, 95, 100], [0, 20, 40, 60, 80, 100]),
+    (RELIGION, [0, 10, 25, 40, 60, 85, 100], [0, 20, 40, 60, 80, 100]),
+    (SCHOOLS, [40, 45, 50, 60, 75, 85, 100], [0, 20, 40, 60, 80, 100]),
+    (LIBRARIES, [60, 65, 70, 75, 80, 90, 100], [0, 20, 40, 60, 80, 100]),
+    (DENTISTS, [15, 20, 25, 35, 50, 65, 100], [0, 20, 40, 60, 80, 90]),
+    (PHYSICIANS, [20, 25, 30, 40, 55, 70, 100], [0, 20, 40, 60, 80, 90]),
+    (MORTUARIES, [35, 45, 55, 70, 85, 100, 100], [0, 20, 40, 60, 80, 100]),
+];
+const JUGGLERS: usize = 0;
+const MUSICIANS: usize = 1;
+const DANCERS: usize = 2;
+const SENET: usize = 3;
+const ZOO: usize = 4;
+const SCHOOLS: usize = 5;
+const LIBRARIES: usize = 6;
+const RELIGION: usize = 7;
+const DENTISTS: usize = 8;
+const PHYSICIANS: usize = 10;
+const MORTUARIES: usize = 11;
+/// Steps for the culture bonus: five points for each service that scores more than
+/// thirty below the worst when read against these.
+const BONUS_STEPS: [i32; 6] = [1, 20, 40, 60, 80, 100];
 
-/// People each building serves, for coverage.
+/// People each staffed building serves, for coverage.
 const BOOTH_SERVES: i32 = 400;
 const BANDSTAND_SERVES: i32 = 700;
 const PAVILION_SERVES: i32 = 1200;
-const SCHOOL_SERVES: i32 = 75;
+const SENET_SERVES: i32 = 5000;
+const ZOO_SERVES: i32 = 7500;
+/// Children (up to thirteen) a school teaches.
+pub const SCHOOL_SERVES: i32 = 300;
 const LIBRARY_SERVES: i32 = 800;
 const ACADEMY_SERVES: i32 = 100;
 pub const SCHOOL: u16 = 51;
@@ -34,13 +60,39 @@ pub const ACADEMY: u16 = 135;
 pub const MORTUARY: u16 = 47;
 pub const DENTIST: u16 = 49;
 pub const PHYSICIAN: u16 = 206;
+const SENET_HOUSE: u16 = 32;
+const ZOO_BUILDING: u16 = 226;
 
-/// Monument worth by type, and the rating's scale and offset.
-const MONUMENT_MULT: f32 = 2.25;
-const MONUMENT_OFFSET: f32 = 4.5;
+/// Worth of each monument toward the rating, by its title (text group 198).
+const MONUMENT_WORTH: [i32; 38] = [
+    0, 4, 10, 4, 12, 26, 48, 80, 3, 9, 20, 36, 60, 4, 12, 26, 48, 80, 2, 3, 11, 10, 1, 3, 4, 5, 5, 5, 8, 12, 10, 5, 5, 4, 12, 26,
+    48, 48,
+];
+/// Burial provisions that count toward the monument rating, and the loads each point
+/// takes.
+const PROVISION_LOADS: [(u16, i32); 15] = [
+    (1, 32),
+    (8, 32),
+    (10, 16),
+    (13, 16),
+    (15, 16),
+    (17, 16),
+    (18, 32),
+    (19, 16),
+    (20, 32),
+    (23, 16),
+    (24, 32),
+    (25, 32),
+    (26, 32),
+    (28, 16),
+    (30, 32),
+];
 
-/// Kingdom penalties for years of unpaid tribute (1, 2, 3, 4, 5+).
-const TRIBUTE_PENALTY: [i32; 5] = [-3, -3, -5, -8, -8];
+/// House levels below this are huts and shanties; from `NOBLE_LEVEL` up, manors.
+const SHANTY_LEVELS: u8 = 4;
+const NOBLE_LEVEL: u8 = 14;
+/// Missions from this one on lose a point of kingdom rating every year.
+const FIRST_DECLINING_MISSION: i32 = 2;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Ratings {
@@ -52,16 +104,11 @@ pub struct Ratings {
     pub prosperity_max: i32,
     /// Coverage percentages, for culture and the overseers.
     pub coverage: Coverage,
-    /// Treasury (plus construction) at the end of last year, for prosperity.
-    pub last_year_worth: i32,
     pub tribute_unpaid_years: i32,
     pub tribute_paid_last_year: bool,
-    /// Debt: 0 none yet, 1 bailed out once, 2 and 3 later penalties, 4 capped.
-    pub debt_state: u8,
-    pub months_in_debt: i32,
-    pub kingdom_cap: i32,
     /// Kingdom rating last year, to tell the trend.
     pub last_kingdom: i32,
+    /// Luxury goods exported (the original's prosperity doesn't use it).
     pub luxury_exported: i32,
     /// City health, 0-100, and what it is moving toward.
     #[serde(default)]
@@ -71,18 +118,28 @@ pub struct Ratings {
     /// Population at the end of each month, oldest first (the last 400).
     #[serde(default)]
     pub population_history: Vec<i32>,
+    /// Years after the start when the Kingdom checks progress toward the goals
+    /// (a quarter, half and three quarters of the way).
+    #[serde(default)]
+    pub milestones: [i32; 3],
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Coverage {
+    /// Jugglers (booths, bandstands and pavilions).
     pub booth: i32,
+    /// Musicians (bandstands and pavilions).
     pub bandstand: i32,
+    /// Dancers (pavilions).
     pub pavilion: i32,
     pub school: i32,
     pub library: i32,
     pub academy: i32,
     #[serde(default)]
     pub senet: i32,
+    #[serde(default)]
+    pub zoo: i32,
+    /// Share of the people living where each doctor has called.
     #[serde(default)]
     pub apothecary: i32,
     #[serde(default)]
@@ -102,33 +159,55 @@ impl Default for Ratings {
             kingdom: STARTING_KINGDOM,
             prosperity_max: 0,
             coverage: Coverage::default(),
-            last_year_worth: 0,
             tribute_unpaid_years: 0,
             tribute_paid_last_year: true,
-            debt_state: 0,
-            months_in_debt: 0,
-            kingdom_cap: 100,
             last_kingdom: STARTING_KINGDOM,
             luxury_exported: 0,
             health: 50,
             health_target: 50,
             population_history: Vec::new(),
+            milestones: [0; 3],
         }
     }
 }
 
 impl Ratings {
     pub fn change_kingdom(&mut self, amount: i32) {
-        self.kingdom = (self.kingdom + amount).clamp(0, self.kingdom_cap);
+        self.kingdom = (self.kingdom + amount).clamp(0, 100);
     }
-}
-
-fn points(coverage: i32, table: [i32; 5]) -> i32 {
-    STEPS.iter().zip(table).find(|(s, _)| coverage >= **s).map_or(0, |(_, p)| p)
 }
 
 fn percent(served: i32, of: i32) -> i32 {
     if of > 0 { (served * 100 / of).min(100) } else { 0 }
+}
+
+/// A service's culture score for its coverage.
+fn culture_score(cov: i32, values: &[i32; 7], steps: &[i32; 6]) -> i32 {
+    if cov <= steps[0] {
+        return values[0];
+    }
+    steps[1..].iter().position(|&s| cov < s).map_or(values[6], |i| values[i + 1])
+}
+
+/// The culture rating for coverages by slot (see `CULTURE`).
+fn culture_rating(cov: &[i32; 12]) -> i32 {
+    let worst = CULTURE.iter().map(|(slot, values, steps)| culture_score(cov[*slot], values, steps)).fold(100, i32::min);
+    let bonus = CULTURE
+        .iter()
+        .filter(|(slot, values, _)| {
+            let c = cov[*slot];
+            let score = BONUS_STEPS.iter().position(|&s| c < s).map_or(values[6], |i| values[i]);
+            score + 30 < worst
+        })
+        .count() as i32
+        * 5;
+    (worst + bonus).clamp(0, 100)
+}
+
+/// The monument rating for the worth built (and provisions sent).
+fn monument_rating(worth: i32, unfinished: bool) -> i32 {
+    let r = (worth.max(0) as f64).sqrt() * 6.32 + 0.5 - if unfinished { 1.0 } else { 0.0 };
+    (r.max(0.0) as i32).min(100)
 }
 
 impl World {
@@ -136,48 +215,74 @@ impl World {
         self.buildings.iter().filter(|b| b.kind == k && b.workers > 0).count() as i32
     }
 
-    /// Monthly: coverage, culture, the prosperity cap, the monument rating, and the
-    /// kingdom's month.
+    /// Monthly: coverage, city health and the population history.
     pub(crate) fn update_ratings_month(&mut self) {
         let pop = self.population;
         let school_age: i32 = self.census.at_age[0..14].iter().sum();
         let academy_age: i32 = self.census.at_age[14..21].iter().sum();
+        let (booths, bandstands, pavilions) = (self.staffed(kind::BOOTH), self.staffed(kind::BANDSTAND), self.staffed(kind::PAVILION));
+        // Share of the people in houses each doctor has called on.
+        let (mut apothecary, mut dentist, mut physician, mut mortuary) = (0, 0, 0, 0);
+        for h in self.buildings.iter().filter_map(|b| b.house.as_ref()).filter(|h| h.population > 0) {
+            let p = h.population;
+            apothecary += if h.coverage.apothecary > 0 { p } else { 0 };
+            dentist += if h.coverage.dentist > 0 { p } else { 0 };
+            physician += if h.coverage.physician > 0 { p } else { 0 };
+            mortuary += if h.coverage.mortuary > 0 { p } else { 0 };
+        }
         let c = Coverage {
-            booth: percent(BOOTH_SERVES * self.staffed(kind::BOOTH), pop),
-            bandstand: percent(BANDSTAND_SERVES * self.staffed(kind::BANDSTAND), pop),
-            pavilion: percent(PAVILION_SERVES * self.staffed(kind::PAVILION), pop),
+            booth: percent(BOOTH_SERVES * (booths + bandstands + pavilions), pop),
+            bandstand: percent(BANDSTAND_SERVES * (bandstands + pavilions), pop),
+            pavilion: percent(PAVILION_SERVES * pavilions, pop),
             school: percent(SCHOOL_SERVES * self.staffed(SCHOOL), school_age),
             library: percent(LIBRARY_SERVES * self.staffed(LIBRARY), pop),
             academy: percent(ACADEMY_SERVES * self.staffed(ACADEMY), academy_age),
-            senet: if self.staffed(32) > 0 { 100 } else { 0 },
-            apothecary: percent(100 * self.staffed(kind::APOTHECARY), pop),
-            physician: percent(1000 * self.staffed(PHYSICIAN), pop),
-            dentist: percent(1000 * self.staffed(DENTIST), pop),
-            mortuary: percent(1000 * self.staffed(MORTUARY), pop),
-        };
-        let religion = if self.rules.gods_enabled { self.religion.coverage_common } else { 100 };
-        self.ratings.culture = if pop <= 0 {
-            0
-        } else {
-            (points(c.booth, ENTERTAINMENT_POINTS)
-                + points(religion, RELIGION_POINTS)
-                + points(c.school, SCHOOL_POINTS)
-                + points(c.library, LIBRARY_POINTS)
-                + points(c.academy, ACADEMY_POINTS))
-            .clamp(0, 100)
+            senet: percent(SENET_SERVES * self.staffed(SENET_HOUSE), pop),
+            zoo: percent(ZOO_SERVES * self.staffed(ZOO_BUILDING), pop),
+            apothecary: percent(apothecary, pop),
+            physician: percent(physician, pop),
+            dentist: percent(dentist, pop),
+            mortuary: percent(mortuary, pop),
         };
         self.ratings.coverage = c;
-        self.update_prosperity_max();
-        self.update_monument_rating();
         self.update_health();
         let history = &mut self.ratings.population_history;
         history.push(self.population);
         if history.len() > 400 {
             history.remove(0);
         }
-        self.update_debt();
-        let r = &mut self.ratings;
-        r.kingdom = r.kingdom.clamp(0, r.kingdom_cap);
+    }
+
+    /// Monthly, after the accounts (and at the year's end, after the year's): culture,
+    /// the kingdom's month or year, the monument rating, the prosperity cap, and every
+    /// third month prosperity.
+    pub(crate) fn update_ratings(&mut self, year: bool) {
+        self.update_culture_rating();
+        self.update_kingdom(year);
+        self.update_monument_rating();
+        self.update_prosperity_max();
+        if self.time.month.is_multiple_of(3) {
+            self.update_prosperity();
+        }
+    }
+
+    fn update_culture_rating(&mut self) {
+        let c = &self.ratings.coverage;
+        let religion = if self.rules.gods_enabled { self.religion.coverage_common } else { 100 };
+        let mut cov = [0; 12];
+        cov[JUGGLERS] = c.booth;
+        cov[MUSICIANS] = c.bandstand;
+        cov[DANCERS] = c.pavilion;
+        cov[SENET] = c.senet;
+        cov[ZOO] = c.zoo;
+        cov[SCHOOLS] = c.school;
+        cov[LIBRARIES] = c.library;
+        cov[RELIGION] = religion;
+        cov[DENTISTS] = c.dentist;
+        cov[9] = c.apothecary;
+        cov[PHYSICIANS] = c.physician;
+        cov[MORTUARIES] = c.mortuary;
+        self.ratings.culture = culture_rating(&cov);
     }
 
     /// City health: the share of people who have a doctor (an apothecary for huts, a
@@ -202,136 +307,170 @@ impl World {
         r.health = if r.health < target { (r.health + 2).min(target) } else { (r.health - 2).max(target) }.clamp(0, 100);
     }
 
-    /// The prosperity cap: the average of what each occupied house's level allows.
+    /// The prosperity cap: what each occupied house's level allows, averaged over the
+    /// people.
     fn update_prosperity_max(&mut self) {
-        let (mut sum, mut n) = (0, 0);
+        let (mut sum, mut people) = (0, 0);
         for h in self.buildings.iter().filter_map(|b| b.house.as_ref()).filter(|h| h.population > 0) {
-            sum += self.balance.house(h.level).prosperity;
-            n += 1;
+            sum += self.balance.house(h.level).prosperity * h.population;
+            people += h.population;
         }
-        self.ratings.prosperity_max = if n > 0 { sum / n } else { 0 };
-    }
-
-    /// How far a monument has been built, 0-100.
-    fn monument_progress(&self, id: u32) -> i32 {
-        self.monument_percent(id)
+        self.ratings.prosperity_max = if people > 0 { sum / people } else { 0 };
     }
 
     fn update_monument_rating(&mut self) {
-        let sum: f32 = self
-            .buildings
-            .iter()
-            .filter_map(|b| crate::monuments::monument_def(b.kind).map(|d| d.weight as f32 * self.monument_progress(b.id) as f32 / 100.0))
-            .sum();
-        self.ratings.monument = if sum <= 0.0 { 0 } else { (MONUMENT_MULT * sum + MONUMENT_OFFSET).clamp(0.0, 100.0) as i32 };
+        let mut worth = 0;
+        let mut unfinished = false;
+        for b in self.buildings.iter() {
+            let Some(def) = crate::monuments::monument_def(b.kind) else { continue };
+            if b.monument.is_none() {
+                continue;
+            }
+            let pct = self.monument_percent(b.id);
+            unfinished |= pct < 100;
+            worth += MONUMENT_WORTH.get(def.title).copied().unwrap_or(0) * pct / 100;
+        }
+        for &(r, loads) in &PROVISION_LOADS {
+            if let Some(&(need, sent)) = self.burial.get(r as usize)
+                && need > 0
+            {
+                worth += sent / 100 / loads;
+            }
+        }
+        self.ratings.monument = monument_rating(worth, unfinished);
     }
 
-    /// Debt: the first time the treasury runs dry the Kingdom bails the city out (at a
-    /// cost to prosperity); staying in debt a year, then another, costs the kingdom
-    /// rating, and a third caps it.
-    fn update_debt(&mut self) {
-        let r = &mut self.ratings;
-        if self.treasury >= 0 {
-            r.months_in_debt = 0;
-            return;
-        }
-        if r.debt_state == 0 {
-            r.debt_state = 1;
-            r.prosperity = (r.prosperity - 3).max(0);
-            r.months_in_debt = 0;
-            return;
-        }
-        r.months_in_debt += 1;
-        if r.months_in_debt < 12 {
-            return;
-        }
-        r.months_in_debt = 0;
-        match r.debt_state {
-            1 => r.change_kingdom(-5),
-            2 => r.change_kingdom(-10),
-            _ => r.kingdom_cap = 10,
-        }
-        r.debt_state = (r.debt_state + 1).min(4);
-    }
-
-    /// Yearly: tribute, prosperity and the kingdom's year.
-    pub(crate) fn update_ratings_year(&mut self) {
-        self.pay_tribute();
-        // Prosperity.
-        let mut change = 0;
-        change += match self.unemployment {
-            u if u < 5 => 1,
-            u if u >= 15 => -1,
-            _ => 0,
+    /// Every third month: prosperity moves by last year's accounts and trade, work,
+    /// food, wages, housing, tribute, a senet house and a finished great monument.
+    fn update_prosperity(&mut self) {
+        let last = &self.finance.last_year;
+        let (income, expenses) = (last.income(), last.expenses());
+        let profit = income - expenses;
+        let mut change = if profit > 0 {
+            5
+        } else if profit + last.construction / 2 > 0 {
+            3
+        } else if profit < 0 {
+            -8
+        } else {
+            0
         };
-        let worth = self.treasury + self.finance.last_year.construction;
-        change += if worth > self.ratings.last_year_worth { 5 } else { -1 };
-        self.ratings.last_year_worth = self.treasury;
-        let food_kinds = self.buildings.iter().filter_map(|b| b.house.as_ref()).map(|h| h.foods.iter().filter(|&&f| f > 0).count()).max().unwrap_or(0);
-        if food_kinds >= 2 {
-            change += 1;
-        }
-        let kingdom_wage = self.finance.kingdom_wages;
-        if self.finance.wages >= kingdom_wage + 2 {
-            change += 1;
-        } else if self.finance.wages < kingdom_wage {
+        change += (last.exports - last.imports).signum();
+        change += if self.labor.shortage > 0 {
+            -1
+        } else {
+            match self.unemployment {
+                u if u < 5 => 2,
+                u if u < 10 => 0,
+                u if u < 15 => -1,
+                u if u < 20 => -2,
+                _ => -3,
+            }
+        };
+        let food_kinds = self.buildings.iter().filter_map(|b| b.house.as_ref()).map(|h| h.foods.iter().filter(|&&f| f > 0).count()).max().unwrap_or(0).max(1);
+        if food_kinds < 2 {
             change -= 1;
         }
-        let pop = self.population.max(1);
-        let (mut huts, mut manors) = (0, 0);
-        for h in self.buildings.iter().filter_map(|b| b.house.as_ref()) {
-            if h.level <= 3 {
-                huts += h.population;
+        // Wages against the Kingdom's; Ra's oracle makes the city's seem two better.
+        let ra = if self.complex_blessing(crate::temple_complex::RA, crate::temple_complex::ORACLE) { 2 } else { 0 };
+        change += match last.wage_months / 12 - self.finance.kingdom_wages + ra {
+            d if d >= 6 => 2,
+            d if d >= 1 => 1,
+            0 => 0,
+            d if d >= -5 => -1,
+            d if d >= -10 => -2,
+            _ => -3,
+        };
+        let (mut shanties, mut manors) = (0, 0);
+        for h in self.buildings.iter().filter_map(|b| b.house.as_ref()).filter(|h| h.population > 0) {
+            if h.level < SHANTY_LEVELS {
+                shanties += h.population;
             }
-            if h.level >= 14 {
+            if h.level >= NOBLE_LEVEL {
                 manors += h.population;
             }
         }
-        if huts * 100 / pop > 30 {
+        if percent(shanties, self.population) > 95 {
             change -= 1;
         }
-        if manors * 100 / pop > 10 {
-            change += 1;
+        if percent(manors, self.population) > 10 {
+            change += 2;
         }
         if !self.ratings.tribute_paid_last_year {
             change -= 1;
         }
-        if self.staffed(32) > 0 {
+        if self.buildings.iter().any(|b| b.kind == SENET_HOUSE && b.workers > 0 && b.shows.iter().any(|&s| s > 0)) {
             change += 1;
         }
-        change += match self.ratings.luxury_exported {
-            n if n > 500 => 2,
-            n if n > 100 => 1,
-            _ => 0,
-        };
-        self.ratings.luxury_exported = 0;
-        let r = &mut self.ratings;
-        r.prosperity = (r.prosperity + change).clamp(0, r.prosperity_max).clamp(0, 100);
-        // The kingdom's year: tribute owed, and early missions' slow decline.
-        if !r.tribute_paid_last_year {
-            let i = (r.tribute_unpaid_years.max(1) - 1).min(4) as usize;
-            r.change_kingdom(TRIBUTE_PENALTY[i]);
+        let great = self.buildings.iter().any(|b| {
+            b.monument.as_ref().is_some_and(|m| m.finished)
+                && crate::monuments::monument_def(b.kind).is_some_and(|d| crate::pyramids::blockwise(d.style) || d.style == crate::monuments::Style::Sphinx)
+        });
+        if great {
+            change += 1;
         }
-        if self.mission.as_ref().is_some_and(|m| m.id < 3) {
-            self.ratings.change_kingdom(-2);
+        let r = &mut self.ratings;
+        r.prosperity = (r.prosperity + change).min(r.prosperity_max).clamp(0, 100);
+    }
+
+    /// The kingdom's month, and at the year's end its judgement: a point lost every
+    /// year after the first missions, tribute owed or a profit made, the governor's
+    /// salary, and at the milestones whether the city is on course for its goals.
+    fn update_kingdom(&mut self, year: bool) {
+        if !year {
+            return;
+        }
+        if self.mission.as_ref().is_none_or(|m| m.id >= FIRST_DECLINING_MISSION) {
+            self.ratings.change_kingdom(-1);
+        }
+        if !self.ratings.tribute_paid_last_year {
+            let penalty = match self.ratings.tribute_unpaid_years {
+                ..=1 => -3,
+                2 => -5,
+                _ => -8,
+            };
+            self.ratings.change_kingdom(penalty);
+        } else {
+            let last = &self.finance.last_year;
+            if last.expenses() + self.finance.this_year.tribute < last.income() {
+                self.ratings.change_kingdom(1);
+            }
         }
         self.salary_year();
+        self.check_milestone();
         self.ratings.last_kingdom = self.ratings.kingdom;
     }
 
-    /// Tribute to the Kingdom from last year's accounts.
-    fn pay_tribute(&mut self) {
+    /// At each milestone year the Kingdom checks that every goal is a quarter, half
+    /// or three quarters met: five points if so, two lost if not.
+    fn check_milestone(&mut self) {
+        let years = self.time.year - self.scenario_events.start_year;
+        let Some(i) = self.ratings.milestones.iter().position(|&y| y > 0 && y == years) else { return };
+        let pct = [25, 50, 75][i];
+        let Some(m) = &self.mission else { return };
+        let g = &m.goals;
+        let r = &self.ratings;
+        let on_course = [(g.culture, r.culture), (g.prosperity, r.prosperity), (g.population, self.population), (g.monuments, r.monument), (g.kingdom, r.kingdom)]
+            .iter()
+            .all(|(goal, value)| !goal.enabled || *value >= goal.value * pct / 100);
+        self.ratings.change_kingdom(if on_course { 5 } else { -2 });
+    }
+
+    /// Yearly, after the accounts: tribute to the Kingdom from last year's. A city
+    /// with no money pays nothing and falls behind; Pharaoh pays none.
+    pub(crate) fn pay_tribute(&mut self) {
         let last = &self.finance.last_year;
-        let income = last.taxes + last.exports + last.gold;
-        let expenses = last.imports + last.wages + last.construction + last.interest;
+        let (income, expenses) = (last.income(), last.expenses());
         let pop = self.population;
-        let tribute = if self.treasury <= 0 {
+        let tribute = if self.assigned_rank() == crate::kingdom::PHARAOH_RANK {
+            Some(0)
+        } else if self.treasury <= 0 {
             None
         } else if income <= expenses {
             Some(match pop {
-                p if p <= 1000 => 0,
-                p if p <= 2000 => 100,
-                _ => 200,
+                p if p > 2000 => 200,
+                p if p > 1000 => 100,
+                _ => 0,
             })
         } else {
             let min = match pop {
@@ -357,5 +496,39 @@ impl World {
                 r.tribute_unpaid_years += 1;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn culture_is_the_worst_service() {
+        // Nothing at all: religion scores nothing.
+        assert_eq!(culture_rating(&[0; 12]), 0);
+        // Everything perfect.
+        assert_eq!(culture_rating(&[100; 12]), 100);
+        // All perfect but no zoo: the zoo's 70 is the worst.
+        let mut cov = [100; 12];
+        cov[ZOO] = 0;
+        assert_eq!(culture_rating(&cov), 70);
+        // Schools at 50%: 60.
+        let mut cov = [100; 12];
+        cov[SCHOOLS] = 50;
+        assert_eq!(culture_rating(&cov), 60);
+        // Dentists step up at 90% rather than 100%.
+        assert_eq!(culture_score(95, &CULTURE[8].1, &CULTURE[8].2), 100);
+        assert_eq!(culture_score(85, &CULTURE[8].1, &CULTURE[8].2), 65);
+    }
+
+    #[test]
+    fn monument_rating_grows_with_the_root_of_worth() {
+        assert_eq!(monument_rating(0, false), 0);
+        assert_eq!(monument_rating(80, false), 57);
+        assert_eq!(monument_rating(80, true), 56);
+        assert_eq!(monument_rating(250, false), 100);
+        assert_eq!(MONUMENT_WORTH[7], 80);
+        assert_eq!(MONUMENT_WORTH[21], 10);
     }
 }

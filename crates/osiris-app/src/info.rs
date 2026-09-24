@@ -738,8 +738,7 @@ impl InfoPanel {
         let tax = if h.coverage.tax <= 0 {
             ui.t(TEXT_HOUSE, 23)
         } else {
-            let mult = world.balance.house(h.level).tax_multiplier * world.finance.tax_multiplier_pct / 100;
-            let amount = h.population * mult / 2 * world.finance.tax_rate / 100;
+            let amount = world.house_tax(h.level, h.population) * osiris_sim::finance::TAX_BANKED_PCT / 100;
             format!("{} {} {}", ui.t(TEXT_HOUSE, 24), amount, ui.t(TEXT_HOUSE, 25))
         };
         ui.wrapped(Font::NormalWhiteOnDark, &tax, x + 36.0, y + 194.0, 25.0 * 16.0);
