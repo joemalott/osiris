@@ -685,7 +685,7 @@ fn ratings(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], selected: &mut us
     const G: usize = 53;
     let title = ui.t(G, 0);
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 17.0);
-    let goals = world.mission.as_ref().map(|m| m.goals.clone()).unwrap_or_default();
+    let goals = world.goals();
     let pop_line = if goals.population.enabled { format!("{} {}", ui.t(G, 6), goals.population.value) } else { ui.t(G, 7) };
     ui.label(Font::NormalBlackOnLight, &pop_line, px + 300.0, py + 20.0);
     if let Ok(bg) = ui.r.library.group_id("Pharaoh_Unloaded", 2, 0) {

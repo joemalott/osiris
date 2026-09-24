@@ -379,6 +379,12 @@ impl Game {
                 self.message = None;
             }
         }
+        // The city's warnings (text group 19), several at once read as one line.
+        if !self.world.warnings.is_empty() {
+            let text = &self.text;
+            let lines: Vec<String> = self.world.warnings.drain(..).map(|id| text.get(19, id as usize).unwrap_or("").trim().to_owned()).collect();
+            self.say(&lines.join(" "));
+        }
         if let Some(a) = &self.audio {
             self.music_timer -= dt;
             if self.music_timer <= 0.0 {
@@ -492,6 +498,10 @@ impl Game {
         self.sidebar.items.clear();
         for item in &menu.items {
             if let Some(sub) = item.strip_prefix("menu_") {
+                // Submenus with nothing to build are left out, as in the original.
+                if !self.menu_has_buildings(sub, 1) {
+                    continue;
+                }
                 let label_id = SUBMENUS.iter().find(|(k, _)| *k == sub).map(|&(_, id)| id);
                 let label = label_id.map_or_else(|| sub.replace('_', " "), |id| self.building_name(id));
                 self.entries.push(Entry::Submenu(sub.to_owned()));

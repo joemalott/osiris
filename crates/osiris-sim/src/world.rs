@@ -89,6 +89,9 @@ pub struct World {
     pub mission: Option<crate::missions::Mission>,
     /// Message keys waiting to be shown to the player, oldest first.
     pub messages: VecDeque<String>,
+    /// City warnings (text group 19) waiting to flash on screen, oldest first.
+    #[serde(default)]
+    pub warnings: VecDeque<u16>,
     /// The message log shown in the messages window.
     #[serde(default)]
     pub notices: crate::notices::Notices,
@@ -158,6 +161,13 @@ pub struct World {
     /// The gods a temple complex may be built to (Osiris, Ra, Ptah, Seth, Bast).
     #[serde(default)]
     pub complex_gods: [bool; 5],
+    /// What the scenario lets the player build, used when no campaign mission
+    /// rules apply (None: everything, as in saves from before it was read).
+    #[serde(default)]
+    pub scenario_allowed: Option<std::collections::BTreeSet<u16>>,
+    /// The scenario file's own goals, used when no campaign mission rules apply.
+    #[serde(default)]
+    pub scenario_goals: crate::missions::Goals,
     /// Yearly interest on debt, in percent (the scenario's).
     #[serde(default = "default_debt_rate")]
     pub debt_rate: i32,
@@ -221,6 +231,8 @@ impl World {
         let (w, h) = (map.width, map.height);
         let water = crate::water::Water::from_scenario(scenario, &map);
         let invasions = crate::invasions::Invasions::from_scenario(scenario, &defs);
+        let trade = crate::trade::Trade::from_scenario(scenario);
+        let scenario_allowed = Some(crate::missions::scenario_allowed(scenario, &trade));
         Self {
             map,
             time: GameTime::new(info.start_year as i32),
@@ -244,9 +256,10 @@ impl World {
             floods: Default::default(),
             mission: None,
             messages: VecDeque::new(),
+            warnings: VecDeque::new(),
             notices: Default::default(),
             vegetation: None,
-            trade: crate::trade::Trade::from_scenario(scenario),
+            trade,
             sentiment_state: Default::default(),
             religion: crate::religion::Religion::new(info.gods),
             ratings: crate::ratings::Ratings { milestones: info.win.milestone_years, ..Default::default() },
@@ -271,6 +284,8 @@ impl World {
             entry_point: (info.entry_point.x, info.entry_point.y),
             start_corner: start_corner(scenario),
             complex_gods: info.temple_complex_gods(),
+            scenario_allowed,
+            scenario_goals: crate::missions::Goals::from_scenario(&info.win),
             debt_rate: info.debt_interest_rate as i32,
             test_full_staff: false,
             statue_variant: 0,
