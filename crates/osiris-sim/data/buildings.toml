@@ -1634,6 +1634,9 @@ figure = "carpenter"
 image = { pack = "Pharaoh_General", group = 91, offset = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 91, offset = 0 }, work = { pack = "Pharaoh_General", group = 91, offset = 1, frames = 13, x = 73, y = -12, duration = 4 } }
 flags = ["is_guild", "is_industry"]
+# The original's carpenters take timber, 100 a ramp; bricklayers and stonemasons
+# keep no stock (their material comes by sled).
+inputs = ["timber"]
 help = "message_construction_guilds"
 info_advisors = ["labor"]
 
@@ -1646,7 +1649,6 @@ figure = "bricklayer"
 image = { pack = "Pharaoh_General", group = 57, offset = 0 }
 anims = { preview = { pack = "Pharaoh_General", group = 57, offset = 0 }, work = { pack = "Pharaoh_General", group = 57, offset = 1, frames = 12, x = 75, y = -14, duration = 4 } }
 flags = ["is_guild", "is_industry"]
-inputs = ["bricks"]
 text_id = 172
 help = "message_construction_guilds"
 info_advisors = ["labor"]

@@ -317,8 +317,9 @@ pub const MONUMENTS: [MonumentDef; 29] = [
     MonumentDef { kind: MAUSOLEUM, cols: 11, rows: 4, style: Style::Mausoleum, phase_count: 6, weight: 4, title: 25 },
     // The rating weight is a placeholder.
     MonumentDef { kind: SUN_TEMPLE, cols: 1, rows: 1, style: Style::SunTemple, phase_count: SUN_FORE + 2, weight: 4, title: 24 },
-    obelisk(SMALL_OBELISK, 3, 4, 100, &[200, 200, 200], 2, 22),
-    obelisk(LARGE_OBELISK, 5, 6, 200, &[400, 400, 400, 200], 4, 23),
+    // Granite taken at placement: 100 and 200 blocks (the original's placement check).
+    obelisk(SMALL_OBELISK, 3, 4, 10_000, &[200, 200, 200], 2, 22),
+    obelisk(LARGE_OBELISK, 5, 6, 20_000, &[400, 400, 400, 200], 4, 23),
     // Sizes in blocks, as in the original: large is 8 across in every family.
     tomb(kind::SMALL_MASTABA, (2, 5), Style::Mastaba, 2, 18),
     tomb(kind::MEDIUM_MASTABA, (3, 7), Style::Mastaba, 2, 19),
@@ -1137,8 +1138,8 @@ impl World {
             if gb.workers <= 0 || out >= cap {
                 continue;
             }
-            // The bricklayers keep a load of bricks to work with.
-            if figure == BRICKLAYER && gb.stock.get(BRICKS as usize).copied().unwrap_or(0) < crate::economy::LOAD {
+            // Carpenters work only while their guild has timber (a load a ramp).
+            if figure == CARPENTER && gb.stock.get(TIMBER as usize).copied().unwrap_or(0) < crate::pyramids::RAMP_TIMBER {
                 continue;
             }
             let from = (gb.x, gb.y);
@@ -1683,8 +1684,8 @@ mod tests {
 
     /// Mission 12's land by the river with a small true pyramid staked out (its site
     /// already prepared), storage yards holding its stone and limestone, and two
-    /// stonemasons' guilds and a carpenters' guild, all fully staffed; work camps
-    /// only if `camps`.
+    /// stonemasons' guilds and a carpenters' guild with timber for the ramps, all fully
+    /// staffed; work camps only if `camps`.
     fn pyramid_town(camps: bool) -> Option<(World, BuildingId)> {
         let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
         if !data.join("mission1.pak").is_file() {
@@ -1731,6 +1732,10 @@ mod tests {
         for (i, y) in yards.into_iter().enumerate() {
             world.add_stored(y, if i < 2 { STONE } else { LIMESTONE }, 3200);
         }
+        // Timber for the six ramps.
+        if let Some(g) = world.buildings.iter_mut().find(|b| b.kind == kind::CARPENTERS_GUILD) {
+            g.stock[TIMBER as usize] = 600;
+        }
         let id = world.buildings.iter().find(|b| b.kind == SMALL_PYRAMID).map(|b| b.id).expect("pyramid");
         world.set_tomb_stage(id, crate::pyramids::RAISE);
         Some((world, id))
@@ -1765,5 +1770,7 @@ mod tests {
         assert!(m.delivered.is_empty(), "left on site: {:?}", m.delivered);
         let left = |r: u16| world.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD).map(|b| world.stored(b.id, r)).sum::<i32>();
         assert_eq!((left(STONE), left(LIMESTONE)), (6400 - 4800, 19200 - 19200));
+        // And the carpenters' guild gave 100 timber for each of the six ramps.
+        assert!(world.buildings.iter().filter(|b| b.kind == kind::CARPENTERS_GUILD).all(|b| b.stock[TIMBER as usize] == 0));
     }
 }
