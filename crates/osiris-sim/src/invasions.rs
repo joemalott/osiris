@@ -36,6 +36,9 @@ const BUILDING_HP: i32 = 1000;
 const CHASE_RANGE: i32 = 5;
 /// Months before arrival when reminders come.
 const REMINDERS: [i32; 4] = [24, 12, 6, 1];
+/// Pharaoh calls off an army sent for lost favour if the kingdom rating is back above
+/// this before it arrives.
+const CALL_OFF_KINGDOM: i32 = 14;
 const TRIGGER_BY_FAVOUR: u8 = 16;
 
 /// How long an invader waits before retrying a failed pathfind, given how many times
@@ -208,6 +211,11 @@ impl World {
                     let arrive = now + inv.warning.max(1);
                     inv.year = arrive / 12;
                     inv.month = arrive % 12;
+                } else if self.ratings.kingdom > CALL_OFF_KINGDOM {
+                    // Won back Pharaoh's favour before his army comes: it stays home.
+                    inv.done = true;
+                    self.post("message_attack_called_off", None, true);
+                    continue;
                 }
             }
             let left = inv.year * 12 + inv.month - now;
