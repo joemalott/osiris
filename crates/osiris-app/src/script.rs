@@ -214,6 +214,25 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     eprintln!("  figure {} kind {} action {} at {},{} job {}", f.id, f.kind, f.action, f.x, f.y, f.amount);
                 }
             }
+            // Everyone working a pyramid or mastaba: where they are and what they do.
+            ["tombworkers"] => {
+                eprintln!("{step}: tick {}", world.time.total_ticks);
+                for f in world.figures.iter().filter(|f| matches!(f.kind, 79 | 80 | 81 | 86) || f.kind == osiris_sim::farms::PEASANT) {
+                    eprintln!(
+                        "  figure {} kind {} action {} at {},{} job {} paid {} work {} perch {:?} pose {:?}",
+                        f.id,
+                        f.kind,
+                        f.action,
+                        f.x,
+                        f.y,
+                        f.amount,
+                        f.cargo,
+                        f.counter,
+                        f.perch,
+                        world.tomb_pose(f)
+                    );
+                }
+            }
             // Sets every royal tomb chamber to stage N (0-4) and the lamps to L.
             ["tombstage", n, lamps] => {
                 let (n, lamps): (u8, i32) = (n.parse()?, lamps.parse()?);

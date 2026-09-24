@@ -29,8 +29,6 @@ pub const POLISH_WORK: u16 = 40;
 pub const RAMP_WORK: u16 = 30;
 /// Material a unit takes: half a sled.
 pub const UNIT_MATERIAL: i32 = 200;
-/// Timber the carpenters' guild gives up for each ramp.
-pub const RAMP_TIMBER: i32 = 100;
 
 const STONE: u16 = 24;
 const LIMESTONE: u16 = 25;
@@ -169,6 +167,105 @@ const RAMPS: [&[(u8, u8, u8)]; 5] = [
         (9, 28, 7), (6, 29, 0), (5, 30, 0),
     ],
 ];
+
+/// The way up each size of pyramid, from its foot: (block, height), a height being
+/// a block's progress (course * 6 + units). It runs up the ramps (the original's
+/// table at 0x5f4b38).
+const ROUTES: [&[(u8, u8)]; 5] = [
+    &[(13, 1), (14, 2), (15, 2), (11, 3), (9, 4), (7, 4), (6, 5), (5, 6), (0, 7), (2, 8), (3, 9), (1, 10), (0, 11), (2, 12)],
+    &[
+        (31, 1), (32, 2), (33, 3), (34, 4), (35, 4), (29, 5), (27, 6), (9, 7), (7, 7), (6, 8), (5, 9), (4, 9), (8, 10), (10, 11),
+        (12, 11), (13, 12), (3, 13), (1, 14), (0, 15), (2, 16), (3, 17), (1, 18),
+    ],
+    &[
+        (57, 1), (58, 2), (59, 3), (60, 4), (61, 5), (62, 6), (63, 6), (55, 6), (29, 7), (27, 8), (25, 9), (23, 10), (21, 10),
+        (20, 11), (19, 12), (5, 13), (4, 13), (8, 14), (10, 15), (12, 15), (13, 16), (14, 17), (15, 17), (11, 18), (1, 19),
+        (0, 20), (2, 21), (3, 22), (1, 23), (0, 24),
+    ],
+    &[
+        (91, 1), (92, 2), (93, 3), (94, 4), (95, 5), (96, 6), (62, 7), (63, 7), (55, 8), (53, 9), (51, 10), (49, 11), (47, 12),
+        (45, 12), (43, 12), (42, 12), (20, 13), (19, 14), (18, 15), (17, 16), (16, 16), (22, 17), (24, 18), (10, 19), (12, 19),
+        (13, 20), (14, 21), (15, 21), (11, 22), (9, 23), (7, 23), (6, 24), (0, 25), (2, 26), (3, 27), (1, 28), (3, 29), (1, 30),
+    ],
+    &[
+        (133, 1), (134, 2), (135, 3), (136, 4), (137, 5), (138, 6), (96, 7), (97, 8), (98, 9), (99, 9), (89, 10), (87, 11),
+        (85, 12), (51, 13), (49, 14), (47, 15), (45, 16), (43, 16), (42, 17), (41, 18), (19, 19), (18, 20), (17, 21), (16, 21),
+        (22, 22), (24, 23), (26, 24), (28, 24), (30, 24), (31, 24), (13, 25), (14, 26), (15, 26), (11, 27), (9, 28), (7, 28),
+        (6, 29), (5, 30), (0, 31), (2, 32), (3, 33), (1, 34), (3, 35), (1, 36),
+    ],
+];
+
+/// A mastaba's way up: its +y end block, one unit at a time (0x5f5498).
+const MASTABA_ROUTES: [&[(u8, u8)]; 3] = [
+    &[(8, 1), (8, 2), (8, 3), (8, 4), (8, 5), (8, 6)],
+    &[(19, 1), (19, 2), (19, 3), (19, 4), (19, 5), (19, 6)],
+    &[(33, 1), (33, 2), (33, 3), (33, 4), (33, 5), (33, 6), (18, 7), (18, 8), (18, 9), (18, 10), (18, 11), (18, 12)],
+];
+
+/// Where a figure stands on a block of each kind at each unit of a course, in pixels
+/// (0x5f5618); kind 8 is a block's flat top below its last course.
+const SURFACE: [[(i8, i8); 6]; 9] = [
+    [(0, -42), (0, -47), (0, -52), (0, -57), (0, -62), (0, -67)],
+    [(-49, -18), (-29, -32), (-9, -47), (13, -63), (33, -77), (52, -92)],
+    [(0, 10), (0, -18), (0, -43), (0, -68), (0, -94), (0, -118)],
+    [(51, -18), (30, -32), (10, -47), (-12, -62), (-32, -77), (-52, -92)],
+    [(-22, -31), (-12, -41), (0, -51), (11, -61), (18, -70), (29, -80)],
+    [(-28, -5), (-17, -25), (-6, -44), (7, -64), (15, -85), (25, -104)],
+    [(28, -6), (18, -26), (9, -47), (-4, -66), (-15, -86), (-27, -105)],
+    [(26, -30), (15, -39), (4, -48), (-7, -58), (-18, -69), (-27, -79)],
+    [(0, -17), (0, -32), (0, -47), (0, -62), (0, -77), (0, -92)],
+];
+
+/// The same on a stepped pyramid, without and with a ramp on the block (0x5f57c8).
+const STEPPED_SURFACE: [[(i8, i8, i8, i8); 6]; 9] = [
+    [(0, -42, 0, -42), (0, -47, 0, -47), (0, -52, 0, -52), (0, -57, 0, -57), (0, -62, 0, -62), (0, -67, 0, -67)],
+    [(-49, -18, -69, -23), (-29, -32, -49, -37), (-9, -47, -29, -52), (13, -63, -7, -68), (33, -77, 13, -82), (52, -92, 32, -97)],
+    [(0, 10, 0, 10), (0, -18, 0, -18), (0, -43, 0, -43), (0, -68, 0, -68), (0, -94, 0, -94), (0, -118, 0, -118)],
+    [(51, -18, 51, -18), (30, -32, 30, -32), (10, -47, 10, -47), (-12, -62, -12, -62), (-32, -77, -32, -77), (-52, -92, -52, -92)],
+    [(-22, -31, -22, -31), (-12, -41, -12, -41), (0, -51, 0, -51), (11, -61, 11, -61), (18, -70, 18, -70), (29, -80, 29, -80)],
+    [(-28, -5, -28, -5), (-13, -35, -20, -22), (-9, -53, -14, -37), (4, -66, 4, -66), (19, -96, 12, -83), (23, -114, 18, -98)],
+    [(28, -6, 28, -6), (12, -37, 23, -26), (10, -53, 21, -42), (-4, -66, -4, -66), (-20, -97, -9, -86), (-22, -113, -11, -102)],
+    [(26, -30, 26, -30), (15, -39, 15, -39), (4, -48, 4, -48), (-7, -58, -7, -58), (-18, -69, -18, -69), (-27, -79, -27, -79)],
+    [(0, -17, 0, -17), (0, -32, 0, -32), (0, -47, 0, -47), (0, -62, 0, -62), (0, -77, 0, -77), (0, -92, 0, -92)],
+];
+
+/// A ramp on a +y or +x edge block moves its standing place over (0x5f5bf8).
+const RAMP_SURFACE: [(i8, i8); 9] = [(0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (-13, 7), (13, 7), (0, 0), (0, 0)];
+
+/// Ticks a figure takes to cross a tile of a tomb.
+const PERCH_TICKS: u16 = 15;
+
+/// A figure up on a pyramid or mastaba (the original's figure fields 0x42..0x4c): the
+/// block he comes from and his height there, the block he stands on or is heading
+/// for and his height there, and how far along the move he is.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Perch {
+    /// `None` while he steps up from the ground at the foot of the way up.
+    pub from: Option<u16>,
+    pub from_height: u8,
+    pub block: u16,
+    pub height: u8,
+    pub step: u16,
+    pub steps: u16,
+    /// The entry of the way up he last reached, plus one; 0 off it.
+    pub route: u8,
+}
+
+impl Perch {
+    /// At the foot of the way up, stepping onto it (`FUN_004f1cb0`).
+    pub fn foot(block: u16) -> Self {
+        Perch { from: None, from_height: 0, block, height: 0, step: 1, steps: PERCH_TICKS, route: 0 }
+    }
+
+    pub fn arrived(&self) -> bool {
+        self.step >= self.steps
+    }
+
+    /// Still at the foot, not yet started up.
+    pub fn at_foot(&self) -> bool {
+        self.from.is_none()
+    }
+}
 
 /// Mastaba blocks of each size: offset from the chapel block, kind, last course.
 const MASTABAS: [&[(i8, i8, u8, u8)]; 3] = [
@@ -458,9 +555,11 @@ impl World {
     }
 
     /// Tomb work for a craftsman of type `figure`, other than the jobs in `taken`: a
-    /// block's next unit, a ramp, polishing, and (for stonemasons with nothing else to
-    /// do once the site is ready) the next part of a complex.
-    pub(crate) fn tomb_job(&self, id: BuildingId, figure: u16, taken: &[Job]) -> Option<Job> {
+    /// block's next unit, a ramp, polishing, and (for stonemasons on the ground with
+    /// nothing else to do once the site is ready) the next part of a complex. A mason
+    /// takes a block whether or not its material has come: as in the original, he
+    /// waits on it for the sled.
+    pub(crate) fn tomb_job(&self, id: BuildingId, figure: u16, taken: &[Job], perched: bool) -> Option<Job> {
         let (style, _, m) = self.tomb(id)?;
         let job = match m.phase {
             RAISE if figure == crate::monuments::CARPENTER => {
@@ -470,20 +569,14 @@ impl World {
             RAISE => self
                 .frontier(id)
                 .into_iter()
-                .find(|&i| {
-                    let b = &m.blocks[i];
-                    !taken.contains(&Job::Unit(i)) && !b.waiting_for_ramp() && self.unit_craftsman(id, i) == figure && {
-                        let r = self.tomb_unit_material(id, i).unwrap_or(STONE);
-                        Monument::amount(&m.delivered, r) >= UNIT_MATERIAL
-                    }
-                })
+                .find(|&i| !taken.contains(&Job::Unit(i)) && !m.blocks[i].waiting_for_ramp() && self.unit_craftsman(id, i) == figure)
                 .map(Job::Unit),
             POLISH if figure == crate::monuments::STONEMASON && polished(style) => self.polish_frontier(id).into_iter().find(|&i| !taken.contains(&Job::Polish(i))).map(Job::Polish),
             _ => None,
         };
         job.or_else(|| {
             // The complex's parts go up one at a time, outward from the pyramid.
-            if figure != crate::monuments::STONEMASON || m.phase == PREP {
+            if figure != crate::monuments::STONEMASON || m.phase == PREP || perched {
                 return None;
             }
             let next = m.parts.iter().position(|p| !p.built)?;
@@ -491,17 +584,147 @@ impl World {
         })
     }
 
-    /// Whether a tomb wants a craftsman of type `figure` at all.
-    pub(crate) fn tomb_wants(&self, id: BuildingId, figure: u16) -> bool {
-        let Some((style, _, m)) = self.tomb(id) else { return false };
-        match m.phase {
-            RAISE if figure == crate::monuments::CARPENTER => m.blocks.iter().any(Block::waiting_for_ramp),
-            PREP => false,
-            _ if figure == crate::monuments::STONEMASON && m.parts.iter().any(|p| !p.built) => true,
-            RAISE => self.frontier(id).into_iter().any(|i| self.unit_craftsman(id, i) == figure),
-            POLISH => figure == crate::monuments::STONEMASON && polished(style),
-            _ => false,
+    /// The way up a tomb: (block, height) from its foot.
+    pub(crate) fn tomb_route(&self, id: BuildingId) -> &'static [(u8, u8)] {
+        match self.tomb(id) {
+            Some((Style::Mastaba, var, _)) => MASTABA_ROUTES[var.min(2)],
+            Some((_, var, _)) => ROUTES[var.min(4)],
+            None => &[],
         }
+    }
+
+    /// The tile at the foot of the way up, just past the +y side of its first block
+    /// (the original's road access of that block, `FUN_004f3000`), where craftsmen
+    /// and sleds come to the tomb.
+    pub fn tomb_entry(&self, id: BuildingId) -> Option<(i32, i32)> {
+        let &(first, _) = self.tomb_route(id).first()?;
+        let (x, y) = self.block_tile(id, first as usize)?;
+        Some((x, y + 2))
+    }
+
+    /// A block's top-left tile on the map.
+    pub(crate) fn block_tile(&self, id: BuildingId, i: usize) -> Option<(i32, i32)> {
+        let b = self.buildings.get(id)?;
+        let bl = b.monument.as_ref()?.blocks.get(i)?;
+        Some((b.x + bl.x, b.y + bl.y))
+    }
+
+    /// A block's height: its progress, courses * 6 + units.
+    pub(crate) fn block_height(&self, id: BuildingId, i: usize) -> u8 {
+        self.tomb(id).and_then(|(_, _, m)| m.blocks.get(i)).map_or(0, |b| b.progress().min(u8::MAX as u32) as u8)
+    }
+
+    /// Where a craftsman does job `job`: the block, and his height on it (a ramp is
+    /// built from the way up, at the height it is needed at). A part is worked from
+    /// the ground.
+    pub(crate) fn job_spot(&self, id: BuildingId, job: Job) -> Option<(usize, u8)> {
+        let (_, _, m) = self.tomb(id)?;
+        match job {
+            Job::Unit(i) | Job::Polish(i) => Some((i, self.block_height(id, i))),
+            Job::Ramp(i) => Some((i, m.blocks.get(i)?.ramp_at)),
+            Job::Part(_) => None,
+        }
+    }
+
+    /// The tile a laborer works for site job `unit` (block * 4 + tile); the last is
+    /// the centre's foundation, laid from the far tile of block 0 (`FUN_004f3370`).
+    pub(crate) fn tomb_unit_tile(&self, id: BuildingId, unit: usize) -> Option<(i32, i32)> {
+        let (_, _, m) = self.tomb(id)?;
+        if unit == m.blocks.len() * 4 {
+            let (x, y) = self.block_tile(id, 0)?;
+            return Some((x + 1, y + 1));
+        }
+        let (x, y) = self.block_tile(id, unit / 4)?;
+        let t = (unit % 4) as i32;
+        Some((x + t % 2, y + t / 2))
+    }
+
+    /// The tile a complex's part is worked from: its top-left.
+    pub(crate) fn part_tile(&self, id: BuildingId, part: usize) -> Option<(i32, i32)> {
+        let b = self.buildings.get(id)?;
+        let p = b.monument.as_ref()?.parts.get(part)?;
+        Some((b.x + p.x, b.y + p.y))
+    }
+
+    /// Where someone at height `height` on block `i` stands, from the foot of a walker
+    /// on the block's lower-left tile, in pixels (the original's `FUN_004f08c0`): on
+    /// the ground at the block's +y edge at height 0, else on its surface at that
+    /// course and unit.
+    fn stand_offset(&self, id: BuildingId, i: usize, height: u8) -> Option<(i32, i32)> {
+        let (style, var, m) = self.tomb(id)?;
+        let b = m.blocks.get(i)?;
+        if height == 0 {
+            return Some((0, 15));
+        }
+        let p = height as i32 - 1;
+        let (level, unit) = (p / 6, (p % 6) as usize);
+        let raise = match style {
+            Style::Pyramid(Family::Bent) => BENT_RAISE[var.min(1)].get(level as usize).copied().unwrap_or(level * COURSE_RAISE),
+            _ => level * COURSE_RAISE,
+        };
+        let (mut x, mut y) = (30, -15 - raise);
+        // Below its last course a block has a flat top.
+        let kind = if b.level < b.top { 8 } else { b.kind as usize };
+        if kind < 9 {
+            if let Style::Pyramid(Family::Stepped) = style {
+                let (x0, y0, x1, y1) = STEPPED_SURFACE[kind][unit];
+                let (dx, dy) = if b.ramp_shown { (x1, y1) } else { (x0, y0) };
+                x += dx as i32 + 5;
+                y += dy as i32 + 8;
+            } else {
+                let (dx, dy) = SURFACE[kind][unit];
+                x += dx as i32;
+                y += dy as i32;
+                if b.ramp_shown {
+                    let (rx, ry) = RAMP_SURFACE[kind];
+                    x += rx as i32;
+                    y += ry as i32;
+                }
+            }
+        }
+        Some((x + 1, y + 19))
+    }
+
+    /// Where a figure up on tomb `target` is drawn: the tile to sort him with (the
+    /// lower-left tile of the block he is on, or of the one he left while he is nearer
+    /// it) and his foot's offset from a walker's there, part way along his move
+    /// (`FUN_004f0d30`). `ground` is the tile he stepped up from at the foot.
+    pub fn perch_sprite(&self, target: BuildingId, p: &Perch, ground: (i32, i32)) -> Option<((i32, i32), (i32, i32))> {
+        let to_tile = self.block_tile(target, p.block as usize)?;
+        let to = (to_tile.0, to_tile.1 + 1);
+        let to_off = self.stand_offset(target, p.block as usize, p.height)?;
+        let (from, from_off) = match p.from {
+            Some(b) => {
+                let t = self.block_tile(target, b as usize)?;
+                ((t.0, t.1 + 1), self.stand_offset(target, b as usize, p.from_height)?)
+            }
+            None => (ground, (0, 0)),
+        };
+        // A walker's foot moves 30 pixels across and 15 down a tile.
+        let px = |(x, y): (i32, i32)| ((x - y) * 30, (x + y) * 15);
+        let (a, b) = (px(from), px(to));
+        let start = (a.0 - b.0 + from_off.0, a.1 - b.1 + from_off.1);
+        let (step, steps) = (p.step.min(p.steps) as i32, p.steps.max(1) as i32);
+        let off = (start.0 + (to_off.0 - start.0) * step / steps, start.1 + (to_off.1 - start.1) * step / steps);
+        if step * 2 < steps && p.from.is_some() {
+            return Some((from, (off.0 - (a.0 - b.0), off.1 - (a.1 - b.1))));
+        }
+        Some((to, off))
+    }
+
+    /// Whether a tomb wants a craftsman of type `figure` at all.
+    /// As the original's dispatchers (`FUN_004efe30`, `FUN_004f01e0`), only while
+    /// there is work no one has taken: a block to lay, polish or ramp, or a part.
+    pub(crate) fn tomb_wants(&self, id: BuildingId, figure: u16) -> bool {
+        self.tomb_free_job(id, figure).is_some()
+    }
+
+    /// Work at tomb `id` for a craftsman of type `figure` that none of its craftsmen
+    /// has taken.
+    pub(crate) fn tomb_free_job(&self, id: BuildingId, figure: u16) -> Option<Job> {
+        let (_, _, m) = self.tomb(id)?;
+        let taken: Vec<Job> = m.craftsmen.iter().filter_map(|c| self.figures.get(c.1).and_then(|f| crate::monuments::decode_tomb_job(f.amount))).collect();
+        self.tomb_job(id, figure, &taken, false)
     }
 
     /// A craftsman finishes his work: the block's unit is laid, its casing polished a
@@ -587,7 +810,7 @@ impl World {
         // Units being laid have had their material already.
         let mut in_hand: Vec<(u16, i32)> = Vec::new();
         for &(_, c) in &m.craftsmen {
-            if let Some(Job::Unit(i)) = self.figures.get(c).and_then(|f| crate::monuments::decode_tomb_job(f.amount))
+            if let Some(Job::Unit(i)) = self.figures.get(c).filter(|f| f.cargo != 0).and_then(|f| crate::monuments::decode_tomb_job(f.amount))
                 && let Some(r) = self.tomb_unit_material(id, i)
             {
                 Monument::add(&mut in_hand, r, UNIT_MATERIAL);

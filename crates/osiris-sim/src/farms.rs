@@ -23,6 +23,9 @@ const RELABOR_BELOW: i32 = 47;
 pub const PEASANT: u16 = 35;
 /// Peasants a work camp has out at once.
 const MAX_PEASANTS_OUT: usize = 4;
+/// Tiles of a tomb's site a laborer works before he goes home (the original's count
+/// at 0x4ab4bf).
+const SITE_TOUCHES: i32 = 4;
 
 impl World {
     pub fn is_farm(&self, k: u16) -> bool {
@@ -156,6 +159,18 @@ impl World {
     /// Tick 31: work camps send peasants to floodplain farms that need tending, and
     /// spare ones to level monument sites. A camp has up to four out at once and sends
     /// the next after a wait that grows as its staff shrinks.
+    /// Whether a floodplain farm waits for a peasant, which calls laborers home from a
+    /// tomb's site (the original's check at 0x4bf9d0).
+    fn farm_needs_peasant(&self) -> bool {
+        if self.flood_state() != FloodState::Farmable {
+            return false;
+        }
+        let busy: Vec<u32> = self.figures.iter().filter(|f| f.kind == PEASANT).map(|f| f.target).collect();
+        self.buildings
+            .iter()
+            .any(|b| self.is_farm(b.kind) && b.labor_days <= RELABOR_BELOW && !busy.contains(&b.id) && self.map.terrain_is(b.x, b.y, terrain::FLOODPLAIN))
+    }
+
     pub(crate) fn work_camp_walkers(&mut self) {
         let farmable = self.flood_state() == FloodState::Farmable;
         let camps: Vec<BuildingId> = self.buildings.iter().filter(|b| b.kind == kind::WORK_CAMP).map(|b| b.id).collect();
@@ -280,9 +295,52 @@ impl World {
             self.update_hauler(fid);
             return;
         }
+        let Some(target) = self.figures.get(fid).map(|f| f.target) else { return };
+        let tomb = !self.tomb_route(target).is_empty();
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return };
-        let (act, home, farm) = (f.action, f.home, f.target);
+        let (act, home, farm, unit) = (f.action, f.home, f.target, f.amount as usize);
+        if act == 4 && tomb {
+            // Working a tile of a pyramid's or mastaba's site (the original's laborer
+            // at 0x4ab47b): after a touch he goes on to the next tile, four touches in
+            // all, or home at once if a floodplain farm wants him.
+            if !self.level_block(farm, unit) {
+                return;
+            }
+            let f = self.figures.get_mut(fid).expect("present");
+            f.counter += 1;
+            let next = if f.counter >= SITE_TOUCHES || self.farm_needs_peasant() { None } else { self.next_leveling_block(farm, fid) };
+            let tile = next.and_then(|n| self.tomb_unit_tile(farm, n));
+            let map = &self.map;
+            let f = self.figures.get_mut(fid).expect("present");
+            if let (Some(n), Some(tile)) = (next, tile) {
+                f.amount = n as i32;
+                f.action = 8;
+                if !f.go_to(map, tile) {
+                    f.dead = true;
+                }
+                return;
+            }
+            // Home straight across country (the original's state 9).
+            let back = self.buildings.get(home).and_then(|b| b.road);
+            let map = &self.map;
+            let f = self.figures.get_mut(fid).expect("present");
+            f.action = 2;
+            match back {
+                Some(r) if f.go_to(map, r) => {}
+                _ => f.dead = true,
+            }
+            return;
+        }
+        if act == 8 {
+            // Crossing a tomb's site to his tile.
+            match f.walk(map) {
+                Step::Moving => {}
+                Step::Arrived => f.action = 4,
+                _ => f.dead = true,
+            }
+            return;
+        }
         if act == 4 {
             // Levelling a monument block.
             let block = f.amount as usize;
@@ -306,7 +364,20 @@ impl World {
         match (act, f.walk(map)) {
             (_, Step::Moving) => {}
             (3, Step::Arrived) => {
-                self.figures.get_mut(fid).expect("present").action = 4;
+                // At a tomb he crosses its site to his tile.
+                let tile = if tomb { self.tomb_unit_tile(farm, unit) } else { None };
+                let map = &self.map;
+                let f = self.figures.get_mut(fid).expect("present");
+                match tile {
+                    Some(t) if t != (f.x, f.y) => {
+                        f.travel = Travel::Any;
+                        f.action = 8;
+                        if !f.go_to(map, t) {
+                            f.dead = true;
+                        }
+                    }
+                    _ => f.action = 4,
+                }
             }
             (1, Step::Arrived) => {
                 if self.buildings.get(home).is_none() {
