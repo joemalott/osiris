@@ -113,16 +113,7 @@ impl World {
             if roll.year && self.complex_blessing(crate::temple_complex::RA, 0) {
                 self.ratings.change_kingdom(1);
             }
-            let years = self.time.year - self.scenario_events.start_year;
-            let survived = self.survival.is_some_and(|n| years >= n);
-            if !self.won && !self.lost && (self.goals_met() || survived) {
-                self.won = true;
-                self.messages.push_back("victory".to_owned());
-            }
-            if !self.won && !self.lost && self.time_limit.is_some_and(|n| years >= n) {
-                self.lost = true;
-                self.messages.push_back("out_of_time".to_owned());
-            }
+            self.check_victory();
         }
     }
 

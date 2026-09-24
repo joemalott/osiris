@@ -23,9 +23,17 @@ pub mod cause {
 pub struct Sentiment {
     /// The hut penalty applies every other update.
     pub include_huts: bool,
+    /// Unused since sentiment reports became city warnings; kept for old saves.
     pub message_delay: i32,
     pub low_mood_cause: u8,
 }
+
+/// City warnings (text group 19) about sentiment: 103 loathed (0), 104-113 one per
+/// ten points ("very angry" .. "love you"), 114 idolized (100); 115-119 add the
+/// reason (food, jobs, taxes, wages, slums).
+const LOATHED: u16 = 103;
+const IDOLIZED: u16 = 114;
+const REASONS: u16 = 114;
 
 impl World {
     /// The tax part of sentiment, from the tax sentiment model: the tax rate's row, at
@@ -103,6 +111,27 @@ impl World {
         }
     }
 
+    /// When sentiment crosses into another ten in a city of more than 300, a warning
+    /// says how the people feel, and below 50 (or at 0) why. The first two campaign
+    /// missions stay quiet.
+    fn report_sentiment(&mut self, previous: i32) {
+        let value = self.sentiment;
+        let tutorial = self.mission.as_ref().is_some_and(|m| m.id < 2);
+        if tutorial || previous / 10 == value / 10 || self.population <= 300 {
+            return;
+        }
+        let why = self.sentiment_state.low_mood_cause as u16;
+        let (line, reason) = match value {
+            v if v < 1 => (LOATHED, why != 0),
+            v if v > 99 => (IDOLIZED, false),
+            v => (104 + (v / 10) as u16, v < 50 && why != 0),
+        };
+        self.warnings.push_back(line);
+        if reason {
+            self.warnings.push_back(REASONS + why);
+        }
+    }
+
     /// Every eight days: houses grow happier or unhappier, and the city's sentiment is
     /// their average.
     pub(crate) fn update_sentiment(&mut self) {
@@ -156,31 +185,58 @@ impl World {
         if self.complex_blessing(crate::temple_complex::BAST, crate::temple_complex::ORACLE) {
             self.sentiment = (self.sentiment + 10).min(100);
         }
-        let s = &mut self.sentiment_state;
-        s.message_delay = (s.message_delay - 1).max(0);
-        let value = self.sentiment;
-        if value < 48 && value < previous && self.sentiment_state.message_delay == 0 {
-            self.sentiment_state.message_delay = 3;
-            let key = if value < 35 {
-                "message_people_angry"
-            } else if value < 40 {
-                "message_city_crime"
-            } else {
-                "message_people_disgruntled"
-            };
-            self.post(key, None, true);
-        }
-        // The worst of the reasons, for the overseers.
-        let food_avg = if needing_food > 0 { food_total / needing_food } else { 0 };
-        let huts_avg = if counted > 0 { huts_total / counted } else { 0 };
-        let mut worst = 0;
-        let mut why = cause::NONE;
-        for (v, c) in [(food_avg, cause::NO_FOOD), (jobs, cause::NO_JOBS), (taxes, cause::HIGH_TAXES), (wages, cause::LOW_WAGES), (huts_avg, cause::MANY_HUTS)] {
-            if v < worst {
-                worst = v;
-                why = c;
+        // The worst of the reasons, for the overseers; it stands until another
+        // reason turns negative (small towns leave it alone).
+        if !small {
+            let food_avg = if needing_food > 0 { food_total / needing_food } else { 0 };
+            let huts_avg = if counted > 0 { huts_total / counted } else { 0 };
+            let mut worst = 0;
+            for (v, c) in [(food_avg, cause::NO_FOOD), (jobs, cause::NO_JOBS), (taxes, cause::HIGH_TAXES), (wages, cause::LOW_WAGES), (huts_avg, cause::MANY_HUTS)] {
+                if v < worst {
+                    worst = v;
+                    self.sentiment_state.low_mood_cause = c;
+                }
             }
         }
-        self.sentiment_state.low_mood_cause = why;
+        self.report_sentiment(previous);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::world::World;
+
+    fn sandbox() -> Option<World> {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.is_dir() {
+            return None;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).expect("open image library");
+        let scenario = osiris_formats::Scenario::load_map(&data.join("Maps/Sandbox.map")).expect("load map");
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).expect("load defs"));
+        let model_text = std::fs::read(data.join("Pharaoh_Model_Normal.txt")).expect("read model");
+        let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&model_text)).expect("parse model");
+        let balance = std::sync::Arc::new(crate::balance::Balance::from_model(&model));
+        Some(World::new(&scenario, defs, balance))
+    }
+
+    #[test]
+    fn a_new_ten_of_sentiment_gets_a_warning() {
+        let Some(mut world) = sandbox() else { return };
+        world.population = 400;
+        world.sentiment_state.low_mood_cause = super::cause::HIGH_TAXES;
+        world.sentiment = 42;
+        world.report_sentiment(55);
+        assert_eq!(world.warnings.drain(..).collect::<Vec<_>>(), vec![108, 117]);
+        world.sentiment = 47;
+        world.report_sentiment(42);
+        assert!(world.warnings.is_empty(), "same ten");
+        world.sentiment = 63;
+        world.report_sentiment(47);
+        assert_eq!(world.warnings.drain(..).collect::<Vec<_>>(), vec![110], "no reason above 50");
+        world.population = 300;
+        world.sentiment = 75;
+        world.report_sentiment(63);
+        assert!(world.warnings.is_empty(), "towns of 300 or less");
     }
 }

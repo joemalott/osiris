@@ -254,6 +254,9 @@ pub mod terrain {
     pub const SHORE: u32 = 0x8000_0000;
 }
 
+/// Entries in the editor's allowed-structures list.
+pub const ALLOWED_STRUCTURES: usize = 46;
+
 /// Everything a scenario needs to set up a fresh city, from any of the three sources.
 #[derive(Debug, Clone)]
 pub struct Scenario {
@@ -314,6 +317,18 @@ impl Scenario {
         };
         debug_assert_eq!(s.images.len(), GRID_TILES);
         Ok(s)
+    }
+
+    /// The editor's "Allowed structures" list: words 0-45 of the info's reserved block
+    /// (bytes 1032-1123), in the order of text group 67 (2 gold mine, 3 water lift ...
+    /// 45 zoo). Scenarios older than version 117 predate the list: its first 50 entries
+    /// count as allowed. Those older than 155 predate the zoo, and have it cleared.
+    pub fn allowed_structures(&self) -> [bool; ALLOWED_STRUCTURES] {
+        std::array::from_fn(|i| match self.version {
+            v if v < 117 => i < 45,
+            v if v < 155 && i >= 45 => false,
+            _ => self.info.reserved.get(i).is_some_and(|&w| w != 0),
+        })
     }
 
     /// Campaign entries older than version 149 were written when the terrain pack started

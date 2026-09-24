@@ -1178,7 +1178,8 @@ fn house_advice(need: Option<Need>, decaying: bool, food_types_have: i32) -> usi
         Need::Food => (79 + food_types_have.clamp(0, 2) as usize, 49 + food_types_have.clamp(0, 2) as usize),
         Need::Pottery => (89, 59),
         Need::Linen => (97, 67),
-        Need::Jewelry => (108, 110),
+        Need::Jewelry => (108, 112),
+        Need::SecondLuxury => (114, 110),
         Need::Beer => (99, 69),
     };
     if decaying { devolve } else { evolve }
