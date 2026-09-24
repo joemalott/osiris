@@ -411,6 +411,9 @@ impl Game {
 
     pub fn update(&mut self, dt: f32) {
         self.sidebar.update(dt);
+        if let Some(e) = &mut self.empire {
+            e.tick(dt);
+        }
         if !self.paused && !self.menu_open() {
             self.anim_clock += dt;
         }
@@ -608,6 +611,7 @@ impl Game {
             let images = *self.empire_images.get_or_insert_with(|| crate::empire_window::EmpireImages::load(&r.library).expect("empire images"));
             match e.click(r, &self.world, &images, self.cursor) {
                 crate::empire_window::EmpireClick::Close => self.empire = None,
+                crate::empire_window::EmpireClick::Advisor => self.open_advisor(crate::advisors::Advisor::Trade),
                 crate::empire_window::EmpireClick::OpenRoute(c) => match self.world.open_trade_route(c) {
                     Ok(()) => self.sound("BUTTON.WAV"),
                     Err(why) => self.say(why),

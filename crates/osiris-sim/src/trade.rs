@@ -113,6 +113,9 @@ pub struct TradeCity {
     pub buys: Vec<bool>,
     /// Position on the empire map.
     pub pos: (i32, i32),
+    /// Where its name sits beside its icon: 0 left, 1 above, 2 right, 3 below.
+    #[serde(default)]
+    pub text_align: u8,
     /// Days until the next trader sets out.
     pub entry_delay: i32,
     /// Months left of a siege, which keeps its traders home.
@@ -132,6 +135,9 @@ impl TradeCity {
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct TradeRoute {
     pub points: Vec<(i32, i32)>,
+    /// Pixels between the dots of the route on the empire map.
+    #[serde(default)]
+    pub step: u8,
     pub sea: bool,
     /// Units a year allowed, and traded so far this year, per resource.
     pub limit: Vec<i32>,
@@ -185,6 +191,7 @@ impl Trade {
             .iter()
             .map(|r| TradeRoute {
                 points: if r.in_use { r.points.clone() } else { Vec::new() },
+                step: if (1..=50).contains(&r.step) { r.step } else { 5 },
                 sea: r.route_type == 2,
                 limit: vec![0; RESOURCES],
                 traded: vec![0; RESOURCES],
@@ -215,6 +222,7 @@ impl Trade {
                 sells: vec![false; RESOURCES],
                 buys: vec![false; RESOURCES],
                 pos: (o.x, o.y),
+                text_align: o.text_align,
                 entry_delay: LAND_ENTRY_DELAY,
                 ..Default::default()
             };
@@ -762,7 +770,7 @@ mod tests {
         world.messages.clear();
         let mut t = Trade { cities: Vec::new(), routes: Vec::new(), ..world.trade.clone() };
         for sea in [false, true] {
-            let mut route = TradeRoute { points: vec![(0, 0), (10, 10)], sea, limit: vec![0; RESOURCES], traded: vec![0; RESOURCES] };
+            let mut route = TradeRoute { points: vec![(0, 0), (10, 10)], step: 5, sea, limit: vec![0; RESOURCES], traded: vec![0; RESOURCES] };
             route.limit[5] = 2500;
             route.limit[6] = 4000;
             let mut c = TradeCity { city_type: city::EGYPTIAN_TRADING, route: t.routes.len() as u8, open: true, sea, entry_delay: LAND_ENTRY_DELAY, ..Default::default() };

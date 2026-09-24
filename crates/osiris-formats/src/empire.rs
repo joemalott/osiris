@@ -48,6 +48,9 @@ pub struct EmpireObject {
     pub height: i32,
     pub image_id: u16,
     pub expanded_image_id: u16,
+    /// Where the city's name sits on the empire map: 0 left of the icon, 1 above,
+    /// 2 right, 3 below.
+    pub text_align: u8,
     pub city_type: u8,
     pub city_name_id: u8,
     pub trade_route_id: u8,
@@ -66,6 +69,9 @@ pub struct EmpireRoute {
     pub in_use: bool,
     /// 1 land, 2 sea.
     pub route_type: u8,
+    /// Pixels between the dots drawn along the route (the original takes 5 when the
+    /// file's value is 0 or over 50).
+    pub step: u8,
     pub points: Vec<(i32, i32)>,
 }
 
@@ -117,7 +123,9 @@ fn parse_object(data: &[u8], version: i32) -> Result<EmpireObject> {
     o.height = r.u16()? as i32;
     o.image_id = r.u16()?;
     o.expanded_image_id = r.u16()?;
-    r.skip(8)?;
+    r.skip(3)?;
+    o.text_align = r.u8()?;
+    r.skip(4)?;
     o.city_type = r.u8()?;
     o.city_name_id = r.u8()?;
     o.trade_route_id = r.u8()?;
@@ -150,7 +158,8 @@ fn parse_object(data: &[u8], version: i32) -> Result<EmpireObject> {
 
 fn parse_route(data: &[u8]) -> Result<EmpireRoute> {
     let mut r = Reader::new(data, "empire route");
-    r.skip(8)?;
+    let step = r.u8()?;
+    r.skip(7)?;
     let mut points = Vec::with_capacity(50);
     for _ in 0..50 {
         let (x, y) = (r.u16()? as i32, r.u16()? as i32);
@@ -165,6 +174,7 @@ fn parse_route(data: &[u8]) -> Result<EmpireRoute> {
     Ok(EmpireRoute {
         in_use,
         route_type,
+        step,
         points: points.into_iter().take(num_points).map(|(x, y, _)| (x, y)).collect(),
     })
 }

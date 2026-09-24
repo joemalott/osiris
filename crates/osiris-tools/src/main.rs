@@ -477,12 +477,12 @@ fn empire_cmd(game: &Path, what: &str) -> Result<()> {
         let name = text.get(195, o.city_name_id as usize).unwrap_or("?");
         let demand: Vec<String> = o.demand.iter().enumerate().filter(|(_, d)| **d > 0).map(|(r, d)| format!("{r}:{d}")).collect();
         println!(
-            "obj {i:3} city {:2} {name:14} type {} route {} open {} cost {} at ({},{}) sells {:?} buys {:?} demand {:?}",
-            o.city_name_id, o.city_type, o.trade_route_id, o.trade_route_open, o.trade_route_cost, o.x, o.y, o.sells, o.buys, demand
+            "obj {i:3} city {:2} {name:14} type {} route {} open {} cost {} at ({},{}) name {} image {} sells {:?} buys {:?} demand {:?}",
+            o.city_name_id, o.city_type, o.trade_route_id, o.trade_route_open, o.trade_route_cost, o.x, o.y, o.text_align, o.image_id, o.sells, o.buys, demand
         );
     }
     for (i, r) in s.empire.routes.iter().enumerate().filter(|(_, r)| r.in_use) {
-        println!("route {i}: type {} {} points {:?}", r.route_type, r.points.len(), r.points.first());
+        println!("route {i}: type {} step {} {} points {:?}", r.route_type, r.step, r.points.len(), r.points.first());
     }
     println!("prices {:?}", s.empire.prices.iter().take(12).collect::<Vec<_>>());
     for (i, e) in s.events.iter().enumerate() {
