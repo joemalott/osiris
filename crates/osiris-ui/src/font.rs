@@ -37,7 +37,8 @@ impl Font {
             Font::NormalBlackOnLight => (134, 6, 0, 11),
             Font::NormalWhiteOnDark => (268, 6, 0, 11),
             Font::NormalYellow => (402, 6, 0, 11),
-            Font::NormalBlue => (536, 8, 1, 11),
+            // The original draws it like the other normal fonts (FUN_004cc770).
+            Font::NormalBlue => (536, 6, 0, 11),
             Font::LargeBlackOnLight => (670, 8, 0, 23),
             Font::LargeBlackOnDark => (804, 8, 0, 23),
             Font::SmallOutlined => (938, 2, -1, 11),
