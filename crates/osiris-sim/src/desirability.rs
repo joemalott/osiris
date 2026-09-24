@@ -17,7 +17,7 @@ pub struct Influence {
 const PLAZA: Influence = Influence { value: 4, step: 1, step_size: -2, range: 2 };
 const EARTHQUAKE: Influence = Influence { value: -2, step: 1, step_size: 1, range: 3 };
 const GARDEN: Influence = Influence { value: 3, step: 1, step_size: -1, range: 3 };
-const RUBBLE: Influence = Influence { value: -2, step: 1, step_size: -1, range: 2 };
+const RUBBLE: Influence = Influence { value: -2, step: 1, step_size: 1, range: 2 };
 
 fn add_ring(grid: &mut Grid<i8>, x: i32, y: i32, size: i32, distance: i32, value: i32) {
     let (x0, y0, x1, y1) = (x - distance, y - distance, x + size - 1 + distance, y + size - 1 + distance);
@@ -31,8 +31,9 @@ fn add_ring(grid: &mut Grid<i8>, x: i32, y: i32, size: i32, distance: i32, value
     }
 }
 
+/// Buildings wider than six tiles spread nothing.
 pub fn spread(grid: &mut Grid<i8>, x: i32, y: i32, size: i32, inf: Influence) {
-    if size <= 0 {
+    if size <= 0 || size > 6 {
         return;
     }
     let mut value = inf.value;
@@ -61,11 +62,16 @@ pub fn recompute(
     for y in 0..map.height {
         for x in 0..map.width {
             let t = map.terrain.at_or(x, y, 0);
+            // A plaza or quake mark rules out the garden and rubble checks.
             let plaza_or_quake = map.bitfields.at_or(x, y, 0) & 0x80 != 0;
-            let inf = if plaza_or_quake && t & terrain::ROAD != 0 {
-                Some(PLAZA)
-            } else if plaza_or_quake && t & terrain::ROCK != 0 {
-                Some(EARTHQUAKE)
+            let inf = if plaza_or_quake {
+                if t & terrain::ROAD != 0 {
+                    Some(PLAZA)
+                } else if t & terrain::ROCK != 0 {
+                    Some(EARTHQUAKE)
+                } else {
+                    None
+                }
             } else if t & terrain::GARDEN != 0 {
                 Some(GARDEN)
             } else if t & terrain::RUBBLE != 0 {
@@ -117,5 +123,14 @@ mod tests {
         assert_eq!(g.get(12, 12), Some(3));
         assert_eq!(g.get(13, 7), Some(2));
         assert_eq!(g.get(14, 10), Some(0));
+    }
+
+    #[test]
+    fn rubble_fades_toward_zero() {
+        let mut g: Grid<i8> = Grid::new(20, 20);
+        spread(&mut g, 10, 10, 1, RUBBLE);
+        assert_eq!(g.get(11, 10), Some(-2));
+        assert_eq!(g.get(12, 10), Some(-1));
+        assert_eq!(g.get(13, 10), Some(0));
     }
 }

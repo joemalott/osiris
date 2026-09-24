@@ -6,6 +6,13 @@ use crate::world::World;
 /// against; scenario events raise and lower it.
 pub const KINGDOM_WAGES: i32 = 30;
 
+/// Percent of the assessed tax the city collects (the original's table has 50 for
+/// every difficulty).
+const TAX_COLLECTED_PCT: i32 = 50;
+
+/// The first noble house level (common manor), taxed apart from commoners.
+const NOBLE_LEVEL: u8 = 14;
+
 fn kingdom_wages() -> i32 {
     KINGDOM_WAGES
 }
@@ -16,7 +23,8 @@ pub struct Finance {
     pub tax_rate: i32,
     /// Deben per worker per year (x10), as the original stores it.
     pub wages: i32,
-    /// Difficulty's money percentage applied to house tax multipliers.
+    /// A per-difficulty tax percentage from Akhenaten's mission data; not applied, as
+    /// the original collects `TAX_COLLECTED_PCT` at every difficulty.
     pub tax_multiplier_pct: i32,
     pub this_year: YearTotals,
     pub last_year: YearTotals,
@@ -62,24 +70,32 @@ impl Default for Finance {
 }
 
 impl World {
+    /// The month's tax on `population` people living at house `level`.
+    pub fn house_tax(&self, level: u8, population: i32) -> i32 {
+        self.collect_tax(population * self.balance.house(level).tax_multiplier)
+    }
+
+    /// The rate's share of a sum of people times their level's tax multiplier, of
+    /// which the city collects half at every difficulty.
+    fn collect_tax(&self, assessed: i32) -> i32 {
+        assessed * self.finance.tax_rate / 100 * TAX_COLLECTED_PCT / 100
+    }
+
     /// Taxes the city could collect this month from covered and uncovered houses.
+    /// Commoners (below the common manor) and nobles are assessed separately.
     pub fn monthly_tax_estimate(&self) -> (i32, i32) {
-        let (mut covered, mut uncovered) = (0, 0);
+        // [covered, uncovered] x [commoners, nobles]
+        let mut assessed = [[0; 2]; 2];
         for b in self.buildings.iter() {
             let Some(h) = &b.house else { continue };
             if h.population <= 0 {
                 continue;
             }
-            let mult = self.balance.house(h.level).tax_multiplier * self.finance.tax_multiplier_pct / 100;
-            let tax = h.population * mult;
-            if h.coverage.tax > 0 {
-                covered += tax;
-            } else {
-                uncovered += tax;
-            }
+            let tax = h.population * self.balance.house(h.level).tax_multiplier;
+            assessed[(h.coverage.tax <= 0) as usize][(h.level >= NOBLE_LEVEL) as usize] += tax;
         }
-        let rate = self.finance.tax_rate;
-        (covered / 2 * rate / 100, uncovered / 2 * rate / 100)
+        let [covered, uncovered] = assessed.map(|[commoners, nobles]| self.collect_tax(commoners) + self.collect_tax(nobles));
+        (covered, uncovered)
     }
 
     pub(crate) fn advance_month_finance(&mut self) {

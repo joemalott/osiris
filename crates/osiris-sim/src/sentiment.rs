@@ -95,7 +95,6 @@ impl World {
             ladder([0, -2, -3, -4, -5])
         } else {
             match pct {
-                p if p >= 50 => 1,
                 p if p >= 40 => 0,
                 p if p >= 26 => -1,
                 p if p >= 10 => -2,

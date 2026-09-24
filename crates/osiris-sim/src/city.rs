@@ -1,9 +1,9 @@
 //! The per-tick schedule. Like the original, city-wide systems each run on a fixed
 //! tick of the 50-tick day, and walkers move every tick.
 
-use crate::buildings::{BuildingId, kind};
+use crate::buildings::kind;
 use crate::desirability::{self, Influence};
-use crate::houses::{self, Progress};
+use crate::houses;
 use crate::world::World;
 
 /// Radius around a well within which houses count as having water.
@@ -189,13 +189,8 @@ impl World {
             .take(self.balance.stats.len())
             .map(|k| self.influence_of(k as u16))
             .collect();
-        desirability::recompute(&mut grid, &self.map, &self.buildings, |b| {
-            // Empty lots don't spread anything.
-            if b.house.as_ref().is_some_and(|h| h.population <= 0) {
-                return Influence::default();
-            }
-            influences.get(b.kind as usize).copied().unwrap_or_default()
-        });
+        // Every building spreads its type's influence, vacant lots included.
+        desirability::recompute(&mut grid, &self.map, &self.buildings, |b| influences.get(b.kind as usize).copied().unwrap_or_default());
         self.desirability = grid;
     }
 
@@ -260,59 +255,10 @@ impl World {
     }
 
     fn update_culture(&mut self) {
+        let base = self.entertainment_base();
         for b in self.buildings.iter_mut() {
             if let Some(h) = b.house.as_mut() {
-                h.derive_culture(0);
-            }
-        }
-    }
-
-    fn evolve_houses(&mut self) {
-        let ids: Vec<BuildingId> = self.buildings.iter().filter(|b| b.is_house()).map(|b| b.id).collect();
-        for id in ids {
-            let Some(b) = self.buildings.get_mut(id) else { continue };
-            let des = b.desirability;
-            let Some(h) = b.house.as_mut() else { continue };
-            if h.population <= 0 {
-                continue;
-            }
-            let status = h.progress(&self.balance.houses, des, &self.rules);
-            let level = h.level;
-            match status {
-                Progress::Evolve if (level as usize) + 1 < self.balance.houses.len() => {
-                    h.devolve_delay = 0;
-                    self.set_house_level(id, level + 1);
-                }
-                Progress::Decay if level > 0 => {
-                    // A few checks' grace before devolving, as in the original.
-                    h.devolve_delay += 1;
-                    if h.devolve_delay > 2 {
-                        h.devolve_delay = 0;
-                        self.set_house_level(id, level - 1);
-                        self.evict_overflow(id);
-                    }
-                }
-                _ => h.devolve_delay = 0,
-            }
-        }
-    }
-
-    /// After devolving, people above the new capacity leave as homeless.
-    fn evict_overflow(&mut self, id: BuildingId) {
-        let Some(b) = self.buildings.get(id) else { return };
-        let Some(h) = &b.house else { return };
-        let cap = self.balance.house(h.level).max_people * b.size * b.size;
-        let extra = h.population - cap;
-        if extra > 0 {
-            let (x, y) = b.road.unwrap_or((b.x, b.y));
-            if let Some(h) = self.buildings.get_mut(id).and_then(|b| b.house.as_mut()) {
-                h.population = cap;
-            }
-            self.population -= extra;
-            self.census.remove(&self.rng, extra);
-            let fid = self.figures.spawn(crate::people::figure_kind::HOMELESS, x, y, crate::figures::Travel::Land);
-            if let Some(f) = self.figures.get_mut(fid) {
-                f.amount = extra;
+                h.derive_culture(base);
             }
         }
     }

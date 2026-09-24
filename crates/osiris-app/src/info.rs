@@ -727,7 +727,7 @@ impl InfoPanel {
         }
         panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 148.0, 27, 10);
         ui.image(ui.img.context_icons + 13, x + 34.0, y + 154.0);
-        let cap = world.balance.house(h.level).max_people * b.size * b.size;
+        let cap = world.house_capacity(b.id);
         let room = if h.population > cap {
             format!("{}{}", h.population - cap, ui.t(TEXT_HOUSE, 21))
         } else {
@@ -738,8 +738,7 @@ impl InfoPanel {
         let tax = if h.coverage.tax <= 0 {
             ui.t(TEXT_HOUSE, 23)
         } else {
-            let mult = world.balance.house(h.level).tax_multiplier * world.finance.tax_multiplier_pct / 100;
-            let amount = h.population * mult / 2 * world.finance.tax_rate / 100;
+            let amount = world.house_tax(h.level, h.population);
             format!("{} {} {}", ui.t(TEXT_HOUSE, 24), amount, ui.t(TEXT_HOUSE, 25))
         };
         ui.wrapped(Font::NormalWhiteOnDark, &tax, x + 36.0, y + 194.0, 25.0 * 16.0);

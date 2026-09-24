@@ -406,6 +406,34 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             // Lets the city raise a temple complex to god g (0 Osiris .. 4 Bast).
             ["complexgod", g] => world.complex_gods[g.parse::<usize>()?.min(4)] = true,
             ["monlist"] => eprintln!("monuments {:?} complex gods {:?} debt rate {}", world.scenario_monuments, world.complex_gods, world.debt_rate),
+            // Puts groundwater under a rectangle, for testing wells anywhere.
+            ["groundwater", a, b] => {
+                let (a, b) = (parse_point(a)?, parse_point(b)?);
+                for y in a.1..=b.1 {
+                    for x in a.0..=b.0 {
+                        world.map.terrain.update(x, y, |t| t | osiris_sim::map::terrain::GROUNDWATER);
+                    }
+                }
+            }
+            // Sets the house at p to level L and has it grow to an n x n block.
+            ["expand", p, l, n] => {
+                let (x, y) = parse_point(p)?;
+                let id = world.map.building.at_or(x, y, 0);
+                world.buildings.get(id).and_then(|b| b.house.as_ref()).context("no house there")?;
+                world.set_house_level(id, l.parse()?);
+                world.expand_house(id, n.parse()?);
+            }
+            // Houses per level ("level:count/size" with m for merged), and migration.
+            ["houses"] => {
+                let mut levels: std::collections::BTreeMap<String, i32> = Default::default();
+                for b in world.buildings.iter() {
+                    if let Some(h) = &b.house {
+                        let key = format!("L{}{}{}", h.level, if h.merged { "m" } else { "" }, if b.size > 1 { format!("x{}", b.size) } else { String::new() });
+                        *levels.entry(key).or_default() += 1;
+                    }
+                }
+                eprintln!("{:?} pop {} sentiment {} migration {:?} houses {levels:?}", world.time, world.population, world.sentiment, world.migration);
+            }
             ["report"] => {
                 let houses: Vec<String> = world
                     .buildings

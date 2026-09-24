@@ -52,17 +52,16 @@ evaluation_tick = 23   # src/city/city.cpp:281; preceded by population.update_ro
 # sentiment -> migration percentage, first (highest) matching bucket wins (list must
 # stay sorted descending by `above`). src/scripts/migration.js:10-18,
 # migration_sentiment_influence table, src/city/city_migration.h:10-11.
-# akhenaten-only? exact numbers not confirmed against the Ghidra decompile (no
-# matching literal table found); table shape (bucketed lookup) is plausible original
-# behavior but treat magnitudes as Akhenaten-sourced only.
+# Confirmed against Pharaoh.exe 0x4e8f80: >=71 100%, 61-70 75%, 50-60 50%, 41-49 0,
+# 31-40 -10%, 21-30 -25%, <=20 -50%. Unemployment has no direct effect there.
 sentiment_table = [
   { above = 70, percent = 100 },
   { above = 60, percent = 75 },
-  { above = 50, percent = 50 },
+  { above = 49, percent = 50 },
   { above = 40, percent = 0 },
   { above = 30, percent = -10 },
   { above = 20, percent = -25 },
-  { above = 0, percent = -50 },
+  { above = -1, percent = -50 },
 ]
 
 # unemployment% -> migration percentage, same first-match-wins semantics.
@@ -91,7 +90,7 @@ unemployment_table = [
 # city_population_t::create_immigrants, src/city/city_population.cpp:144-186.
 # NOT distance/radius based: a linear scan over all houses in building-array order.
 algorithm = "two_pass_linear_scan"
-pass_1_min_room = 8        # houses with room() > 8 and no immigrant already en route get priority
+pass_1_min_room = 7        # houses with room() > 7 and no immigrant already en route get priority (Pharaoh.exe 0x458950)
 pass_2_min_room = 0        # remaining demand spread to any house with room() > 0
 max_people_per_house_per_batch = 4
 # src/city/city_population.cpp:104-142 - emigration instead sorts houses ascending by
