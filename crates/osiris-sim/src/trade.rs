@@ -232,7 +232,7 @@ impl World {
     /// What the city earns for a load it exports; Ra's great blessing adds half again.
     pub fn sell_price(&self, r: u16) -> i32 {
         let price = self.trade.prices.get(r as usize).map_or(0, |p| p.1);
-        if self.religion.ra_trade_boost >= 2 { price * 3 / 2 } else { price }
+        if self.religion.ra_export_months > 0 { price * 150 / 100 } else { price }
     }
 
     pub fn buy_price(&self, r: u16) -> i32 {
@@ -244,21 +244,14 @@ impl World {
         self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD).map(|b| self.stored(b.id, r)).sum()
     }
 
-    /// A route's yearly allowance of `r`, moved up or down a step by Ra's favour.
+    /// A route's yearly allowance of `r`, moved by Ra's blessings and curses.
     pub fn trade_limit(&self, city: usize, r: u16) -> i32 {
         let Some(c) = self.trade.cities.get(city) else { return 0 };
         let base = self.trade.routes.get(c.route as usize).map_or(0, |rt| rt.limit[r as usize]);
         if base <= 0 {
             return 0;
         }
-        const TIERS: [i32; 4] = [0, 1500, 2500, 4000];
-        let tier = TIERS.iter().position(|&t| t >= base).unwrap_or(3) as i32;
-        let bonus = match self.religion.ra_trade_boost {
-            b if b >= 2 => 0,
-            b => b,
-        };
-        let t = (tier + bonus).clamp(0, 3) as usize;
-        if bonus == 0 { base } else { TIERS[t] }
+        crate::religion::ra_allowance(self.religion.ra_trade_steps(), base)
     }
 
     fn limit_reached(&self, city: usize, r: u16) -> bool {
