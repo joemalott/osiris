@@ -15,8 +15,6 @@ pub const PROGRESS_MAX: i32 = 2000;
 const GROWTH_PER_FERTILITY: f64 = 0.16;
 /// Meadow harvest months (0 = the first month) by farm type.
 const HARVEST_MONTHS: [(u16, &[u32]); 8] = [(100, &[1, 7]), (101, &[11]), (102, &[4, 0]), (103, &[3]), (104, &[5, 10]), (105, &[3]), (196, &[8]), (224, &[11])];
-/// A floodplain harvest leaves a fifth of each tile's fertility.
-const HARVEST_FERTILITY_KEPT: i32 = 20;
 /// Straw a grain farm sends out with each harvest.
 const STRAW_PER_HARVEST: i32 = 100;
 const LABOR_DAYS: i32 = 96;
@@ -36,11 +34,11 @@ impl World {
         self.is_farm(b.kind) && self.map.terrain_is(b.x, b.y, terrain::FLOODPLAIN)
     }
 
-    /// A farm's soil fertility: its tiles' average plus 2, at most 99.
+    /// A farm's fertility: its tiles' average plus 2, and irrigation's bonus, at most 99.
     pub fn fertility(&self, id: BuildingId) -> i32 {
         let Some(b) = self.buildings.get(id) else { return 0 };
         let tiles: Vec<i32> = b.tiles().map(|(x, y)| self.map.fertility.at_or(x, y, 0) as i32 + 1).collect();
-        (tiles.iter().sum::<i32>() / tiles.len().max(1) as i32 + 1).min(99)
+        (tiles.iter().sum::<i32>() / tiles.len().max(1) as i32 + 1 + self.irrigation_bonus(id)).min(99)
     }
 
     /// A day's crop growth at `fertility` with `workers` tending it.
@@ -94,7 +92,8 @@ impl World {
 
     /// Brings in a farm's crop as produce, ready to be carted away: 8 per percent of the
     /// crop grown, doubled on the floodplain by Osiris's blessing, and a load of straw
-    /// from a grain farm. The floodplain's soil is worn down by the harvest.
+    /// from a grain farm. The floodplain's soil is worn down by the harvest, to a fifth,
+    /// or to half when irrigated.
     fn harvest(&mut self, id: BuildingId, floodplain: bool) {
         let Some(b) = self.buildings.get(id) else { return };
         let Some(def) = self.defs.building(b.kind) else { return };
@@ -106,6 +105,7 @@ impl World {
         }
         let tiles: Vec<(i32, i32)> = b.tiles().collect();
         let straw = outputs.get(1).copied().filter(|&r| !self.is_mothballed(r));
+        let kept = if self.is_irrigated(id) { crate::irrigation::HARVEST_KEPT_IRRIGATED } else { crate::irrigation::HARVEST_KEPT };
         let Some(b) = self.buildings.get_mut(id) else { return };
         b.progress = 0;
         if produce <= 0 {
@@ -120,7 +120,7 @@ impl World {
             b.workers = 0;
             for (x, y) in tiles {
                 let f = self.map.fertility.at_or(x, y, 0) as i32;
-                self.map.fertility.set(x, y, (f * HARVEST_FERTILITY_KEPT / 100).max(1) as u8);
+                self.map.fertility.set(x, y, (f * kept / 100).max(1) as u8);
             }
         }
     }

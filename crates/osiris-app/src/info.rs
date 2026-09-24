@@ -546,6 +546,9 @@ impl InfoPanel {
         } else if b.workers <= 0 {
             let s = t(ui, 9);
             if s.is_empty() { t(ui, 2) } else { s }
+        } else if b.kind == osiris_sim::irrigation::WATER_LIFT {
+            // "...needs to be adjacent to water, or connected by an Irrigation Ditch..."
+            if b.water == 0 { t(ui, 3) } else { String::new() }
         } else if b.kind == kind::MORTUARY && supplied.unwrap_or(0) < 1 {
             // "Without linen, we cannot prepare the dead..." Schools and libraries
             // have no such line: theirs says only whether they are staffed.
@@ -778,8 +781,11 @@ impl InfoPanel {
             t(ui, 10 - Self::tier(world, b, 5))
         };
         ui.wrapped(Font::NormalBlackOnLight, &status, x + 32.0, y + 66.0, 26.0 * 16.0);
+        // "This farmland is irrigated." or "...not irrigated."
+        let irrigated = ui.t(177, if world.is_irrigated(b.id) { 0 } else { 1 });
+        ui.wrapped(Font::NormalBlackOnLight, &irrigated, x + 32.0, y + 206.0, 26.0 * 16.0);
         let desc = t(ui, 1);
-        ui.wrapped(Font::NormalBlackOnLight, &desc, x + 32.0, y + 186.0, 26.0 * 16.0);
+        ui.wrapped(Font::NormalBlackOnLight, &desc, x + 32.0, y + 226.0, 26.0 * 16.0);
         if !floodplain {
             Self::workers(ui, world, b, x + 16.0, y + 100.0, "");
         }

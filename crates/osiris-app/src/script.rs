@@ -111,7 +111,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["tile", p] => {
                 let (x, y) = parse_point(p)?;
                 let id = world.map.building.at_or(x, y, 0);
-                eprintln!("  tile {x},{y}: terrain {:#x} building {id} kind {:?}", world.map.terrain.at_or(x, y, 0), world.buildings.get(id).map(|b| b.kind));
+                eprintln!("  tile {x},{y}: terrain {:#x} building {id} kind {:?} image {} edges {:#x}", world.map.terrain.at_or(x, y, 0), world.buildings.get(id).map(|b| b.kind), world.map.images.at_or(x, y, 0), world.map.edges.at_or(x, y, 0));
             }
             ["view", p] => view.centre = Some(parse_point(p)?),
             ["info", p] => view.info = Some(parse_point(p)?),
@@ -471,6 +471,77 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     if let Some(s) = world.tomb_summary(b.id) {
                         let crew: Vec<(u16, i32)> = b.monument.as_ref().map_or_else(Vec::new, |m| m.craftsmen.iter().filter_map(|&(k, c)| world.figures.get(c).map(|f| (k, f.amount))).collect());
                         eprintln!("{:?} tomb {} kind {}: {s} crew {crew:?}", world.time, b.id, b.kind);
+                    }
+                }
+            }
+            // Water lifts (facing, water, staff), ditches (wet/all) and each farm's
+            // irrigation and fertility.
+            ["irrigation"] => {
+                use osiris_sim::map::terrain;
+                for b in world.buildings.iter().filter(|b| b.kind == osiris_sim::irrigation::WATER_LIFT) {
+                    eprintln!("lift {} at ({},{}) facing {} water {} workers {}", b.id, b.x, b.y, b.orientation, b.water, b.workers);
+                }
+                let ditches: Vec<(i32, i32)> = (0..world.map.height).flat_map(|y| (0..world.map.width).map(move |x| (x, y))).filter(|&(x, y)| world.map.terrain_is(x, y, terrain::CANAL)).collect();
+                let wet = ditches.iter().filter(|&&(x, y)| world.ditch_wet(x, y)).count();
+                eprintln!("ditches {} wet {wet}", ditches.len());
+                for b in world.buildings.iter().filter(|b| world.is_farm(b.kind)) {
+                    eprintln!("farm {} kind {} at ({},{}) irrigated {} fertility {}", b.id, b.kind, b.x, b.y, world.is_irrigated(b.id), world.fertility(b.id));
+                }
+            }
+            // The land round p for irrigation: ~ water, p floodplain, m meadow, = dry and
+            // w wet ditch, L lift, B building, # road, x blocked, . clear; irrigated land
+            // is upper case (P, M, :).
+            ["irrmap", p] => {
+                use osiris_sim::map::{mask, terrain};
+                let (cx, cy) = parse_point(p)?;
+                for y in cy - 8..=cy + 8 {
+                    let row: String = (cx - 12..=cx + 12)
+                        .map(|x| {
+                            let t = world.map.terrain.at_or(x, y, 0);
+                            let lit = t & terrain::IRRIGATION_RANGE != 0;
+                            let id = world.map.building.at_or(x, y, 0);
+                            if world.buildings.get(id).is_some_and(|b| b.kind == osiris_sim::irrigation::WATER_LIFT) {
+                                'L'
+                            } else if t & terrain::BUILDING != 0 {
+                                'B'
+                            } else if t & terrain::CANAL != 0 {
+                                if world.ditch_wet(x, y) { 'w' } else { '=' }
+                            } else if t & terrain::WATER != 0 {
+                                '~'
+                            } else if t & terrain::ROAD != 0 {
+                                '#'
+                            } else if t & terrain::FLOODPLAIN != 0 {
+                                if lit { 'P' } else { 'p' }
+                            } else if t & terrain::MEADOW != 0 {
+                                if lit { 'M' } else { 'm' }
+                            } else if t & mask::NOT_CLEAR != 0 {
+                                'x'
+                            } else if lit {
+                                ':'
+                            } else {
+                                '.'
+                            }
+                        })
+                        .collect();
+                    eprintln!("{y:4} {row}");
+                }
+                eprintln!("     x from {}", cx - 12);
+            }
+            // Up to n spots a water lift can go, with its facing and whether it would
+            // stand on the floodplain's bank.
+            ["liftsites", n] => {
+                let mut found = 0;
+                'scan: for y in 0..world.map.height {
+                    for x in 0..world.map.width {
+                        if world.can_place(osiris_sim::irrigation::WATER_LIFT, x, y).is_ok() {
+                            let (facing, _) = osiris_sim::irrigation::lift_site(&world.map, x, y).unwrap_or_default();
+                            let bank = (0..2).any(|d| (0..2).any(|e| osiris_sim::irrigation::floodplain_bank(&world.map, x + d, y + e)));
+                            eprintln!("lift site ({x},{y}) facing {facing} bank {bank}");
+                            found += 1;
+                            if found >= n.parse::<i32>()? {
+                                break 'scan;
+                            }
+                        }
                     }
                 }
             }

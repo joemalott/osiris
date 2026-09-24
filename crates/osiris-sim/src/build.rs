@@ -38,6 +38,9 @@ impl World {
             return rule;
         }
         let (fw, fh) = self.footprint_of(k);
+        if k == crate::irrigation::WATER_LIFT {
+            return self.can_place_lift(x, y);
+        }
         if def.needs("shoreline") {
             return self.can_place_on_shore(k, x, y);
         }
@@ -178,6 +181,9 @@ impl World {
         if crate::temple_complex::is_upgrade(k) {
             return self.build_upgrade(k, (x1, y1), measure);
         }
+        if k == crate::irrigation::DITCH {
+            return self.build_ditch((x, y), (x1, y1), measure);
+        }
         let sites = self.build_sites(k, x, y, x1, y1);
         let ok: Vec<(i32, i32)> = sites.iter().copied().filter(|&(sx, sy)| self.can_place(k, sx, sy).is_ok()).collect();
         if ok.is_empty() {
@@ -244,6 +250,8 @@ impl World {
         }
         if crate::water::is_shore_building(k) {
             self.place_on_shore(id);
+        } else if k == crate::irrigation::WATER_LIFT {
+            self.place_lift(id);
         } else if self.is_road_venue(k) {
             self.place_venue(id);
         } else if k == kind::STORAGE_YARD {
@@ -300,8 +308,11 @@ impl World {
             self.map.building.set(xx, yy, 0);
             self.map.set_single_image(xx, yy, 0);
         }
-        if crate::water::is_shore_building(b.kind) {
+        if crate::water::is_shore_building(b.kind) || b.kind == crate::irrigation::WATER_LIFT {
             self.remove_from_shore(&b);
+        }
+        if b.kind == crate::irrigation::WATER_LIFT {
+            self.ditch_images_in(b.x - 1, b.y - 1, b.x + b.size, b.y + b.size);
         }
         for f in b.walkers {
             if f != 0 {

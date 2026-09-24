@@ -132,6 +132,9 @@ pub struct Building {
     /// A venue's performers out roaming, per performer.
     #[serde(default)]
     pub performers: [FigureId; 3],
+    /// A water lift's water: 0 none, 2 reached but not yet pumped, 1 pumping.
+    #[serde(default)]
+    pub water: u8,
     /// The image drawn for this building (global id).
     pub image: u32,
 }
