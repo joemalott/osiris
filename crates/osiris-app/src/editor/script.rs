@@ -12,7 +12,8 @@
 //! - `editclimate N` sets the terrain set (0 humid, 1 normal, 2 arid);
 //! - `editmenu N` opens tool button N's submenu, `edittop N` a menu of the bar,
 //!   `editpopup sizes|save`, `editoptions [PAGE]` the Options screen (main,
-//!   starting, date, win, monuments, allowed, gods, flood);
+//!   starting, date, win, monuments, allowed, gods, flood), `editchooser PAGE WHAT`
+//!   with a value's list or keypad open over it;
 //! - `editview x,y` centres the view on a tile, `editzoom Z` zooms, `edithover x,y`
 //!   puts the mouse there;
 //! - `editsave PATH` saves the map; `editplay` saves it and screenshots the city
@@ -149,6 +150,15 @@ impl Editor {
                         _ => Page::Main,
                     };
                     self.view.options = Some(Options::at(page));
+                }
+                ["editchooser", page, what] => {
+                    let page = match *page {
+                        "starting" => Page::Starting,
+                        "win" => Page::Win,
+                        "monuments" => Page::Monuments,
+                        _ => Page::Main,
+                    };
+                    self.view.options = Some(Options::with_chooser(page, what, &self.scenario));
                 }
                 ["editview", p] => out.view = Some(point(p)?),
                 ["editzoom", z] => out.zoom = Some(z.parse()?),

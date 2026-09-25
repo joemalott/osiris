@@ -68,10 +68,26 @@ pub struct Picker {
     page: usize,
 }
 
-/// The keypad: the value typed so far.
+/// The keypad: the value typed so far, which the first digit typed replaces.
 pub struct Keypad {
     field: Field,
     typed: String,
+    fresh: bool,
+}
+
+impl Keypad {
+    fn new(field: Field, value: i32) -> Self {
+        Self { field, typed: value.to_string(), fresh: true }
+    }
+
+    fn digit(&mut self, d: char) {
+        if std::mem::take(&mut self.fresh) {
+            self.typed.clear();
+        }
+        if self.typed.len() < 6 {
+            self.typed.push(d);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -180,6 +196,27 @@ impl Options {
         Self { page, ..Default::default() }
     }
 
+    /// The screen at `page` with a value's list or keypad open, for scripted
+    /// screenshots: `rank`, `pharaoh`, `incarnation`, `enemy`, `housing`, `monument`,
+    /// or a keypad's `funds`.
+    pub fn with_chooser(page: Page, what: &str, s: &Scenario) -> Self {
+        let mut o = Self::at(page);
+        let list = |field, group, ids: Vec<usize>| Some(Picker { field, group, ids, page: 0 });
+        o.picker = match what {
+            "rank" => list(Field::Rank, 32, (0..=10).collect()),
+            "pharaoh" => list(Field::Pharaoh, 151, (0..125).collect()),
+            "incarnation" => list(Field::Incarnation, 152, (0..=30).collect()),
+            "enemy" => list(Field::Enemy, 37, (0..14).collect()),
+            "housing" => list(Field::HousingLevel, 29, (0..20).collect()),
+            "monument" => list(Field::Monument(0), 198, std::iter::once(0).chain((1..MONUMENTS.len()).filter(|&m| fits_era(m, 1))).collect()),
+            _ => None,
+        };
+        if what == "funds" {
+            o.keypad = Some(Keypad::new(Field::Funds, number(s, Field::Funds)));
+        }
+        o
+    }
+
     pub fn wants_text(&self) -> bool {
         self.typing || self.keypad.is_some()
     }
@@ -208,8 +245,9 @@ impl Options {
         if let Some(k) = &mut self.keypad {
             for c in text.chars() {
                 match c {
-                    '0'..='9' if k.typed.len() < 6 => k.typed.push(c),
+                    '0'..='9' => k.digit(c),
                     '\u{8}' => {
+                        k.fresh = false;
                         k.typed.pop();
                     }
                     '\n' | '\r' => {
@@ -450,7 +488,7 @@ impl Editor {
                     Field::Pharaoh => o.picker = Some(Picker { field, group: 151, ids: (0..125).collect(), page: 0 }),
                     Field::Incarnation => o.picker = Some(Picker { field, group: 152, ids: (0..=30).collect(), page: 0 }),
                     Field::Year => o.page = Page::StartDate,
-                    _ => o.keypad = Some(Keypad { field, typed: number(&self.scenario, field).to_string() }),
+                    _ => o.keypad = Some(Keypad::new(field, number(&self.scenario, field))),
                 }
             }
         }
@@ -468,7 +506,7 @@ impl Editor {
             self.scenario.info.start_year = -y0;
         }
         if ui.button([px + 140.0, py + 56.0, 156.0, 30.0], &y0.abs().to_string(), Font::NormalBlackOnLight) {
-            o.keypad = Some(Keypad { field: Field::Year, typed: y0.abs().to_string() });
+            o.keypad = Some(Keypad::new(Field::Year, y0.abs() as i32));
         }
         let foot = ui.t(13, 3);
         ui.centred(Font::NormalBlackOnLight, &foot, px, py + 100.0, 320.0);
@@ -500,7 +538,7 @@ impl Editor {
         ui.button(b(92.0), &self.open_play_number.to_string(), Font::NormalBlackOnLight);
         row(ui, 132.0, 210);
         if ui.button(a(132.0), &w.housing_count.value.to_string(), Font::NormalBlackOnLight) {
-            o.keypad = Some(Keypad { field: Field::HousingCount, typed: w.housing_count.value.to_string() });
+            o.keypad = Some(Keypad::new(Field::HousingCount, w.housing_count.value));
         }
         let level = w.housing_level.value.clamp(0, 19) as usize + if w.housing_count.value > 1 { 20 } else { 0 };
         if ui.button(b(132.0), &ui.t(29, level), Font::NormalBlackOnLight) {
@@ -518,7 +556,7 @@ impl Editor {
                 g.enabled = !g.enabled;
             }
             if ui.button(b(r), &g.value.to_string(), Font::NormalBlackOnLight) {
-                o.keypad = Some(Keypad { field, typed: g.value.to_string() });
+                o.keypad = Some(Keypad::new(field, g.value));
             }
         }
         row(ui, 252.0, 52);
@@ -537,7 +575,7 @@ impl Editor {
             }
             let v = g.value;
             if ui.button(b(r), &format!("+{v}  {}", year(ui, start + v)), Font::NormalBlackOnLight) {
-                o.keypad = Some(Keypad { field, typed: v.to_string() });
+                o.keypad = Some(Keypad::new(field, v));
             }
         }
         row(ui, 412.0, 56);
@@ -546,7 +584,7 @@ impl Editor {
             g.enabled = !g.enabled;
         }
         if ui.button(b(412.0), &g.value.to_string(), Font::NormalBlackOnLight) {
-            o.keypad = Some(Keypad { field: Field::Population, typed: g.value.to_string() });
+            o.keypad = Some(Keypad::new(Field::Population, g.value));
         }
     }
 
@@ -602,7 +640,7 @@ impl Editor {
             let name = ui.t(23, res);
             ui.label(Font::NormalBlackOnLight, &name, x + 450.0, ry + 4.0);
             if ui.clicked(rect) {
-                o.keypad = Some(Keypad { field: Field::Provision(res), typed: v.to_string() });
+                o.keypad = Some(Keypad::new(Field::Provision(res), v as i32));
             }
         }
     }
@@ -766,8 +804,8 @@ impl Editor {
         for (i, key) in keys.iter().enumerate() {
             let (c, r) = if i == 9 { (1, 3) } else { (i % 3, i / 3) };
             let rect = [x + 32.0 + 50.0 * c as f32, y + 60.0 + 36.0 * r as f32, 42.0, 30.0];
-            if ui.button(rect, key, Font::LargeBlackOnLight) && k.typed.len() < 6 {
-                k.typed.push_str(key);
+            if ui.button(rect, key, Font::LargeBlackOnLight) {
+                k.digit(key.chars().next().unwrap_or('0'));
             }
         }
         let accept = ui.t(44, 16);
