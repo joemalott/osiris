@@ -1685,7 +1685,7 @@ dependencies = [
 
 [[package]]
 name = "osiris-app"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -1705,7 +1705,7 @@ dependencies = [
 
 [[package]]
 name = "osiris-audio"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "rand",
  "rodio",
@@ -1716,14 +1716,14 @@ dependencies = [
 
 [[package]]
 name = "osiris-formats"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "osiris-render"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "bytemuck",
  "log",
@@ -1733,7 +1733,7 @@ dependencies = [
 
 [[package]]
 name = "osiris-sim"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "osiris-formats",
  "rmp-serde",
@@ -1743,7 +1743,7 @@ dependencies = [
 
 [[package]]
 name = "osiris-tools"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "osiris-formats",
@@ -1753,7 +1753,7 @@ dependencies = [
 
 [[package]]
 name = "osiris-ui"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "osiris-formats",
  "osiris-render",
