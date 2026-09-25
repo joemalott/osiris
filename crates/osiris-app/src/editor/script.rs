@@ -14,7 +14,8 @@
 //!   `editpopup sizes|save`, `editoptions [PAGE]` the Options screen (main,
 //!   starting, date, win, monuments, allowed, gods, flood), `editchooser PAGE WHAT`
 //!   with a value's list or keypad open over it;
-//! - `editview x,y` centres the view on a tile, `editzoom Z` zooms, `edithover x,y`
+//! - `editfree` lets the view past the map's edges (Alt+D), `editview x,y` centres the
+//!   view on a tile, `editzoom Z` zooms, `edithover x,y`
 //!   puts the mouse there;
 //! - `editsave PATH` saves the map; `editplay` saves it and screenshots the city
 //!   started from it instead.
@@ -161,6 +162,7 @@ impl Editor {
                     self.view.options = Some(Options::with_chooser(page, what, &self.scenario));
                 }
                 ["editview", p] => out.view = Some(point(p)?),
+                ["editfree"] => self.view.free_scroll = true,
                 ["editzoom", z] => out.zoom = Some(z.parse()?),
                 ["edithover", p] => out.hover = Some(point(p)?),
                 ["editsave", p] => {
