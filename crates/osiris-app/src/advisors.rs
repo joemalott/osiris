@@ -6,7 +6,7 @@
 //! widget it lands on acts on it, so each screen's layout lives in one place.
 
 use osiris_formats::{ImageLibrary, TextTable};
-use osiris_render::{Renderer, Space};
+use osiris_render::{Renderer, Space, WHITE};
 use osiris_sim::World;
 use osiris_sim::buildings::kind;
 use osiris_sim::trade::status;
@@ -201,7 +201,17 @@ impl Advisors {
         let screen = r.screen;
         let mut ui = Ui { r, panels, img: ui_img, text, cursor: self.cursor, click: self.click.take() };
         ui.r.rect([0.0, 0.0], screen, [0.0, 0.0, 0.0, 1.0], Space::Screen);
-        ui.image(img.backdrop, ((screen[0] - 1024.0) / 2.0).floor(), ((screen[1] - 768.0) / 2.0).floor());
+        // The 1024x768 backdrop is scaled to cover larger or wider screens; the panel
+        // on it stays at its own size.
+        if let Some(rec) = ui.r.record(img.backdrop) {
+            let (w, h) = (rec.width as f32, rec.height as f32);
+            let s = (screen[0] / w).max(screen[1] / h).max(1.0);
+            let k = s * ui.r.scale;
+            ui.r.smooth = (k - k.round()).abs() > 0.01;
+            let o = [((screen[0] - w * s) / 2.0).floor(), ((screen[1] - h * s) / 2.0).floor()];
+            ui.r.image_scaled(img.backdrop, o, [w * s, h * s], WHITE, Space::Screen);
+            ui.r.smooth = false;
+        }
         // A popup takes every click while it is open.
         let popup_open = self.popup.is_some();
         let held = if popup_open { ui.click.take() } else { None };

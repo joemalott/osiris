@@ -459,6 +459,23 @@ impl EmpireWindow {
         let screen = r.screen;
         let (vert, horiz, cross, bottom) = (images.bars, images.bars + 1, images.bars + 2, images.bars + 3);
         let (w, h) = (screen[0], screen[1]);
+        // A screen wider than the map gets the panel's stone either side of it rather
+        // than black.
+        if v[0] > BAR {
+            for (x0, x1) in [(0.0, v[0]), (v[0] + v[2], w)] {
+                r.set_clip(Some([x0, 0.0, x1 - x0, h - DIVIDER]));
+                let mut y = 0.0;
+                while y < h - DIVIDER {
+                    let mut x = x0;
+                    while x < x1 {
+                        img(r, bottom, x, y);
+                        x += 70.0;
+                    }
+                    y += 40.0;
+                }
+            }
+            r.set_clip(None);
+        }
         for y in [h - DIVIDER, h - DIVIDER + 40.0, h - DIVIDER + 80.0, h - DIVIDER + 120.0] {
             let mut x = 0.0;
             while x < w - 70.0 {

@@ -17,6 +17,7 @@ pub enum MenuAction {
     Difficulty,
     Sound,
     Autosave,
+    InterfaceSize,
     /// Out of time: play on at a lower difficulty.
     LowerDifficulty,
     Faster,
@@ -100,6 +101,7 @@ impl TopMenu {
                     e(t(46, 0, "Sound options"), MenuAction::Sound),
                     e(t(2, 6, "Difficulty"), MenuAction::Difficulty),
                     e(t(2, 9, "Autosave - ON"), MenuAction::Autosave),
+                    e(crate::gfx::ui_size_label(), MenuAction::InterfaceSize),
                     e("Game rules...".into(), MenuAction::Rules),
                     e("Faster  (Page Up)".into(), MenuAction::Faster),
                     e("Slower  (Page Down)".into(), MenuAction::Slower),

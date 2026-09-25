@@ -884,6 +884,11 @@ impl Game {
                 self.set_autosave(on);
                 self.autosave_changed = true;
             }
+            MenuAction::InterfaceSize => {
+                crate::gfx::set_ui_size(crate::gfx::ui_size() + 1);
+                crate::gfx::save_ui_size();
+                self.top_menu.relabel(MenuAction::InterfaceSize, &crate::gfx::ui_size_label());
+            }
             MenuAction::Sound => self.sound_window = Some(crate::sound_options::SoundWindow),
             MenuAction::Difficulty => {
                 self.difficulty_panel = true;

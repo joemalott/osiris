@@ -860,7 +860,7 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        let Some(scale) = self.gfx.as_ref().map(|g| g.window.scale_factor()) else { return };
+        let Some(scale) = self.gfx.as_ref().map(|g| g.scale()) else { return };
         let at = [(self.cursor.0 / scale) as f32, (self.cursor.1 / scale) as f32];
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
@@ -1073,7 +1073,7 @@ impl App {
             Some(Screen::Menu(m)) => {
                 let panels = self.images.as_ref().map(|i| &i.panels);
                 let (sound, window, click, audio) = (&mut self.sound, &mut self.sound_window, self.sound_click.take(), self.audio.as_deref());
-                let cursor = [(self.cursor.0 / gfx.window.scale_factor()) as f32, (self.cursor.1 / gfx.window.scale_factor()) as f32];
+                let cursor = [(self.cursor.0 / gfx.scale()) as f32, (self.cursor.1 / gfx.scale()) as f32];
                 let text = self.assets.text.clone();
                 gfx.frame(|r| {
                     if let Some(p) = panels {
@@ -1095,10 +1095,10 @@ impl App {
             Some(Screen::Playing(game, mission)) => {
                 let pan = 900.0 * dt / gfx.renderer.camera.zoom;
                 let screen = gfx.renderer.screen;
+                let scale = gfx.scale();
                 let cam = &mut gfx.renderer.camera;
                 // The cursor at the screen's edge scrolls as the arrow keys do. A window
                 // that isn't full screen gets a wider band, since the cursor can slip past it.
-                let scale = gfx.window.scale_factor();
                 let (cx, cy) = (self.cursor.0 / scale, self.cursor.1 / scale);
                 let band = if gfx.window.fullscreen().is_some() { 2.0 } else { 8.0 };
                 let edges = self.cursor_in && self.focused && self.drag.is_none();
@@ -1302,6 +1302,10 @@ fn main() -> Result<()> {
     let headless = args.screenshot.is_some();
     init_logging(headless);
     log::info!("Osiris {} on {} {}", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
+    // Screenshots keep the automatic size so they don't depend on the player's choice.
+    if !headless {
+        gfx::load_ui_size();
+    }
     let result = run(args);
     // Launched by a double-click there is no console to read an error in.
     if let Err(e) = &result

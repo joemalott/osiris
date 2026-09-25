@@ -561,7 +561,9 @@ impl Sidebar {
         for (label, value) in s.lines {
             draw_text(r, f, label, ox + STATUS_TEXT_X, y, font::WHITE);
             let vw = text_width(r, f, value) as f32;
-            draw_text(r, f, value, ox + STATUS_RIGHT - vw, y, font::WHITE);
+            // A long value ("100%") keeps a gap after its label, using the margin.
+            let after = ox + STATUS_TEXT_X + text_width(r, f, label) as f32 + 5.0;
+            draw_text(r, f, value, (ox + STATUS_RIGHT - vw).max(after), y, font::WHITE);
             y += 18.0;
         }
     }

@@ -4,7 +4,47 @@ use anyhow::{Context, Result};
 use osiris_formats::ImageLibrary;
 use osiris_render::Renderer;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use winit::window::Window;
+
+/// The player's interface size (Options menu): 0 is automatic, then 100%, 150% and
+/// 200%. It multiplies the system's own display scaling.
+static UI_SIZE: AtomicU8 = AtomicU8::new(0);
+const UI_SIZES: [(&str, f64); 4] = [("Auto", 0.0), ("100%", 1.0), ("150%", 1.5), ("200%", 2.0)];
+
+pub fn ui_size() -> u8 {
+    UI_SIZE.load(Ordering::Relaxed)
+}
+
+pub fn set_ui_size(i: u8) {
+    UI_SIZE.store(i % UI_SIZES.len() as u8, Ordering::Relaxed);
+}
+
+/// The Options menu's label for the interface size.
+pub fn ui_size_label() -> String {
+    format!("Interface size - {}", UI_SIZES[ui_size() as usize].0)
+}
+
+pub fn load_ui_size() {
+    let s = std::fs::read_to_string(crate::user_dir().join("ui_size.txt")).unwrap_or_default();
+    set_ui_size(UI_SIZES.iter().position(|(name, _)| *name == s.trim()).unwrap_or(0) as u8);
+}
+
+pub fn save_ui_size() {
+    let _ = std::fs::write(crate::user_dir().join("ui_size.txt"), format!("{}\n", UI_SIZES[ui_size() as usize].0));
+}
+
+/// Device pixels per interface pixel, for a screen `height` device pixels tall whose
+/// system scaling is `system`. Automatic doubles the art on screens that would
+/// still be at least 900 pixels tall doubled (4K without display scaling), so the
+/// interface isn't a sliver in a corner; 1080p and 1440p stay as the system sets them.
+pub fn ui_scale(system: f64, height: f64) -> f64 {
+    match UI_SIZES[ui_size() as usize].1 {
+        0.0 if height / system >= 1800.0 => system * 2.0,
+        0.0 => system,
+        f => system * f,
+    }
+}
 
 const CLEAR: wgpu::Color = wgpu::Color {
     r: 0.0,
@@ -86,25 +126,35 @@ impl Gfx {
         config.format = pick_format(&surface.get_capabilities(&adapter).formats);
         config.present_mode = wgpu::PresentMode::AutoVsync;
         surface.configure(&device, &config);
-        let mut renderer = Renderer::new(device, queue, config.format, library);
-        let scale = window.scale_factor() as f32;
-        renderer.screen = [size.width as f32 / scale, size.height as f32 / scale];
-        renderer.scale = scale;
-        Ok(Self {
+        let renderer = Renderer::new(device, queue, config.format, library);
+        let mut gfx = Self {
             window,
             surface,
             config,
             renderer,
-        })
+        };
+        gfx.fit();
+        Ok(gfx)
+    }
+
+    /// Device pixels per interface pixel: the system's scaling times the player's
+    /// interface size.
+    pub fn scale(&self) -> f64 {
+        ui_scale(self.window.scale_factor(), self.config.height as f64)
+    }
+
+    /// Sets the renderer's screen to the surface in interface pixels.
+    fn fit(&mut self) {
+        let scale = self.scale() as f32;
+        self.renderer.screen = [self.config.width as f32 / scale, self.config.height as f32 / scale];
+        self.renderer.scale = scale;
     }
 
     pub fn resize(&mut self, w: u32, h: u32) {
         self.config.width = w.max(1);
         self.config.height = h.max(1);
         self.surface.configure(self.renderer.device(), &self.config);
-        let scale = self.window.scale_factor() as f32;
-        self.renderer.screen = [w as f32 / scale, h as f32 / scale];
-        self.renderer.scale = scale;
+        self.fit();
     }
 
     pub fn frame(&mut self, draw: impl FnOnce(&mut Renderer)) {
@@ -117,6 +167,8 @@ impl Gfx {
             }
         };
         let view = frame.texture.create_view(&Default::default());
+        // The interface size can change between frames.
+        self.fit();
         draw(&mut self.renderer);
         self.renderer.flush(&view, Some(CLEAR));
         self.window.pre_present_notify();
@@ -153,7 +205,8 @@ pub fn screenshot(
     let mut renderer = Renderer::new(device, queue, format, library);
     // OSIRIS_SCALE=2 renders as a Retina display would: the same pixels, laid out at
     // half the size.
-    let scale = std::env::var("OSIRIS_SCALE").ok().and_then(|s| s.parse::<f32>().ok()).unwrap_or(1.0).max(1.0);
+    let system = std::env::var("OSIRIS_SCALE").ok().and_then(|s| s.parse::<f64>().ok()).unwrap_or(1.0).max(1.0);
+    let scale = ui_scale(system, h as f64) as f32;
     renderer.scale = scale;
     renderer.screen = [w as f32 / scale, h as f32 / scale];
     draw(&mut renderer);
