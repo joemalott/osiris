@@ -157,6 +157,7 @@ impl World {
                 k if crate::animals::is_hunter(k) => self.update_hunter(fid),
                 crate::farms::PEASANT => self.update_peasant(fid),
                 crate::crime::ROBBER => self.update_thief(fid),
+                crate::tomb_robbers::TOMB_ROBBER => self.update_tomb_robber(fid),
                 crate::health::PLAGUED_CITIZEN | crate::crime::PROTESTER => self.update_wanderer(fid),
                 k if crate::military::is_soldier(k) => self.update_soldier(fid),
                 crate::military::STANDARD_BEARER => self.update_standard_bearer(fid),

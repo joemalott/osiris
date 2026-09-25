@@ -60,6 +60,7 @@ pub mod tiles;
 pub mod trade;
 pub mod venues;
 pub mod time;
+pub mod tomb_robbers;
 pub mod water;
 pub mod world;
 

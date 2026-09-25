@@ -25,8 +25,11 @@ pub const STARTING_KINGDOM: [i32; 5] = [70, 60, 50, 50, 40];
 pub const BASELINE_SENTIMENT: [i32; 5] = [80, 70, 60, 55, 50];
 /// Percent of an invasion's size that comes, for land and Bedouin attacks (exe 0x5d19b0).
 pub const INVASION_PCT: [i32; 5] = [40, 60, 80, 100, 120];
-/// Percent of a target's money a thief takes.
+/// Percent of a target's money a thief takes (exe 0x492770).
 pub const THEFT_PCT: [i32; 5] = [3, 6, 9, 12, 15];
+/// Percent of a mansion's savings, or of the money a palace, tax collector or
+/// courthouse holds, that invaders carry off when they bring it down (exe 0x469140).
+pub const LOOT_PCT: [i32; 5] = [0, 15, 30, 60, 100];
 /// Kingdom rating lost for each year in debt, from the first to the tenth and on
 /// (exe 0x5da330).
 pub const DEBT_YEAR_PENALTY: [[i32; 10]; 5] = [

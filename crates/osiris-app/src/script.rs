@@ -169,6 +169,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             ["savings", n] => world.governor.savings = n.parse()?,
             ["burial", r, n] => world.burial.get_mut(r.parse::<usize>()?).context("no such burial rank")?.0 = n.parse()?,
+            // Marks N units of burial provision R as already sent.
+            ["burialsent", r, n] => world.burial.get_mut(r.parse::<usize>()?).context("no such burial rank")?.1 = n.parse()?,
             ["sendburial", r, n] => {
                 let sent = world.dispatch_burial(r.parse()?, n.parse()?);
                 eprintln!("{step}: sent {sent}");
@@ -319,6 +321,38 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let (x, y) = parse_point(p)?;
                 let id = world.map.building.at_or(x, y, 0);
                 world.destroy(id, true);
+            }
+            // Invaders bring down the building at a tile, plundering it as they do.
+            ["plunder", p] => {
+                let (x, y) = parse_point(p)?;
+                let id = world.map.building.at_or(x, y, 0);
+                let before = (world.treasury, world.governor.savings);
+                world.plunder(id);
+                world.destroy(id, true);
+                eprintln!("{step}: treasury {} -> {}, savings {} -> {}, warnings {:?}", before.0, world.treasury, before.1, world.governor.savings, world.warnings);
+            }
+            // A tomb robber sets off from tile x,y now.
+            ["tombrobber", p] => {
+                let fid = world.tomb_robber_now(parse_point(p)?);
+                eprintln!("{step}: tomb robber {fid}");
+            }
+            // Marks every monument finished.
+            ["finishmon"] => {
+                for b in world.buildings.iter_mut() {
+                    if let Some(m) = b.monument.as_mut() {
+                        m.finished = true;
+                    }
+                }
+            }
+            // Tomb robbers about, the burial provisions sent, the kingdom rating and warnings.
+            ["robbers"] => {
+                for f in world.figures.iter().filter(|f| f.kind == osiris_sim::tomb_robbers::TOMB_ROBBER) {
+                    eprintln!("  tomb robber {} at {},{} action {} target {} dest {:?} foe {}", f.id, f.x, f.y, f.action, f.target, f.destination, f.foe);
+                }
+                for b in world.buildings.iter().filter(|b| b.monument.is_some()) {
+                    eprintln!("  monument {} kind {} access {:?} (from the entry point {:?})", b.id, b.kind, world.monument_access(b.id, world.entry_point), world.entry_point);
+                }
+                eprintln!("{step}: burial {:?} kingdom {} warnings {:?}", world.burial_needs(), world.ratings.kingdom, world.warnings);
             }
             // The building at a tile collapses, as when its damage runs out.
             ["collapse", p] => {
