@@ -36,6 +36,9 @@ pub struct TerrainImages {
     pub water: u32,
     /// Earthquake cracks (`Pharaoh_Terrain` group 6).
     pub earthquake: u32,
+    /// Bare, scraped ground (`Pharaoh_Terrain` group 3, eight variants): a cleared
+    /// monument site's tiles.
+    pub scraped: u32,
     pub empty_land_alt: u32,
     pub rock: u32,
     pub empty_land: u32,
@@ -368,6 +371,7 @@ impl Defs {
             tree: t(4)?,
             water: t(5)?,
             earthquake: t(6)?,
+            scraped: t(3)?,
             empty_land_alt: t(7)?,
             rock: t(8)?,
             empty_land: t(10)?,

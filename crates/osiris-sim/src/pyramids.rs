@@ -36,6 +36,7 @@ const LIMESTONE: u16 = 25;
 const BRICKS: u16 = 12;
 
 /// The prepared site's steps (a block's state), and the two building states.
+const STAKED: u8 = 3;
 const CLEARED: u8 = 4;
 const SANDED: u8 = 5;
 const DUG: u8 = 6;
@@ -356,6 +357,23 @@ const MASTABAS: [&[(i8, i8, u8, u8)]; 3] = [
     ],
 ];
 
+/// The blocks staked out at placement and the tile (0 top-left, 1 top-right, 2
+/// bottom-left, 3 bottom-right) that holds the stake (0x5f6cd0 pyramids by size,
+/// 0x5f6d58 mastabas): the site's outer corners, and on a grand pyramid two more
+/// on each side.
+const STAKES: [&[(u8, u8)]; 5] = [
+    &[(4, 0), (7, 1), (12, 2), (15, 3)],
+    &[(16, 0), (21, 1), (30, 2), (35, 3)],
+    &[(36, 0), (43, 1), (56, 2), (63, 3)],
+    &[(64, 0), (73, 1), (90, 2), (99, 3)],
+    &[(100, 0), (104, 0), (107, 1), (111, 1), (118, 0), (119, 1), (124, 2), (125, 3), (132, 2), (136, 2), (139, 3), (143, 3)],
+];
+const MASTABA_STAKES: [&[(u8, u8)]; 3] = [&[(1, 0), (2, 1), (8, 2), (9, 3)], &[(10, 0), (12, 1), (18, 2), (20, 3)], &[(21, 0), (24, 1), (32, 2), (35, 3)]];
+
+fn stakes(style: Style, variant: usize) -> &'static [(u8, u8)] {
+    if matches!(style, Style::Mastaba) { MASTABA_STAKES[variant.min(2)] } else { STAKES[variant.min(4)] }
+}
+
 /// Large mastaba blocks that show a full lower course beneath their second.
 const MASTABA_FILLER: [usize; 16] = [2, 4, 5, 7, 9, 12, 20, 25, 26, 27, 28, 29, 30, 31, 32, 33];
 
@@ -414,6 +432,12 @@ pub fn layout(style: Style, variant: usize) -> Vec<Block> {
             }
         }
     }
+    // The staked blocks (the original's state 3).
+    for &(b, _) in stakes(style, variant) {
+        if let Some(bl) = v.get_mut(b as usize) {
+            bl.state = STAKED;
+        }
+    }
     v
 }
 
@@ -436,6 +460,17 @@ impl Block {
             2 | 3 => Some(CLEARED),
             s => Some(s + 1),
         }
+    }
+
+    /// The step the laborers' picker files this block under (`FUN_004f3370`): its
+    /// next step, except that a staked block counts as cleared already, so the
+    /// corners are cleared only once every other block is cleared, when the site
+    /// turns to sanding.
+    fn pick_step(&self, mastaba: bool) -> Option<u8> {
+        if self.state == STAKED && self.mask == ALL_TILES {
+            return Some(SANDED);
+        }
+        self.next_step(mastaba)
     }
 
     /// Whether a site step is done for the whole block at one touch.
@@ -1025,50 +1060,61 @@ impl World {
         out
     }
 
-    /// Site work for a laborer: the first tile (block * 4 + tile) of the step the
-    /// whole site does next that nobody holds, nearest the centre (for the steps
-    /// the original works outward) or the east edge (the digging and filling), or
-    /// farthest from it (the draining). `N * 4` is the centre's foundation.
+    /// Site work for a laborer (`FUN_004f3370`): a tile (block * 4 + tile) of a block
+    /// nobody is working, one laborer to a block. The blocks furthest behind go
+    /// first; among them the tile nearest block 0's top-left tile (clearing,
+    /// sanding, flooding, smoothing), nearest the east block's (digging, filling)
+    /// or farthest from it (draining), by squared distance, ties to the earlier
+    /// block and tile. For a step done at one touch the laborer still goes to the
+    /// block's nearest tile. `N * 4` is the centre's foundation, once every block is
+    /// smooth and nobody is at work on the site.
     pub(crate) fn tomb_site_job(&self, id: BuildingId, busy: &[i32]) -> Option<usize> {
         let (style, var, m) = self.tomb(id)?;
         if m.phase != PREP {
             return None;
         }
         let mastaba = matches!(style, Style::Mastaba);
-        let step = m.blocks.iter().filter_map(|b| b.next_step(mastaba)).min();
-        let Some(step) = step else {
-            // Every block smooth: the foundation of the centre, once.
-            let centre = m.blocks.len() * 4;
-            return (!mastaba && m.blocks.iter().take(4).all(|b| b.state != FOUNDATION) && !busy.contains(&(centre as i32))).then_some(centre);
-        };
-        let east = [11usize, 27, 51, 83, 123][var.min(4)];
-        let key = |i: usize| -> i64 {
-            let (b, o) = (&m.blocks[i], &m.blocks[if mastaba { 0 } else { east.min(m.blocks.len() - 1) }]);
-            let d = ((b.x - o.x).abs() + (b.y - o.y).abs()) as i64;
-            match step {
-                DUG | FILLED if !mastaba => d,
-                DRAINED => -d,
-                _ => {
-                    let c = &m.blocks[0];
-                    ((b.x - c.x).abs() + (b.y - c.y).abs()) as i64
+        let n = m.blocks.len();
+        // The block each busy laborer holds (the foundation is block 0's).
+        let held = |i: usize| busy.iter().any(|&u| u >= 0 && if u as usize == n * 4 { i == 0 } else { u as usize / 4 == i });
+        let origin = (m.blocks[0].x, m.blocks[0].y);
+        let east = m.blocks.get([11usize, 27, 51, 83, 123][var.min(4)]).map_or(origin, |b| (b.x, b.y));
+        let mut best: Option<(u8, i32, usize)> = None;
+        let mut someone_busy = false;
+        for (i, b) in m.blocks.iter().enumerate() {
+            if held(i) {
+                someone_busy = true;
+                continue;
+            }
+            let Some(step) = b.pick_step(mastaba) else { continue };
+            let open = if b.mask == ALL_TILES { 0 } else { b.mask };
+            let mut near: Option<(i32, usize)> = None;
+            for t in 0..4 {
+                if open & (1 << t) != 0 {
+                    continue;
+                }
+                let (x, y) = (b.x + t as i32 % 2, b.y + t as i32 / 2);
+                let d2 = |(ox, oy): (i32, i32)| (x - ox).pow(2) + (y - oy).pow(2);
+                let d = match step {
+                    DUG | FILLED => d2(east),
+                    DRAINED => 1000 - d2(east),
+                    _ => d2(origin),
+                };
+                if near.is_none_or(|(nd, _)| d < nd) {
+                    near = Some((d, t));
                 }
             }
-        };
-        let mut order: Vec<usize> = (0..m.blocks.len()).filter(|&i| m.blocks[i].next_step(mastaba) == Some(step)).collect();
-        order.sort_by_key(|&i| key(i));
-        for i in order {
-            let b = &m.blocks[i];
-            let fresh = b.mask == ALL_TILES;
-            let tiles: &[usize] = if Block::whole(step) { &[0] } else { &[0, 1, 2, 3] };
-            for &t in tiles {
-                let unit = (i * 4 + t) as i32;
-                let open = fresh || b.mask & (1 << t) == 0;
-                if open && !busy.contains(&unit) {
-                    return Some(unit as usize);
-                }
+            let Some((d, t)) = near else { continue };
+            if best.is_none_or(|(bs, bd, _)| step < bs || step == bs && d < bd) {
+                best = Some((step, d, i * 4 + t));
             }
         }
-        None
+        if let Some((_, _, unit)) = best {
+            return Some(unit);
+        }
+        // Every block smooth: the foundation of the centre, once, with the site idle.
+        let smooth = m.blocks.first().is_some_and(|b| b.state == SMOOTH && b.mask == ALL_TILES);
+        (!mastaba && !someone_busy && smooth).then_some(n * 4)
     }
 
     /// A laborer finishes a touch of the site.
@@ -1089,6 +1135,12 @@ impl World {
                 b.mask = 0;
             }
             b.mask |= if Block::whole(step) { ALL_TILES } else { 1 << (unit % 4) };
+            if step == CLEARED {
+                // The tile's trees, scrub and meadow go (`FUN_004f4160` state 4).
+                if let Some((x, y)) = self.tomb_unit_tile(id, unit) {
+                    self.map.terrain.update(x, y, |t| t & !(terrain::TREE | terrain::SHRUB | terrain::MEADOW | terrain::GROUNDWATER));
+                }
+            }
         }
         self.refresh_monument_images(id);
     }
@@ -1221,7 +1273,11 @@ impl World {
         Some(5 + (95 * done / total.max(1)) as i32)
     }
 
-    /// Each tile of a tomb's site and the image it shows, from its block's state.
+    /// Each tile of a tomb's site and the image it shows, from its block's state
+    /// (`FUN_004f4160`, `FUN_004f3f70`): the ground it was staked out on until the
+    /// tile is cleared, then scraped bare ground; rough sand, its edges following
+    /// the sand laid so far; then the trench stages, their pieces by the site's own
+    /// outline.
     pub(crate) fn tomb_site(&self, id: BuildingId) -> Vec<((i32, i32), u32)> {
         let mut out = Vec::new();
         let Some(b) = self.buildings.get(id) else { return out };
@@ -1229,31 +1285,43 @@ impl World {
         let Some(site) = self.defs.building(b.kind).map(|d| d.image) else { return out };
         let mastaba = matches!(style, Style::Mastaba);
         let (w, h) = b.footprint();
-        let (x0, y0, x1, y1) = (0, 0, w - 1, h - 1);
-        // Each tile's site step: its block's, if the tile has had it, else the one before.
+        // Each tile's site step: its block's, if the tile has had it, else the one
+        // before (a staked block's untouched tiles count as not yet cleared).
         let step_at = |x: i32, y: i32| -> Option<u8> {
             let bl = m.blocks.iter().find(|bl| (bl.x..bl.x + 2).contains(&x) && (bl.y..bl.y + 2).contains(&y))?;
             let t = ((y - bl.y) * 2 + (x - bl.x)) as u8;
             Some(match bl.state {
                 BUILDING | BUILT => if mastaba { SANDED } else { SMOOTH },
                 s if bl.mask & (1 << t) != 0 => s,
-                CLEARED => 2,
+                STAKED | CLEARED => 2,
                 s => s - 1,
             })
         };
-        let dug = |x: i32, y: i32| step_at(x, y).is_some_and(|s| s >= DUG);
-        for y in y0..=y1 {
-            for x in x0..=x1 {
+        let random = |x: i32, y: i32| self.map.random.at_or(b.x + x, b.y + y, 0) as u32;
+        // The eight neighbours, north first and clockwise: y-1, (x+1, y-1), x+1, ..
+        const AROUND: [(i32, i32); 8] = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)];
+        let around = |x: i32, y: i32, f: &dyn Fn(Option<u8>) -> bool| -> [bool; 8] { AROUND.map(|(dx, dy)| f(step_at(x + dx, y + dy))) };
+        for y in 0..h {
+            for x in 0..w {
                 let Some(step) = step_at(x, y) else { continue };
-                let piece = Self::trench_piece(dug(x, y - 1), dug(x + 1, y), dug(x, y + 1), dug(x - 1, y));
-                let bare = m.ground.get((y * w + x) as usize).copied().filter(|&g| g != 0);
                 let image = match step {
-                    s if s < SANDED => bare.unwrap_or(site + 5),
-                    SANDED => Self::foundation(site, (x, y), (x0, y0), (x1, y1)),
-                    DUG | DRAINED => site + 14 + piece,
-                    FLOODED => site + 23 + piece,
-                    FILLED => site + 32 + piece,
-                    _ => site + 41 + piece,
+                    s if s < CLEARED => m.ground.get((y * w + x) as usize).copied().filter(|&g| g != 0).unwrap_or(self.defs.terrain.scraped + (random(x, y) & 7)),
+                    CLEARED => self.defs.terrain.scraped + (random(x, y) & 7),
+                    SANDED => {
+                        let n = around(x, y, &|s| s.is_some_and(|s| s >= SANDED));
+                        let piece = Self::sand_piece(n);
+                        site - 7 + if piece == 12 { 12 + random(x, y) % 8 } else { piece }
+                    }
+                    _ => {
+                        let n = around(x, y, &|s| s.is_some());
+                        let piece = Self::trench_piece(n[0], n[2], n[4], n[6]);
+                        site + match step {
+                            DUG | DRAINED => 14,
+                            FLOODED => 23,
+                            FILLED => 32,
+                            _ => 41,
+                        } + piece
+                    }
                 };
                 out.push(((x, y), image));
             }
@@ -1267,24 +1335,75 @@ impl World {
         out
     }
 
-    /// The stakes at a tomb site's four outer corners, until they are cleared.
+    /// Test runs: the site step each tile of a tomb shows, row by row.
+    pub fn tomb_site_steps(&self, id: BuildingId) -> Option<Vec<Vec<u8>>> {
+        let (_, _, m) = self.tomb(id)?;
+        let (w, h) = self.buildings.get(id)?.footprint();
+        let mut rows = vec![vec![0u8; w as usize]; h as usize];
+        for bl in &m.blocks {
+            for t in 0..4u8 {
+                let (x, y) = (bl.x + (t % 2) as i32, bl.y + (t / 2) as i32);
+                let s = match bl.state {
+                    s if bl.mask & (1 << t) != 0 => s,
+                    STAKED | CLEARED => 2,
+                    s => s.saturating_sub(1),
+                };
+                if let Some(c) = rows.get_mut(y as usize).and_then(|r| r.get_mut(x as usize)) {
+                    *c = s;
+                }
+            }
+        }
+        Some(rows)
+    }
+
+    /// The piece of rough sand a tile shows, given which of its eight neighbours
+    /// (north first, clockwise) are sanded too (0x5f6d70): 0, 2, 4, 6 the edges open
+    /// to the north, east, south and west; 1, 3, 5, 7 the outer corners north-east,
+    /// south-east, south-west and north-west; 8-11 the inner corners missing the
+    /// north-east, south-east, south-west or north-west diagonal; 12 the open sand
+    /// (with seven more variants); 13 anything else.
+    fn sand_piece(n: [bool; 8]) -> u32 {
+        let [no, ne, e, se, s, sw, w, nw] = n;
+        let exact = |want: [bool; 8]| n == want;
+        if no && e && s && w {
+            return match (ne, se, sw, nw) {
+                (true, true, true, true) => 12,
+                (false, true, true, true) => 8,
+                (true, false, true, true) => 9,
+                (true, true, false, true) => 10,
+                (true, true, true, false) => 11,
+                _ => 13,
+            };
+        }
+        match () {
+            _ if !no && e && se && s && sw && w => 0,
+            _ if !e && s && sw && w && nw && no => 2,
+            _ if !s && w && nw && no && ne && e => 4,
+            _ if !w && no && ne && e && se && s => 6,
+            _ if exact([false, false, false, false, true, true, true, false]) => 1,
+            _ if exact([true, false, false, false, false, false, true, true]) => 3,
+            _ if exact([true, true, true, false, false, false, false, false]) => 5,
+            _ if exact([false, false, true, true, true, false, false, false]) => 7,
+            _ => 13,
+        }
+    }
+
+    /// The stakes on a tomb site (its outer corners; a grand pyramid's sides too),
+    /// each standing until its tile is cleared.
     pub(crate) fn tomb_stakes(&self, id: BuildingId) -> Vec<(i32, i32, u32)> {
         let Some(b) = self.buildings.get(id) else { return Vec::new() };
-        let Some((_, _, m)) = self.tomb(id) else { return Vec::new() };
+        let Some((style, var, m)) = self.tomb(id) else { return Vec::new() };
         if m.phase != PREP {
             return Vec::new();
         }
         let Some(site) = self.defs.building(b.kind).map(|d| d.image) else { return Vec::new() };
-        let (w, h) = b.footprint();
-        [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]
-            .into_iter()
-            .filter(|&(x, y)| {
-                m.blocks
-                    .iter()
-                    .find(|bl| (bl.x..bl.x + 2).contains(&x) && (bl.y..bl.y + 2).contains(&y))
-                    .is_some_and(|bl| bl.state < CLEARED || bl.state == CLEARED && bl.mask & (1 << ((y - bl.y) * 2 + (x - bl.x))) == 0)
+        stakes(style, var)
+            .iter()
+            .filter_map(|&(i, t)| {
+                let bl = m.blocks.get(i as usize)?;
+                let standing = bl.state == STAKED || bl.state == CLEARED && bl.mask & (1 << t) == 0 || bl.state < STAKED;
+                standing.then(|| (b.x + bl.x + (t % 2) as i32, b.y + bl.y + (t / 2) as i32, site + 13))
             })
-            .map(|(x, y)| (b.x + x, b.y + y, site + 13))
             .collect()
     }
 
