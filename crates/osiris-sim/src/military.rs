@@ -518,7 +518,7 @@ impl World {
         // or redrawn over it) that can be walked on.
         for yy in gy..gy + 4 {
             for xx in gx..gx + 4 {
-                self.map.terrain.update(xx, yy, |t| t | crate::map::terrain::BUILDING | crate::map::terrain::PARADE_GROUND);
+                self.map.terrain.update(xx, yy, |t| t | crate::map::terrain::BUILDING | crate::map::terrain::WALKABLE_BUILDING);
             }
         }
         let standard = self.figures.spawn(STANDARD_BEARER, gx, gy, Travel::Land);
@@ -555,7 +555,7 @@ impl World {
             let (gx, gy, size) = (g.x, g.y, g.size);
             for yy in gy..gy + size {
                 for xx in gx..gx + size {
-                    self.map.terrain.update(xx, yy, |t| (t & !crate::map::terrain::ROAD) | crate::map::terrain::BUILDING | crate::map::terrain::PARADE_GROUND);
+                    self.map.terrain.update(xx, yy, |t| (t & !crate::map::terrain::ROAD) | crate::map::terrain::BUILDING | crate::map::terrain::WALKABLE_BUILDING);
                     self.map.building.set(xx, yy, ground);
                 }
             }

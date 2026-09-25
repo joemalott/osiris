@@ -75,7 +75,7 @@ impl Map {
         Self {
             width: w,
             height: h,
-            terrain: Grid::from_fn(w, h, |x, y| s.terrain[off(x, y)] & !terrain::PARADE_GROUND),
+            terrain: Grid::from_fn(w, h, |x, y| s.terrain[off(x, y)] & !terrain::WALKABLE_BUILDING),
             images: Grid::from_fn(w, h, |x, y| s.images[off(x, y)]),
             edges: Grid::from_fn(w, h, |x, y| s.edges[off(x, y)]),
             bitfields: Grid::from_fn(w, h, |x, y| s.bitfields[off(x, y)]),

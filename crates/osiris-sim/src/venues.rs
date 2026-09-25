@@ -6,7 +6,8 @@
 //! must be clear ground or road, and its middle tile a crossing whose four arms run
 //! as road out to the square's edges, i.e. its middle row and middle column are road.
 //! Unlike the smaller venues, the other 16 tiles may be road or not. Its paving
-//! covers all 25 tiles, and a city has only one.
+//! covers all 25 tiles, people may walk across its paving off the roads, and a city
+//! has only one.
 
 use crate::buildings::{BuildingId, kind};
 use crate::map::{mask, terrain};
@@ -151,6 +152,16 @@ impl World {
         (0..size).all(|dy| (0..size).all(|dx| fits(dx, dy)))
     }
 
+    /// Saves from before the festival square was laid over roads drew one image over
+    /// its whole footprint and kept people off it: pave it again, tile by tile, with
+    /// its paving walkable.
+    pub(crate) fn upgrade_festival_squares(&mut self) {
+        let squares: Vec<BuildingId> = self.buildings.iter().filter(|b| b.kind == FESTIVAL_SQUARE).map(|b| b.id).collect();
+        for id in squares {
+            self.place_venue(id);
+        }
+    }
+
     /// Lays out a new venue's tiles: plaza over the roads, stalls and stages between.
     pub(crate) fn place_venue(&mut self, id: BuildingId) {
         let Some(b) = self.buildings.get(id) else { return };
@@ -162,6 +173,11 @@ impl World {
             for dy in 0..size {
                 for dx in 0..size {
                     self.map.set_single_image(x + dx, y + dy, plaza + (dx + dy * size) as u32);
+                    // Off the roads, people may cross it as open ground (the
+                    // original's citizen route grid rates the square's tiles 4).
+                    if !self.map.terrain_is(x + dx, y + dy, terrain::ROAD) {
+                        self.map.terrain.update(x + dx, y + dy, |t| t | terrain::WALKABLE_BUILDING);
+                    }
                 }
             }
             return;
@@ -298,6 +314,17 @@ mod tests {
             assert!(crate::figures::passable(&world.map, crate::figures::Travel::Roads, x + 3, y + i));
         }
         assert!(world.buildings.iter().any(|b| b.kind == FESTIVAL_SQUARE && b.road.is_some()));
+        // Its paving off the roads is open ground for people on foot, not road.
+        use crate::figures::{Travel, passable};
+        assert!(passable(&world.map, Travel::Land, x + 1, y + 2) && !passable(&world.map, Travel::Roads, x + 1, y + 2));
+        let route = crate::figures::find_route(&world.map, Travel::Land, (x + 1, y + 1), (x + 5, y + 5)).expect("across the square");
+        assert_eq!(route.len(), 4, "straight across the paving");
+        // Demolished, the bit goes with it.
+        let id = world.map.building.at_or(x + 1, y + 2, 0);
+        world.demolish(id);
+        assert!(!world.map.terrain_is(x + 1, y + 2, terrain::WALKABLE_BUILDING | terrain::BUILDING));
+        assert!(world.map.terrain_is(x + 3, y + 1, terrain::ROAD));
+        world.create_building(FESTIVAL_SQUARE, x + 1, y + 1);
         // A second crossing elsewhere: still only one square.
         for i in 0..8 {
             road(&mut world, x + 10 + i, y + 13);
