@@ -262,18 +262,20 @@ fn granary(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
     }
 }
 
-/// The storage yard's hut: its roof always, and its clerk at work when staffed. Both
-/// are drawn from the hut's tile in the yard's north corner.
+/// The storage yard's hut: its clerk at work when staffed, then its roof over him.
+/// Both are drawn from the hut's tile in the yard's north corner.
 fn storage_yard(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
-    if let Some(cover) = cx.anim(b, "cover") {
-        let p = cx.point(b.x, b.y);
-        out.push(Overlay { x: b.x, y: b.y, pos: [p[0] + cover.x as f32, p[1] + cover.y as f32], image: cover.image });
-    }
+    let p = cx.point(b.x, b.y);
+    // The clerk's frames are placed by their top-left corner: the original ignores
+    // their own anchors here, which would stand him on the roof.
     if b.workers > 0
         && let Some(a) = cx.anim(b, "work")
         && let Some(f) = cx.frame(a, a.frames, b.id as u64 * 7)
     {
-        cx.sprite(out, b.x, b.y, (a.x, a.y), a.image + f);
+        out.push(Overlay { x: b.x, y: b.y, pos: [p[0] + a.x as f32, p[1] + a.y as f32], image: a.image + f });
+    }
+    if let Some(cover) = cx.anim(b, "cover") {
+        out.push(Overlay { x: b.x, y: b.y, pos: [p[0] + cover.x as f32, p[1] + cover.y as f32], image: cover.image });
     }
 }
 

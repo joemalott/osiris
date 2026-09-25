@@ -319,9 +319,17 @@ impl CityView {
         // A placement ghost and the highlighted tiles go over the whole city, as the
         // original draws them after its buildings: nothing in front cuts into them.
         let mut ghost = ghost.to_vec();
-        ghost.sort_by_key(|g| (g.x + g.y, -g.x));
+        // Pieces drawn over the building (the yard's roof) go on top of it.
+        ghost.sort_by_key(|g| (g.offset.is_some(), g.x + g.y, -g.x));
         for g in ghost {
-            if let Some(pos) = footprint_pos(r, map, g.x, g.y, g.image) {
+            let pos = match g.offset {
+                Some((dx, dy)) => {
+                    let p = tile_to_world(map, g.x, g.y);
+                    Some([p[0] + dx as f32, p[1] + dy as f32])
+                }
+                None => footprint_pos(r, map, g.x, g.y, g.image),
+            };
+            if let Some(pos) = pos {
                 r.image_painted(g.image, pos, WHITE, Space::World, Paint::Masked(PLACE_OK));
             }
         }
