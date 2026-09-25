@@ -258,6 +258,10 @@ pub mod terrain {
     pub const BRIDGE: u32 = 0x1000_0000;
     /// Cleopatra's cliffs: always set together with `ROCK`.
     pub const CLIFF: u32 = 0x2000_0000;
+    /// A fort's parade ground (Osiris's own flag, set together with `BUILDING`): a
+    /// building people and soldiers may walk across, as the original's route grids let
+    /// them. Maps have the bit cleared on load.
+    pub const PARADE_GROUND: u32 = 0x4000_0000;
     pub const SHORE: u32 = 0x8000_0000;
 }
 

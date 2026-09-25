@@ -514,10 +514,11 @@ impl World {
         if let Some(image) = ground_image {
             self.set_building_image(ground, image);
         }
-        // Soldiers drill on the parade ground: it can be walked on.
+        // Soldiers drill on the parade ground: it stays a building (so nothing is built
+        // or redrawn over it) that can be walked on.
         for yy in gy..gy + 4 {
             for xx in gx..gx + 4 {
-                self.map.terrain.update(xx, yy, |t| t & !crate::map::terrain::BUILDING);
+                self.map.terrain.update(xx, yy, |t| t | crate::map::terrain::BUILDING | crate::map::terrain::PARADE_GROUND);
             }
         }
         let standard = self.figures.spawn(STANDARD_BEARER, gx, gy, Travel::Land);
@@ -530,10 +531,36 @@ impl World {
         self.military.companies.push(Company { fort: id, ground, kind, standard, standard_tile: (gx, gy), at_fort: true, morale: 50, wind: WIND, ..Default::default() });
     }
 
-    /// Whether a fort's parade ground fits beside it.
     /// Whether a tile of a fort's parade ground is free.
     pub(crate) fn fort_ground_tile_clear(&self, xx: i32, yy: i32) -> bool {
-        self.map.contains(xx, yy) && !self.map.terrain_is(xx, yy, crate::map::mask::NOT_CLEAR)
+        self.map.contains(xx, yy) && !self.map.terrain_is(xx, yy, crate::map::mask::NOT_CLEAR) && self.map.building.at_or(xx, yy, 0) == 0
+    }
+
+    /// Saves from before parade grounds kept their building bit: the ground's tiles
+    /// lost it, so roads, grass and cleared land could be drawn over them (a black
+    /// yard). Gives them back the bit, the building and the ground image.
+    pub(crate) fn upgrade_fort_grounds(&mut self) {
+        let grounds: Vec<(BuildingId, u32)> = self
+            .military
+            .companies
+            .iter()
+            .filter_map(|c| {
+                let fort = self.buildings.get(c.fort)?;
+                let image = self.defs.building(fort.kind).and_then(|d| d.anims.get("ground")).map(|a| a.image)?;
+                self.buildings.get(c.ground).filter(|g| g.kind == FORT_GROUND).map(|g| (g.id, image))
+            })
+            .collect();
+        for (ground, image) in grounds {
+            let Some(g) = self.buildings.get(ground) else { continue };
+            let (gx, gy, size) = (g.x, g.y, g.size);
+            for yy in gy..gy + size {
+                for xx in gx..gx + size {
+                    self.map.terrain.update(xx, yy, |t| (t & !crate::map::terrain::ROAD) | crate::map::terrain::BUILDING | crate::map::terrain::PARADE_GROUND);
+                    self.map.building.set(xx, yy, ground);
+                }
+            }
+            self.set_building_image(ground, image);
+        }
     }
 
     /// When a fort goes, its ground goes with it and its company disbands.
