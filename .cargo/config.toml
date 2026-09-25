@@ -1,0 +1,4 @@
+# Link the C runtime into osiris.exe so it starts on a PC without the Visual C++
+# redistributable installed.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

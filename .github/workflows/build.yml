@@ -41,6 +41,10 @@ jobs:
         shell: bash
         run: |
           cargo build --release -p osiris-app
+          # Smoke test: with no game data the exe must start and say so, not die
+          # silently (missing DLLs, stack overflow, a panic before the first window).
+          ./target/release/osiris.exe --screenshot smoke.png 2>&1 | tee smoke.txt || true
+          grep -q "Could not read the Pharaoh game data" smoke.txt
           mkdir -p out && cp target/release/osiris.exe LICENSE README.md out/
           cd out && 7z a -tzip ../${{ matrix.name }}.zip . > /dev/null
 
