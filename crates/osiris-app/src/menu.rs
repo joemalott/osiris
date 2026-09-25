@@ -17,6 +17,8 @@ const BG_TITLE: u32 = 201;
 const BG_CHOOSE_GAME: u32 = 656;
 const BG_HISTORY: u32 = 658;
 const BG_CUSTOM: u32 = 657;
+/// The Mission Editor's list of maps ("FE_Map Editor.BMP", group 15).
+const BG_EDITOR: u32 = 505;
 /// The mission briefing's background (Pharaoh_Unloaded group 18, second image).
 const BG_BRIEFING: u32 = 507;
 /// The family registry's own background (group 29, "FE_Registry.BMP"); the "create a
@@ -177,6 +179,8 @@ pub enum Choice {
     /// The city on this campaign path.
     Path(u32),
     Map(PathBuf),
+    /// A map opened in the Mission Editor.
+    Edit(PathBuf),
     Save(PathBuf),
     /// A family chosen (or freshly created) on the registry page, to make active.
     Family(String),
@@ -198,6 +202,9 @@ enum Page {
     /// The map of Egypt with the cities to choose between.
     CityChoice,
     Custom,
+    /// The Mission Editor's list of maps to open (Custom Missions' window on the
+    /// editor's own art).
+    Editor,
     Load,
     Rules,
     /// The family registry: create, delete or choose a family.
@@ -259,6 +266,8 @@ pub struct Menu {
     campaign: CampaignView,
     hover_point: Option<usize>,
     maps: Vec<PathBuf>,
+    /// The maps the Mission Editor offers: the game's and the player's own.
+    pub editor_maps: Vec<PathBuf>,
     /// Newest first.
     saves: Vec<PathBuf>,
     pub selected_mission: Option<usize>,
@@ -408,6 +417,7 @@ impl Menu {
             campaign,
             hover_point: None,
             maps,
+            editor_maps: Vec::new(),
             saves,
             selected_mission: None,
             rules,
@@ -466,6 +476,7 @@ impl Menu {
             "briefing" => Page::Briefing,
             "choice" => Page::CityChoice,
             "custom" => Page::Custom,
+            "editor" => Page::Editor,
             "load" => Page::Load,
             "rules" => Page::Rules,
             "family" => Page::Family,
@@ -522,7 +533,7 @@ impl Menu {
         self.dragging = false;
         // Both lists start on their first row.
         let first = match page {
-            Page::Custom | Page::Campaign => (!self.items.is_empty()).then_some(0),
+            Page::Custom | Page::Campaign | Page::Editor => (!self.items.is_empty()).then_some(0),
             _ => None,
         };
         self.picked = None;
@@ -537,7 +548,7 @@ impl Menu {
         self.picked = Some(i);
         let Some(item) = self.items.get(i) else { return };
         self.brief = match &item.action {
-            Action::Choose(Choice::Map(p)) => Scenario::load_map(p).ok().map(|s| Brief::new(item.label.clone(), &s)),
+            Action::Choose(Choice::Map(p) | Choice::Edit(p)) => Scenario::load_map(p).ok().map(|s| Brief::new(item.label.clone(), &s)),
             Action::Choose(Choice::Mission(m)) => MissionPak::open(&self.data.join("mission1.pak")).ok().and_then(|pak| pak.scenario(*m).ok()).map(|s| Brief::new(item.label.clone(), &s)),
             _ => None,
         };
@@ -582,6 +593,8 @@ impl Menu {
                     Item { label: t(2), enabled: !self.saves.is_empty(), action: go(Page::Load) },
                     Item { label: t(3), enabled: !self.maps.is_empty(), action: go(Page::Custom) },
                     Item { label: t(4), enabled: true, action: go(Page::Family) },
+                    // The original's title screen has the Mission Editor (text 30/3).
+                    Item { label: self.text.get(30, 3).unwrap_or("Mission Editor").trim().to_string(), enabled: true, action: go(Page::Editor) },
                     Item { label: "Game rules".into(), enabled: true, action: go(Page::Rules) },
                     Item { label: self.text.get(46, 0).unwrap_or("Sound options").trim().to_string(), enabled: true, action: Action::Choose(Choice::Sound) },
                     Item { label: "Quit".into(), enabled: true, action: Action::Choose(Choice::Quit) },
@@ -596,6 +609,7 @@ impl Menu {
                 .map(|(m, name)| Item { label: name.clone(), enabled: true, action: Action::Choose(Choice::Mission(m)) })
                 .collect(),
             Page::Custom => Self::files(&self.maps, Choice::Map),
+            Page::Editor => Self::files(&self.editor_maps, Choice::Edit),
             Page::Load => Self::files(&self.saves, Choice::Save),
             Page::Family => self
                 .families
@@ -620,7 +634,7 @@ impl Menu {
 
     fn visible_rows(&self) -> usize {
         match self.page {
-            Page::Custom => 15,
+            Page::Custom | Page::Editor => 15,
             Page::Campaign => 13,
             _ => PAGE_ROWS,
         }
@@ -691,7 +705,7 @@ impl Menu {
                 let b = Self::main_frame(screen).to_bg(p);
                 (0..self.items.len()).find(|&i| self.items[i].enabled && inside4(b, Self::main_button(i)))
             }
-            Page::Campaign | Page::Custom => {
+            Page::Campaign | Page::Custom | Page::Editor => {
                 let b = Frame::new(screen).to_bg(p);
                 let (top, _) = self.list_top();
                 if b[0] < LIST_X || b[0] >= LIST_X + LIST_W || b[1] < top {
@@ -957,7 +971,7 @@ impl Menu {
         if self.page == Page::Load {
             return self.click_load(screen, p);
         }
-        if matches!(self.page, Page::Custom | Page::Campaign) {
+        if matches!(self.page, Page::Custom | Page::Campaign | Page::Editor) {
             return self.click_scenarios(screen, p);
         }
         if self.page == Page::CityChoice {
@@ -1065,8 +1079,8 @@ impl Menu {
             }
             return Some(c);
         }
-        // The arrows are there whenever the objectives are.
-        if self.brief.is_some() && !(self.page == Page::Campaign && self.show_results) {
+        // The arrows are there whenever the objectives are (not in the editor).
+        if self.brief.is_some() && self.page != Page::Editor && !(self.page == Page::Campaign && self.show_results) {
             let d = self.difficulty;
             let want = if at(DIFFICULTY_UP) { (d + 1).min(osiris_sim::difficulty::IMPOSSIBLE) } else if at(DIFFICULTY_DOWN) { d.saturating_sub(1) } else { d };
             if want != d {
@@ -1147,7 +1161,7 @@ impl Menu {
     pub fn draw(&self, r: &mut Renderer, panels: &PanelImages) {
         match self.page {
             Page::Main => self.draw_main(r, panels),
-            Page::Campaign | Page::Custom => self.draw_scenarios(r, panels),
+            Page::Campaign | Page::Custom | Page::Editor => self.draw_scenarios(r, panels),
             Page::Periods | Page::HistoryPeriods => self.draw_framed(r, panels, BG_HISTORY, Self::draw_periods),
             Page::Briefing => self.draw_framed(r, panels, BG_BRIEFING, Self::draw_briefing),
             Page::CityChoice => self.draw_framed(r, panels, CHOICE_BACK, Self::draw_choice),
@@ -1203,7 +1217,7 @@ impl Menu {
     fn draw_framed(&self, r: &mut Renderer, panels: &PanelImages, bg: u32, page: fn(&Self, &mut Renderer, &PanelImages, &Frame)) {
         Self::background(r, bg);
         let f = Frame::new(r.screen);
-        let window = matches!(bg, BG_HISTORY | BG_CUSTOM | CHOICE_BACK);
+        let window = matches!(bg, BG_HISTORY | BG_CUSTOM | BG_EDITOR | CHOICE_BACK);
         if window {
             r.rect([0.0, 0.0], r.screen, [0.0, 0.0, 0.0, 0.5], Space::Screen);
         }
@@ -1352,7 +1366,11 @@ impl Menu {
     /// list of scenarios on the left with its scroll bar, the picked scenario's picture
     /// above it, and its details on the dark panel to the right.
     fn draw_scenarios(&self, r: &mut Renderer, panels: &PanelImages) {
-        let bg = if self.page == Page::Campaign { BG_HISTORY } else { BG_CUSTOM };
+        let bg = match self.page {
+            Page::Campaign => BG_HISTORY,
+            Page::Editor => BG_EDITOR,
+            _ => BG_CUSTOM,
+        };
         self.draw_framed(r, panels, bg, Self::draw_scenarios_framed);
     }
 
@@ -1404,6 +1422,9 @@ impl Menu {
             bg_centred(r, Font::NormalWhiteOnDark, &label, 546.0, 558.0, 250.0);
             bg_text(r, Font::NormalBlackOnLight, &t(44, 217), 572.0, 590.0);
             bg_text(r, Font::NormalBlackOnLight, &t(44, 215), 652.0, 590.0);
+        } else if self.page == Page::Editor {
+            // "Edit this map" where Custom Missions has "Go to city" (FUN_0041a180).
+            bg_text(r, Font::NormalBlackOnLight, &t(44, 214), 682.0, 590.0);
         } else {
             bg_text(r, Font::NormalBlackOnLight, &t(44, 136), 697.0, 590.0);
         }
@@ -1469,7 +1490,9 @@ impl Menu {
         bg_centred(r, white, &t(32, b.challenge_text()), 527.0, 329.0, 260.0);
         if b.open_play {
             bg_wrapped(r, white, &t(145, 0), 537.0, 369.0, 260.0);
-            self.draw_difficulty(r, f);
+            if self.page != Page::Editor {
+                self.draw_difficulty(r, f);
+            }
             return;
         }
         bg_centred(r, Font::NormalYellow, &t(44, 127), 527.0, 361.0, 260.0);
@@ -1498,7 +1521,10 @@ impl Menu {
                 bg_centred(r, white, &t(198, m as usize), 542.0, 485.0 + 16.0 * i as f32, 260.0);
             }
         }
-        self.draw_difficulty(r, f);
+        // The editor shows no difficulty (FUN_0041a180 draws it only in the game).
+        if self.page != Page::Editor {
+            self.draw_difficulty(r, f);
+        }
     }
 
     /// The difficulty new games start at, with its arrows (Pharaoh_General groups 212

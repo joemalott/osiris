@@ -197,6 +197,9 @@ pub struct Game {
     /// Set when the "Unlock All Missions" cheat fires, for the app to mark every
     /// campaign mission won in the family's saved progress (not in the original).
     pub cheat_unlock_missions: bool,
+    /// The custom map the city was started from, which Replay starts again while
+    /// the file is still there.
+    pub replay_map: Option<std::path::PathBuf>,
 }
 
 impl Game {
@@ -271,6 +274,7 @@ impl Game {
             plague_track: None,
             cheat_entry: None,
             cheat_unlock_missions: false,
+            replay_map: None,
         }
     }
 
@@ -1689,7 +1693,7 @@ impl Game {
 
     /// The original's screen for a lost mission (FUN_004194c0, FUN_00419db0): a 34x16
     /// panel at the top of the middle 640x480, "Defeat!" (62:1) and its text (62:16),
-    /// then New Game and, for a campaign mission, Replay mission. When time ran out
+    /// then New Game and, for a campaign mission or a map still on disk, Replay mission. When time ran out
     /// on Easy or harder a campaign mission's reads "Out of Time!" (62:38, 62:39) and
     /// offers Lower Difficulty first.
     fn draw_lost(&mut self, r: &mut Renderer) {
@@ -1701,8 +1705,10 @@ impl Game {
         let y = ((r.screen[1] - 480.0) / 2.0).floor() + 9.0;
         osiris_ui::panel::outer_panel(r, &self.images.panels, x, y, W, H);
         let click = self.lost_click.take();
-        let replay = self.world.mission.is_some();
-        let time = replay && self.world.lost_to_time();
+        // A custom map can be replayed while its file is still there, as the original
+        // offers it.
+        let replay = self.world.mission.is_some() || self.replay_map.as_ref().is_some_and(|p| p.exists());
+        let time = self.world.mission.is_some() && self.world.lost_to_time();
         let mut ui = crate::widgets::Ui { r, panels: &self.images.panels, img, text: &self.text, cursor: self.cursor, click };
         let (title, body) = if time { (38, 39) } else { (1, 16) };
         let t = ui.t(62, title);

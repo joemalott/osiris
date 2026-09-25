@@ -29,6 +29,8 @@ pub enum MenuAction {
     Overseer(crate::advisors::Advisor),
     /// Not in Osiris yet; shown greyed out.
     Unavailable,
+    /// A Mission Editor command, by the editor's own number.
+    Editor(u16),
 }
 
 #[derive(Clone)]
@@ -51,6 +53,8 @@ pub struct TopMenu {
     /// into Options, leaving File, Options, Help and Overseers as in the original.
     all: Vec<Header>,
     narrow: Option<bool>,
+    /// Whether a narrow screen folds the Overlays header into Options (the game's bar).
+    fold: bool,
     pub open: Option<usize>,
     hover: Option<usize>,
     cursor: [f32; 2],
@@ -112,11 +116,19 @@ impl TopMenu {
             ("Overlays".to_owned(), overlays),
             (t(4, 0, "Overseers"), overseers),
         ];
+        let mut menu = Self::from_headers(headers);
+        menu.fold = true;
+        menu
+    }
+
+    /// A bar of the given headers and entries, which never fold (the editor's).
+    pub fn from_headers(headers: Vec<(String, Vec<Entry>)>) -> Self {
         let all: Vec<Header> = headers.into_iter().map(|(label, entries)| Header { label, entries, x: 0.0, w: 0.0 }).collect();
         Self {
             headers: all.clone(),
             all,
             narrow: None,
+            fold: false,
             open: None,
             hover: None,
             cursor: [0.0; 2],
@@ -132,7 +144,7 @@ impl TopMenu {
             }
             self.narrow = Some(narrow);
             self.headers = self.all.clone();
-            if narrow {
+            if narrow && self.fold {
                 let overlays = self.headers.remove(3);
                 self.headers[1].entries.extend(overlays.entries);
             }

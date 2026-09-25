@@ -168,6 +168,15 @@ impl Minimap {
         crate::city_view::world_to_tile(map, world)
     }
 
+    /// The map tile under screen point `p` for a window at `origin`.
+    pub fn tile_at(&self, map: &Map, origin: [f32; 2], p: [f32; 2]) -> Option<(i32, i32)> {
+        let local = [p[0] - origin[0], p[1] - origin[1]];
+        if !(0.0..W).contains(&local[0]) || !(0.0..H).contains(&local[1]) {
+            return None;
+        }
+        crate::city_view::world_to_tile(map, self.local_to_world(local))
+    }
+
     fn tile_color(&self, map: &Map, is_house: &dyn Fn(u32) -> bool, x: i32, y: i32) -> [f32; 4] {
         let t = map.terrain.at_or(x, y, 0);
         let c = &self.colors;
@@ -243,6 +252,12 @@ impl Minimap {
     /// `Buildings::get`/`Building::house` in `osiris-sim`) as a house versus any other
     /// building. `panel_left` is the sidebar panel's left edge (`screen_w - 162.0`).
     pub fn draw(&mut self, r: &mut Renderer, map: &Map, is_house: impl Fn(u32) -> bool, panel_left: f32) {
+        self.draw_at(r, map, is_house, [panel_left + X, Y]);
+    }
+
+    /// Draws the minimap with its window's top-left corner at `origin` (the editor's
+    /// panel has its window elsewhere).
+    pub fn draw_at(&mut self, r: &mut Renderer, map: &Map, is_house: impl Fn(u32) -> bool, origin: [f32; 2]) {
         if self.dirty {
             self.rebuild(map, &is_house);
             self.dirty = false;
@@ -251,7 +266,6 @@ impl Minimap {
         let handle = *self
             .handle
             .get_or_insert_with(|| r.upload_dynamic(TEXTURE_KEY, BUF_W, BUF_H, &self.buffer));
-        let origin = [panel_left + X, Y];
         r.dynamic_image(handle, origin, [W, H], Space::Screen);
 
         let [vx0, vy0, vx1, vy1] = r.world_view();

@@ -8,6 +8,7 @@ mod army_view;
 mod city_view;
 mod data_dir;
 mod disaster_view;
+mod editor;
 mod empire_window;
 mod game;
 mod gfx;
@@ -148,6 +149,11 @@ fn list_files(dir: &Path, ext: &str) -> Vec<PathBuf> {
         .unwrap_or_default();
     v.sort();
     v
+}
+
+/// Where the player's own maps go (the Mission Editor saves there).
+fn maps_dir() -> PathBuf {
+    user_dir().join("maps")
 }
 
 fn rules_path() -> PathBuf {
@@ -424,6 +430,7 @@ enum Run {
 enum Screen {
     Menu(Box<menu::Menu>),
     Playing(Box<game::Game>, Option<usize>),
+    Editor(Box<editor::Editor>),
 }
 
 struct App {
@@ -460,6 +467,8 @@ struct App {
     run: Run,
     /// The city picked on the choice screen, taken once its briefing is read.
     pending_path: Option<u32>,
+    /// The editor waiting while its map is played: leaving the game goes back to it.
+    editor_waiting: Option<Box<editor::Editor>>,
 }
 
 impl App {
@@ -491,7 +500,60 @@ impl App {
             self.assets.data.clone(),
         ));
         menu.difficulty = load_difficulty();
+        menu.editor_maps = editor::list_maps(&self.assets.data, &maps_dir());
         menu
+    }
+
+    /// Back to the main menu, or to the Mission Editor when its map was being played.
+    fn back_to_menu(&mut self) {
+        self.screen = Some(match self.editor_waiting.take() {
+            Some(e) => Screen::Editor(e),
+            None => Screen::Menu(self.menu()),
+        });
+    }
+
+    /// Starts a custom map, which Replay can start again from its file.
+    fn start_map(&mut self, path: PathBuf) {
+        match new_world(&self.assets, &Source::Map(path.clone()), load_difficulty()) {
+            Ok(world) => {
+                self.start(world, None);
+                if let Some(Screen::Playing(g, _)) = &mut self.screen {
+                    g.replay_map = Some(path);
+                }
+            }
+            Err(e) => self.status = Some((format!("Could not start: {e}"), 5.0)),
+        }
+    }
+
+    /// Opens a map in the Mission Editor.
+    fn edit(&mut self, path: &Path) {
+        match editor::Editor::open(path, self.assets.defs.clone(), self.assets.text.clone(), maps_dir()) {
+            Ok(e) => self.screen = Some(Screen::Editor(Box::new(e))),
+            Err(e) => self.status = Some((format!("Could not open the map: {e}"), 5.0)),
+        }
+    }
+
+    /// Carries out what the editor asked for.
+    fn editor_request(&mut self) {
+        let Some(Screen::Editor(e)) = &mut self.screen else { return };
+        let Some(request) = e.request.take() else { return };
+        match request {
+            editor::Request::Exit => self.screen = Some(Screen::Menu(self.menu())),
+            editor::Request::Open => {
+                let mut menu = self.menu();
+                menu.open_page("editor");
+                self.screen = Some(Screen::Menu(menu));
+            }
+            editor::Request::Play(path) => {
+                let Some(Screen::Editor(e)) = self.screen.take() else { return };
+                self.editor_waiting = Some(e);
+                self.run = Run::Single;
+                self.start_map(path);
+                if !matches!(self.screen, Some(Screen::Playing(..))) {
+                    self.back_to_menu();
+                }
+            }
+        }
     }
 
     fn start(&mut self, mut world: World, mission: Option<usize>) {
@@ -587,7 +649,12 @@ impl App {
             }
             menu::Choice::Map(p) => {
                 self.run = Run::Single;
-                new_world(&self.assets, &Source::Map(p.clone()), load_difficulty()).map(|w| (w, None))
+                self.start_map(p.clone());
+                return;
+            }
+            menu::Choice::Edit(p) => {
+                self.edit(&p.clone());
+                return;
             }
             menu::Choice::Save(p) => load_game(&self.assets, p).map(|w| {
                 let m = w.mission.as_ref().map(|m| m.id as usize);
@@ -647,7 +714,7 @@ impl App {
     fn mission_won(&mut self, mission: Option<(usize, osiris_sim::ratings::MissionResult)>) {
         let c = self.assets.campaign.clone();
         let Some((m, result)) = mission else {
-            self.screen = Some(Screen::Menu(self.menu()));
+            self.back_to_menu();
             return;
         };
         let mut p = load_progress(&c, &self.family);
@@ -690,9 +757,9 @@ impl App {
     /// Carries out a File-menu choice made in a running game.
     fn menu_request(&mut self, request: top_menu::MenuAction, event_loop: &ActiveEventLoop) {
         use top_menu::MenuAction;
-        let mission = match &self.screen {
-            Some(Screen::Playing(_, m)) => *m,
-            _ => None,
+        let (mission, map) = match &self.screen {
+            Some(Screen::Playing(g, m)) => (*m, g.replay_map.clone()),
+            _ => (None, None),
         };
         match request {
             MenuAction::Save => self.quicksave(),
@@ -702,11 +769,12 @@ impl App {
                 menu.open_page("load");
                 self.screen = Some(Screen::Menu(menu));
             }
-            MenuAction::Replay => match mission {
-                Some(n) => self.restart(n),
-                None => self.status = Some(("Only campaign missions can be replayed".into(), 3.0)),
+            MenuAction::Replay => match (mission, map) {
+                (Some(n), _) => self.restart(n),
+                (None, Some(p)) if p.exists() => self.start_map(p),
+                _ => self.status = Some(("Only campaign missions and maps can be replayed".into(), 3.0)),
             },
-            _ => self.screen = Some(Screen::Menu(self.menu())),
+            _ => self.back_to_menu(),
         }
     }
 
@@ -894,6 +962,31 @@ impl ApplicationHandler for App {
                             }
                         }
                         Some(Screen::Menu(m)) if code == KeyCode::Escape => m.back(),
+                        Some(Screen::Editor(e)) if e.wants_text() => {
+                            let text = match code {
+                                KeyCode::Backspace => Some("\u{8}".to_owned()),
+                                KeyCode::Enter | KeyCode::NumpadEnter => Some("\n".to_owned()),
+                                KeyCode::Escape => {
+                                    e.cancel();
+                                    None
+                                }
+                                _ => event.text.as_ref().map(|t| t.to_string()),
+                            };
+                            if let Some(t) = text {
+                                e.type_text(&t);
+                            }
+                        }
+                        Some(Screen::Editor(e)) => {
+                            let alt = [KeyCode::AltLeft, KeyCode::AltRight].iter().any(|k| self.keys.contains(k));
+                            let key = match code {
+                                KeyCode::KeyH => "h",
+                                KeyCode::KeyZ => "z",
+                                KeyCode::KeyD => "d",
+                                KeyCode::Escape => "escape",
+                                _ => "",
+                            };
+                            e.key(key, alt);
+                        }
                         // The original's cheat box (Ctrl+Alt+C): typed keys go to it
                         // while it's open, as the family name box does in the menu.
                         Some(Screen::Playing(g, _)) if g.wants_cheat_text() => {
@@ -959,6 +1052,7 @@ impl ApplicationHandler for App {
                 match &mut self.screen {
                     Some(Screen::Menu(m)) => m.hover(gfx.renderer.screen, at),
                     Some(Screen::Playing(g, _)) => g.set_cursor(&gfx.renderer, at),
+                    Some(Screen::Editor(e)) => e.set_cursor(&gfx.renderer, at),
                     None => {}
                 }
             }
@@ -1016,8 +1110,24 @@ impl ApplicationHandler for App {
                         (_, ElementState::Released) => self.drag = None,
                         _ => {}
                     },
+                    Some(Screen::Editor(e)) => match (button, state) {
+                        (MouseButton::Left, ElementState::Pressed) => {
+                            if let Some((x, y)) = e.press(&gfx.renderer, at) {
+                                e.centre_on(&mut gfx.renderer, x, y);
+                            }
+                        }
+                        (MouseButton::Left, ElementState::Released) => e.release(),
+                        (MouseButton::Right, ElementState::Pressed) => {
+                            e.cancel();
+                            self.drag = Some(self.cursor);
+                        }
+                        (MouseButton::Middle, ElementState::Pressed) => self.drag = Some(self.cursor),
+                        (_, ElementState::Released) => self.drag = None,
+                        _ => {}
+                    },
                     None => {}
                 }
+                self.editor_request();
                 if let Some(c) = chosen {
                     self.choose(c, event_loop);
                 }
@@ -1038,6 +1148,7 @@ impl ApplicationHandler for App {
                             city_view::zoom_at(&mut gfx.renderer, at, 1.1f32.powf(steps));
                         }
                     }
+                    Some(Screen::Editor(_)) => city_view::zoom_at(&mut gfx.renderer, at, 1.1f32.powf(steps)),
                     None => {}
                 }
             }
@@ -1068,7 +1179,7 @@ impl App {
         let Some(gfx) = &mut self.gfx else { return };
         let mut finished: Option<Option<(usize, osiris_sim::ratings::MissionResult)>> = None;
         let mut autosaved = None;
-        let mut lost_choice: Option<(top_menu::MenuAction, Option<usize>)> = None;
+        let mut lost_choice: Option<(top_menu::MenuAction, Option<usize>, Option<PathBuf>)> = None;
         match &mut self.screen {
             Some(Screen::Menu(m)) => {
                 let panels = self.images.as_ref().map(|i| &i.panels);
@@ -1152,20 +1263,51 @@ impl App {
                 if game.world.lost
                     && let Some(a) = game.request.take()
                 {
-                    lost_choice = Some((a, *mission));
+                    lost_choice = Some((a, *mission, game.replay_map.clone()));
                 }
                 if let Some(a) = game.request.take() {
                     self.drawn_request = Some(a);
                 }
             }
+            Some(Screen::Editor(e)) => {
+                // The arrow keys and the screen's edge scroll the map, as in the city.
+                let pan = 900.0 * dt / gfx.renderer.camera.zoom;
+                let screen = gfx.renderer.screen;
+                let scale = gfx.scale();
+                let (cx, cy) = (self.cursor.0 / scale, self.cursor.1 / scale);
+                let edges = self.cursor_in && self.focused && self.drag.is_none();
+                for (k, dx, dy, at_edge) in [
+                    (KeyCode::ArrowLeft, -1.0, 0.0, cx < 8.0),
+                    (KeyCode::ArrowRight, 1.0, 0.0, cx >= screen[0] as f64 - 8.0),
+                    (KeyCode::ArrowUp, 0.0, -1.0, cy < 8.0),
+                    (KeyCode::ArrowDown, 0.0, 1.0, cy >= screen[1] as f64 - 8.0),
+                ] {
+                    if self.keys.contains(&k) || (edges && at_edge) {
+                        gfx.renderer.camera.x += dx * pan;
+                        gfx.renderer.camera.y += dy * pan;
+                    }
+                }
+                e.update(dt);
+                let panels = self.images.as_ref().map(|i| i.panels.clone());
+                gfx.frame(|r| {
+                    if let Some(p) = &panels {
+                        e.draw(r, p);
+                    }
+                    if let Some(s) = &status {
+                        osiris_ui::draw_text(r, osiris_ui::Font::NormalYellow, s, 20.0, 50.0, osiris_ui::font::WHITE);
+                    }
+                });
+            }
             None => {}
         }
+        self.editor_request();
         match lost_choice {
-            Some((top_menu::MenuAction::Replay, Some(n))) => match new_world(&self.assets, &Source::Mission(n), load_difficulty()) {
+            Some((top_menu::MenuAction::Replay, Some(n), _)) => match new_world(&self.assets, &Source::Mission(n), load_difficulty()) {
                 Ok(world) => self.start(world, Some(n)),
                 Err(e) => self.status = Some((format!("Could not start: {e}"), 5.0)),
             },
-            Some(_) => self.screen = Some(Screen::Menu(self.menu())),
+            Some((top_menu::MenuAction::Replay, None, Some(p))) => self.start_map(p),
+            Some(_) => self.back_to_menu(),
             None => {}
         }
         if let Some(path) = autosaved {
@@ -1341,14 +1483,41 @@ fn run(mut args: Args) -> Result<()> {
     migrate_legacy_family();
 
     if let Some(out) = &args.screenshot {
-        let source = match &args.map {
-            Some(m) => Source::Map(m.clone()),
-            None => Source::Mission(args.mission.unwrap_or(0)),
+        // The Mission Editor's own steps (editor/script.rs): its screen, or the city
+        // started from the map it saves to play.
+        let mut play_map = None;
+        if let Some(steps) = args.script.as_deref().filter(|s| editor::script::is_editor_script(s)) {
+            let start = editor::script::map_path(&data, editor::DEFAULT_MAP);
+            let mut e = editor::Editor::open(&start, assets.defs.clone(), assets.text.clone(), maps_dir())?;
+            let done = e.run_script(&data, steps)?;
+            match done.play {
+                Some(p) => play_map = Some(p),
+                None => {
+                    let images = sidebar::SidebarImages::load(&library)?;
+                    return gfx::screenshot(library, args.size, out, |r| {
+                        if let Some(z) = done.zoom {
+                            r.camera.zoom = z;
+                        }
+                        if let Some((x, y)) = done.view {
+                            e.centre_on(r, x, y);
+                        }
+                        if done.hover.is_some() {
+                            e.set_hover(done.hover);
+                        }
+                        e.draw(r, &images.panels);
+                    });
+                }
+            }
+        }
+        let source = match (&play_map, &args.map) {
+            (Some(p), _) => Source::Map(p.clone()),
+            (None, Some(m)) => Source::Map(m.clone()),
+            (None, None) => Source::Mission(args.mission.unwrap_or(0)),
         };
         let mut world = new_world(&assets, &source, osiris_sim::difficulty::NORMAL)?;
         let view = match &args.script {
-            Some(s) => script::run_script(&mut world, s)?,
-            None => script::ScriptView { keep_dialogs: true, ..Default::default() },
+            Some(s) if play_map.is_none() => script::run_script(&mut world, s)?,
+            _ => script::ScriptView { keep_dialogs: true, ..Default::default() },
         };
         let images = sidebar::SidebarImages::load(&library)?;
         if view.menu {
@@ -1389,6 +1558,7 @@ fn run(mut args: Args) -> Result<()> {
                 assets.data.clone(),
             );
             menu.difficulty = load_difficulty();
+            menu.editor_maps = editor::list_maps(&assets.data, &maps_dir());
             if let Some(page) = &view.menu_page {
                 menu.open_page(page);
             }
@@ -1524,6 +1694,7 @@ fn run(mut args: Args) -> Result<()> {
         family: load_current_family(),
         run: Run::Single,
         pending_path: None,
+        editor_waiting: None,
     };
     event_loop.run_app(&mut app)?;
     Ok(())
