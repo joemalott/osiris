@@ -330,7 +330,7 @@ impl World {
         let parts = b.monument.as_ref().map(|m| Self::part_tiles(&m.parts)).unwrap_or_default();
         let part_tiles = parts.into_iter().map(|(px, py)| (b.x + px, b.y + py));
         for (xx, yy) in b.tiles().chain(part_tiles).collect::<Vec<_>>() {
-            self.map.terrain.update(xx, yy, |t| t & !terrain::BUILDING);
+            self.map.terrain.update(xx, yy, |t| t & !(terrain::BUILDING | terrain::PARADE_GROUND));
             self.map.building.set(xx, yy, 0);
             self.map.set_single_image(xx, yy, 0);
         }

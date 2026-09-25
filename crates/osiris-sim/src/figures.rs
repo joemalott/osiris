@@ -228,6 +228,10 @@ pub fn citizen_ground(t: u32) -> Option<Ground> {
     if t & ACCESS_RAMP != 0 {
         return Some(Ground::Rough);
     }
+    // A fort's parade ground is a building the original's route grids let people cross.
+    if t & PARADE_GROUND != 0 {
+        return Some(Ground::Open);
+    }
     if t & (BUILDING | GATEHOUSE) != 0 {
         return None;
     }
@@ -268,7 +272,7 @@ pub fn passable(map: &Map, travel: Travel, x: i32, y: i32) -> bool {
                 | terrain::CANAL
                 | terrain::ACCESS_RAMP
                 | terrain::FLOODPLAIN;
-            t & terrain::GATEHOUSE == 0 && (t & terrain::ROAD != 0 && t & terrain::WATER == 0 || t & (mask::IMPASSABLE | terrain::BUILDING) & !OPEN == 0 || ferry)
+            t & terrain::GATEHOUSE == 0 && (t & terrain::ROAD != 0 && t & terrain::WATER == 0 || t & (mask::IMPASSABLE | terrain::BUILDING) & !OPEN == 0 || t & terrain::PARADE_GROUND != 0 || ferry)
         }
         Travel::Amphibious => citizen_ground(t).is_some() || t & terrain::WATER != 0 && t & terrain::BUILDING == 0,
         Travel::Air => true,
@@ -498,6 +502,18 @@ mod tests {
             map.terrain.set(3, 0, bits);
             assert_eq!(passable(&map, Travel::Hostile, 3, 0), open, "{bits:#x}");
         }
+    }
+
+    #[test]
+    fn a_parade_ground_is_a_building_everyone_on_foot_may_cross() {
+        let mut map = open_map(3, 1);
+        map.terrain.set(1, 0, terrain::BUILDING | terrain::PARADE_GROUND);
+        for travel in [Travel::Land, Travel::PreferRoads, Travel::Hostile, Travel::Wading] {
+            assert!(passable(&map, travel, 1, 0), "{travel:?}");
+        }
+        assert!(!passable(&map, Travel::Roads, 1, 0));
+        map.terrain.set(1, 0, terrain::BUILDING);
+        assert!(!passable(&map, Travel::Land, 1, 0));
     }
 
     #[test]
