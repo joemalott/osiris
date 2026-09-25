@@ -18,7 +18,8 @@ const USAGE: &str = "usage:
   osiris-tools message <game dir> <id>               print one Pharaoh_MM.eng entry
   osiris-tools model <game dir> <difficulty>         print buildings/houses/figures for a difficulty
   osiris-tools campaign <game dir>                   print the campaign.txt structure
-  osiris-tools empire <game dir> <mission|map path>  print the empire's cities and routes";
+  osiris-tools empire <game dir> <mission|map path>  print the empire's cities and routes
+  osiris-tools roundtrip-map <map> <out>             read a .map and write it back out";
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -44,6 +45,7 @@ fn main() -> Result<()> {
         ["model", dir, difficulty] => model_cmd(Path::new(dir), difficulty),
         ["campaign", dir] => campaign_cmd(Path::new(dir)),
         ["empire", dir, what] => empire_cmd(Path::new(dir), what),
+        ["roundtrip-map", map, out] => roundtrip_map(Path::new(map), Path::new(out)),
         _ => bail!("{USAGE}"),
     }
 }
@@ -174,6 +176,31 @@ fn describe(name: &str, s: &Scenario) {
     if !burial.is_empty() {
         println!("    burial provisions {burial:?}");
     }
+}
+
+/// Reads a map, writes its scenario back into its own chunks and saves the result, then
+/// checks the copy reads back to the same chunks.
+fn roundtrip_map(map: &Path, out: &Path) -> Result<()> {
+    let data = std::fs::read(map).with_context(|| map.display().to_string())?;
+    let file = ChunkFile::parse(&data, Layout::Map).with_context(|| map.display().to_string())?;
+    let scenario = Scenario::from_chunks(&file)?;
+    let written = scenario.to_chunk_file(file.clone())?.to_bytes();
+    std::fs::write(out, &written).with_context(|| out.display().to_string())?;
+    let back = ChunkFile::parse(&written, Layout::Map)?;
+    for name in file.names() {
+        if file.get(name) != back.get(name) {
+            bail!("chunk {name} differs after the round trip");
+        }
+    }
+    println!(
+        "{} ({} bytes) -> {} ({} bytes), all {} chunks identical",
+        map.display(),
+        data.len(),
+        out.display(),
+        written.len(),
+        file.names().count()
+    );
+    Ok(())
 }
 
 fn check_maps(game: &Path) -> Result<()> {
