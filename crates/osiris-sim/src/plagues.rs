@@ -401,7 +401,7 @@ impl World {
 pub fn keeps_own_corpse(k: u16) -> bool {
     crate::military::is_soldier(k)
         || crate::invasions::is_invader_kind(k)
-        || matches!(k, crate::navy::WARSHIP | crate::navy::TRANSPORT | crate::navy::ENEMY_TRANSPORT | crate::defenses::TOWER_SENTRY | crate::military::STANDARD_BEARER)
+        || matches!(k, crate::navy::WARSHIP | crate::navy::TRANSPORT | crate::navy::ENEMY_TRANSPORT | crate::defenses::TOWER_SENTRY | crate::military::STANDARD_BEARER | crate::tomb_robbers::TOMB_ROBBER)
 }
 
 #[cfg(test)]

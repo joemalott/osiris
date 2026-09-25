@@ -29,7 +29,7 @@ pub const VISIT: i32 = 96;
 const SERVICE_RADIUS: i32 = 2;
 
 /// Action states of roamers.
-mod action {
+pub(crate) mod action {
     pub const ROAMING: u16 = 1;
     pub const RETURNING: u16 = 2;
 }
@@ -544,18 +544,19 @@ impl World {
                 }
                 _ => {
                     let (x, y) = (f.x, f.y);
-                    // Invaders, and the wild beasts too.
+                    // Invaders, tomb robbers, and the wild beasts too.
                     let foe = self
                         .figures
                         .iter()
                         .find(|o| {
-                            (crate::invasions::is_invader_kind(o.kind) || crate::predators::is_predator(o.kind) && o.action != crate::predators::action::HIDDEN)
+                            (crate::invasions::is_invader_kind(o.kind) || o.kind == crate::tomb_robbers::TOMB_ROBBER || crate::predators::is_predator(o.kind) && o.action != crate::predators::action::HIDDEN)
                                 && o.action != crate::military::action::CORPSE
                                 && (o.x - x).abs() <= 1
                                 && (o.y - y).abs() <= 1
                         })
                         .map(|o| o.id);
                     if let Some(foe) = foe {
+                        self.corner_tomb_robber(foe, fid);
                         let f = self.figures.get_mut(fid).expect("present");
                         f.foe = foe;
                         f.action = crate::military::action::ATTACK;

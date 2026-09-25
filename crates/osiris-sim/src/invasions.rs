@@ -568,6 +568,7 @@ impl World {
                 if crate::defenses::is_defense(b.kind) {
                     self.wreck(target, false);
                 } else {
+                    self.plunder(target);
                     self.destroy(target, true);
                 }
                 // Its id may go to the ruin: look for a new target.

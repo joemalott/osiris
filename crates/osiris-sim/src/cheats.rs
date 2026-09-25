@@ -228,8 +228,8 @@ pub fn apply(world: &mut World, code: &str) -> Outcome {
             Outcome::Applied
         }
         // Recognized, but Osiris has no matching mechanic yet: no hippo figure, no
-        // tomb-robbers that single out burial goods, no river-to-blood event, no
-        // pyramid speed-up, no mummy horde.
+        // river-to-blood event, no pyramid speed-up, no mummy horde; and how Jail
+        // Break sets the tomb robbers loose is unknown.
         "Hippo Stomp" | "Side Show" | "Jail Break" | "Crimson Tide" | "Ancient Astronauts" | "Mummys Revenge" => Outcome::NotModeled,
         // Not in the original: marks every campaign mission won. The world has no
         // campaign progress of its own (that's saved by family, by the app), so

@@ -5,9 +5,11 @@
 //! thieves, no more than one per fifty people, and drop back to their level's base
 //! risk. A thief loiters a moment, then makes for a mansion (while the governor has
 //! savings) or the palace, a tax office or the courthouse (while the treasury has
-//! money) and steals from it. Constables, magistrates and some temple complexes'
-//! priests wear the risk down as they pass; a constable who meets a thief on his tile
-//! overpowers him.
+//! money) and steals from it. Where there are burial goods to take, the house sends
+//! a tomb robber instead (see [`crate::tomb_robbers`]). Constables, magistrates and
+//! some temple complexes' priests wear the risk down as they pass; a constable who
+//! meets a thief on his tile overpowers him. An invader who brings down a mansion
+//! or a building holding the treasury's money makes off with a share of it.
 
 use crate::figures::{Step, Travel};
 use crate::world::World;
@@ -36,6 +38,18 @@ const CRIMINAL_CHECK_DAYS: u64 = 10;
 
 const POLICE_STATION: u16 = 55;
 const COURTHOUSE: u16 = 184;
+
+/// The city warning (text group 19) for a theft from a building of kind `k`, or for
+/// its plunder by invaders (`plundered`).
+fn theft_warning(k: u16, plundered: bool) -> Option<u16> {
+    Some(match k {
+        77..=79 => if plundered { 197 } else { 101 },
+        187..=189 => if plundered { 198 } else { 100 },
+        86 | 87 => if plundered { 199 } else { 195 },
+        COURTHOUSE => if plundered { 200 } else { 196 },
+        _ => return None,
+    })
+}
 
 impl World {
     /// Daily: each household's crime risk moves by (80 - sentiment) / 5, 2 less with
@@ -87,8 +101,13 @@ impl World {
             if let Some(h) = self.buildings.get_mut(id).and_then(|b| b.house.as_mut()) {
                 h.crime = base;
             }
-            let out = self.figures.iter().any(|f| f.kind == ROBBER && f.home == id && !f.dead);
-            if !out {
+            let out = self.figures.iter().any(|f| matches!(f.kind, ROBBER | crate::tomb_robbers::TOMB_ROBBER) && f.home == id && !f.dead);
+            if out {
+                continue;
+            }
+            if self.tomb_robbers_come() {
+                self.spawn_tomb_robber(id);
+            } else {
                 self.spawn_criminal(id, ROBBER);
             }
         }
@@ -192,7 +211,7 @@ impl World {
         }
     }
 
-    /// A thief steals 9% of what building `id` holds.
+    /// A thief steals 3% to 15% (by difficulty) of what building `id` holds.
     fn rob(&mut self, id: u32, at: (i32, i32)) {
         let Some(k) = self.buildings.get(id).map(|b| b.kind) else { return };
         let stolen = self.loot(id) * self.by_difficulty(crate::difficulty::THEFT_PCT) / 100;
@@ -204,7 +223,29 @@ impl World {
         } else {
             self.treasury -= stolen;
         }
+        if let Some(w) = theft_warning(k, false) {
+            self.warnings.push_back(w);
+        }
         self.post_trouble("message_city_crime", at, crate::missions::Condition::Crime);
+    }
+
+    /// Invaders have brought down building `id`: from a mansion they carry off 0% to
+    /// 100% (by difficulty) of the governor's savings, from a palace, tax collector
+    /// or courthouse that much of the money it holds (`FUN_00469140`).
+    pub fn plunder(&mut self, id: u32) {
+        let Some(k) = self.buildings.get(id).map(|b| b.kind) else { return };
+        let taken = self.loot(id) * self.by_difficulty(crate::difficulty::LOOT_PCT) / 100;
+        if taken <= 0 {
+            return;
+        }
+        if MANSIONS.contains(&k) {
+            self.governor.savings -= taken;
+        } else {
+            self.treasury -= taken;
+        }
+        if let Some(w) = theft_warning(k, true) {
+            self.warnings.push_back(w);
+        }
     }
 
     /// Takes `amount` off the crime risk of the houses around a passing walker, down
@@ -264,5 +305,35 @@ impl World {
                 f.route.clear();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::world::{Command, Outcome};
+
+    #[test]
+    fn invaders_carry_off_a_share_of_what_they_bring_down() {
+        let Some(mut w) = crate::tomb_robbers::tests::town() else { return };
+        if let Some(m) = w.mission.as_mut() {
+            m.allowed.extend([77, 187]);
+        }
+        for (kind, x) in [(77, 40), (187, 45)] {
+            let cmd = Command::Build { kind, x, y: 54, x1: x, y1: 54 };
+            assert!(matches!(w.apply(&cmd), Outcome::Done { .. }), "{cmd:?}");
+        }
+        w.governor.savings = 1000;
+        w.treasury = 10_000;
+        // Normal: 30%. The palace holds all the treasury, being its only vault.
+        let mansion = w.map.building.at_or(40, 54, 0);
+        let palace = w.map.building.at_or(45, 54, 0);
+        w.plunder(mansion);
+        w.plunder(palace);
+        assert_eq!((w.governor.savings, w.treasury), (700, 7000));
+        assert!(w.warnings.contains(&197) && w.warnings.contains(&198));
+        // On Very Easy they take nothing.
+        w.set_difficulty(crate::difficulty::VERY_EASY);
+        w.plunder(palace);
+        assert_eq!(w.treasury, 7000);
     }
 }
