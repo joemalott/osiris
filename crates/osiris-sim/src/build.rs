@@ -50,10 +50,14 @@ impl World {
         if def.needs("shoreline") {
             return self.can_place_on_shore(k, x, y);
         }
-        debug_assert_eq!(self.uses_common_rules(k), !self.is_road_venue(k));
-        if self.is_road_venue(k) {
+        debug_assert_eq!(self.uses_common_rules(k), !self.is_built_over_roads(k));
+        if self.is_built_over_roads(k) {
+            // One festival square to a city (the original checks this first).
+            if k == crate::religion::FESTIVAL_SQUARE && self.buildings.iter().any(|b| b.kind == k) {
+                return Err(crate::venues::ONLY_ONE);
+            }
             if self.venue_orientation(k, x, y).is_none() {
-                return Err("Must be built where roads meet");
+                return Err(if k == crate::religion::FESTIVAL_SQUARE { crate::venues::FESTIVAL_OVER_A_CROSSING } else { crate::venues::OVER_AN_INTERSECTION });
             }
             let walker = |xx: i32, yy: i32| {
                 !self.map.terrain_is(xx, yy, terrain::ROAD) && self.figures.iter().any(|f| (f.x, f.y) == (xx, yy))
@@ -109,7 +113,8 @@ impl World {
 
     /// Whether building type `k` is placed by the common rules, tile by tile (with any
     /// monument or fort rules after), rather than by rules of its own: defences,
-    /// bridges, royal tombs, shore buildings and venues where roads meet.
+    /// bridges, royal tombs, shore buildings, and venues and the festival square over
+    /// crossings of roads.
     pub(crate) fn uses_common_rules(&self, k: u16) -> bool {
         let Some(def) = self.defs.building(k) else { return false };
         let own = crate::defenses::is_gatehouse(k)
@@ -118,7 +123,7 @@ impl World {
             || k == crate::bridges::LOW_BRIDGE
             || crate::royal_tombs::layout(k).is_some()
             || def.needs("shoreline")
-            || self.is_road_venue(k);
+            || self.is_built_over_roads(k);
         !own
     }
 
@@ -273,7 +278,7 @@ impl World {
             self.place_on_shore(id);
         } else if k == crate::irrigation::WATER_LIFT {
             self.place_lift(id);
-        } else if self.is_road_venue(k) {
+        } else if self.is_built_over_roads(k) {
             self.place_venue(id);
         } else if k == kind::STORAGE_YARD {
             self.place_storage_yard(id);
@@ -328,7 +333,7 @@ impl World {
         let part_tiles = parts.into_iter().map(|(px, py)| (b.x + px, b.y + py));
         let tiles: Vec<(i32, i32)> = b.tiles().chain(part_tiles).collect();
         for &(xx, yy) in &tiles {
-            self.map.terrain.update(xx, yy, |t| t & !terrain::BUILDING);
+            self.map.terrain.update(xx, yy, |t| t & !(terrain::BUILDING | terrain::WALKABLE_BUILDING));
             self.map.building.set(xx, yy, 0);
             self.map.set_single_image(xx, yy, 0);
         }

@@ -257,6 +257,8 @@ impl World {
         world.balance = balance;
         world.upgrade_monuments();
         world.upgrade_companies();
+        world.upgrade_fort_grounds();
+        world.upgrade_festival_squares();
         world.upgrade_statues();
         world.upgrade_traders();
         world.upgrade_defenses();

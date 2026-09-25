@@ -625,6 +625,26 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     }
                 }
             }
+            // Each tomb site's tiles by the site step they show (2 raw .. a smooth, b
+            // foundation), with a letter where a laborer stands working.
+            ["tombsite"] => {
+                for b in world.buildings.iter().filter(|b| b.monument.is_some()) {
+                    if let Some(rows) = world.tomb_site_steps(b.id) {
+                        eprintln!("{:?} tomb {} site from {},{}:", world.time, b.id, b.x, b.y);
+                        for (y, row) in rows.iter().enumerate() {
+                            let line: String = row
+                                .iter()
+                                .enumerate()
+                                .map(|(x, &s)| {
+                                    let (tx, ty) = (b.x + x as i32, b.y + y as i32);
+                                    if world.figures.iter().any(|f| f.kind == osiris_sim::farms::PEASANT && f.target == b.id && f.action == 4 && (f.x, f.y) == (tx, ty)) { 'L' } else { char::from_digit(s as u32, 16).unwrap_or('?') }
+                                })
+                                .collect();
+                            eprintln!("  {line}");
+                        }
+                    }
+                }
+            }
             // Water lifts (facing, water, staff), ditches (wet/all) and each farm's
             // irrigation and fertility.
             ["irrigation"] => {

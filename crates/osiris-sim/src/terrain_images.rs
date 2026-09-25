@@ -93,7 +93,7 @@ pub fn redraw_outcrops(map: &mut Map, defs: &Defs) {
 /// Dry floodplain the change left without an image gets its soil back last: the
 /// empty-land pass fills it with bare land blocks like any open ground.
 pub fn refresh_land(map: &mut Map, defs: &Defs, x0: i32, y0: i32, x1: i32, y1: i32) {
-    let covered = terrain::WATER | terrain::BUILDING | terrain::ROAD | terrain::CANAL | terrain::RUBBLE;
+    let covered = terrain::WATER | terrain::BUILDING | terrain::WALKABLE_BUILDING | terrain::ROAD | terrain::CANAL | terrain::RUBBLE;
     let mut floodplain = Vec::new();
     for y in y0.max(0)..=y1.min(map.height - 1) {
         for x in x0.max(0)..=x1.min(map.width - 1) {
@@ -125,7 +125,7 @@ fn growth_around(map: &Map, defs: &Defs, x: i32, y: i32) -> u32 {
     for (dx, dy) in NEIGHBOURS {
         let (nx, ny) = (x + dx, y + dy);
         let image = map.images.at_or(nx, ny, 0);
-        let dry = map.terrain_is(nx, ny, terrain::FLOODPLAIN) && !map.terrain_is(nx, ny, terrain::WATER | terrain::BUILDING | terrain::ROAD | terrain::CANAL);
+        let dry = map.terrain_is(nx, ny, terrain::FLOODPLAIN) && !map.terrain_is(nx, ny, terrain::WATER | terrain::BUILDING | terrain::WALKABLE_BUILDING | terrain::ROAD | terrain::CANAL);
         if dry && (base..base + 48).contains(&image) {
             counts[((image - base) % 6) as usize] += 1;
         }
@@ -967,6 +967,7 @@ fn meadow_ok(t: u32) -> bool {
         && t & (terrain::CANAL | terrain::ELEVATION | terrain::ACCESS_RAMP) == 0
         && t & terrain::ROAD == 0
         && (t & terrain::BUILDING == 0 || t & terrain::BRIDGE != 0)
+        && t & terrain::WALKABLE_BUILDING == 0
         && t & terrain::GARDEN == 0
 }
 

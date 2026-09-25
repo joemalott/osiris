@@ -917,30 +917,6 @@ impl World {
         self.refresh_monument_images(id);
     }
 
-    /// The staked-out foundation: its corners and edges marked, stony ground within.
-    pub(crate) fn foundation(site: u32, (x, y): (i32, i32), (x0, y0): (i32, i32), (x1, y1): (i32, i32)) -> u32 {
-        let inside = x > x0 && x < x1 || y > y0 && y < y1;
-        if (x, y) == (x0, y0) {
-            site
-        } else if (x, y) == (x0, y1) {
-            site - 2
-        } else if (x, y) == (x1, y1) {
-            site - 4
-        } else if (x, y) == (x1, y0) {
-            site - 6
-        } else if x == x0 {
-            site - 1
-        } else if y == y1 {
-            site - 3
-        } else if x == x1 {
-            site - 5
-        } else if y == y0 && inside {
-            site - 7
-        } else {
-            site + 5 + ((x + y) % 7) as u32
-        }
-    }
-
     /// The piece of a trench grid for a tile, given which of its neighbours (north,
     /// east, south, west: y-1, x+1, y+1, x-1) are trenches too. The nine pieces are
     /// the corners NE, ES, SW, WN, the T-joins open to the west, north, east and
@@ -1304,7 +1280,7 @@ impl World {
                 let b = self.buildings.get(id)?;
                 let m = b.monument.as_ref()?;
                 let def = monument_def(b.kind)?;
-                // (As many laborers as there are tiles free: the original sets no limit.)
+                // (As many laborers as there are blocks free: the original sets no other limit.)
                 if !def.laborers(m.phase) {
                     return None;
                 }
