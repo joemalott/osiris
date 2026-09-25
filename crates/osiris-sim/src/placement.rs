@@ -38,12 +38,14 @@ pub struct Preview {
 }
 
 /// One image of a placement ghost, drawn from draw tile `(x, y)` as the map draws
-/// its images.
+/// its images, or at `offset` pixels from that tile's corner for a piece the city
+/// draws over the building (the storage yard's roof).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GhostImage {
     pub x: i32,
     pub y: i32,
     pub image: u32,
+    pub offset: Option<(i32, i32)>,
 }
 
 impl World {
@@ -80,9 +82,17 @@ impl World {
                 let draw = new.edges.at_or(tx, ty, 0) & edge::DRAW_TILE != 0;
                 let changed = image != old.images.at_or(tx, ty, 0) || new.edges.at_or(tx, ty, 0) != old.edges.at_or(tx, ty, 0);
                 if draw && changed && image != 0 && new.building.at_or(tx, ty, 0) != 0 {
-                    out.push(GhostImage { x: tx, y: ty, image });
+                    out.push(GhostImage { x: tx, y: ty, image, offset: None });
                 }
             }
+        }
+        // The storage yard's roof, drawn over its hut as the built yard's is
+        // (the original's preview draws it too).
+        if k == crate::buildings::kind::STORAGE_YARD
+            && let Some(cover) = self.defs.building(k).and_then(|d| d.anims.get("cover"))
+        {
+            let (dx, dy) = crate::storage::YARD_TILES[0];
+            out.push(GhostImage { x: x + dx, y: y + dy, image: cover.image, offset: Some((cover.x, cover.y)) });
         }
         out
     }
@@ -194,7 +204,7 @@ mod tests {
         let ghost = world.placement_ghost(LARGE_STATUE, x, y);
         eprintln!("ghost worked out in {:?}", started.elapsed());
         // Drawn from the footprint's left corner, as built.
-        assert_eq!(ghost, vec![GhostImage { x, y: y + 2, image: world.statue_image(LARGE_STATUE).unwrap() }]);
+        assert_eq!(ghost, vec![GhostImage { x, y: y + 2, image: world.statue_image(LARGE_STATUE).unwrap(), offset: None }]);
         assert!(world.map.images == images && world.map.building.at_or(x, y, 0) == 0, "the city itself is untouched");
         // Nothing where it can't go.
         world.create_building(LARGE_STATUE, x, y);
