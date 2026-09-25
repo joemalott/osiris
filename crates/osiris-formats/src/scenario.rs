@@ -188,8 +188,12 @@ impl ScenarioInfo {
         s.predator_herd_types = (0..4).map(|_| r.u16()).collect::<Result<_>>()?;
         r.skip(30)?;
         s.kingdom_supplies_grain = r.i32()? != 0;
-        s.invasion_points_land = points_u16(&mut r, 8)?;
-        s.invasion_points_sea = points_u16(&mut r, 8)?;
+        // One list of sixteen points, all the x's then all the y's: the eight land
+        // points, then the eight sea points (the editor stores point n at x 744 + 2n,
+        // y 776 + 2n).
+        let mut invasion = points_u16(&mut r, 16)?;
+        s.invasion_points_sea = invasion.split_off(8);
+        s.invasion_points_land = invasion;
         r.skip(36)?;
         let w = &mut s.win;
         for g in [
@@ -291,8 +295,13 @@ impl ScenarioInfo {
         put_n(&mut w, 4, 2, &self.predator_herd_types, |w, t| w.u16(t));
         w.skip(30);
         w.flag32(self.kingdom_supplies_grain);
-        put_points_u16(&mut w, 8, &self.invasion_points_land);
-        put_points_u16(&mut w, 8, &self.invasion_points_sea);
+        let invasion: Vec<TilePoint> = (0..16)
+            .map(|i| {
+                let list = if i < 8 { &self.invasion_points_land } else { &self.invasion_points_sea };
+                list.get(i % 8).copied().unwrap_or(TilePoint { x: -1, y: -1 })
+            })
+            .collect();
+        put_points_u16(&mut w, 16, &invasion);
         w.skip(36);
         let g = &self.win;
         let six = [

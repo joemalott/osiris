@@ -111,3 +111,16 @@ fn edits_survive_a_save() {
     assert_eq!(back.info.win.population.value, 4321);
     assert_eq!(format!("{:?}", back.empire), format!("{:?}", s.empire));
 }
+
+/// The invasion points are one list of sixteen, the x's before the y's: land points
+/// first, then sea points, each on the map's edge.
+#[test]
+fn invasion_points_are_sixteen_xs_then_ys() {
+    let Some(data) = data_dir() else { return };
+    let s = Scenario::load_map(&data.join("Maps/Hostile Nations.map")).unwrap();
+    let p = |v: &[osiris_formats::scenario::TilePoint], i: usize| (v[i].x, v[i].y);
+    assert_eq!(p(&s.info.invasion_points_land, 0), (46, 25));
+    assert_eq!(p(&s.info.invasion_points_land, 1), (7, 65));
+    assert_eq!(p(&s.info.invasion_points_sea, 0), (70, 1));
+    assert_eq!(p(&s.info.invasion_points_sea, 3), (138, 69));
+}
