@@ -6,7 +6,7 @@
 //! `start_offset + y * 228 + x`.
 
 use crate::Result;
-use crate::bytes::Reader;
+use crate::bytes::{Reader, Writer};
 use crate::chunks::{ChunkFile, GRID_SIZE, GRID_TILES};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -123,6 +123,31 @@ fn point(r: &mut Reader) -> Result<TilePoint> {
     })
 }
 
+/// Writes up to `n` values with `put`, stepping over the stored ones `values` lacks.
+fn put_n<T: Copy>(w: &mut Writer, n: usize, size: usize, values: &[T], put: impl Fn(&mut Writer, T)) {
+    for i in 0..n {
+        match values.get(i) {
+            Some(&v) => put(w, v),
+            None => w.skip(size),
+        }
+    }
+}
+
+fn put_points_u16(w: &mut Writer, n: usize, points: &[TilePoint]) {
+    put_n(w, n, 2, points, |w, p| w.i16(p.x as i16));
+    put_n(w, n, 2, points, |w, p| w.i16(p.y as i16));
+}
+
+fn put_points_i32(w: &mut Writer, n: usize, points: &[TilePoint]) {
+    put_n(w, n, 4, points, |w, p| w.i32(p.x));
+    put_n(w, n, 4, points, |w, p| w.i32(p.y));
+}
+
+fn put_point(w: &mut Writer, p: TilePoint) {
+    w.i16(p.x as i16);
+    w.i16(p.y as i16);
+}
+
 impl ScenarioInfo {
     /// The gods a temple complex may be built to (Osiris, Ra, Ptah, Seth, Bast):
     /// words at bytes 1240-1249 of the scenario's info, in the reserved block.
@@ -224,6 +249,102 @@ impl ScenarioInfo {
         s.player_incarnation = r.u32()?;
         debug_assert_eq!(r.remaining(), 0);
         Ok(s)
+    }
+
+    /// Writes every field `parse` reads back into the `scenario_info` chunk bytes,
+    /// leaving the bytes it skips untouched. Flags keep their stored value while it
+    /// still reads the same; lists shorter than their field leave the remaining stored
+    /// entries as they are. A god counts as known when `gods_known` is set, whatever
+    /// `gods` says (a known god with status 0 is written as 1).
+    pub fn write_into(&self, data: &mut [u8]) {
+        assert_eq!(data.len(), 1592, "scenario_info is 1592 bytes");
+        let mut w = Writer::new(data);
+        w.i16(self.start_year);
+        w.skip(2);
+        w.i16(self.empire_id);
+        w.skip(4);
+        for i in 0..5 {
+            let status = match (self.gods_known[i], self.gods[i]) {
+                (false, _) => 0,
+                (true, 0) => 1,
+                (true, g) => g,
+            };
+            w.u8(status);
+            w.skip(1);
+        }
+        w.skip(12);
+        w.i32(self.initial_funds);
+        w.i16(self.enemy_id);
+        w.skip(6);
+        w.i32(self.width);
+        w.i32(self.height);
+        w.i32(self.start_offset);
+        w.i32(self.border_size);
+        w.cstr(64, &self.subtitle);
+        w.cstr(522, &self.brief_description);
+        w.i16(self.image_id);
+        w.flag16(self.is_open_play);
+        w.i16(self.player_rank);
+        put_points_u16(&mut w, 4, &self.predator_herd_points);
+        put_points_u16(&mut w, 8, &self.fishing_points);
+        w.u16(self.alt_predator_type);
+        put_n(&mut w, 4, 2, &self.predator_herd_types, |w, t| w.u16(t));
+        w.skip(30);
+        w.flag32(self.kingdom_supplies_grain);
+        put_points_u16(&mut w, 8, &self.invasion_points_land);
+        put_points_u16(&mut w, 8, &self.invasion_points_sea);
+        w.skip(36);
+        let g = &self.win;
+        let six = [
+            g.culture,
+            g.prosperity,
+            g.monuments,
+            g.kingdom,
+            g.housing_count,
+            g.housing_level,
+        ];
+        for goal in six {
+            w.i32(goal.value);
+        }
+        for goal in six {
+            w.flag8(goal.enabled);
+        }
+        w.skip(6);
+        for goal in [g.time_limit, g.survival_time, g.population] {
+            w.flag32(goal.enabled);
+            w.i32(goal.value);
+        }
+        put_point(&mut w, self.earthquake_point);
+        put_point(&mut w, self.entry_point);
+        put_point(&mut w, self.exit_point);
+        w.skip(32);
+        put_point(&mut w, self.river_entry_point);
+        put_point(&mut w, self.river_exit_point);
+        w.i32(self.rescue_loan);
+        for y in g.milestone_years {
+            w.i32(y);
+        }
+        w.skip(10);
+        w.flag8(self.has_animals);
+        w.flag8(self.flotsam_enabled);
+        w.u8(self.climate);
+        w.skip(11);
+        w.skip(1); // unknown
+        w.u8(self.player_faction);
+        w.skip(2);
+        put_points_i32(&mut w, 4, &self.prey_herd_points);
+        put_n(&mut w, 114, 2, &self.reserved, |w, v| w.i16(v));
+        put_points_i32(&mut w, 3, &self.disembark_points);
+        w.u32(self.debt_interest_rate);
+        for m in self.monuments {
+            w.u16(m);
+        }
+        w.skip(2);
+        put_n(&mut w, 36, 4, &self.burial_provisions_required, |w, v| w.u32(v));
+        w.skip(36 * 4); // dispatched
+        w.u32(self.current_pharaoh);
+        w.u32(self.player_incarnation);
+        debug_assert_eq!(w.pos(), 1592);
     }
 }
 
@@ -357,6 +478,56 @@ impl Scenario {
                 _ => v,
             };
         }
+    }
+
+    /// Writes the scenario's grids, info, random seed, camera and flood settings into
+    /// `file`, the mirror of `from_chunks`. The empire and the events are left as the
+    /// file holds them. Works on either layout; every chunk keeps its size, so a
+    /// scenario whose `floodplain_settings` came from a file version with a different
+    /// size is an error.
+    pub fn write_chunks(&self, file: &mut ChunkFile) -> Result<()> {
+        fn u32_bytes(grid: &[u32]) -> Vec<u8> {
+            grid.iter().flat_map(|v| v.to_le_bytes()).collect()
+        }
+        file.set("image_grid", u32_bytes(&self.images))?;
+        file.set("edge_grid", self.edges.clone())?;
+        file.set("terrain_grid", u32_bytes(&self.terrain))?;
+        file.set("bitfields_grid", self.bitfields.clone())?;
+        file.set("random_grid", self.random.clone())?;
+        file.set("elevation_grid", self.elevation.clone())?;
+        file.set("soil_fertility_grid", self.soil_fertility.clone())?;
+        file.set("vegetation_growth", self.vegetation_growth.clone())?;
+        file.set("moisture_grid", self.moisture.clone())?;
+        file.set("random_iv", u32_bytes(&self.random_iv))?;
+        file.set("city_view_camera", u32_bytes(&self.camera.map(|v| v as u32)))?;
+        if file.get("floodplain_settings").is_some() {
+            file.set("floodplain_settings", self.floodplain_settings.clone())?;
+        }
+        let info = file
+            .get_mut("scenario_info")
+            .ok_or_else(|| crate::Error::Invalid("missing chunk scenario_info".into()))?;
+        self.info.write_into(info);
+        Ok(())
+    }
+
+    /// `template` with this scenario written into it: pass the file the scenario was
+    /// loaded from (or any map, such as `Default.map`, for a new one) so that the
+    /// chunks the scenario doesn't model are kept.
+    pub fn to_chunk_file(&self, mut template: ChunkFile) -> Result<ChunkFile> {
+        self.write_chunks(&mut template)?;
+        Ok(template)
+    }
+
+    /// Saves the scenario as a `.map` at `path`, taking the chunks the scenario doesn't
+    /// model from the map at `template` (usually the one it was loaded from; it may be
+    /// the same path).
+    pub fn save_map(&self, template: &std::path::Path, path: &std::path::Path) -> Result<()> {
+        let file = ChunkFile::open(template, crate::chunks::Layout::Map)?;
+        let bytes = self.to_chunk_file(file)?.to_bytes();
+        std::fs::write(path, bytes).map_err(|source| crate::Error::Io {
+            path: path.to_owned(),
+            source,
+        })
     }
 
     pub fn load_map(path: &std::path::Path) -> Result<Self> {

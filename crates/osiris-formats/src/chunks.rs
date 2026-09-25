@@ -173,15 +173,41 @@ fn schema(layout: Layout, v: i32) -> Vec<Spec> {
     }
 }
 
-/// All chunks of a file, decompressed.
-#[derive(Debug)]
+/// How a chunk's body was stored in the file it was read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Storage {
+    /// A chunk the layout never compresses.
+    Plain,
+    /// PKWare-compressed behind its length.
+    Compressed,
+    /// A compressible chunk stored raw behind `0x8000_0000` (the game's fallback when
+    /// compression fails).
+    Raw,
+    /// A compressible chunk whose prefix is 0: the game reads it as all zeroes.
+    Zero,
+}
+
+#[derive(Debug, Clone)]
+struct Chunk {
+    name: &'static str,
+    data: Vec<u8>,
+    storage: Storage,
+}
+
+/// All chunks of a file, decompressed, in file order.
+#[derive(Debug, Clone)]
 pub struct ChunkFile {
     pub layout: Layout,
     pub version: i32,
-    chunks: Vec<(&'static str, Vec<u8>)>,
+    chunks: Vec<Chunk>,
     /// Bytes left after the last chunk (campaign entries of version 160 have 16).
     pub trailing: usize,
+    tail: Vec<u8>,
 }
+
+/// The game's buffer for a compressed chunk holds 1,200,000 bytes, and it refuses larger
+/// chunks outright.
+const MAX_CHUNK: usize = 1_200_000;
 
 impl ChunkFile {
     pub fn parse(data: &[u8], layout: Layout) -> Result<Self> {
@@ -192,33 +218,73 @@ impl ChunkFile {
         let mut r = Reader::new(data, "chunk file");
         let mut chunks = Vec::new();
         for spec in schema(layout, version) {
-            let body = if spec.compressed {
+            let (data, storage) = if spec.compressed {
                 let prefix = r.u32()?;
                 if prefix == RAW_MARKER {
-                    r.bytes(spec.size)?.to_vec()
+                    (r.bytes(spec.size)?.to_vec(), Storage::Raw)
+                } else if prefix == 0 {
+                    (vec![0; spec.size], Storage::Zero)
                 } else {
                     let packed = r.bytes(prefix as usize)?;
-                    pkware::explode(packed, spec.size)
-                        .map_err(|e| Error::Invalid(format!("chunk {}: {e}", spec.name)))?
+                    let body = pkware::explode(packed, spec.size)
+                        .map_err(|e| Error::Invalid(format!("chunk {}: {e}", spec.name)))?;
+                    (body, Storage::Compressed)
                 }
             } else {
-                r.bytes(spec.size)?.to_vec()
+                (r.bytes(spec.size)?.to_vec(), Storage::Plain)
             };
-            chunks.push((spec.name, body));
+            chunks.push(Chunk {
+                name: spec.name,
+                data,
+                storage,
+            });
         }
+        let tail = r.bytes(r.remaining())?.to_vec();
         Ok(Self {
             layout,
             version,
             chunks,
-            trailing: r.remaining(),
+            trailing: tail.len(),
+            tail,
         })
+    }
+
+    pub fn open(path: &std::path::Path, layout: Layout) -> Result<Self> {
+        Self::parse(&crate::read_file(path)?, layout)
     }
 
     pub fn get(&self, name: &str) -> Option<&[u8]> {
         self.chunks
             .iter()
-            .find(|(n, _)| *n == name)
-            .map(|(_, d)| d.as_slice())
+            .find(|c| c.name == name)
+            .map(|c| c.data.as_slice())
+    }
+
+    /// Mutable access to a chunk's decompressed bytes. Every chunk's size is fixed by
+    /// the layout: `to_bytes` panics if one has been resized.
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut Vec<u8>> {
+        self.chunks
+            .iter_mut()
+            .find(|c| c.name == name)
+            .map(|c| &mut c.data)
+    }
+
+    /// Replaces a chunk's decompressed bytes, which must keep the chunk's size.
+    pub fn set(&mut self, name: &str, data: Vec<u8>) -> Result<()> {
+        let chunk = self
+            .chunks
+            .iter_mut()
+            .find(|c| c.name == name)
+            .ok_or_else(|| Error::Invalid(format!("missing chunk {name}")))?;
+        if chunk.data.len() != data.len() {
+            return Err(Error::Invalid(format!(
+                "chunk {name} holds {} bytes, not {}",
+                chunk.data.len(),
+                data.len()
+            )));
+        }
+        chunk.data = data;
+        Ok(())
     }
 
     pub fn require(&self, name: &'static str) -> Result<&[u8]> {
@@ -227,7 +293,46 @@ impl ChunkFile {
     }
 
     pub fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
-        self.chunks.iter().map(|(n, _)| *n)
+        self.chunks.iter().map(|c| c.name)
+    }
+
+    /// How chunk `name` was stored in the file it came from.
+    pub fn storage(&self, name: &str) -> Option<Storage> {
+        self.chunks.iter().find(|c| c.name == name).map(|c| c.storage)
+    }
+
+    /// Serializes back to the file format of its layout. Compressed chunks are imploded
+    /// afresh; those the file stored raw stay raw, and a zero chunk keeps its 0 prefix
+    /// while it is still all zeroes. Bytes that trailed the last chunk are kept.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let specs = schema(self.layout, self.version);
+        assert_eq!(specs.len(), self.chunks.len(), "chunk list changed");
+        let mut out = Vec::new();
+        for (spec, c) in specs.iter().zip(&self.chunks) {
+            assert_eq!(c.data.len(), spec.size, "chunk {} resized", c.name);
+            match c.storage {
+                Storage::Plain => out.extend_from_slice(&c.data),
+                Storage::Zero if c.data.iter().all(|&b| b == 0) => {
+                    out.extend_from_slice(&0u32.to_le_bytes())
+                }
+                Storage::Raw => {
+                    out.extend_from_slice(&RAW_MARKER.to_le_bytes());
+                    out.extend_from_slice(&c.data);
+                }
+                Storage::Compressed | Storage::Zero => {
+                    let packed = pkware::implode(&c.data);
+                    if packed.len() <= MAX_CHUNK {
+                        out.extend_from_slice(&(packed.len() as u32).to_le_bytes());
+                        out.extend_from_slice(&packed);
+                    } else {
+                        out.extend_from_slice(&RAW_MARKER.to_le_bytes());
+                        out.extend_from_slice(&c.data);
+                    }
+                }
+            }
+        }
+        out.extend_from_slice(&self.tail);
+        out
     }
 }
 

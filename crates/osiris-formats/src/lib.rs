@@ -17,7 +17,7 @@ pub mod sg3;
 pub mod text;
 
 pub use campaign::Campaign;
-pub use chunks::{ChunkFile, Layout, MissionPak};
+pub use chunks::{ChunkFile, Layout, MissionPak, Storage};
 pub use empire::Empire;
 pub use events::{EventRecord, EventValue, Phrases};
 pub use images::{ImageLibrary, PackImage};
