@@ -1687,37 +1687,40 @@ impl Game {
         }
     }
 
-    /// The original's screen for a lost mission: "Defeat!" (or "Out of Time!") with
-    /// its text, then New Game and, for a campaign mission, Replay mission; out of
-    /// time, also Lower Difficulty.
+    /// The original's screen for a lost mission (FUN_004194c0, FUN_00419db0): a 34x16
+    /// panel at the top of the middle 640x480, "Defeat!" (62:1) and its text (62:16),
+    /// then New Game and, for a campaign mission, Replay mission. When time ran out
+    /// on Easy or harder a campaign mission's reads "Out of Time!" (62:38, 62:39) and
+    /// offers Lower Difficulty first.
     fn draw_lost(&mut self, r: &mut Renderer) {
         const W: i32 = 34;
-        const H: i32 = 15;
+        const H: i32 = 16;
         let img = *self.ui_images.get_or_insert_with(|| crate::widgets::UiImages::load(&r.library).expect("ui images"));
-        let (w, h) = (W as f32 * 16.0, H as f32 * 16.0);
-        let x = ((r.screen[0] - w) / 2.0).floor();
-        let y = ((r.screen[1] - h) / 2.0).floor();
+        let w = W as f32 * 16.0;
+        let x = ((r.screen[0] - 640.0) / 2.0).floor() + 48.0;
+        let y = ((r.screen[1] - 480.0) / 2.0).floor() + 9.0;
         osiris_ui::panel::outer_panel(r, &self.images.panels, x, y, W, H);
         let click = self.lost_click.take();
         let replay = self.world.mission.is_some();
+        let time = replay && self.world.lost_to_time();
         let mut ui = crate::widgets::Ui { r, panels: &self.images.panels, img, text: &self.text, cursor: self.cursor, click };
-        let (title, body) = if self.world.lost_to_time() { (38, 39) } else { (1, 16) };
+        let (title, body) = if time { (38, 39) } else { (1, 16) };
         let t = ui.t(62, title);
-        ui.centred(Font::LargeBlackOnLight, &t, x, y + 16.0, w);
+        ui.centred(Font::LargeBlackOnLight, &t, x, y + 23.0, w);
         let t = ui.t(62, body);
-        ui.wrapped(Font::NormalBlackOnLight, &t, x + 32.0, y + 52.0, w - 64.0);
-        let by = y + h - 48.0;
+        ui.wrapped(Font::NormalBlackOnLight, &t, x + 25.0, y + 55.0, 512.0);
+        let by = y + 215.0;
         let mut choice = None;
-        let mut buttons: Vec<(usize, MenuAction)> = if replay { vec![(6, MenuAction::MainMenu), (37, MenuAction::Replay)] } else { vec![(6, MenuAction::MainMenu)] };
-        if self.world.lost_to_time() {
-            buttons.push((40, MenuAction::LowerDifficulty));
-        }
-        let bw = if buttons.len() > 1 { 144.0 } else { 416.0 };
-        let gap = (w - bw * buttons.len() as f32) / (buttons.len() as f32 + 1.0);
-        for (i, (label, action)) in buttons.into_iter().enumerate() {
-            let bx = (x + gap + i as f32 * (bw + gap)).floor();
+        // (offset in the panel, width in blocks, label, choice)
+        let buttons: Vec<(f32, i32, usize, MenuAction)> = match (replay, time) {
+            (false, _) => vec![(64.0, 26, 6, MenuAction::MainMenu)],
+            (true, false) => vec![(64.0, 9, 6, MenuAction::MainMenu), (352.0, 9, 37, MenuAction::Replay)],
+            (true, true) => vec![(32.0, 9, 40, MenuAction::LowerDifficulty), (208.0, 9, 6, MenuAction::MainMenu), (384.0, 9, 37, MenuAction::Replay)],
+        };
+        for (dx, blocks, label, action) in buttons {
+            let (bx, bw) = (x + dx, blocks as f32 * 16.0);
             let rect = [bx, by, bw, 25.0];
-            osiris_ui::panel::large_label(ui.r, ui.panels, bx, by, (bw / 16.0) as i32, ui.hot(rect) as u32);
+            osiris_ui::panel::large_label(ui.r, ui.panels, bx, by, blocks, ui.hot(rect) as u32);
             let t = ui.t(62, label);
             ui.centred(Font::NormalBlackOnLight, &t, bx, by + 6.0, bw);
             if ui.clicked(rect) {
