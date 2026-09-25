@@ -13,24 +13,47 @@ const CLEAR: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 
+/// The GPU to draw with: the fast one if there is one, else any, else the system's
+/// software renderer (WARP on Windows), so a virtual machine or an old driver still
+/// gets a picture instead of no window at all.
 async fn adapter(
     instance: &wgpu::Instance,
     surface: Option<&wgpu::Surface<'_>>,
 ) -> Result<wgpu::Adapter> {
-    instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: surface,
-            ..Default::default()
-        })
-        .await
-        .context("no GPU adapter")
+    let tries = [
+        (wgpu::PowerPreference::HighPerformance, false),
+        (wgpu::PowerPreference::LowPower, false),
+        (wgpu::PowerPreference::None, true),
+    ];
+    let mut last = None;
+    for (power_preference, force_fallback_adapter) in tries {
+        match instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference,
+                force_fallback_adapter,
+                compatible_surface: surface,
+                ..Default::default()
+            })
+            .await
+        {
+            Ok(a) => {
+                log::info!("GPU: {:?}", a.get_info());
+                return Ok(a);
+            }
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(anyhow::anyhow!("{}", last.map_or_else(String::new, |e| e.to_string()))).context("Osiris found no graphics adapter it can draw with (DirectX 12, Vulkan, Metal or OpenGL)")
 }
 
 async fn device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue)> {
+    // The atlas pages are 4096 square; ask for no more than the adapter has, so an
+    // OpenGL or software adapter below the default limits still gives a device.
+    let required_limits = wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
     Ok(adapter
-        .request_device(&wgpu::DeviceDescriptor::default())
-        .await?)
+        .request_device(&wgpu::DeviceDescriptor { required_limits, ..Default::default() })
+        .await
+        .context("the graphics adapter refused to start")?)
 }
 
 /// Prefer a non-sRGB format so sprite colours reach the screen unchanged.

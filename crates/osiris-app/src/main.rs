@@ -813,10 +813,24 @@ impl ApplicationHandler for App {
         let attrs = Window::default_attributes()
             .with_title("Osiris")
             .with_inner_size(winit::dpi::LogicalSize::new(self.args.size.0, self.args.size.1));
-        let window = _event_loop.create_window(attrs).expect("create window");
-        let library = self.library.take().expect("library");
-        self.images = Some(sidebar::SidebarImages::load(&library).expect("sidebar images"));
-        self.gfx = Some(pollster::block_on(gfx::Gfx::new(window, library)).expect("init graphics"));
+        let started = (|| -> Result<_> {
+            let window = _event_loop.create_window(attrs).context("could not open a window")?;
+            let library = self.library.take().context("the game art was already taken")?;
+            let images = sidebar::SidebarImages::load(&library)?;
+            let gfx = pollster::block_on(gfx::Gfx::new(window, library))?;
+            Ok((images, gfx))
+        })();
+        let (images, gfx) = match started {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!("{e:#}");
+                data_dir::show_error(&format!("Osiris could not start its graphics.\n\n{e:#}"));
+                _event_loop.exit();
+                return;
+            }
+        };
+        self.images = Some(images);
+        self.gfx = Some(gfx);
         let direct = if let Some(map) = &self.args.map {
             Some((Source::Map(map.clone()), None))
         } else {
@@ -1255,15 +1269,45 @@ fn load_assets(data: &Path, library: &ImageLibrary) -> Result<Assets> {
     Ok(Assets { data: data.to_owned(), defs, balance, balances, text, messages, phrases, mission_names, campaign: Arc::new(campaign) })
 }
 
+/// The log of the last windowed run, in the user folder: a Windows build has no
+/// console, so warnings and a crash's report go here for the player to send in.
+fn log_path() -> PathBuf {
+    user_dir().join("osiris.log")
+}
+
+/// Sends the log to [`log_path`] when there is no console to read it in, and turns a
+/// panic into a message box plus a line in that log instead of a silent exit.
+fn init_logging(headless: bool) {
+    let to_file = cfg!(windows) && !headless;
+    let mut logger = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(if to_file { "warn,osiris=info" } else { "warn" }));
+    if to_file && let Ok(f) = std::fs::File::create(log_path()) {
+        logger.target(env_logger::Target::Pipe(Box::new(f)));
+    }
+    logger.init();
+    if headless {
+        return;
+    }
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let at = info.location().map_or_else(String::new, |l| format!(" at {}:{}", l.file(), l.line()));
+        let what = info.payload().downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| info.payload().downcast_ref::<String>().cloned()).unwrap_or_default();
+        log::error!("crashed{at}: {what}");
+        default(info);
+        data_dir::show_error(&format!("Osiris crashed{at}:\n\n{what}\n\nThe details are in {}.", log_path().display()));
+    }));
+}
+
 fn main() -> Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let args = parse_args()?;
     let headless = args.screenshot.is_some();
+    init_logging(headless);
+    log::info!("Osiris {} on {} {}", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
     let result = run(args);
     // Launched by a double-click there is no console to read an error in.
     if let Err(e) = &result
         && !headless
     {
+        log::error!("{e:#}");
         data_dir::show_error(&format!("{e:#}"));
     }
     result
