@@ -868,8 +868,8 @@ impl World {
             // A complex's temples and causeway take their ground now.
             m.parts = self.complex_parts(def.style, variant, (x0, y0)).unwrap_or_default();
             for (px, py) in Self::part_tiles(&m.parts) {
-                use crate::map::terrain::{BUILDING, MEADOW, SHRUB, TREE};
-                self.map.terrain.update(x0 + px, y0 + py, |t| (t & !(TREE | SHRUB | MEADOW)) | BUILDING);
+                use crate::map::terrain::{BUILDING, SHRUB, TREE};
+                self.map.terrain.update(x0 + px, y0 + py, |t| (t & !(TREE | SHRUB)) | BUILDING);
                 self.map.building.set(x0 + px, y0 + py, id);
             }
         }

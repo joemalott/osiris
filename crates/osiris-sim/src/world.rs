@@ -424,6 +424,7 @@ impl World {
                     items += 1;
                     if !measure {
                         self.map.terrain.set(x, y, t & !mask::CLEARABLE);
+                        self.forget_floodplain_image(x, y);
                     }
                 } else if t & mask::NOT_CLEAR != 0 && t & mask::CLEARABLE != 0 {
                     items += 1;
@@ -432,6 +433,7 @@ impl World {
                             self.map.bitfields.update(x, y, |b| b & !0x80);
                         }
                         self.map.terrain.set(x, y, t & !mask::CLEARABLE);
+                        self.forget_floodplain_image(x, y);
                     }
                 }
             }
@@ -458,8 +460,8 @@ impl World {
         }
         let (x0, y0, x1, y1) = (bx0, by0, bx1, by1);
         let radius = (x1 - x0).max(y1 - y0) + 3;
+        self.refresh_land(x0, y0, x1, y1);
         let (mut rules, map) = self.tile_rules();
-        rules.empty_land_in(map, x0 - 2, y0 - 2, x1 + 2, y1 + 2, true);
         for y in y0..=y1 {
             for x in x0..=x1 {
                 rules.rubble_image(map, x, y);
@@ -468,6 +470,20 @@ impl World {
         rules.roads_in(map, x0 - 1, y0 - 1, x0 + radius - 2, y0 + radius - 2);
         self.ditch_images_in(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
         Outcome::Done { items, cost }
+    }
+
+    /// Redraws land freed in play the way the original does (see
+    /// `terrain_images::refresh_land`).
+    pub(crate) fn refresh_land(&mut self, x0: i32, y0: i32, x1: i32, y1: i32) {
+        crate::terrain_images::refresh_land(&mut self.map, &self.defs, x0, y0, x1, y1);
+    }
+
+    /// A cleared floodplain tile loses the image of what stood on it, so
+    /// `refresh_land` gives it the bare floodplain back.
+    fn forget_floodplain_image(&mut self, x: i32, y: i32) {
+        if self.map.terrain_is(x, y, terrain::FLOODPLAIN) {
+            self.map.set_single_image(x, y, 0);
+        }
     }
 
     /// A road's distance fill spreads over ditches too; the walk back takes only those
@@ -564,14 +580,18 @@ impl World {
         for &(x, y) in &path {
             rules.roads_in(map, x - 1, y - 1, x + 1, y + 1);
         }
-        for &(x, y) in &path {
-            rules.empty_land_in(map, x - 4, y - 4, x + 4, y + 4, false);
-        }
+        let (x0, y0, x1, y1) = bounds(&path);
+        crate::terrain_images::refresh_grass(&mut self.map, &self.defs, x0 - 5, y0 - 5, x1 + 5, y1 + 5);
         for &(x, y) in path.iter().filter(|&&(x, y)| self.map.terrain_is(x, y, terrain::CANAL)).collect::<Vec<_>>() {
             self.ditch_images_in(x - 1, y - 1, x + 1, y + 1);
         }
         Outcome::Done { items, cost }
     }
+}
+
+/// The smallest rectangle holding every tile of `path` (which is never empty).
+pub(crate) fn bounds(path: &[(i32, i32)]) -> (i32, i32, i32, i32) {
+    path.iter().fold((i32::MAX, i32::MAX, i32::MIN, i32::MIN), |(a, b, c, d), &(x, y)| (a.min(x), b.min(y), c.max(x), d.max(y)))
 }
 
 /// The neighbours a routed road or ditch tries next when walking back from its end,
@@ -619,4 +639,41 @@ fn start_corner(s: &Scenario) -> Option<(i32, i32)> {
 
 fn default_debt_rate() -> i32 {
     10
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Images of the tiles in a rectangle.
+    fn images(w: &World, (x0, y0, x1, y1): (i32, i32, i32, i32)) -> Vec<u32> {
+        (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).map(|(x, y)| w.map.images.at_or(x, y, 0)).collect()
+    }
+
+    #[test]
+    fn cleared_land_looks_as_it_did_before() {
+        let Some(mut w) = crate::irrigation::tests::mission_world(12) else { return };
+        // Mission 12's meadow and grass, its floodplain's crops, and the grass by the river.
+        let area = (60, 40, 170, 140);
+        let before = images(&w, area);
+        let cmds = [
+            Command::Road { start: (76, 122), end: (96, 122) },
+            Command::Road { start: (86, 112), end: (86, 130) },
+            Command::Road { start: (135, 85), end: (158, 85) },
+            Command::Build { kind: 70, x: 82, y: 118, x1: 82, y1: 118 },
+            Command::Build { kind: 167, x: 88, y: 120, x1: 88, y1: 120 },
+            Command::Build { kind: 70, x: 62, y: 68, x1: 62, y1: 68 },
+        ];
+        for cmd in cmds {
+            assert!(matches!(w.apply(&cmd), Outcome::Done { items: 1.., .. }), "{cmd:?}");
+        }
+        assert_ne!(images(&w, area), before);
+        for (x0, y0, x1, y1) in [(76, 122, 96, 122), (86, 112, 86, 130), (82, 118, 83, 119), (88, 120, 88, 120), (135, 85, 158, 85), (62, 68, 63, 69)] {
+            w.apply(&Command::Clear { x0, y0, x1, y1 });
+        }
+        let after = images(&w, area);
+        let (x0, y0, x1, _) = area;
+        let changed: Vec<(i32, i32)> = (0..before.len()).filter(|&i| before[i] != after[i]).map(|i| (x0 + i as i32 % (x1 - x0 + 1), y0 + i as i32 / (x1 - x0 + 1))).collect();
+        assert!(changed.is_empty(), "tiles drawn differently after clearing: {changed:?}");
+    }
 }

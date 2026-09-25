@@ -263,7 +263,9 @@ impl World {
         let id = self.buildings.insert(b);
         for yy in y..y + fh {
             for xx in x..x + fw {
-                self.map.terrain.update(xx, yy, |t| (t & !(terrain::MEADOW | terrain::SHRUB | terrain::TREE)) | terrain::BUILDING);
+                // Meadow stays under the building (the original keeps it), so the land
+                // comes back as meadow when the building goes.
+                self.map.terrain.update(xx, yy, |t| (t & !(terrain::SHRUB | terrain::TREE)) | terrain::BUILDING);
                 self.map.building.set(xx, yy, id);
             }
         }
@@ -324,10 +326,17 @@ impl World {
         let defense = (crate::defenses::is_defense(b.kind) || b.kind == crate::defenses::ROADBLOCK).then_some((b.kind, b.x, b.y, b.footprint()));
         let parts = b.monument.as_ref().map(|m| Self::part_tiles(&m.parts)).unwrap_or_default();
         let part_tiles = parts.into_iter().map(|(px, py)| (b.x + px, b.y + py));
-        for (xx, yy) in b.tiles().chain(part_tiles).collect::<Vec<_>>() {
+        let tiles: Vec<(i32, i32)> = b.tiles().chain(part_tiles).collect();
+        for &(xx, yy) in &tiles {
             self.map.terrain.update(xx, yy, |t| t & !terrain::BUILDING);
             self.map.building.set(xx, yy, 0);
             self.map.set_single_image(xx, yy, 0);
+        }
+        // The freed land gets its own terrain's image back (grass, meadow, bare land),
+        // over the footprint and one tile past its far sides, as the original redraws it.
+        if !tiles.is_empty() {
+            let (x0, y0, x1, y1) = crate::world::bounds(&tiles);
+            self.refresh_land(x0, y0, x1 + 1, y1 + 1);
         }
         if crate::water::is_shore_building(b.kind) || b.kind == crate::irrigation::WATER_LIFT {
             self.remove_from_shore(&b);

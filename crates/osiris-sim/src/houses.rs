@@ -538,7 +538,7 @@ impl World {
             all.set(h);
         }
         for (xx, yy) in block(x, y, n) {
-            self.map.terrain.update(xx, yy, |t| (t & !(terrain::MEADOW | terrain::SHRUB | terrain::TREE | terrain::GARDEN)) | terrain::BUILDING);
+            self.map.terrain.update(xx, yy, |t| (t & !(terrain::SHRUB | terrain::TREE | terrain::GARDEN)) | terrain::BUILDING);
             self.map.building.set(xx, yy, id);
         }
         self.refresh_road_access(id);

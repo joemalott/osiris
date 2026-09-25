@@ -337,10 +337,7 @@ impl World {
         let (y0, y1) = (start.1.min(end.1), start.1.max(end.1));
         let (x0, y0, x1, y1) = path.iter().fold((x0, y0, x1, y1), |(a, b, c, d), &(x, y)| (a.min(x), b.min(y), c.max(x), d.max(y)));
         self.ditch_images_in(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
-        let (mut rules, map) = self.tile_rules();
-        for &(x, y) in &path {
-            rules.empty_land_in(map, x - 4, y - 4, x + 4, y + 4, false);
-        }
+        crate::terrain_images::refresh_grass(&mut self.map, &self.defs, x0 - 5, y0 - 5, x1 + 5, y1 + 5);
         Outcome::Done { items, cost }
     }
 
@@ -625,7 +622,7 @@ impl World {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A 12x12 map: river water in columns 0-2, floodplain in 3-5, dry land beyond.
@@ -667,7 +664,7 @@ mod tests {
     }
 
     /// Mission 3's map, everything allowed and staffed.
-    fn mission_world(n: usize) -> Option<World> {
+    pub(crate) fn mission_world(n: usize) -> Option<World> {
         let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
         if !data.is_dir() {
             return None;

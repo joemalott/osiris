@@ -86,6 +86,60 @@ pub fn redraw_outcrops(map: &mut Map, defs: &Defs) {
     pass.clear_outside(map);
 }
 
+/// Redraws land freed in play (cleared land, a removed road or building), as the
+/// original does after clearing: the rectangle's empty land in full, the grass in a
+/// ring 5 tiles wider (grass borders depend on what stands beside them), then the
+/// meadow in the rectangle, which the empty-land pass leaves alone.
+/// Dry floodplain the change left without an image gets its soil back last: the
+/// empty-land pass fills it with bare land blocks like any open ground.
+pub fn refresh_land(map: &mut Map, defs: &Defs, x0: i32, y0: i32, x1: i32, y1: i32) {
+    let covered = terrain::WATER | terrain::BUILDING | terrain::ROAD | terrain::CANAL | terrain::RUBBLE;
+    let mut floodplain = Vec::new();
+    for y in y0.max(0)..=y1.min(map.height - 1) {
+        for x in x0.max(0)..=x1.min(map.width - 1) {
+            let t = map.terrain.at_or(x, y, 0);
+            if t & terrain::FLOODPLAIN != 0 && t & covered == 0 && map.images.at_or(x, y, 1) == 0 {
+                floodplain.push((x, y));
+            }
+        }
+    }
+    let mut pass = Pass::new(map, defs);
+    pass.empty_land_in(map, (x0, y0, x1, y1), false);
+    pass.empty_land_in(map, (x0 - 5, y0 - 5, x1 + 5, y1 + 5), true);
+    pass.meadow_in(map, (x0, y0, x1, y1));
+    for &(x, y) in &floodplain {
+        map.set_single_image(x, y, 0);
+    }
+    for &(x, y) in &floodplain {
+        let image = pass.floodplain_soil(map, x, y) + growth_around(map, defs, x, y);
+        map.set_single_image(x, y, image);
+    }
+}
+
+/// How far the crops on the dry floodplain around `(x, y)` have grown (0-5), read from
+/// their images: Osiris doesn't track the floodplain's growth, and a cleared tile should
+/// look like the field it sits in. The most common stage wins; 0 with none around.
+fn growth_around(map: &Map, defs: &Defs, x: i32, y: i32) -> u32 {
+    let base = defs.terrain.floodplain;
+    let mut counts = [0u32; 6];
+    for (dx, dy) in NEIGHBOURS {
+        let (nx, ny) = (x + dx, y + dy);
+        let image = map.images.at_or(nx, ny, 0);
+        let dry = map.terrain_is(nx, ny, terrain::FLOODPLAIN) && !map.terrain_is(nx, ny, terrain::WATER | terrain::BUILDING | terrain::ROAD | terrain::CANAL);
+        if dry && (base..base + 48).contains(&image) {
+            counts[((image - base) % 6) as usize] += 1;
+        }
+    }
+    (0..6).rev().max_by_key(|&g| counts[g as usize]).filter(|&g| counts[g as usize] > 0).unwrap_or(0)
+}
+
+/// Redraws only the grass in a rectangle, as the original does around a new road or
+/// ditch: grass beside it takes its bordered look.
+pub fn refresh_grass(map: &mut Map, defs: &Defs, x0: i32, y0: i32, x1: i32, y1: i32) {
+    let mut pass = Pass::new(map, defs);
+    pass.empty_land_in(map, (x0, y0, x1, y1), true);
+}
+
 #[derive(Default)]
 struct Counters {
     earthquake: Vec<u32>,
@@ -513,30 +567,53 @@ impl<'a> Pass<'a> {
         NEIGHBOURS.iter().any(|&(dx, dy)| Self::t(map, x + dx, y + dy) & !CLEAR_IGNORED != 0)
     }
 
+    /// Calls `f` on every tile of the rectangle, clipped to the map.
+    fn each_in(&mut self, map: &mut Map, (x0, y0, x1, y1): (i32, i32, i32, i32), mut f: impl FnMut(&mut Self, &mut Map, i32, i32)) {
+        for y in y0.max(0)..=y1.min(map.height - 1) {
+            for x in x0.max(0)..=x1.min(map.width - 1) {
+                f(self, map, x, y);
+            }
+        }
+    }
+
     /// Cleared land, grass, and the bare land blocks that fill the rest.
     fn empty_land(&mut self, map: &mut Map) {
-        self.each_tile(map, |p, map, x, y| {
+        self.empty_land_in(map, (0, 0, map.width - 1, map.height - 1), false);
+    }
+
+    /// Cleared land in a rectangle: grassland (groundwater) takes its grass image, other
+    /// clear land loses its image and gets bare land, singles first where the random grid
+    /// says so, then the biggest blocks that fit. With `grass_only` only the grass is
+    /// redrawn, as the original does in a wider ring around a change. Meadow keeps its
+    /// image here; `meadow_in` redraws it.
+    fn empty_land_in(&mut self, map: &mut Map, rect: (i32, i32, i32, i32), grass_only: bool) {
+        self.each_in(map, rect, |p, map, x, y| {
             let t = Self::t(map, x, y);
             let clear = if p.banks.at_or(x, y, Bank::None) == Bank::Shore { t & terrain::BUILDING == 0 } else { t & !CLEAR_IGNORED == 0 };
             if !clear {
                 return;
             }
             if t & terrain::GROUNDWATER == 0 {
-                map.set_single_image(x, y, 0);
+                if !grass_only {
+                    map.set_single_image(x, y, 0);
+                }
             } else if t & NO_GRASS == 0 {
                 let image = p.grass_image(map, x, y);
                 p.put(map, x, y, image);
             }
         });
+        if grass_only {
+            return;
+        }
         let bare = |map: &Map, x, y| Self::t(map, x, y) & !CLEAR_IGNORED & !terrain::FLOODPLAIN == 0 && map.images.at_or(x, y, 1) == 0;
         let base = |p: &Self, map: &Map, x, y| if map.bitfields.at_or(x, y, 0) & 0x20 != 0 { p.defs.terrain.empty_land_alt } else { p.defs.terrain.empty_land };
-        self.each_tile(map, |p, map, x, y| {
+        self.each_in(map, rect, |p, map, x, y| {
             if bare(map, x, y) && Self::random(map, x, y) & 0xf0 == 0 {
                 let image = base(p, map, x, y) + (Self::random(map, x, y) & 7);
                 p.put(map, x, y, image);
             }
         });
-        self.each_tile(map, |p, map, x, y| {
+        self.each_in(map, rect, |p, map, x, y| {
             if !bare(map, x, y) {
                 return;
             }
@@ -626,11 +703,32 @@ impl<'a> Pass<'a> {
             self.put(map, x, y, base);
             return;
         }
-        let fertility = map.fertility.at_or(x, y, 0) as f64;
-        let soil = ((fertility * 0.01 * 8.0) as u32 & !1) | Self::random(map, x, y) & 1;
-        let first = base + soil * 6;
+        let first = self.floodplain_soil(map, x, y);
         // Crops growing on the floodplain (0-5) are not in the map; a new city starts at 0.
         self.put_choice(map, x, y, first, first, 6);
+    }
+
+    /// The first image of a dry floodplain tile's soil: by its fertility, and one of two
+    /// looks per soil.
+    fn floodplain_soil(&self, map: &Map, x: i32, y: i32) -> u32 {
+        let fertility = map.fertility.at_or(x, y, 0) as f64;
+        let soil = ((fertility * 0.01 * 8.0) as u32 & !1) | Self::random(map, x, y) & 1;
+        self.defs.terrain.floodplain + soil * 6
+    }
+
+    /// Every meadow tile in the rectangle redraws itself and the meadow around it.
+    fn meadow_in(&mut self, map: &mut Map, rect: (i32, i32, i32, i32)) {
+        self.each_in(map, rect, |p, map, x, y| {
+            let t = Self::t(map, x, y);
+            if !meadow_ok(t) || t & terrain::RUBBLE != 0 || !p.diamond.inside(x, y) {
+                return;
+            }
+            for yy in (y - 1).max(0)..=(y + 1).min(map.height - 1) {
+                for xx in (x - 1).max(0)..=(x + 1).min(map.width - 1) {
+                    p.meadow(map, xx, yy);
+                }
+            }
+        });
     }
 
     /// Meadow by its soil's fertility and the grass on it.

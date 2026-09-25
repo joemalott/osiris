@@ -128,7 +128,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["tile", p] => {
                 let (x, y) = parse_point(p)?;
                 let id = world.map.building.at_or(x, y, 0);
-                eprintln!("  tile {x},{y}: terrain {:#x} building {id} kind {:?} image {} edges {:#x}", world.map.terrain.at_or(x, y, 0), world.buildings.get(id).map(|b| b.kind), world.map.images.at_or(x, y, 0), world.map.edges.at_or(x, y, 0));
+                eprintln!("  tile {x},{y}: terrain {:#x} building {id} kind {:?} image {} edges {:#x} moisture {} fertility {}", world.map.terrain.at_or(x, y, 0), world.buildings.get(id).map(|b| b.kind), world.map.images.at_or(x, y, 0), world.map.edges.at_or(x, y, 0), world.map.moisture.at_or(x, y, 0), world.map.fertility.at_or(x, y, 0));
             }
             ["view", p] => view.centre = Some(parse_point(p)?),
             ["info", p] => view.info = Some(parse_point(p)?),
@@ -579,6 +579,21 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                             let t = world.map.terrain.at_or(x, y, 0);
                             let cliff = terrain::CLIFF | terrain::ROCK;
                             if t & terrain::WATER != 0 { '~' } else if t & terrain::FLOODPLAIN != 0 { 'p' } else if t & terrain::BUILDING != 0 { 'B' } else if t & cliff == cliff { 'C' } else if t & mask::NOT_CLEAR != 0 { 'x' } else { '.' }
+                        })
+                        .collect();
+                    eprintln!("{y:4} {row}");
+                }
+            }
+            ["grassmap"] => {
+                // Where the grass and meadow are: G full grass, g growing grass, M meadow,
+                // ~ water, p floodplain, x other blocked terrain, . bare land.
+                use osiris_sim::map::{mask, terrain};
+                for y in 0..world.map.height {
+                    let row: String = (0..world.map.width)
+                        .map(|x| {
+                            let t = world.map.terrain.at_or(x, y, 0);
+                            let m = world.map.moisture.at_or(x, y, 0);
+                            if t & terrain::WATER != 0 { '~' } else if t & terrain::FLOODPLAIN != 0 { 'p' } else if t & mask::NOT_CLEAR != 0 { 'x' } else if t & terrain::MEADOW != 0 { 'M' } else if t & terrain::GROUNDWATER == 0 { '.' } else if m >= 88 && m <= 100 { 'G' } else { 'g' }
                         })
                         .collect();
                     eprintln!("{y:4} {row}");

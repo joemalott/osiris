@@ -5,7 +5,7 @@
 //! per-region refresh functions.
 
 use crate::defs::{ContextRow, Defs};
-use crate::map::{Map, NEIGHBOURS, mask, terrain};
+use crate::map::{Map, NEIGHBOURS, terrain};
 
 /// Rotating variant counters, one per context-table row. The original keeps these as
 /// global state, so repeated edge tiles cycle through their variants.
@@ -61,21 +61,6 @@ fn road_tiles(map: &Map, x: i32, y: i32) -> [u8; 8] {
 
 fn random(map: &Map, x: i32, y: i32) -> u32 {
     map.random.at_or(x, y, 0) as u32
-}
-
-/// Grass level derived from the moisture byte: 0 none, 1..=12 growing to full,
-/// 13 other, 16+ transition edges.
-pub fn grass_level(map: &Map, x: i32, y: i32) -> u32 {
-    let m = map.moisture.at_or(x, y, 0) as u32;
-    if m & 0x80 != 0 {
-        m - 0x80 + 16
-    } else if m & 0x7 != 0 {
-        (m - 0x7) / 8 + 1
-    } else if m == 0 {
-        0
-    } else {
-        13
-    }
 }
 
 pub struct TileRules<'a> {
@@ -160,120 +145,6 @@ impl TileRules<'_> {
         if map.terrain_is(x, y, terrain::RUBBLE) && !map.terrain_is(x, y, forbidden) {
             let image = self.defs.terrain.rubble + (random(map, x, y) & 7);
             map.set_single_image(x, y, image);
-        }
-    }
-
-    fn clear_empty_land(&mut self, map: &mut Map, x: i32, y: i32) {
-        if !map.terrain_is(x, y, mask::NOT_CLEAR) {
-            map.set_single_image(x, y, 0);
-        }
-    }
-
-    /// `size x size` tiles at `(x, y)` are inside the map, clear, and not yet imaged.
-    fn is_clear_unimaged(map: &Map, x: i32, y: i32, size: i32) -> bool {
-        (y..y + size).all(|yy| {
-            (x..x + size).all(|xx| {
-                map.contains(xx, yy) && !map.terrain_is(xx, yy, mask::NOT_CLEAR) && map.images.at_or(xx, yy, 1) == 0
-            })
-        })
-    }
-
-    fn set_empty_land(map: &mut Map, x: i32, y: i32, size: i32, image: u32) {
-        let mut index = 0;
-        for dy in 0..size {
-            for dx in 0..size {
-                let (xx, yy) = (x + dx, y + dy);
-                map.terrain.update(xx, yy, |t| t & !mask::CLEARABLE);
-                map.building.set(xx, yy, 0);
-                map.bitfields.update(xx, yy, |b| b & !0x10);
-                map.set_single_image(xx, yy, image + index);
-                index += 1;
-            }
-        }
-    }
-
-    fn empty_land_pass1(&mut self, map: &mut Map, x: i32, y: i32) {
-        if map.terrain_is(x, y, mask::NOT_CLEAR) || map.images.at_or(x, y, 1) != 0 {
-            return;
-        }
-        let base = if map.bitfields.at_or(x, y, 0) & 0x20 != 0 {
-            self.defs.terrain.empty_land_alt
-        } else {
-            self.defs.terrain.empty_land
-        };
-        let r = random(map, x, y);
-        if Self::is_clear_unimaged(map, x, y, 4) {
-            Self::set_empty_land(map, x, y, 4, base + 42);
-        } else if Self::is_clear_unimaged(map, x, y, 3) {
-            Self::set_empty_land(map, x, y, 3, base + 24 + 9 * (r & 1));
-        } else if Self::is_clear_unimaged(map, x, y, 2) {
-            Self::set_empty_land(map, x, y, 2, base + 8 + 4 * (r & 3));
-        } else {
-            Self::set_empty_land(map, x, y, 1, base + (r & 7));
-        }
-    }
-
-    fn empty_land_pass2(&mut self, map: &mut Map, x: i32, y: i32) {
-        let grass = grass_level(map, x, y);
-        if map.terrain_is(x, y, mask::NOT_CLEAR | terrain::MEADOW) {
-            return;
-        }
-        let base = self.defs.terrain.grass;
-        let r = random(map, x, y);
-        if (1..=11).contains(&grass) {
-            Self::set_empty_land(map, x, y, 1, base + grass - 1 + 12 * (r % 3));
-        } else if grass == 12 {
-            let near = mask::NOT_CLEAR | terrain::MEADOW;
-            let radius = if map.terrain_in_radius(x, y, 1, 1, near) {
-                1
-            } else if map.terrain_in_radius(x, y, 1, 2, near) || self.nonfull_grass_near(map, x, y) {
-                2
-            } else {
-                3
-            };
-            let offset = match radius {
-                1 => 36,
-                2 => 60,
-                _ => 48,
-            };
-            Self::set_empty_land(map, x, y, 1, base + offset + r % 12);
-        } else if grass >= 16 {
-            // Orientation 0: transition edges map straight onto the edge group.
-            Self::set_empty_land(map, x, y, 1, self.defs.terrain.grass_edges + grass - 16);
-        }
-    }
-
-    fn nonfull_grass_near(&self, map: &Map, x: i32, y: i32) -> bool {
-        for yy in y - 1..=y + 1 {
-            for xx in x - 1..=x + 1 {
-                if map.contains(xx, yy) && grass_level(map, xx, yy) < 12 {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    /// Recomputes cleared-land images in a region, as the original does after clearing.
-    pub fn empty_land_in(&mut self, map: &mut Map, x0: i32, y0: i32, x1: i32, y1: i32, clear_first: bool) {
-        let (x0, y0) = (x0.max(0), y0.max(0));
-        let (x1, y1) = (x1.min(map.width - 1), y1.min(map.height - 1));
-        if clear_first {
-            for y in y0..=y1 {
-                for x in x0..=x1 {
-                    self.clear_empty_land(map, x, y);
-                }
-            }
-        }
-        for y in y0..=y1 {
-            for x in x0..=x1 {
-                self.empty_land_pass1(map, x, y);
-            }
-        }
-        for y in y0..=y1 {
-            for x in x0..=x1 {
-                self.empty_land_pass2(map, x, y);
-            }
         }
     }
 }
