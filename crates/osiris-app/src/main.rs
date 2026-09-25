@@ -905,6 +905,12 @@ impl ApplicationHandler for App {
             self.args.mission.map(|n| (Source::Mission(n), Some(n)))
         };
         match direct {
+            Some((Source::Map(p), _)) => {
+                self.start_map(p);
+                if self.screen.is_none() {
+                    self.screen = Some(Screen::Menu(self.menu()));
+                }
+            }
             Some((source, mission)) => match new_world(&self.assets, &source, load_difficulty()) {
                 Ok(world) => self.start(world, mission),
                 Err(e) => {
@@ -1581,6 +1587,10 @@ fn run(mut args: Args) -> Result<()> {
             return gfx::screenshot(library, args.size, out, |r| menu.draw(r, &images.panels));
         }
         let mut game = game::Game::new(world, images, assets.text.clone(), assets.messages.clone(), None);
+        game.replay_map = match source {
+            Source::Map(p) => Some(p),
+            Source::Mission(_) => None,
+        };
         game.phrases = assets.phrases.clone();
         game.player_name = player_name();
         let at = view.centre.or(view.info);
