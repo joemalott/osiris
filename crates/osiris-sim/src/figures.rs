@@ -352,6 +352,34 @@ pub fn find_route(map: &Map, travel: Travel, from: (i32, i32), to: (i32, i32)) -
     Some(route)
 }
 
+/// Walking distances from `from` over tiles a figure travelling by `travel` may stand
+/// on, stepping north, east, south and west, indexed `y * width + x`: 1 at `from`, 0
+/// where it can't get to (the original's distance flood, `FUN_00519a30`).
+pub fn route_distances(map: &Map, travel: Travel, from: (i32, i32)) -> Vec<i32> {
+    let (w, h) = (map.width, map.height);
+    let mut dist = vec![0i32; (w * h).max(0) as usize];
+    if !map.contains(from.0, from.1) {
+        return dist;
+    }
+    dist[(from.1 * w + from.0) as usize] = 1;
+    let mut queue = VecDeque::from([from]);
+    while let Some((x, y)) = queue.pop_front() {
+        let d = dist[(y * w + x) as usize];
+        for i in (0..8).step_by(2) {
+            let (nx, ny) = (x + NEIGHBOURS[i].0, y + NEIGHBOURS[i].1);
+            if !passable(map, travel, nx, ny) {
+                continue;
+            }
+            let n = (ny * w + nx) as usize;
+            if dist[n] == 0 {
+                dist[n] = d + 1;
+                queue.push_back((nx, ny));
+            }
+        }
+    }
+    dist
+}
+
 impl Figure {
     /// Sets a destination and computes the route to it.
     pub fn go_to(&mut self, map: &Map, to: (i32, i32)) -> bool {
