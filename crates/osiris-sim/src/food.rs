@@ -44,31 +44,48 @@ mod action {
 }
 
 impl World {
-    /// Where a bazaar looks for `r`: the nearest storage building within 40 tiles
-    /// holding some, unless the good is stockpiled or the bazaar doesn't buy it. Food
-    /// comes from granaries, and from storage yards only while it is being imported.
-    fn bazaar_source(&self, bazaar: BuildingId, r: u16) -> Option<BuildingId> {
+    /// Where a bazaar looks for each good, by resource: of the storage buildings within
+    /// 40 tiles holding some, the one its buyer reaches in the fewest steps along the
+    /// roads from the bazaar's road tile (the first built on a tie); none where the good
+    /// is stockpiled or the bazaar doesn't buy it. Food comes from granaries (unless the
+    /// Kingdom supplies the grain), and from storage yards only while it is imported.
+    fn bazaar_sources(&self, bazaar: BuildingId) -> Vec<Option<BuildingId>> {
         use crate::trade::status;
-        let b = self.buildings.get(bazaar)?;
-        if self.is_stockpiled(r) || !b.bazaar_buys(r) {
-            return None;
+        let mut out = vec![None; resource::COUNT];
+        let Some(b) = self.buildings.get(bazaar) else { return out };
+        let Some(road) = b.road else { return out };
+        let wanted: Vec<u16> = (resource::GRAIN..=resource::GAMEMEAT).chain(BAZAAR_GOODS).filter(|&r| !self.is_stockpiled(r) && b.bazaar_buys(r)).collect();
+        if wanted.is_empty() {
+            return out;
         }
-        let imported = matches!(self.trade.status.get(r as usize), Some(&status::IMPORT | &status::IMPORT_AS_NEEDED));
-        let yard_ok = !resource::is_food(r) || imported;
-        let from = (b.x, b.y);
-        self.buildings
-            .iter()
-            .filter(|s| crate::storage::is_storage(s.kind) && s.road.is_some() && self.stored(s.id, r) > 0)
-            .filter(|s| s.kind != kind::STORAGE_YARD || yard_ok)
-            .filter(|s| (s.x - from.0).abs().max((s.y - from.1).abs()) < MAX_SEARCH)
-            .min_by_key(|s| ((s.x - from.0).abs().max((s.y - from.1).abs()), s.id))
-            .map(|s| s.id)
+        let imported = |r: u16| matches!(self.trade.status.get(r as usize), Some(&status::IMPORT | &status::IMPORT_AS_NEEDED));
+        let dist = crate::figures::route_distances(&self.map, Travel::Roads, road);
+        let w = self.map.width;
+        let mut best = vec![i32::MAX; resource::COUNT];
+        for s in self.buildings.iter() {
+            let Some(sr) = s.road.filter(|_| crate::storage::is_storage(s.kind)) else { continue };
+            if (s.x - b.x).abs().max((s.y - b.y).abs()) >= MAX_SEARCH || !self.map.contains(sr.0, sr.1) {
+                continue;
+            }
+            let d = dist[(sr.1 * w + sr.0) as usize];
+            if d <= 0 {
+                continue;
+            }
+            for &r in &wanted {
+                let ok = if s.kind == kind::STORAGE_YARD { !resource::is_food(r) || imported(r) } else { !self.kingdom_grain };
+                if ok && d < best[r as usize] && self.stored(s.id, r) > 0 {
+                    best[r as usize] = d;
+                    out[r as usize] = Some(s.id);
+                }
+            }
+        }
+        out
     }
 
     /// The foods a bazaar deals in: those the city has a source of or it holds.
-    fn bazaar_foods(&self, id: BuildingId) -> Vec<u16> {
+    fn bazaar_foods(&self, id: BuildingId, sources: &[Option<BuildingId>]) -> Vec<u16> {
         let Some(b) = self.buildings.get(id) else { return vec![] };
-        (resource::GRAIN..=resource::GAMEMEAT).filter(|&r| self.bazaar_source(id, r).is_some() || b.stock[r as usize] > 0).collect()
+        (resource::GRAIN..=resource::GAMEMEAT).filter(|&r| sources[r as usize].is_some() || b.stock[r as usize] > 0).collect()
     }
 
     /// The goods a goods buyer may go for: those not left off for lack of demand.
@@ -79,11 +96,11 @@ impl World {
     /// What a bazaar's food buyer goes for, and where: a food it has none of, else the
     /// scarcest below 50, else one below 600. Its goods buyer: a good it has none of,
     /// else the scarcest below 100.
-    fn bazaar_wants(&self, id: BuildingId, food: bool, unwanted: [bool; 4]) -> Option<(u16, BuildingId)> {
+    fn bazaar_wants(&self, id: BuildingId, food: bool, unwanted: [bool; 4], sources: &[Option<BuildingId>]) -> Option<(u16, BuildingId)> {
         let b = self.buildings.get(id)?;
         let have = |r: u16| b.stock[r as usize];
-        let with_source = |r: u16| self.bazaar_source(id, r).map(|s| (r, s));
-        let list: Vec<u16> = if food { self.bazaar_foods(id) } else { Self::bazaar_goods(unwanted) };
+        let with_source = |r: u16| sources[r as usize].map(|s| (r, s));
+        let list: Vec<u16> = if food { self.bazaar_foods(id, sources) } else { Self::bazaar_goods(unwanted) };
         if let Some(w) = list.iter().filter(|&&r| have(r) == 0).find_map(|&r| with_source(r)) {
             return Some(w);
         }
@@ -149,8 +166,9 @@ impl World {
                         continue;
                     }
                     let unwanted = self.unwanted_goods(id);
-                    if let Some((r, source)) = self.bazaar_wants(id, food, unwanted) {
-                        let list = self.buyer_list(id, food, unwanted);
+                    let sources = self.bazaar_sources(id);
+                    if let Some((r, source)) = self.bazaar_wants(id, food, unwanted, &sources) {
+                        let list = self.buyer_list(id, food, unwanted, &sources);
                         self.spawn_buyer(id, r, source, list);
                     }
                 }
@@ -164,11 +182,11 @@ impl World {
 
     /// What a buyer shops for: up to four foods (or goods), first those the bazaar has
     /// none of, then those it is short of (under 600 of a food, 100 of a good).
-    fn buyer_list(&self, id: BuildingId, food: bool, unwanted: [bool; 4]) -> Vec<u16> {
+    fn buyer_list(&self, id: BuildingId, food: bool, unwanted: [bool; 4], sources: &[Option<BuildingId>]) -> Vec<u16> {
         let Some(b) = self.buildings.get(id) else { return vec![] };
-        let list: Vec<u16> = if food { self.bazaar_foods(id) } else { Self::bazaar_goods(unwanted) };
+        let list: Vec<u16> = if food { self.bazaar_foods(id, sources) } else { Self::bazaar_goods(unwanted) };
         let below = if food { BUY_FOOD_BELOW } else { BUY_GOOD_BELOW };
-        let has_source = |r: u16| self.bazaar_source(id, r).is_some();
+        let has_source = |r: u16| sources[r as usize].is_some();
         let empty = list.iter().copied().filter(|&r| b.stock[r as usize] == 0 && has_source(r));
         let short = list.iter().copied().filter(|&r| b.stock[r as usize] > 0 && b.stock[r as usize] < below && has_source(r));
         empty.chain(short).take(4).collect()
@@ -197,10 +215,10 @@ impl World {
     /// How far a bazaar fills `r`, and the most loads a buyer takes from one place:
     /// 800 of its first food and 600 of the others in up to eight loads, 400 of a good
     /// in up to four.
-    fn buyer_fill(&self, bazaar: BuildingId, r: u16) -> (i32, i32) {
+    fn buyer_fill(&self, bazaar: BuildingId, r: u16, sources: &[Option<BuildingId>]) -> (i32, i32) {
         if !resource::is_food(r) {
             (GOODS_FILL, 4)
-        } else if self.bazaar_foods(bazaar).first() == Some(&r) {
+        } else if self.bazaar_foods(bazaar, sources).first() == Some(&r) {
             (FIRST_FOOD_FILL, 8)
         } else {
             (FOOD_FILL, 8)
@@ -209,9 +227,9 @@ impl World {
 
     /// What a buyer already carrying `carried` of `r` takes at `source`: whole loads (a
     /// part load counts as one) until the bazaar would reach its fill level.
-    fn buyer_take(&self, bazaar: BuildingId, source: BuildingId, r: u16, carried: i32) -> i32 {
+    fn buyer_take(&self, bazaar: BuildingId, source: BuildingId, r: u16, carried: i32, sources: &[Option<BuildingId>]) -> i32 {
         let have = self.buildings.get(bazaar).map_or(0, |b| b.stock[r as usize]);
-        let (fill, most) = self.buyer_fill(bazaar, r);
+        let (fill, most) = self.buyer_fill(bazaar, r, sources);
         let room = fill - have - carried;
         if room <= 0 {
             return 0;
@@ -235,8 +253,9 @@ impl World {
                 let mut carried = std::mem::take(&mut f.carried);
                 f.counter += 1;
                 let stops = f.counter;
+                let sources = self.bazaar_sources(home);
                 for c in carried.iter_mut() {
-                    let want = self.buyer_take(home, target, c.0, c.1);
+                    let want = self.buyer_take(home, target, c.0, c.1, &sources);
                     c.1 += self.take_stored(target, c.0, want);
                 }
                 let next = if stops < BUYER_STOPS {
@@ -244,8 +263,8 @@ impl World {
                         .iter()
                         .filter_map(|&(r, n)| {
                             let have = self.buildings.get(home).map_or(0, |b| b.stock[r as usize]);
-                            let need = self.buyer_fill(home, r).0 - have - n;
-                            let src = self.bazaar_source(home, r).filter(|&s| s != target)?;
+                            let need = self.buyer_fill(home, r, &sources).0 - have - n;
+                            let src = sources[r as usize].filter(|&s| s != target)?;
                             (need > 0).then_some((need, std::cmp::Reverse(r), src))
                         })
                         .max()
@@ -488,5 +507,61 @@ impl World {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::economy::resource::GRAIN;
+    use crate::map::mask;
+    use crate::world::{Command, Outcome};
+
+    /// The sandbox map with a clear 30 x 14 patch, and that patch's corner.
+    fn sandbox() -> Option<(World, i32, i32)> {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.is_dir() {
+            return None;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).expect("open image library");
+        let scenario = osiris_formats::Scenario::load_map(&data.join("Maps/Sandbox.map")).expect("load map");
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).expect("load defs"));
+        let model_text = std::fs::read(data.join("Pharaoh_Model_Normal.txt")).expect("read model");
+        let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&model_text)).expect("parse model");
+        let balance = std::sync::Arc::new(crate::balance::Balance::from_model(&model));
+        let mut world = World::new(&scenario, defs, balance);
+        world.start(&scenario);
+        world.treasury = 100_000;
+        let (w, h) = (world.map.width, world.map.height);
+        let clear = |x: i32, y: i32| (0..14).all(|dy| (0..30).all(|dx| world.map.area_clear_of(x + dx, y + dy, 1, mask::NOT_CLEAR)));
+        let (x, y) = (0..h - 14).flat_map(|y| (0..w - 30).map(move |x| (x, y))).find(|&(x, y)| clear(x, y))?;
+        Some((world, x, y))
+    }
+
+    fn road(world: &mut World, a: (i32, i32), b: (i32, i32)) {
+        let out = world.apply(&Command::Road { start: a, end: b });
+        assert!(matches!(out, Outcome::Done { items: 1.., .. }), "{out:?}");
+    }
+
+    #[test]
+    fn bazaars_buy_from_the_granary_nearest_by_road() {
+        let Some((mut world, x, y)) = sandbox() else { return };
+        road(&mut world, (x, y + 7), (x + 29, y + 7));
+        let bazaar = world.create_building(kind::BAZAAR, x + 2, y + 8);
+        // A granary 8 tiles off whose own road doesn't join the bazaar's, and one 18
+        // tiles off on the bazaar's road.
+        road(&mut world, (x + 8, y + 4), (x + 11, y + 4));
+        let near = world.create_building(kind::GRANARY, x + 8, y);
+        let far = world.create_building(kind::GRANARY, x + 20, y + 8);
+        for g in [near, far] {
+            world.add_stored(g, GRAIN, 400);
+        }
+        assert_eq!(world.bazaar_sources(bazaar)[GRAIN as usize], Some(far), "the near granary can't be reached");
+        // Joined up, the near granary is the shorter walk.
+        road(&mut world, (x + 12, y + 4), (x + 12, y + 7));
+        assert_eq!(world.bazaar_sources(bazaar)[GRAIN as usize], Some(near));
+        // Where the Kingdom supplies the grain, bazaars don't buy it from granaries.
+        world.kingdom_grain = true;
+        assert_eq!(world.bazaar_sources(bazaar)[GRAIN as usize], None);
     }
 }
