@@ -104,6 +104,15 @@ impl World {
     }
 
     pub(crate) fn update_fishing_boat(&mut self, fid: FigureId) {
+        // Rammed or shot through by enemy warships, it goes down.
+        if self.figures.get(fid).is_some_and(|f| f.action == crate::military::action::CORPSE) {
+            self.sinking(fid);
+            return;
+        }
+        if self.holed(fid) {
+            self.sink(fid);
+            return;
+        }
         let Some(f) = self.figures.get(fid) else { return };
         let (act, home, pos) = (f.action, f.home, (f.x, f.y));
         if act == action::CREATED {

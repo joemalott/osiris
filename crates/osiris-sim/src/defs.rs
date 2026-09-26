@@ -284,8 +284,9 @@ pub struct ArmyDef {
     pub stats_row: Option<usize>,
     /// Infantry, archers, chariots.
     pub arms: [Option<ArmSprites>; 3],
-    /// Its transport ships: sailing, at rest, sinking.
+    /// Its transport ships and warships: sailing, at rest, sinking.
     pub transport: Option<ArmSprites>,
+    pub warship: Option<ArmSprites>,
 }
 
 fn load_armies(lib: &osiris_formats::ImageLibrary) -> Result<Vec<ArmyDef>, String> {
@@ -313,6 +314,7 @@ fn load_armies(lib: &osiris_formats::ImageLibrary) -> Result<Vec<ArmyDef>, Strin
             stats_row: v.get("stats_row").and_then(|r| r.as_integer()).filter(|&r| r >= 0).map(|r| r as usize),
             arms: [arm("infantry"), arm("archer"), arm("chariot")],
             transport: ship("transport"),
+            warship: ship("warship"),
         })
     };
     let mut out: Vec<ArmyDef> = t.get("nation").and_then(|n| n.as_array()).map(|a| a.iter().filter_map(army).collect()).unwrap_or_default();

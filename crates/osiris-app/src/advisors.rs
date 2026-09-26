@@ -1477,7 +1477,7 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
         let rank = osiris_sim::military::experience_rank(co.experience);
         panel::button_border(ui.r, ui.panels, px + 360.0, ry + 1.0, 30, 30, false);
         ui.image(ui.img.experience_icons + rank as u32, px + 363.0, ry + 4.0);
-        if co.abroad > 0 {
+        if world.company_away(*c) {
             let away = ui.t(G, 29);
             ui.label(Font::NormalBlackOnDark, &away, px + 500.0, ry + 4.0);
             continue;

@@ -592,12 +592,15 @@ walk = { group = 14, frames = 12 }
 death = { group = 15, frames = 12 }
 attack = { group = 16, frames = 12 }
 
+# The exe draws the Egyptian warship (type 100) from groups 0-2 and the transport
+# (101) from 4-6: the action functions at 0x4af970 and 0x4afc40 take their bases
+# from the Egyptian pack's slot at 0xf56fc4 (archers at +0x38 = group 7 check out).
 [egyptian.transport]
-swim = { group = 0, frames = 4 }
-death = { group = 1, frames = 11 }
-idle = { group = 2, frames = 1 }
-
-[egyptian.warship]
 swim = { group = 4, frames = 4 }
 death = { group = 5, frames = 11 }
 idle = { group = 6, frames = 1 }
+
+[egyptian.warship]
+swim = { group = 0, frames = 4 }
+death = { group = 1, frames = 11 }
+idle = { group = 2, frames = 1 }

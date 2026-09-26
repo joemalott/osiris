@@ -568,7 +568,7 @@ impl World {
             if f.dead || f.action == crate::military::action::CORPSE || !hail_strikes(k) {
                 continue;
             }
-            let fighter = crate::military::is_soldier(k) || crate::invasions::is_invader_kind(k) || matches!(k, crate::navy::WARSHIP | crate::navy::TRANSPORT | crate::navy::ENEMY_TRANSPORT);
+            let fighter = crate::military::is_soldier(k) || crate::invasions::is_invader_kind(k) || (matches!(k, crate::navy::WARSHIP | crate::navy::TRANSPORT) || crate::navy::is_enemy_ship(k));
             // Soldiers, invaders, boats and the dangerous beasts (crocodiles, hyenas,
             // hippos, asps, lions, scorpions) stand an even chance.
             let chance = if fighter || f.travel == Travel::Water || matches!(k, 82..=84 | 102..=104) { 50 } else { 75 };

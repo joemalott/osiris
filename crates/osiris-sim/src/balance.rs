@@ -41,6 +41,10 @@ pub struct UnitStats {
     pub speed: i32,
     /// How often this unit appears in an army, as a weight.
     pub frequency: i32,
+    /// A warship's: tiles it runs straight before it rams at full force, and ticks
+    /// of pursuit that exhaust its rowers (the model's k and l).
+    pub ram_run: i32,
+    pub exhaust: i32,
 }
 
 impl UnitStats {
@@ -56,6 +60,8 @@ impl UnitStats {
             missile_delay: f.missile_rate_of_fire as i32,
             speed: f.speed as i32,
             frequency: f.frequency as i32,
+            ram_run: f.values.get(10).copied().unwrap_or(0.0) as i32,
+            exhaust: f.values.get(11).copied().unwrap_or(0.0) as i32,
         }
     }
 }

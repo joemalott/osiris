@@ -525,6 +525,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 eprintln!("  log {log:?}");
             }
             ["invade", invader, n, point] => world.invade_now(invader.parse()?, n.parse()?, point.parse()?),
+            // An army by sea (points 9-16) with W warships.
+            ["invade", invader, n, point, w] => world.invade_by_sea_now(invader.parse()?, n.parse()?, point.parse()?, w.parse()?),
             // Runs the original's cheat code C (spaces and all; see notes/cheats.md),
             // as if typed into the cheat box, without the app's UI around it.
             ["cheat", rest @ ..] if !rest.is_empty() => {
@@ -545,7 +547,15 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 for f in world.figures.iter().filter(|f| osiris_sim::navy::is_city_ship(f.kind) || f.kind == osiris_sim::fishing::FISHING_BOAT) {
                     eprintln!("  ship {} kind {} at {},{} home {} action {} damage {} hull {}% foe {} route {} docked {} {:?}", f.id, f.kind, f.x, f.y, f.home, f.action, f.damage, world.hull_percent(f.id), f.foe, f.route.len(), world.ship_docked(f.id), f.ship);
                 }
+                for f in world.figures.iter().filter(|f| osiris_sim::navy::is_enemy_ship(f.kind)) {
+                    eprintln!("  enemy {} kind {} at {},{} action {} damage {} hull {}% men {} foe {} route {} {:?}", f.id, f.kind, f.x, f.y, f.action, f.damage, world.hull_percent(f.id), f.amount, f.foe, f.route.len(), f.ship);
+                }
                 eprintln!("  wanted {:?}", world.ship_wanted());
+            }
+            // Marks or unmarks warship ID for Kingdom service.
+            ["shipservice", id] => {
+                let out = world.apply(&Command::ShipService(id.parse()?));
+                eprintln!("{step}: {out:?}");
             }
             ["shiporder", id, o] => {
                 use osiris_sim::navy::ShipOrder;
@@ -626,6 +636,13 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             ["seapoint", p] => world.invasions.sea_points.push(parse_point(p)?),
             ["landpoint", p] => world.invasions.land_points.push(parse_point(p)?),
+            // Opens a call for troops against strength N from trade city C (by sea, if
+            // its route is), to be sent with `dispatch`.
+            ["asktroops", n, c] => {
+                let i = world.scenario_events.request_troops_now(n.parse()?);
+                world.scenario_events.list[i].city = Some(c.parse()?);
+                eprintln!("{step}: request {i} by sea {} ready {}", world.request_by_sea(i), world.troops_ready(i));
+            }
             ["troops", n] => {
                 let i = world.scenario_events.request_troops_now(n.parse()?);
                 let ok = world.dispatch_request(i);

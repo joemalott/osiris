@@ -79,7 +79,7 @@ fn outfit(kind: u16) -> Option<u16> {
 
 /// The invaders' missile in the original, whatever the archer: its row of the
 /// figure model says what a hit does.
-const SPEAR: u16 = 71;
+pub(crate) const SPEAR: u16 = 71;
 
 /// The row of the figure model a figure type fights by. The original's infantry are
 /// type 12 and its charioteers type 13 (a charioteers' fort raises a company of type
@@ -308,6 +308,9 @@ pub struct DistantBattle {
     /// Months until the battle, or, once fought, until the survivors are home.
     pub months: i32,
     pub fought: bool,
+    /// For a city reached by sea: the troops went by ship.
+    #[serde(default)]
+    pub sea: bool,
 }
 
 /// Who is on the field this tick, gathered once so fighters needn't search every
@@ -492,7 +495,7 @@ impl World {
     /// from their nation's rows.
     pub fn fighter_stats(&self, fid: FigureId) -> UnitStats {
         let Some(f) = self.figures.get(fid) else { return UnitStats::default() };
-        if let Some(s) = self.invader_stats(f) {
+        if let Some(s) = self.invader_stats(f).or_else(|| self.enemy_ship_stats(f)) {
             return s;
         }
         self.balance.unit(model_row(f.kind))
@@ -1204,7 +1207,7 @@ impl World {
         f.foe = 0;
         f.route.clear();
         f.moving = false;
-        let formation = if f.kind == crate::navy::ENEMY_TRANSPORT { 0 } else { f.formation };
+        let formation = if crate::navy::is_enemy_ship(f.kind) { 0 } else { f.formation };
         self.figure_sound(fid, 3);
         // The share of the company still standing that he was.
         let standing = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map_or(0, |c| {
@@ -1222,16 +1225,14 @@ impl World {
         true
     }
 
-    /// The strength the companies marked for Kingdom service would bring to a distant
-    /// battle: each soldier one, and one more for each hundred points of his company's
-    /// experience; an infantryman one more.
-    pub fn kingdom_service_strength(&self) -> i32 {
-        self.military
-            .companies
+    /// The nearest of the city's ships afloat and in sight within `range` of `at`.
+    fn nearest_city_ship(&self, (x, y): (i32, i32), range: i32) -> Option<(FigureId, i32, i32)> {
+        self.figures
             .iter()
-            .filter(|c| c.kingdom_service && c.fort != 0)
-            .map(|c| (c.experience + if c.kind == INFANTRY { 200 } else { 100 }) * c.soldiers.len() as i32 / 100)
-            .sum()
+            .filter(|o| (crate::navy::is_city_ship(o.kind) || o.kind == crate::fishing::FISHING_BOAT) && !o.dead && o.action != action::CORPSE && !o.ship.as_ref().is_some_and(|s| s.hidden))
+            .filter(|o| (o.x - x).abs() <= range && (o.y - y).abs() <= range)
+            .min_by_key(|o| ((o.x - x).abs() + (o.y - y).abs(), o.id))
+            .map(|o| (o.id, o.x, o.y))
     }
 
     pub fn toggle_kingdom_service(&mut self, company: usize) {
@@ -1240,16 +1241,25 @@ impl World {
         }
     }
 
-    /// The companies marked for Kingdom service march off to fight `enemy` for the
-    /// request `request`.
+    /// The companies and ships marked for Kingdom service go off to fight `enemy` for
+    /// the request `request` (FUN_004b84b0). For a city reached by land the marked
+    /// companies ashore march out of the city; for one reached by sea only the
+    /// marked companies aboard a transport go, their transports with them, and the
+    /// marked warships.
     pub(crate) fn send_to_battle(&mut self, request: usize, enemy: i32) {
-        let strength = self.kingdom_service_strength();
-        let marked: Vec<usize> = (0..self.military.companies.len()).filter(|&c| self.military.companies[c].kingdom_service && !self.military.companies[c].soldiers.is_empty() && self.company_ship(c).is_none()).collect();
+        let sea = self.request_by_sea(request);
+        let marked: Vec<usize> = (0..self.military.companies.len()).filter(|&c| self.military.companies[c].kingdom_service && !self.military.companies[c].soldiers.is_empty() && self.company_ship(c).is_some() == sea).collect();
         let exit = self.exit_point;
         for &c in &marked {
+            self.military.companies[c].at_fort = false;
+            if sea {
+                if let Some(t) = self.company_ship(c) {
+                    self.ship_to_battle(t, request);
+                }
+                continue;
+            }
             let soldiers = self.military.companies[c].soldiers.clone();
             self.military.companies[c].abroad = soldiers.len() as i32;
-            self.military.companies[c].at_fort = false;
             let map = &self.map;
             for s in soldiers {
                 if let Some(f) = self.figures.get_mut(s) {
@@ -1261,7 +1271,28 @@ impl World {
                 }
             }
         }
-        self.military.battle = Some(DistantBattle { request, enemy, strength, companies: marked, months: TRAVEL_MONTHS, fought: false });
+        let warships = if sea { self.service_warships() } else { Vec::new() };
+        for &s in &warships {
+            self.ship_to_battle(s, request);
+        }
+        let strength = self.battle_strength(request, &marked, sea);
+        self.military.battle = Some(DistantBattle { request, enemy, strength, companies: marked, months: TRAVEL_MONTHS, fought: false, sea });
+    }
+
+    /// The strength the troops away for `request` bring to its battle, reckoned on
+    /// the day (FUN_004b8360): each company (its men, and one more for each hundred
+    /// points of its experience; an infantryman one more), and each warship a tenth
+    /// of its hull.
+    fn battle_strength(&self, request: usize, companies: &[usize], sea: bool) -> i32 {
+        let men = companies
+            .iter()
+            .filter_map(|&c| self.military.companies.get(c))
+            .map(|c| {
+                let n = if sea { c.soldiers.len() as i32 } else { c.abroad };
+                (c.experience + if c.kind == INFANTRY { 200 } else { 100 }) * n / 100
+            })
+            .sum::<i32>();
+        men + if sea { self.warship_battle_strength(request) } else { 0 }
     }
 
     /// Monthly: the troops abroad reach their battle and fight it; the survivors come
@@ -1274,10 +1305,14 @@ impl World {
         }
         let b = b.clone();
         if b.fought {
-            // Home again: the survivors walk back to their forts.
+            // Home again: the survivors walk back to their forts, and the ships sail
+            // back (FUN_004b8690).
             self.military.battle = None;
             let exit = self.exit_point;
             for &c in &b.companies {
+                if b.sea {
+                    continue;
+                }
                 let n = std::mem::take(&mut self.military.companies[c].abroad);
                 self.military.companies[c].at_fort = true;
                 for _ in 0..n {
@@ -1294,31 +1329,61 @@ impl World {
                     self.send_to_post(fid);
                 }
             }
+            self.ships_come_home(b.request);
             return;
         }
+        let strength = self.battle_strength(b.request, &b.companies, b.sea);
         // Seth, if he has promised, sees the troops through without loss.
         let protected = std::mem::take(&mut self.religion.seth_protects);
-        let won = protected || b.strength >= b.enemy && b.strength > 0;
+        let won = protected || strength >= b.enemy && strength > 0;
         let losses = if protected {
             0
         } else if won {
-            battle_losses((b.strength - b.enemy) * 100 / b.strength.max(1))
+            battle_losses((strength - b.enemy) * 100 / strength.max(1))
         } else {
             100
         };
         for &c in &b.companies {
-            let co = &mut self.military.companies[c];
-            co.abroad -= co.abroad * losses / 100;
+            if b.sea {
+                self.company_loses_aboard(c, losses);
+            } else {
+                let co = &mut self.military.companies[c];
+                co.abroad -= co.abroad * losses / 100;
+            }
         }
-        let returning = b.companies.iter().any(|&c| self.military.companies[c].abroad > 0);
+        if b.sea {
+            self.warships_take_losses(b.request, losses);
+        }
+        let returning = b.companies.iter().any(|&c| self.military.companies[c].abroad > 0) || !self.ships_abroad(b.request).is_empty();
         if let Some(bb) = self.military.battle.as_mut() {
             bb.fought = true;
             bb.months = TRAVEL_MONTHS;
+            bb.strength = strength;
         }
         if !returning {
             self.military.battle = None;
         }
         self.settle_troop_request(b.request, won);
+    }
+
+    /// A company that fought from a transport loses `pct` of its men; lost to a man,
+    /// its transport is lost with it (FUN_004b8890, FUN_004b8460).
+    fn company_loses_aboard(&mut self, c: usize, pct: i32) {
+        let Some(co) = self.military.companies.get_mut(c) else { return };
+        let alive = co.soldiers.len() as i32;
+        let kills = (alive * pct / 100) as usize;
+        let lost: Vec<FigureId> = co.soldiers.split_off(co.soldiers.len() - kills);
+        for s in lost {
+            if let Some(f) = self.figures.get_mut(s) {
+                f.dead = true;
+            }
+        }
+        if kills as i32 == alive
+            && alive > 0
+            && let Some(t) = self.company_ship(c)
+        {
+            self.sink_abroad(t);
+        }
     }
     pub(crate) fn update_morale_month(&mut self) {
         for c in &mut self.military.companies {
@@ -1365,9 +1430,11 @@ impl World {
         let (x, y) = (f.x, f.y);
         let mine = self.figures.get(fid).is_some_and(|f| self.is_invader(f));
         let range = stats.missile_range;
-        // The city's men shoot at invaders before beasts.
+        // The city's men shoot at invaders before beasts; invaders at the city's
+        // fighters before its ships (FUN_00499e50 ranks soldiers above warships and
+        // transports).
         let target = if mine {
-            self.nearest_foe(true, (x, y), range)
+            self.nearest_foe(true, (x, y), range).or_else(|| self.nearest_city_ship((x, y), range))
         } else {
             let near = |list: &[(FigureId, i32, i32)]| list.iter().filter(|o| (o.1 - x).abs() <= range && (o.2 - y).abs() <= range).min_by_key(|o| (o.1 - x).abs() + (o.2 - y).abs()).copied();
             near(&self.combatants.invaders).or_else(|| near(&self.combatants.predators))
@@ -1385,6 +1452,11 @@ impl World {
             // The company whose man loosed it, which learns from a kill.
             m.formation = company;
             m.amount = attack;
+            // A ship the invader's missile strikes takes the archer's own missile
+            // attack.
+            if mine {
+                m.cargo = stats.missile_attack.max(0) as u16;
+            }
             m.destination = Some((tx, ty));
             m.direction = crate::figures::direction_to((x, y), (tx, ty)).unwrap_or(0);
         }
@@ -1410,14 +1482,20 @@ impl World {
             return;
         }
         m.dead = true;
-        let (target, attack, company, theirs) = (m.foe, m.amount, m.formation.checked_sub(1).map(|c| c as usize), m.kind == ARROW);
+        let (target, attack, company, theirs, shooter) = (m.foe, m.amount, m.formation.checked_sub(1).map(|c| c as usize), m.kind == ARROW, m.cargo as i32);
         let hit = self.figures.get(target).is_some_and(|t| !t.dead && t.action != action::CORPSE && (t.x - tx).abs() <= 1 && (t.y - ty).abs() <= 1);
         if !hit {
             return;
         }
         let armor = self.fighter_stats(target).missile_armor;
-        let kind = self.figures.get(target).map_or(0, |t| t.kind);
-        if theirs {
+        let (kind, holding) = self.figures.get(target).map_or((0, false), |t| (t.kind, t.action == crate::navy::ship::HOLD));
+        if theirs && (crate::navy::is_city_ship(kind) || kind == crate::fishing::FISHING_BOAT) {
+            // A ship struck takes the shooter's missile attack, all or nothing; a
+            // warship holding position has 2 more armour (the missile's action at
+            // 0x4a1ef0).
+            let armor = armor + if kind == crate::navy::WARSHIP && holding { 2 } else { 0 };
+            self.hurt(target, spear(shooter, armor));
+        } else if theirs {
             let seasoned = if is_soldier(kind) { (self.company_of(target).and_then(|c| self.military.companies.get(c)).map_or(0, |c| c.experience) + 10) / 20 } else { 0 };
             let armor = (armor + seasoned).min(MAX_ARMOR) + self.line(target).map_or(0, |l| l.missile_armor());
             self.hurt(target, spear(attack, armor));

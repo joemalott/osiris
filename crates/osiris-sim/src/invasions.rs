@@ -114,6 +114,9 @@ pub struct Invasion {
     /// The scenario event it was planned from.
     #[serde(default)]
     pub event: Option<usize>,
+    /// Warships coming by sea with it, when not the event's own number (scripts).
+    #[serde(default)]
+    pub warships: Option<i32>,
     pub armed: bool,
     pub announced: bool,
     last_warning: i32,
@@ -353,7 +356,10 @@ impl World {
         let army = self.invasions.armies.len();
         self.invasions.armies.push(Army { invader: inv.invader, nation, priority: inv.target, morale: 100, entry: spot, ..Default::default() });
         if by_sea {
-            self.launch_sea_invasion(army, nation, amount, spot);
+            // The scenario's warships come too (byte 58 of the event), Egyptian ones
+            // for Pharaoh's or an Egyptian city's army.
+            let warships = inv.warships.or_else(|| inv.event.and_then(|e| self.scenario_events.list.get(e)).map(|e| e.god as u8 as i32)).unwrap_or(0);
+            self.launch_sea_invasion(army, nation, amount, spot, warships, matches!(inv.invader, invader::EGYPT | invader::PHARAOH));
         } else {
             let spot = self.nearest_land(spot).unwrap_or(spot);
             self.invasions.armies[army].entry = spot;
@@ -450,7 +456,7 @@ impl World {
                 }
             }
         }
-        let afloat = self.figures.iter().filter(|f| f.kind == crate::navy::ENEMY_TRANSPORT && !f.dead && f.amount > 0).count();
+        let afloat = self.figures.iter().filter(|f| crate::navy::is_enemy_transport(f.kind) && !f.dead && f.amount > 0).count();
         bands.len() + afloat + self.herds.len()
     }
 
@@ -469,8 +475,14 @@ impl World {
 
     /// Sends an army at once (for tests and the scripted harness).
     pub fn invade_now(&mut self, invader: u8, amount: i32, point: i32) {
+        self.invade_by_sea_now(invader, amount, point, 0);
+    }
+
+    /// Sends an army at once, with `warships` if it comes by sea.
+    pub fn invade_by_sea_now(&mut self, invader: u8, amount: i32, point: i32, warships: i32) {
         self.invasions.planned.push(Invasion {
             invader,
+            warships: Some(warships),
             amount: Pick { value: amount as i16, fixed: amount as i16, min: -1, max: -1 },
             point: Pick { value: point as i16, fixed: point as i16, min: -1, max: -1 },
             ..Default::default()

@@ -14,10 +14,6 @@ const DEATH_FRAME_TICKS: i32 = 4;
 /// A fighter's marching, striking and falling animations: an invader's from his
 /// army's art, anyone else's from the figure list.
 fn fighter_anims(world: &World, f: &Figure) -> Option<(Anim, Option<Anim>, Option<Anim>)> {
-    if f.kind == osiris_sim::navy::ENEMY_TRANSPORT {
-        let s = world.defs.armies.get(f.cargo as usize)?.transport?;
-        return Some((s.walk, None, Some(s.death)));
-    }
     if invasions::is_invader_kind(f.kind) {
         let arm = match f.kind {
             ENEMY_ARCHER => 1,
@@ -32,9 +28,43 @@ fn fighter_anims(world: &World, f: &Figure) -> Option<(Anim, Option<Anim>, Optio
     Some((*anims.get("walk")?, anims.get("attack").copied(), anims.get("death").copied()))
 }
 
+/// An invader's ship, as its action function draws it (0x4adf60, 0x4aee10 and the
+/// Egyptians' 0x4af970, 0x4afc40): under way, four frames of three ticks each for
+/// its heading; still, or with its rowers spent, its resting frame; going down, its
+/// eleven sinking frames three ticks apiece, then the river closing over it
+/// (SprAmbient group 11) a frame a tick, the last held until it is gone.
+fn enemy_ship_sprite(world: &World, f: &Figure) -> Option<Sprite> {
+    use osiris_sim::navy;
+    let army = world.defs.armies.get(f.cargo as usize)?;
+    let s = if navy::is_enemy_warship(f.kind) { army.warship } else { army.transport }?;
+    let offset = f.pixel_offset();
+    let image = if f.action == action::CORPSE {
+        let t = f.counter.max(0) as u32;
+        if t <= 32 {
+            s.death.image + (t / 3).min(s.death.frames.max(1) - 1)
+        } else {
+            // The swirl the crocodile and hippo sink into.
+            let sink = world.defs.figure(osiris_sim::animals::figure_kind::CROCODILE).and_then(|d| d.anims.get("sink").copied())?;
+            sink.image + (t - 33).min(sink.frames.max(1) - 1)
+        }
+    } else {
+        let spent = f.ship.as_ref().is_some_and(|s| s.fatigue == 2);
+        if f.moving && !spent {
+            let frame = (f.anim_tick % 12) / 3;
+            s.walk.image + f.direction as u32 % 8 + 8 * frame.min(s.walk.frames.max(1) - 1)
+        } else {
+            s.attack.image + f.direction as u32 % 8
+        }
+    };
+    Some(Sprite { behind: false, x: f.x, y: f.y, offset, image })
+}
+
 /// The sprite for a fighter or missile, or `None` for other figures.
 pub fn fighter_sprite(world: &World, f: &Figure) -> Option<Sprite> {
-    let fighter = military::is_soldier(f.kind) || invasions::is_invader_kind(f.kind) || f.kind == osiris_sim::navy::ENEMY_TRANSPORT;
+    if osiris_sim::navy::is_enemy_ship(f.kind) {
+        return enemy_ship_sprite(world, f);
+    }
+    let fighter = military::is_soldier(f.kind) || invasions::is_invader_kind(f.kind);
     let missile = matches!(f.kind, military::ARROW | military::JAVELIN);
     if !fighter && !missile {
         return None;

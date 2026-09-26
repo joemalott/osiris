@@ -96,6 +96,8 @@ pub enum Command {
     MoveShip { ship: crate::figures::FigureId, x: i32, y: i32 },
     Embark { ship: crate::figures::FigureId, company: usize },
     Disembark { ship: crate::figures::FigureId, x: i32, y: i32 },
+    /// Marks or unmarks a warship for Kingdom service (the navy overseer's switch).
+    ShipService(crate::figures::FigureId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -588,6 +590,7 @@ impl World {
             &Command::MoveShip { ship, x, y } => done_if(self.move_ship(ship, (x, y))),
             &Command::Embark { ship, company } => done_if(self.embark(ship, company)),
             &Command::Disembark { ship, x, y } => done_if(self.disembark(ship, (x, y))),
+            &Command::ShipService(ship) => done_if(self.toggle_ship_service(ship)),
         }
     }
 

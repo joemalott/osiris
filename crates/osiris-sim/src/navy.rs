@@ -23,9 +23,21 @@
 //! Either goes to the shipwright with the shortest repair queue on its own when its
 //! hull falls to 15% or less (FUN_004a45d0), and sinks if its wharf is lost.
 //!
-//! An invasion from the sea comes in transports, a ship for every sixteen men. They
-//! sail from the sea invasion point toward the nearest landing place, put their men
-//! ashore and sail away; a transport sunk before it lands takes its men down with it.
+//! Marked warships, and companies aboard transports, answer the Kingdom's calls for
+//! troops from cities reached by sea (FUN_004b84b0): they sail off by the river
+//! entry and are gone until the battle is over. A warship brings a tenth of its hull
+//! to the battle, and the battle's losses come off the warships' hulls, sinking
+//! those they use up (FUN_004b8360, FUN_004b8890). The survivors sail home: a
+//! warship to its wharf, a transport to put its company ashore by its old post
+//! (FUN_004b8690).
+//!
+//! An invasion from the sea comes in transports, a ship for every sixteen men, with
+//! the warships the scenario gives it (FUN_00446a30). The transports sail from the
+//! sea invasion point to one of the landing places, put their men ashore and sail
+//! away by the river; a transport sunk before it lands takes its men down with it.
+//! The warships patrol the river and hunt the city's ships and soldiers, ram and
+//! shoot at them, flee when badly holed, and sail off after four months without
+//! a fight (their action functions at 0x4aee10 and 0x4af970).
 
 use crate::buildings::BuildingId;
 use crate::economy::resource::TIMBER;
@@ -38,6 +50,23 @@ use crate::world::World;
 pub const TRANSPORT: u16 = 77;
 pub const WARSHIP: u16 = 78;
 pub const ENEMY_TRANSPORT: u16 = 92;
+pub const ENEMY_WARSHIP: u16 = 93;
+/// An Egyptian army's (Pharaoh's, or a rebel city's) warships and transports.
+pub const EGYPT_WARSHIP: u16 = 100;
+pub const EGYPT_TRANSPORT: u16 = 101;
+
+/// Whether `k` is an invader's ship.
+pub fn is_enemy_ship(k: u16) -> bool {
+    matches!(k, ENEMY_TRANSPORT | ENEMY_WARSHIP | EGYPT_WARSHIP | EGYPT_TRANSPORT)
+}
+
+pub fn is_enemy_warship(k: u16) -> bool {
+    matches!(k, ENEMY_WARSHIP | EGYPT_WARSHIP)
+}
+
+pub fn is_enemy_transport(k: u16) -> bool {
+    matches!(k, ENEMY_TRANSPORT | EGYPT_TRANSPORT)
+}
 
 const SHIPWRIGHT: u16 = crate::water::SHIPWRIGHT;
 const FISHING_WHARF: u16 = crate::water::FISHING_WHARF;
@@ -65,11 +94,12 @@ const ENGAGE_LEASH: i32 = 10;
 const SEEK_SEARCH: i32 = 228;
 /// Ticks between a pursuing warship's fresh routes to its quarry.
 const REPATH_TICKS: i32 = 10;
-/// Tiles run straight before a warship rams at full force (its model attack; 20
-/// otherwise), and the ticks before it can ram again.
-const RAM_RUN: i32 = 4;
-const RAM_WEAK: i32 = 20;
+/// A warship rams at full force (its model attack) after a straight run of the
+/// model's k tiles, else at a fifth of it; then it can't ram for 15 ticks.
+const RAM_WEAK_PCT: i32 = 20;
 const RAM_COOLDOWN: i32 = 15;
+/// A warship holding position braces for a ram: it takes 20 less.
+const HOLD_BRACE: i32 = 20;
 /// What a ram's force is divided by, by the target's heading (row) and the warship's
 /// (column): 1 square on the beam, 5 end on (the table at 0x5dc24c).
 const RAM_ANGLE: [[u8; 8]; 8] = [
@@ -82,9 +112,9 @@ const RAM_ANGLE: [[u8; 8]; 8] = [
     [1, 2, 4, 2, 1, 3, 4, 3],
     [3, 1, 2, 4, 3, 1, 3, 5],
 ];
-/// Ticks of pursuit that exhaust a warship's rowers; they then rest this long without
-/// moving, and row slowly as long again (FUN_004a5680).
-const EXHAUSTING: i32 = 800;
+/// Ticks of pursuit exhaust a warship's rowers after the model's l (800 for the
+/// city's); they then rest this long without moving, and row slowly as long again
+/// (FUN_004a5680).
 const FATIGUE_TICKS: i32 = 200;
 /// A transport evading looks round every 75 ticks for enemy ships within 9 tiles
 /// each way, and runs about 10 tiles from them (FUN_004a4a80, FUN_004a4850).
@@ -93,12 +123,40 @@ const EVADE_BOX: i32 = 9;
 const EVADE_RUN: i32 = 10;
 /// Men an invading transport carries.
 const TRANSPORT_LOAD: i32 = 16;
+/// An invading transport waits 40 ticks more than the one before it to set out (10
+/// for the first), a warship 25 more (FUN_00446a30).
+const TRANSPORT_STAGGER: i32 = 40;
+const WARSHIP_STAGGER: i32 = 25;
+const FIRST_WAIT: i32 = 10;
+/// An enemy transport lies off the shore this long after landing its men.
+const UNLOAD_WAIT: i32 = 50;
+/// An enemy warship on patrol looks for a fight every 75 ticks and up to 29 more; on
+/// the attack it looks again every 50 (FUN_004aeb00, FUN_004ae650).
+const PATROL_LOOK: i32 = 75;
+const PATROL_LOOK_RAND: i32 = 30;
+const HUNT_LOOK: i32 = 50;
+/// The months an enemy warship stays after its arrival or its last fight.
+const STAY_MONTHS: i32 = 4;
+/// A ship abroad brings a tenth of its hull to the battle (FUN_004b8330).
+const HULL_PER_STRENGTH: i32 = 10;
 
 /// Ship actions: the invaders' transports', then the city's ships', numbered as the
 /// original's.
 pub mod ship {
     pub const LANDING: u16 = 4;
     pub const LEAVING: u16 = 5;
+    /// An invader's transport running from the city's ships, badly holed.
+    pub const ENEMY_EVADE: u16 = 10;
+    /// An enemy warship hunting (the original's 10), fleeing when badly holed (12),
+    /// patrolling the river (17), and sailing off (18).
+    pub const HUNT: u16 = 10;
+    pub const FLEE: u16 = 12;
+    pub const PATROL: u16 = 17;
+    pub const DEPART: u16 = 18;
+    /// A city ship off to the Kingdom's battle (17), away (18), and coming back (19).
+    pub const TO_BATTLE: u16 = 17;
+    pub const AWAY: u16 = 18;
+    pub const BACK: u16 = 19;
     /// Just launched or repaired: waits, then sails to its wharf.
     pub const LAUNCHED: u16 = 8;
     /// A transport sailing to its wharf (Return to Wharf).
@@ -163,6 +221,19 @@ pub struct Ship {
     pub aboard: Option<usize>,
     pub embark: Option<usize>,
     pub landing: Option<(i32, i32)>,
+    /// A warship marked for Kingdom service.
+    pub service: bool,
+    /// The Kingdom's request it is away on (the original's +0x132).
+    pub abroad: Option<usize>,
+    /// Out of sight, away at the Kingdom's battle.
+    pub hidden: bool,
+    /// An enemy warship's: the month it arrived or last found a fight (it sails off
+    /// four months on), its leg of the patrol, whether it is closing with its quarry,
+    /// and ticks to its next look round.
+    pub month: i32,
+    pub leg: u8,
+    pub engaged: bool,
+    pub look: i32,
 }
 
 fn distance(a: (i32, i32), b: (i32, i32)) -> i32 {
@@ -295,13 +366,8 @@ impl World {
     /// Puts a finished boat in the water beside yard `id` for `wharf`: on the first
     /// tile round the yard that is water, has no building, and has water all round.
     fn launch_ship(&mut self, id: BuildingId, kind: u16, wharf: BuildingId) {
-        let Some(b) = self.buildings.get(id) else { return };
-        let (x0, y0, size, orientation) = (b.x, b.y, b.size, b.orientation);
-        let map = &self.map;
-        let open = |x: i32, y: i32| {
-            map.terrain_is(x, y, terrain::WATER | terrain::DEEPWATER) && !map.terrain_is(x, y, terrain::BUILDING) && NEIGHBOURS.iter().all(|&(dx, dy)| map.terrain_is(x + dx, y + dy, terrain::WATER))
-        };
-        let Some((x, y)) = crate::buildings::ring(x0, y0, size).find(|&(x, y)| open(x, y)) else { return };
+        let Some(orientation) = self.buildings.get(id).map(|b| b.orientation) else { return };
+        let Some((x, y)) = self.launch_tile(id) else { return };
         let fid = self.figures.spawn(kind, x, y, Travel::Water);
         let Some(f) = self.figures.get_mut(fid) else { return };
         f.home = wharf;
@@ -317,6 +383,17 @@ impl World {
         let b = self.buildings.get_mut(id).expect("present");
         b.stock[TIMBER as usize] -= SHIP_TIMBER;
         b.boat_kind = 0;
+    }
+
+    /// The first tile round building `id` that is water, has no building, and has
+    /// water all round (FUN_004806c0).
+    fn launch_tile(&self, id: BuildingId) -> Option<(i32, i32)> {
+        let b = self.buildings.get(id)?;
+        let map = &self.map;
+        let open = |x: i32, y: i32| {
+            map.terrain_is(x, y, terrain::WATER | terrain::DEEPWATER) && !map.terrain_is(x, y, terrain::BUILDING) && NEIGHBOURS.iter().all(|&(dx, dy)| map.terrain_is(x + dx, y + dy, terrain::WATER))
+        };
+        crate::buildings::ring(b.x, b.y, b.size).find(|&(x, y)| open(x, y))
     }
 
     fn ship_state(&mut self, fid: FigureId) -> Option<&mut Ship> {
@@ -361,6 +438,25 @@ impl World {
             self.sink(fid);
             return;
         }
+        if self.holed(fid) {
+            self.sink(fid);
+            return;
+        }
+        // Away on the Kingdom's service it takes no orders (the action functions put
+        // it back on its way whatever it was doing).
+        if self.figures.get(fid).and_then(|f| f.ship.as_ref()).is_some_and(|s| s.abroad.is_some()) {
+            self.abroad_step(fid);
+            return;
+        }
+        if kind == WARSHIP && act == ship::BACK {
+            // Home from the battle: to the water by its wharf, then as if launched.
+            if self.sail(fid, false) != Step::Moving {
+                let f = self.figures.get_mut(fid).expect("present");
+                f.action = ship::LAUNCHED;
+                f.counter = 0;
+            }
+            return;
+        }
         let to_yard = if kind == WARSHIP { ship::WARSHIP_TO_YARD } else { ship::TRANSPORT_TO_YARD };
         let pct = self.hull_percent(fid);
         if act != to_yard && act != ship::IN_REPAIR && pct > 0 && pct <= REPAIR_AT {
@@ -373,7 +469,7 @@ impl World {
         }
     }
 
-    fn sink(&mut self, fid: FigureId) {
+    pub(crate) fn sink(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get_mut(fid) else { return };
         f.action = action::CORPSE;
         f.counter = 0;
@@ -383,7 +479,7 @@ impl World {
     }
 
     /// A sinking ship goes under; a transport's company on board goes down with it.
-    fn sinking(&mut self, fid: FigureId) {
+    pub(crate) fn sinking(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get_mut(fid) else { return };
         f.counter += 1;
         let counter = f.counter;
@@ -420,17 +516,18 @@ impl World {
 
     /// Sails a ship on along its route: a warship's exhausted rowers don't row, tired
     /// ones row at a third of the pace, and in pursuit a warship slows to half pace
-    /// once it has run four tiles straight (FUN_004a5680). Keeps count of the tiles
+    /// once it has run its model's k tiles straight (FUN_004a5680). Keeps count of the tiles
     /// run straight, and finds a new way round anything in its path.
     fn sail(&mut self, fid: FigureId, chasing: bool) -> Step {
         let ticks = self.time.total_ticks;
+        let run = self.fighter_stats(fid).ram_run.max(1);
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return Step::Lost };
         let Some((fatigue, straight, heading)) = f.ship.as_deref().map(|s| (s.fatigue, s.straight, s.heading)) else { return Step::Lost };
         if fatigue == 2 || (fatigue == 1 && ticks % 3 != 0) {
             return if f.route.is_empty() && !f.moving { Step::Arrived } else { Step::Moving };
         }
-        f.speed = if fatigue == 1 || (chasing && straight >= RAM_RUN) { 1 } else { 2 };
+        f.speed = if fatigue == 1 || (chasing && straight >= run) { 1 } else { 2 };
         let before = (f.x, f.y);
         let step = f.walk(map);
         if (f.x, f.y) != before {
@@ -474,12 +571,7 @@ impl World {
         let Some(f) = self.figures.get(fid) else { return };
         let (kind, pos) = (f.kind, (f.x, f.y));
         self.leave_yard(fid);
-        let yard = self
-            .buildings
-            .iter()
-            .filter(|b| b.kind == SHIPWRIGHT && b.workers > 0 && b.repair_queue.len() < 200)
-            .min_by_key(|b| (b.repair_queue.len(), (b.x - pos.0).pow(2) + (b.y - pos.1).pow(2)))
-            .map(|b| b.id);
+        let yard = self.repair_yard(fid);
         let berth = yard.and_then(|y| self.yard_berth(y, pos));
         let map = &self.map;
         let f = self.figures.get_mut(fid).expect("present");
@@ -502,6 +594,19 @@ impl World {
                 f.counter = 0;
             }
         }
+    }
+
+    /// The working shipwright with the fewest ships waiting, the nearest of those that
+    /// tie (FUN_00406a30).
+    fn repair_yard(&self, fid: FigureId) -> Option<BuildingId> {
+        let f = self.figures.get(fid)?;
+        let pos = (f.x, f.y);
+        let own = |b: &crate::buildings::Building| b.repair_queue.iter().filter(|&&s| s != fid).count();
+        self.buildings
+            .iter()
+            .filter(|b| b.kind == SHIPWRIGHT && b.workers > 0 && b.repair_queue.len() < 200)
+            .min_by_key(|b| (own(b), (b.x - pos.0).pow(2) + (b.y - pos.1).pow(2)))
+            .map(|b| b.id)
     }
 
     /// Open water beside shipwright `id` a ship at `from` can reach.
@@ -544,6 +649,13 @@ impl World {
         if self.sail(fid, false) == Step::Moving {
             return;
         }
+        // Arriving at a yard with ships already waiting, it goes to another if that is
+        // now the better choice (FUN_004a4c40).
+        let queued = self.buildings.get(yard).is_some_and(|b| !b.repair_queue.is_empty());
+        if queued && self.repair_yard(fid).is_some_and(|y| y != yard) {
+            self.send_to_repair(fid);
+            return;
+        }
         let b = self.buildings.get_mut(yard).expect("present");
         if b.repairing != fid && !b.repair_queue.contains(&fid) {
             b.repair_queue.push(fid);
@@ -565,15 +677,15 @@ impl World {
 
     /// Enemies a warship at `from` might go after within `reach`, best first by the
     /// original's reckoning (FUN_004bcb10): loaded enemy transports (25), invaders
-    /// ashore within its missile range (17), empty transports (10), less the distance
-    /// to each; only what scores better than `-reach` counts. `post` limits it to
-    /// enemies within 10 tiles of the post it guards.
+    /// ashore within its missile range (17), enemy warships (15), empty transports
+    /// (10), less the distance to each; only what scores better than `-reach` counts.
+    /// `post` limits it to enemies within 10 tiles of the post it guards.
     fn ship_target(&self, fid: FigureId, reach: i32, post: Option<(i32, i32)>) -> Option<FigureId> {
         let f = self.figures.get(fid)?;
         let from = (f.x, f.y);
         let range = self.fighter_stats(fid).missile_range;
         let near_post = |p: (i32, i32)| post.is_none_or(|a| distance(a, p) < ENGAGE_LEASH);
-        let ships = self.figures.iter().filter(|o| o.kind == ENEMY_TRANSPORT && !o.dead && o.action != action::CORPSE).map(|o| (o.id, (o.x, o.y), if o.amount > 0 { 25 } else { 10 }));
+        let ships = self.figures.iter().filter(|o| is_enemy_ship(o.kind) && !o.dead && o.action != action::CORPSE).map(|o| (o.id, (o.x, o.y), if is_enemy_warship(o.kind) { 15 } else if o.amount > 0 { 25 } else { 10 }));
         let land = self.combatants.invaders.iter().filter(|o| distance((o.1, o.2), from) <= range).map(|o| (o.0, (o.1, o.2), 17));
         ships
             .chain(land)
@@ -586,13 +698,12 @@ impl World {
 
     /// Whether `fid` is an enemy still afloat or standing.
     fn alive_enemy(&self, fid: FigureId) -> bool {
-        self.figures.get(fid).is_some_and(|o| !o.dead && o.action != action::CORPSE && (o.kind == ENEMY_TRANSPORT || self.is_invader(o)))
+        self.figures.get(fid).is_some_and(|o| !o.dead && o.action != action::CORPSE && (is_enemy_ship(o.kind) || self.is_invader(o)))
     }
 
     /// A warship looses a javelin at `target` if it has reloaded (a shot every 31
-    /// ticks). Its damage is 15 x (20 - armour) / 10 (FUN_004b45c0); the javelin
-    /// carries twice the ship's missile attack so the city's javelin rule (attack x
-    /// (20 - armour) / 20) comes to the same.
+    /// ticks). It does the warship's missile attack x (20 - armour) / 20, the city's
+    /// javelin rule (the javelin's action at 0x49a880).
     fn ship_fire(&mut self, fid: FigureId, target: FigureId) {
         let stats = self.fighter_stats(fid);
         let Some(to) = self.figures.get(target).map(|t| (t.x, t.y)) else { return };
@@ -606,7 +717,7 @@ impl World {
         let missile = self.figures.spawn(crate::military::JAVELIN, from.0, from.1, Travel::Land);
         if let Some(m) = self.figures.get_mut(missile) {
             m.foe = target;
-            m.amount = 2 * stats.missile_attack;
+            m.amount = stats.missile_attack;
             m.destination = Some(to);
             m.direction = crate::figures::direction_to(from, to).unwrap_or(0);
         }
@@ -619,12 +730,13 @@ impl World {
         }
     }
 
-    /// A warship rams an enemy ship on its tile or the one ahead: its full attack
-    /// after a straight run of four tiles, else 20, divided by the angle of the blow;
-    /// the two ships are knocked a point off their headings, and the warship, its
-    /// quarry forgotten, seeks and destroys (FUN_004a6160). True if it rammed.
-    fn ram(&mut self, fid: FigureId) -> bool {
-        let attack = self.fighter_stats(fid).attack;
+    /// A warship rams a ship of the other side on its tile or the one ahead: its full
+    /// attack after a straight run of its model's k tiles, else a fifth of it, less 20
+    /// against a city warship holding position, divided by the angle of the blow
+    /// (FUN_004a6160, and the enemy's FUN_004ae2c0). The two ships are knocked a
+    /// point off their headings. True if it rammed.
+    fn ram_blow(&mut self, fid: FigureId, rams: impl Fn(&crate::figures::Figure) -> bool) -> bool {
+        let stats = self.fighter_stats(fid);
         let Some(f) = self.figures.get(fid) else { return false };
         let Some(s) = f.ship.as_deref() else { return false };
         if s.ram_cool > 0 {
@@ -633,13 +745,21 @@ impl World {
         let (dir, straight) = (f.direction, s.straight);
         let ahead = (f.x + NEIGHBOURS[dir as usize].0, f.y + NEIGHBOURS[dir as usize].1);
         let here = (f.x, f.y);
-        let Some((target, tdir)) = self.figures.iter().find(|o| o.kind == ENEMY_TRANSPORT && !o.dead && o.action != action::CORPSE && ((o.x, o.y) == here || (o.x, o.y) == ahead)).map(|o| (o.id, o.direction)) else {
+        let Some((target, tdir, braced)) = self
+            .figures
+            .iter()
+            .find(|o| rams(o) && !o.dead && o.action != action::CORPSE && !o.ship.as_ref().is_some_and(|s| s.hidden) && ((o.x, o.y) == here || (o.x, o.y) == ahead))
+            .map(|o| (o.id, o.direction, o.kind == WARSHIP && o.action == ship::HOLD))
+        else {
             return false;
         };
-        let force = if straight >= RAM_RUN { attack } else { RAM_WEAK };
+        let force = if straight >= stats.ram_run.max(1) { stats.attack } else { stats.attack * RAM_WEAK_PCT / 100 };
+        let force = if braced { force - HOLD_BRACE } else { force };
         let angle = RAM_ANGLE[tdir as usize % 8][dir as usize % 8] as i32;
         self.figure_sound(fid, 2);
-        self.hurt(target, force / angle.max(1));
+        if force > 0 {
+            self.hurt(target, force / angle.max(1));
+        }
         let knock = |w: &mut World, d: u8| -> u8 {
             w.rng.next();
             let turn = if w.rng.byte() & 1 == 0 { -1 } else { 1 };
@@ -652,13 +772,22 @@ impl World {
         }
         let f = self.figures.get_mut(fid).expect("present");
         f.direction = own;
-        f.action = ship::SEEK;
         f.foe = 0;
         f.route.clear();
         if let Some(s) = f.ship.as_deref_mut() {
             s.ram_cool = RAM_COOLDOWN;
             s.straight = 0;
         }
+        true
+    }
+
+    /// The city's warship rams an enemy ship, and then, its quarry forgotten, seeks
+    /// and destroys (FUN_004a6160).
+    fn ram(&mut self, fid: FigureId) -> bool {
+        if !self.ram_blow(fid, |o| is_enemy_ship(o.kind)) {
+            return false;
+        }
+        self.figures.get_mut(fid).expect("present").action = ship::SEEK;
         true
     }
 
@@ -765,7 +894,7 @@ impl World {
     fn fight_target(&mut self, fid: FigureId, target: FigureId) {
         let range = self.fighter_stats(fid).missile_range;
         let (Some(f), Some(t)) = (self.figures.get(fid), self.figures.get(target)) else { return };
-        let (pos, at, afloat) = ((f.x, f.y), (t.x, t.y), t.kind == ENEMY_TRANSPORT);
+        let (pos, at, afloat) = ((f.x, f.y), (t.x, t.y), is_enemy_ship(t.kind));
         let d = distance(pos, at);
         if d < range {
             self.ship_fire(fid, target);
@@ -784,13 +913,14 @@ impl World {
 
     /// Rows after a quarry at `at`, tiring the crew.
     fn pursue(&mut self, fid: FigureId, at: (i32, i32)) {
+        let exhausting = self.fighter_stats(fid).exhaust.max(1);
         let map = &self.map;
         let f = self.figures.get_mut(fid).expect("present");
         let idle = f.route.is_empty() && !f.moving;
         let Some(s) = f.ship.as_deref_mut() else { return };
         s.repath -= 1;
         s.chase += 1;
-        if s.chase >= EXHAUSTING {
+        if s.chase >= exhausting {
             s.chase = 0;
             s.fatigue = 2;
             s.rest = FATIGUE_TICKS;
@@ -823,7 +953,7 @@ impl World {
         let range = self.fighter_stats(fid).missile_range;
         let (pos, at, afloat) = {
             let (f, o) = (self.figures.get(fid).expect("present"), self.figures.get(t).expect("alive"));
-            ((f.x, f.y), (o.x, o.y), o.kind == ENEMY_TRANSPORT)
+            ((f.x, f.y), (o.x, o.y), is_enemy_ship(o.kind))
         };
         if afloat {
             self.fight_target(fid, t);
@@ -863,7 +993,7 @@ impl World {
                 self.sail(fid, false);
             }
             ship::EMBARK => self.embark_step(fid),
-            ship::DISEMBARK => self.disembark_step(fid),
+            ship::DISEMBARK | ship::BACK => self.disembark_step(fid),
             ship::TRANSPORT_TO_YARD | ship::IN_REPAIR => self.repair_trip(fid),
             _ => {
                 let f = self.figures.get_mut(fid).expect("present");
@@ -873,14 +1003,24 @@ impl World {
         }
     }
 
-    /// An evading transport with an enemy ship near runs from it: of three points
-    /// about 10 tiles off, straight away and to either side, the one farthest from
-    /// the enemy that open water leads to.
-    fn evade(&mut self, fid: FigureId) {
-        let Some(f) = self.figures.get(fid) else { return };
+    /// A ship evading, with a ship of the other side near, runs from it: of three
+    /// points about 10 tiles off, straight away and to either side, the one farthest
+    /// from the enemy that open water leads to (FUN_004a5560, FUN_004a4850). The
+    /// city's transports run from any enemy ship; the enemy's fleeing ships from the
+    /// city's warships, transports and fishing boats. False if none was near.
+    fn evade(&mut self, fid: FigureId) -> bool {
+        let Some(f) = self.figures.get(fid) else { return false };
         let pos = (f.x, f.y);
-        let Some(enemy) = self.figures.iter().filter(|o| o.kind == ENEMY_TRANSPORT && !o.dead && o.action != action::CORPSE && (o.x - pos.0).abs() <= EVADE_BOX && (o.y - pos.1).abs() <= EVADE_BOX).map(|o| (o.x, o.y)).min_by_key(|&p| distance(p, pos)) else {
-            return;
+        let city = is_city_ship(f.kind);
+        let other = |k: u16| if city { is_enemy_ship(k) } else { is_city_ship(k) || k == FISHING_BOAT };
+        let Some(enemy) = self
+            .figures
+            .iter()
+            .filter(|o| other(o.kind) && !o.dead && o.action != action::CORPSE && !o.ship.as_ref().is_some_and(|s| s.hidden) && (o.x - pos.0).abs() <= EVADE_BOX && (o.y - pos.1).abs() <= EVADE_BOX)
+            .map(|o| (o.x, o.y))
+            .min_by_key(|&p| distance(p, pos))
+        else {
+            return false;
         };
         let away = crate::figures::direction_to(enemy, pos).unwrap_or(2) as i32;
         let best = [away, away + 7, away + 1]
@@ -895,6 +1035,7 @@ impl World {
             let map = &self.map;
             self.figures.get_mut(fid).expect("present").go_to(map, p);
         }
+        true
     }
 
     /// The farthest open water on the straight line from `from` toward `to` before
@@ -913,10 +1054,13 @@ impl World {
         last
     }
 
-    /// Whether ship `fid` is at the shipwright's with its hull at 15% or less, when
-    /// it takes no orders.
+    /// Whether ship `fid` is at the shipwright's with its hull at 15% or less, or away
+    /// on the Kingdom's service, when it takes no orders.
     pub fn ship_laid_up(&self, fid: FigureId) -> bool {
         let Some(f) = self.figures.get(fid) else { return true };
+        if f.ship.as_ref().is_some_and(|s| s.abroad.is_some()) {
+            return true;
+        }
         let at_yard = matches!(f.action, ship::IN_REPAIR) || f.action == if f.kind == WARSHIP { ship::WARSHIP_TO_YARD } else { ship::TRANSPORT_TO_YARD };
         at_yard && self.hull_percent(fid) <= REPAIR_AT
     }
@@ -1170,31 +1314,62 @@ impl World {
         self.sail_home(fid);
     }
 
-    /// Sends an invading army by sea: transports appear at `spot` on the water, each
-    /// with up to sixteen of `men` aboard.
-    pub(crate) fn launch_sea_invasion(&mut self, army: usize, nation: u16, men: i32, spot: (i32, i32)) {
+    /// Sends an invading army by sea (FUN_00446a30): first its warships, then
+    /// transports with up to sixteen of `men` each. Each warship waits 25 ticks more
+    /// than the one before to set out, each transport 40 (the first of either 10).
+    /// A foreign army's ships gather on free water by the point, an Egyptian army's
+    /// warships on the point itself; the transports all make for one of the
+    /// scenario's landing places, drawn at random.
+    pub(crate) fn launch_sea_invasion(&mut self, army: usize, nation: u16, men: i32, spot: (i32, i32), warships: i32, egypt: bool) {
         let spot = self.nearest_water(spot).unwrap_or(spot);
-        let landing = self.landing_place(spot);
+        let month = self.time.month as i32;
+        for i in 0..warships.max(0) {
+            let kind = if egypt { EGYPT_WARSHIP } else { ENEMY_WARSHIP };
+            let at = if egypt { spot } else { self.free_water(spot).unwrap_or(spot) };
+            let fid = self.figures.spawn(kind, at.0, at.1, Travel::Water);
+            if let Some(f) = self.figures.get_mut(fid) {
+                f.cargo = nation;
+                f.action = ship::LAUNCHED;
+                f.counter = i * WARSHIP_STAGGER + FIRST_WAIT;
+                f.speed = 2;
+                f.ship = Some(Box::new(Ship { month, ..Default::default() }));
+            }
+        }
+        let aim = match self.invasions.landings.len() {
+            0 => self.entry_point,
+            n => self.invasions.landings[self.rng.below(n as i32) as usize],
+        };
+        let landing = self.landing_place(spot, aim);
         let mut left = men;
         let mut n = 0;
         // Each shipload is a formation afloat: none sails without a free slot.
         while left > 0 && self.enemy_formations() < crate::invasions::ENEMY_FORMATION_SLOTS {
-            let fid = self.figures.spawn(ENEMY_TRANSPORT, spot.0, spot.1, Travel::Water);
-            let map = &self.map;
+            let at = self.free_water(spot).unwrap_or(spot);
+            let fid = self.figures.spawn(if egypt { EGYPT_TRANSPORT } else { ENEMY_TRANSPORT }, at.0, at.1, Travel::Water);
             if let Some(f) = self.figures.get_mut(fid) {
                 f.cargo = nation;
                 f.amount = left.min(TRANSPORT_LOAD);
                 f.formation = 1000 + army as u16;
                 f.slot = n;
-                f.action = ship::LANDING;
-                if let Some(l) = landing {
-                    f.go_to(map, l);
-                }
-                f.destination = landing.or(Some(spot));
+                f.action = ship::LAUNCHED;
+                f.counter = n as i32 * TRANSPORT_STAGGER + FIRST_WAIT;
+                f.speed = 2;
+                f.ship = Some(Box::new(Ship { landing: landing.or(Some(spot)), month, ..Default::default() }));
             }
             left -= TRANSPORT_LOAD;
             n += 1;
         }
+    }
+
+    /// The nearest open water to `p` with no one on it (FUN_004467a0).
+    fn free_water(&self, p: (i32, i32)) -> Option<(i32, i32)> {
+        let taken = |x: i32, y: i32| self.figures.iter().any(|f| (f.x, f.y) == (x, y) && !f.dead);
+        (0..30).find_map(|r| {
+            (-r..=r)
+                .flat_map(move |dy| (-r..=r).map(move |dx| (p.0 + dx, p.1 + dy)))
+                .filter(|&q| distance(q, p) == r)
+                .find(|&(x, y)| crate::water::navigable(&self.map, x, y) && !taken(x, y))
+        })
     }
 
     /// The nearest open water to `p`.
@@ -1204,10 +1379,9 @@ impl World {
         })
     }
 
-    /// Where transports put ashore: open water beside land nearest the scenario's
-    /// landing places, or nearest the city.
-    fn landing_place(&self, from: (i32, i32)) -> Option<(i32, i32)> {
-        let aim = self.invasions.landings.first().copied().unwrap_or(self.entry_point);
+    /// Where transports put ashore: open water beside land, reachable from `from`,
+    /// nearest `aim`.
+    fn landing_place(&self, from: (i32, i32), aim: (i32, i32)) -> Option<(i32, i32)> {
         let reach = crate::water::reachable(&self.map, from);
         let w = self.map.width;
         let mut best: Option<((i32, i32), i32)> = None;
@@ -1228,39 +1402,382 @@ impl World {
         best.map(|(p, _)| p)
     }
 
-    /// An enemy transport sails to its landing place and puts its men ashore, then
-    /// sails off the map; sunk, it is gone with them.
+    /// An invader's ship's stats: its nation's Warship or Transport row, as the
+    /// original copies them into the figure model for the scenario's enemy
+    /// (FUN_004bc720); the Egyptian ships' own rows of the figure list.
+    pub(crate) fn enemy_ship_stats(&self, f: &crate::figures::Figure) -> Option<crate::balance::UnitStats> {
+        if !is_enemy_ship(f.kind) {
+            return None;
+        }
+        if matches!(f.kind, EGYPT_WARSHIP | EGYPT_TRANSPORT) {
+            return Some(self.balance.unit(f.kind));
+        }
+        let row = self.defs.armies.get(f.cargo as usize).and_then(|a| a.stats_row);
+        Some(match row {
+            Some(r) => self.balance.enemy_units.get(r + if is_enemy_warship(f.kind) { 3 } else { 4 }).copied().unwrap_or_default(),
+            None => self.balance.unit(f.kind),
+        })
+    }
+
+    /// Whether ship `fid` has no hull left, when it goes down (a ship whose model
+    /// gives it no hull, as the Assyrians' warships, goes down at once). Without the
+    /// figure model loaded, none is.
+    pub(crate) fn holed(&self, fid: FigureId) -> bool {
+        if self.balance.units.is_empty() {
+            return false;
+        }
+        let hp = self.fighter_stats(fid).hp;
+        self.figures.get(fid).is_some_and(|f| f.damage >= hp)
+    }
+
+    /// An enemy transport waits its turn, sails to its landing place and puts its
+    /// men ashore, lies off the shore for 50 ticks and sails away by the river entry
+    /// and exit (the action function at 0x4adf60). Holed to 15% or less before it
+    /// lands, it keeps its men aboard and runs from the city's ships (FUN_004add90);
+    /// sunk, it goes down with them.
     pub(crate) fn update_enemy_transport(&mut self, fid: FigureId) {
-        let Some(f) = self.figures.get(fid) else { return };
-        let act = f.action;
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        if f.action == action::CORPSE {
+            self.sinking(fid);
+            return;
+        }
+        if f.ship.is_none() {
+            f.ship = Some(Box::default());
+        }
+        if self.holed(fid) {
+            self.sink(fid);
+            return;
+        }
+        let pct = self.hull_percent(fid);
+        let f = self.figures.get_mut(fid).expect("present");
+        if pct <= REPAIR_AT && !matches!(f.action, ship::ENEMY_EVADE | ship::LEAVING) {
+            f.action = ship::ENEMY_EVADE;
+            f.counter = EVADE_LOOK;
+        }
+        match f.action {
+            ship::LAUNCHED => {
+                f.counter -= 1;
+                if f.counter <= 0 {
+                    let to = f.ship.as_ref().and_then(|s| s.landing).unwrap_or((f.x, f.y));
+                    f.action = ship::LANDING;
+                    let map = &self.map;
+                    f.go_to(map, to);
+                    f.destination = Some(to);
+                }
+            }
+            ship::LANDING => {
+                if self.sail(fid, false) == Step::Moving {
+                    return;
+                }
+                // Landed: the men go ashore beside the ship.
+                let f = self.figures.get_mut(fid).expect("present");
+                let (x, y, men, nation, army) = (f.x, f.y, f.amount, f.cargo, f.formation.saturating_sub(1000) as usize);
+                f.amount = 0;
+                f.action = ship::LEAVING;
+                f.counter = UNLOAD_WAIT;
+                if let Some(shore) = self.shore_near((x, y)) {
+                    self.put_ashore(army, nation, men, shore);
+                }
+            }
+            ship::LEAVING => {
+                if f.counter > 0 {
+                    f.counter -= 1;
+                    if f.counter == 0 {
+                        self.leave_by_river(fid);
+                    }
+                    return;
+                }
+                if self.sail(fid, false) != Step::Moving {
+                    self.leave_by_river(fid);
+                }
+            }
+            ship::ENEMY_EVADE => {
+                self.sail(fid, false);
+                let f = self.figures.get_mut(fid).expect("present");
+                f.counter += 1;
+                if f.counter >= EVADE_LOOK {
+                    f.counter = 0;
+                    self.evade(fid);
+                }
+            }
+            _ => {
+                f.action = ship::LAUNCHED;
+                f.counter = 0;
+            }
+        }
+    }
+
+    /// An enemy ship going home: to the river entry, then on to the river exit, where
+    /// it is gone.
+    fn leave_by_river(&mut self, fid: FigureId) {
+        let (entry, exit) = (self.river_entry(), self.river_exit());
         let map = &self.map;
-        if act == action::CORPSE {
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        let Some(s) = f.ship.as_deref_mut() else { return };
+        let leg = s.leg;
+        s.leg = leg.saturating_add(1);
+        let to = match leg {
+            0 => entry.or(exit),
+            1 => exit,
+            _ => None,
+        };
+        match to {
+            Some(t) if t != (f.x, f.y) && f.go_to(map, t) => {}
+            _ if leg == 0 && exit.is_some() => self.leave_by_river(fid),
+            _ => f.dead = true,
+        }
+    }
+
+    /// An enemy warship's turn (types 93 and 100, the action functions at 0x4aee10
+    /// and 0x4af970). Holed, it sinks; badly holed (15% or less), it flees; four
+    /// months after it came or last found a fight it sails off by the river exit. It
+    /// waits its turn to set out, then patrols the river between the entry, the first
+    /// landing place and the exit, looking for a fight every 75 to 104 ticks. A
+    /// foreign warship also shoots at whatever comes in range while it waits,
+    /// patrols or flees (FUN_004aed10).
+    pub(crate) fn update_enemy_warship(&mut self, fid: FigureId) {
+        let stats = self.fighter_stats(fid);
+        let month = self.time.month as i32;
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        if f.action == action::CORPSE {
+            self.sinking(fid);
+            return;
+        }
+        if f.ship.is_none() {
+            f.ship = Some(Box::new(Ship { month, ..Default::default() }));
+        }
+        if self.holed(fid) {
+            self.sink(fid);
+            return;
+        }
+        let pct = self.hull_percent(fid);
+        let f = self.figures.get_mut(fid).expect("present");
+        let kind = f.kind;
+        let s = f.ship.as_deref_mut().expect("present");
+        s.reload = (s.reload + 1).min(stats.missile_delay + 1);
+        s.ram_cool = (s.ram_cool - 1).max(0);
+        if s.fatigue > 0 {
+            s.rest -= 1;
+            if s.rest <= 0 {
+                s.fatigue -= 1;
+                s.rest = if s.fatigue > 0 { FATIGUE_TICKS } else { 0 };
+            }
+        }
+        let leave = (s.month + STAY_MONTHS) % 12 == month;
+        if pct <= REPAIR_AT && !matches!(f.action, ship::FLEE | ship::DEPART) {
+            f.action = ship::FLEE;
+            f.counter = 0;
+            f.foe = 0;
+        }
+        if leave && f.action != ship::DEPART {
+            f.action = ship::DEPART;
+            f.foe = 0;
+            let exit = self.river_exit();
+            let map = &self.map;
             let f = self.figures.get_mut(fid).expect("present");
-            f.counter += 1;
-            if f.counter > 200 {
+            if !exit.is_some_and(|e| e != (f.x, f.y) && f.go_to(map, e)) {
                 f.dead = true;
+                return;
+            }
+        }
+        let act = self.figures.get(fid).map_or(0, |f| f.action);
+        if kind == ENEMY_WARSHIP
+            && matches!(act, ship::LAUNCHED | ship::FLEE | ship::PATROL)
+            && let Some(t) = self.enemy_ship_target(fid, Some(stats.missile_range))
+        {
+            self.enemy_fire(fid, t);
+        }
+        match act {
+            ship::LAUNCHED => {
+                let f = self.figures.get_mut(fid).expect("present");
+                f.counter -= 1;
+                if f.counter <= 0 {
+                    self.patrol_leg(fid, 0);
+                }
+            }
+            ship::PATROL => {
+                if self.sail(fid, false) != Step::Moving {
+                    let leg = self.figures.get(fid).and_then(|f| f.ship.as_ref()).map_or(0, |s| s.leg);
+                    self.patrol_leg(fid, (leg + 1) % 3);
+                }
+                let r = self.rng.below(PATROL_LOOK_RAND);
+                let s = self.ship_state(fid).expect("present");
+                s.look -= 1;
+                if s.look <= 0 {
+                    s.look = PATROL_LOOK + r;
+                    s.engaged = false;
+                    self.figures.get_mut(fid).expect("present").action = ship::HUNT;
+                }
+            }
+            ship::HUNT => self.enemy_hunt(fid),
+            ship::FLEE => {
+                self.sail(fid, false);
+                let f = self.figures.get_mut(fid).expect("present");
+                f.counter -= 1;
+                if f.counter <= 0 {
+                    f.counter = EVADE_LOOK;
+                    if !self.evade(fid) {
+                        let leg = self.figures.get(fid).and_then(|f| f.ship.as_ref()).map_or(0, |s| s.leg);
+                        self.patrol_leg(fid, leg);
+                    }
+                }
+            }
+            ship::DEPART => {
+                if self.sail(fid, false) != Step::Moving {
+                    self.figures.get_mut(fid).expect("present").dead = true;
+                }
+            }
+            _ => self.patrol_leg(fid, 0),
+        }
+    }
+
+    /// Sets an enemy warship on leg `leg` of its patrol: to the river entry, to the
+    /// first landing place (or the exit, with none), or to the exit (FUN_004aeb00).
+    fn patrol_leg(&mut self, fid: FigureId, leg: u8) {
+        let from = self.figures.get(fid).map_or((0, 0), |f| (f.x, f.y));
+        let to = match leg {
+            0 => self.river_entry(),
+            1 => self.invasions.landings.first().and_then(|&p| self.landing_place(from, p)),
+            _ => None,
+        }
+        .or_else(|| self.river_exit());
+        let map = &self.map;
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        f.action = ship::PATROL;
+        f.foe = 0;
+        if let Some(s) = f.ship.as_deref_mut() {
+            s.leg = leg;
+            s.engaged = false;
+            if s.look <= 0 {
+                s.look = PATROL_LOOK;
+            }
+        }
+        match to {
+            Some(t) if t != (f.x, f.y) => {
+                f.go_to(map, t);
+            }
+            _ => {
+                f.route.clear();
+                f.destination = Some((f.x, f.y));
+            }
+        }
+    }
+
+    /// What an enemy warship goes after, best first by the original's reckoning
+    /// (FUN_004bcf70, FUN_004bce90): a loaded transport of the city's (25), the
+    /// city's soldiers within its missile range (17), a warship (15), an empty
+    /// transport (10), a trade ship or a fishing boat (5), less the distance to each,
+    /// over the whole map; never a ship away on the Kingdom's service, nor men aboard
+    /// a transport. `within` limits it to what is in missile range.
+    fn enemy_ship_target(&self, fid: FigureId, within: Option<i32>) -> Option<FigureId> {
+        let f = self.figures.get(fid)?;
+        let from = (f.x, f.y);
+        let range = self.fighter_stats(fid).missile_range;
+        self.figures
+            .iter()
+            .filter(|o| !o.dead && o.action != action::CORPSE && !o.ship.as_ref().is_some_and(|s| s.abroad.is_some() || s.hidden))
+            .filter_map(|o| {
+                let d = distance(from, (o.x, o.y));
+                let pri = match o.kind {
+                    TRANSPORT if o.ship.as_ref().is_some_and(|s| s.aboard.is_some()) => 25,
+                    TRANSPORT => 10,
+                    WARSHIP => 15,
+                    crate::docks::TRADE_SHIP | FISHING_BOAT => 5,
+                    k if crate::military::is_soldier(k) && o.action != action::ABOARD && d <= range => 17,
+                    _ => return None,
+                };
+                within.is_none_or(|r| d <= r).then_some((pri - d, o.id))
+            })
+            .filter(|&(score, _)| score > -SEEK_SEARCH)
+            .max_by_key(|&(score, id)| (score, std::cmp::Reverse(id)))
+            .map(|(_, id)| id)
+    }
+
+    /// An enemy warship looses a spear at `target` once it has reloaded (its model's
+    /// ticks between shots), turning to face it (FUN_004b45c0 with the spear, 71).
+    /// The spear carries the ship's missile attack for a ship it strikes.
+    fn enemy_fire(&mut self, fid: FigureId, target: FigureId) {
+        let stats = self.fighter_stats(fid);
+        let spear = self.balance.unit(crate::military::SPEAR).missile_attack;
+        let Some(to) = self.figures.get(target).map(|t| (t.x, t.y)) else { return };
+        let Some(s) = self.ship_state(fid) else { return };
+        if s.reload <= stats.missile_delay {
+            return;
+        }
+        s.reload = 0;
+        let f = self.figures.get_mut(fid).expect("present");
+        let from = (f.x, f.y);
+        let dir = crate::figures::direction_to(from, to);
+        if !f.moving {
+            f.direction = dir.unwrap_or(f.direction);
+        }
+        self.figure_sound(fid, 2);
+        let missile = self.figures.spawn(crate::military::ARROW, from.0, from.1, Travel::Land);
+        if let Some(m) = self.figures.get_mut(missile) {
+            m.foe = target;
+            m.amount = spear;
+            m.cargo = stats.missile_attack.max(0) as u16;
+            m.destination = Some(to);
+            m.direction = dir.unwrap_or(0);
+        }
+    }
+
+    /// An enemy warship on the attack (FUN_004ae650): it picks its quarry, and with
+    /// none goes back to its patrol. Half the time a quarry of soldiers or of the
+    /// city's warships and transports keeps it another five months. It holds its
+    /// place against soldiers, shooting when in range; a ship it chases, shooting,
+    /// and rams (FUN_004ae2c0). It looks again on reaching its quarry, after a ram,
+    /// or every 50 ticks.
+    fn enemy_hunt(&mut self, fid: FigureId) {
+        let stats = self.fighter_stats(fid);
+        let Some(f) = self.figures.get(fid) else { return };
+        let (foe, pos) = (f.foe, (f.x, f.y));
+        let (engaged, look, leg) = f.ship.as_ref().map_or((false, 0, 0), |s| (s.engaged, s.look, s.leg));
+        let quarry = self.figures.get(foe).is_some_and(|o| !o.dead && o.action != action::CORPSE && o.action != action::ABOARD && !o.ship.as_ref().is_some_and(|s| s.hidden));
+        if !engaged || look <= 0 || !quarry {
+            let Some(t) = self.enemy_ship_target(fid, None) else {
+                self.patrol_leg(fid, leg);
+                return;
+            };
+            let keeps = self.figures.get(t).is_some_and(|o| crate::military::is_soldier(o.kind) || is_city_ship(o.kind));
+            let stays = keeps && self.rng.below(2) == 0;
+            let month = self.time.month as i32;
+            let f = self.figures.get_mut(fid).expect("present");
+            f.foe = t;
+            let s = f.ship.as_deref_mut().expect("present");
+            s.engaged = true;
+            s.look = HUNT_LOOK;
+            s.repath = 0;
+            if stays {
+                s.month = (month + 1) % 12;
+            }
+        }
+        let f = self.figures.get_mut(fid).expect("present");
+        let target = f.foe;
+        if let Some(s) = f.ship.as_deref_mut() {
+            s.look -= 1;
+        }
+        let Some((at, afloat)) = self.figures.get(target).map(|t| ((t.x, t.y), t.travel == Travel::Water)) else { return };
+        if distance(pos, at) <= stats.missile_range {
+            self.enemy_fire(fid, target);
+        }
+        if !afloat {
+            let f = self.figures.get_mut(fid).expect("present");
+            f.route.clear();
+            return;
+        }
+        if self.ram_blow(fid, |o| matches!(o.kind, TRANSPORT | WARSHIP | FISHING_BOAT)) {
+            if let Some(s) = self.ship_state(fid) {
+                s.engaged = false;
             }
             return;
         }
-        let f = self.figures.get_mut(fid).expect("present");
-        let step = f.walk(map);
-        if step == Step::Moving {
-            return;
+        if distance(pos, at) <= 1
+            && let Some(s) = self.ship_state(fid)
+        {
+            s.engaged = false;
         }
-        if act == ship::LEAVING {
-            f.dead = true;
-            return;
-        }
-        // Landed: the men go ashore beside the ship.
-        let (x, y, men, nation, army) = (f.x, f.y, f.amount, f.cargo, f.formation.saturating_sub(1000) as usize);
-        f.amount = 0;
-        f.action = ship::LEAVING;
-        let exit = self.river_exit().or(self.river_entry());
-        if let (Some(e), Some(f)) = (exit, self.figures.get_mut(fid)) {
-            f.go_to(&self.map, e);
-        }
-        let Some(shore) = self.shore_near((x, y)) else { return };
-        self.put_ashore(army, nation, men, shore);
+        self.pursue(fid, at);
     }
 
     /// Dry land within two tiles of a ship, where its men can wade ashore.
@@ -1269,6 +1786,194 @@ impl World {
             (-r..=r)
                 .flat_map(move |dy| (-r..=r).map(move |dx| (x + dx, y + dy)))
                 .find(|&(sx, sy)| crate::figures::passable(&self.map, Travel::Land, sx, sy) && !self.map.terrain_is(sx, sy, crate::map::terrain::WATER))
+        })
+    }
+
+    /// Whether Kingdom request `i` comes from a city reached by sea.
+    pub fn request_by_sea(&self, i: usize) -> bool {
+        self.scenario_events.list.get(i).and_then(|e| e.city).and_then(|c| self.trade.cities.get(c)).is_some_and(|c| c.sea)
+    }
+
+    /// Whether a call for troops from a city reached by sea is open.
+    fn sea_troops_wanted(&self) -> bool {
+        self.scenario_events.open_requests().any(|(i, e)| e.resource == crate::scenario_events::TROOPS && self.request_by_sea(i))
+    }
+
+    /// Marks or unmarks warship `fid` for Kingdom service. It can be marked only while
+    /// a city reached by sea is calling for troops; otherwise its mark is cleared
+    /// (the navy overseer's switch at 0x40a600).
+    pub fn toggle_ship_service(&mut self, fid: FigureId) -> bool {
+        let wanted = self.sea_troops_wanted();
+        let Some(f) = self.figures.get_mut(fid) else { return false };
+        if f.kind != WARSHIP || f.action == action::CORPSE {
+            return false;
+        }
+        let Some(s) = f.ship.as_deref_mut() else { return false };
+        if s.abroad.is_some() {
+            return false;
+        }
+        s.service = wanted && !s.service;
+        wanted
+    }
+
+    /// The city's warships marked for Kingdom service, afloat and at home.
+    pub fn service_warships(&self) -> Vec<FigureId> {
+        self.figures.iter().filter(|f| f.kind == WARSHIP && !f.dead && f.action != action::CORPSE && f.ship.as_ref().is_some_and(|s| s.service && s.abroad.is_none())).map(|f| f.id).collect()
+    }
+
+    /// Whether the troops request `i` wants are ready to go (FUN_0044d520): for a city
+    /// reached by land a marked company ashore; for one reached by sea a marked
+    /// warship or a marked company aboard a transport.
+    pub fn troops_ready(&self, i: usize) -> bool {
+        let sea = self.request_by_sea(i);
+        let company = self.military.companies.iter().enumerate().any(|(c, co)| co.kingdom_service && co.fort != 0 && !co.soldiers.is_empty() && self.company_ship(c).is_some() == sea);
+        company || sea && !self.service_warships().is_empty()
+    }
+
+    /// Whether company `c` is away at the Kingdom's battle, marched off or aboard a
+    /// transport sent there.
+    pub fn company_away(&self, c: usize) -> bool {
+        self.military.companies.get(c).is_some_and(|co| co.abroad > 0) || self.company_ship(c).and_then(|t| self.figures.get(t)).and_then(|t| t.ship.as_ref()).is_some_and(|s| s.abroad.is_some())
+    }
+
+    /// Sends ship `fid` off to the Kingdom's battle for request `request`: it sails
+    /// for the river entry and out of sight (actions 0x11 and 0x12).
+    pub(crate) fn ship_to_battle(&mut self, fid: FigureId, request: usize) {
+        self.leave_yard(fid);
+        let entry = self.river_entry();
+        let map = &self.map;
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        f.foe = 0;
+        f.action = ship::TO_BATTLE;
+        if let Some(s) = f.ship.as_deref_mut() {
+            s.abroad = Some(request);
+            s.embark = None;
+        }
+        if !entry.is_some_and(|e| e != (f.x, f.y) && f.go_to(map, e)) {
+            f.route.clear();
+            f.destination = Some((f.x, f.y));
+        }
+    }
+
+    /// A ship away on the Kingdom's service: it sails to the river entry and there
+    /// passes out of sight until the battle is over.
+    fn abroad_step(&mut self, fid: FigureId) {
+        let act = self.figures.get(fid).map_or(0, |f| f.action);
+        match act {
+            ship::TO_BATTLE => {
+                if self.sail(fid, false) != Step::Moving {
+                    let f = self.figures.get_mut(fid).expect("present");
+                    f.action = ship::AWAY;
+                    f.route.clear();
+                    f.moving = false;
+                    if let Some(s) = f.ship.as_deref_mut() {
+                        s.hidden = true;
+                    }
+                }
+            }
+            ship::AWAY => {}
+            _ => {
+                let request = self.figures.get(fid).and_then(|f| f.ship.as_ref()).and_then(|s| s.abroad).unwrap_or(0);
+                self.ship_to_battle(fid, request);
+            }
+        }
+    }
+
+    /// The strength the ships away for request `request` bring to its battle: each
+    /// warship a tenth of its hull (FUN_004b8330).
+    pub(crate) fn warship_battle_strength(&self, request: usize) -> i32 {
+        self.ships_abroad(request).into_iter().filter(|&s| self.figures.get(s).is_some_and(|f| f.kind == WARSHIP)).map(|s| self.hull_left(s) / HULL_PER_STRENGTH).sum()
+    }
+
+    fn hull_left(&self, fid: FigureId) -> i32 {
+        let hp = self.fighter_stats(fid).hp;
+        self.figures.get(fid).map_or(0, |f| (hp - f.damage).max(0))
+    }
+
+    /// The ships away for request `request`, still afloat, in the original's order.
+    pub(crate) fn ships_abroad(&self, request: usize) -> Vec<FigureId> {
+        let mut ids: Vec<FigureId> = self.figures.iter().filter(|f| is_city_ship(f.kind) && !f.dead && f.action != action::CORPSE && f.ship.as_ref().is_some_and(|s| s.abroad == Some(request))).map(|f| f.id).collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// The battle's losses, `pct` of the warships' strength, come off their hulls, a
+    /// ship at a time: each whose hull the loss uses up sinks, and the first with more
+    /// hull than is left to lose takes the rest; a battle lost sinks them all
+    /// (FUN_004b8890).
+    pub(crate) fn warships_take_losses(&mut self, request: usize, pct: i32) {
+        let ships: Vec<FigureId> = self.ships_abroad(request).into_iter().filter(|&s| self.figures.get(s).is_some_and(|f| f.kind == WARSHIP)).collect();
+        let mut pool = ships.iter().map(|&s| self.hull_left(s) / HULL_PER_STRENGTH).sum::<i32>() * HULL_PER_STRENGTH * pct / 100;
+        for s in ships {
+            let hull = self.hull_left(s);
+            if pct != 100 && hull > pool {
+                if let Some(f) = self.figures.get_mut(s) {
+                    f.damage += pool;
+                }
+                break;
+            }
+            pool -= hull;
+            self.sink_abroad(s);
+        }
+    }
+
+    /// A ship away at the Kingdom's battle is lost, out of sight.
+    pub(crate) fn sink_abroad(&mut self, fid: FigureId) {
+        let hp = self.fighter_stats(fid).hp;
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        f.damage = hp;
+        f.action = action::CORPSE;
+        f.counter = 0;
+        f.route.clear();
+        f.moving = false;
+        if let Some(s) = f.ship.as_deref_mut() {
+            s.abroad = None;
+            s.hidden = true;
+        }
+    }
+
+    /// The ships away for request `request` come home (FUN_004b8690): a warship to
+    /// the water by its wharf, then on to its mooring as if just launched; a
+    /// transport to the water nearest its company's old post, to put the company
+    /// ashore there and sail home.
+    pub(crate) fn ships_come_home(&mut self, request: usize) {
+        for fid in self.ships_abroad(request) {
+            let Some(f) = self.figures.get_mut(fid) else { continue };
+            let (kind, home, pos) = (f.kind, f.home, (f.x, f.y));
+            let aboard = f.ship.as_ref().and_then(|s| s.aboard);
+            if let Some(s) = f.ship.as_deref_mut() {
+                s.abroad = None;
+                s.hidden = false;
+            }
+            let post = aboard.and_then(|c| self.military.companies.get(c)).map(|co| co.standard_tile);
+            let to = if kind == WARSHIP { self.launch_tile(home) } else { post.and_then(|p| self.water_near(pos, p)) };
+            let map = &self.map;
+            let f = self.figures.get_mut(fid).expect("present");
+            if kind == TRANSPORT
+                && let Some(s) = f.ship.as_deref_mut()
+            {
+                s.landing = post;
+            }
+            f.action = if kind == TRANSPORT && post.is_none() { ship::TRANSPORT_HOME } else { ship::BACK };
+            if !to.is_some_and(|t| t != pos && f.go_to(map, t)) {
+                f.route.clear();
+                f.destination = Some(pos);
+            }
+            if kind == TRANSPORT && post.is_none() {
+                self.sail_home(fid);
+            }
+        }
+    }
+
+    /// Open water a ship at `from` can reach, nearest `tile`.
+    fn water_near(&self, from: (i32, i32), tile: (i32, i32)) -> Option<(i32, i32)> {
+        let reach = crate::water::reachable(&self.map, from);
+        let w = self.map.width;
+        (0..60).find_map(|r| {
+            (-r..=r)
+                .flat_map(move |dy| (-r..=r).map(move |dx| (tile.0 + dx, tile.1 + dy)))
+                .filter(|&q| distance(q, tile) == r)
+                .find(|&(x, y)| self.map.contains(x, y) && reach[(y * w + x) as usize])
         })
     }
 }
@@ -1391,5 +2096,144 @@ mod tests {
         }
         assert_eq!(world.company_ship(0), None);
         assert!(soldiers.iter().all(|&s| world.figures.get(s).is_some_and(|f| f.y > 120 && f.action != action::ABOARD)), "{:?}", soldiers.iter().map(|&s| world.figures.get(s).map(|f| (f.x, f.y, f.action))).collect::<Vec<_>>());
+    }
+
+    /// Ticks the town until a ship of kind `kind` is at its post, and gives it.
+    fn ship_at_post(world: &mut World, kind: u16) -> FigureId {
+        let post = if kind == WARSHIP { ship::ENGAGE } else { ship::EVADE };
+        for _ in 0..(80 * crate::time::TICKS_PER_DAY) {
+            if let Some(f) = world.figures.iter().find(|f| f.kind == kind && f.action == post) {
+                return f.id;
+            }
+            world.tick();
+        }
+        panic!("no ship of kind {kind} at its post");
+    }
+
+    /// Puts a company of four archers by the north bank aboard transport `t`.
+    fn company_aboard(world: &mut World, t: FigureId) -> Vec<FigureId> {
+        let standard = world.figures.spawn(crate::military::STANDARD_BEARER, 160, 108, Travel::Land);
+        let mut soldiers = Vec::new();
+        for i in 0..4 {
+            let s = world.figures.spawn(crate::military::ARCHER, 158 + i, 107, Travel::Land);
+            let f = world.figures.get_mut(s).expect("soldier");
+            f.formation = 1;
+            f.action = action::AT_STANDARD;
+            soldiers.push(s);
+        }
+        world.figures.get_mut(standard).expect("standard").formation = 1;
+        let mut company = crate::military::Company::default();
+        (company.kind, company.soldiers, company.standard, company.standard_tile, company.morale, company.fort) = (crate::military::ARCHER, soldiers.clone(), standard, (160, 108), 60, 1);
+        world.military.companies.push(company);
+        let c = world.military.companies.len() - 1;
+        assert!(matches!(world.apply(&Command::Embark { ship: t, company: c }), Outcome::Done { .. }));
+        for _ in 0..2000 {
+            world.tick();
+        }
+        assert_eq!(world.company_ship(c), Some(t));
+        soldiers
+    }
+
+    /// A call for troops against `enemy` from a city reached by sea.
+    fn sea_call(world: &mut World, enemy: i32) -> usize {
+        world.trade.cities.push(crate::trade::TradeCity { sea: true, ..Default::default() });
+        let i = world.scenario_events.request_troops_now(enemy);
+        world.scenario_events.list[i].city = Some(world.trade.cities.len() - 1);
+        i
+    }
+
+    #[test]
+    fn enemy_warships_sail_with_a_sea_invasion_and_fight_the_navy() {
+        let Some(mut world) = navy_town() else { return };
+        let ours = ship_at_post(&mut world, WARSHIP);
+        world.invasions.sea_points = vec![world.river_entry().expect("river")];
+        world.invade_by_sea_now(crate::invasions::invader::ENEMY, 16, 9, 2);
+        let theirs: Vec<FigureId> = world.figures.iter().filter(|f| f.kind == ENEMY_WARSHIP).map(|f| f.id).collect();
+        assert_eq!(theirs.len(), 2);
+        // Their hulls are the nation's Warship row.
+        let row = world.defs.armies[world.invasions.nation as usize].stats_row.expect("row") + 3;
+        assert_eq!(world.fighter_stats(theirs[0]).hp, world.balance.enemy_units[row].hp);
+        // The second sets out 25 ticks after the first.
+        assert_eq!(theirs.iter().map(|&s| world.figures.get(s).expect("ship").counter).collect::<Vec<_>>(), [10, 35]);
+        // They find our warship and trade blows with it.
+        let (mut hurt_ours, mut hurt_theirs) = (false, false);
+        for _ in 0..(40 * crate::time::TICKS_PER_DAY) {
+            world.tick();
+            hurt_ours |= world.figures.get(ours).is_none_or(|f| f.kind != WARSHIP || f.damage > 0);
+            hurt_theirs |= theirs.iter().any(|&s| world.figures.get(s).is_none_or(|f| f.kind != ENEMY_WARSHIP || f.damage > 0));
+            if hurt_ours && hurt_theirs {
+                break;
+            }
+        }
+        assert!(hurt_ours && hurt_theirs, "ours hurt {hurt_ours}, theirs hurt {hurt_theirs}");
+    }
+
+    #[test]
+    fn warships_and_a_company_aboard_answer_a_call_from_a_city_by_sea() {
+        let Some(mut world) = navy_town() else { return };
+        let warship = ship_at_post(&mut world, WARSHIP);
+        let transport = ship_at_post(&mut world, TRANSPORT);
+        let soldiers = company_aboard(&mut world, transport);
+        let c = world.military.companies.len() - 1;
+        let i = sea_call(&mut world, 20);
+        // Nothing marked, nothing to send.
+        assert!(!world.can_send_request(i));
+        world.military.companies[c].kingdom_service = true;
+        assert!(matches!(world.apply(&Command::ShipService(warship)), Outcome::Done { .. }));
+        assert!(world.can_send_request(i));
+        assert!(world.dispatch_request(i));
+        // They sail for the river entry and out of sight, taking no orders.
+        for _ in 0..600 {
+            world.tick();
+        }
+        for s in [warship, transport] {
+            let f = world.figures.get(s).expect("ship");
+            assert!(f.action == ship::AWAY && f.ship.as_ref().is_some_and(|s| s.hidden), "{} {:?}", f.action, f.ship);
+        }
+        assert!(!world.order_ship(warship, ShipOrder::Hold));
+        assert!(world.company_away(c));
+        // Strength: the archers (4 x 100 / 100) and a tenth of the warship's hull.
+        let hull = world.fighter_stats(warship).hp;
+        assert_eq!(world.military.battle.as_ref().map(|b| b.strength), Some(4 + hull / 10));
+        // Two months to the battle, won 34 to 20 (41% ahead: a quarter lost), and two
+        // more home.
+        for _ in 0..(5 * 31 * crate::time::TICKS_PER_DAY) {
+            world.tick();
+            if world.military.battle.is_none() {
+                break;
+            }
+        }
+        assert!(world.military.battle.is_none());
+        let f = world.figures.get(warship).expect("warship");
+        assert_eq!(f.damage, hull / 10 * 10 * 25 / 100, "the warship takes the battle's losses");
+        assert!(!f.ship.as_ref().is_some_and(|s| s.hidden || s.abroad.is_some()));
+        assert_eq!(world.military.companies[c].soldiers.len(), 3, "a quarter of four lost");
+        assert_eq!(soldiers.iter().filter(|&&s| world.figures.get(s).is_some_and(|f| !f.dead)).count(), 3);
+        // The transport puts the company back ashore by its old post.
+        for _ in 0..3000 {
+            world.tick();
+        }
+        assert_eq!(world.company_ship(c), None);
+        let men: Vec<_> = world.military.companies[c].soldiers.iter().map(|&s| world.figures.get(s).map(|f| (f.x, f.y, f.action))).collect();
+        assert!(men.iter().all(|m| m.is_some_and(|(_, y, a)| a != action::ABOARD && y < 112)), "{men:?}");
+    }
+
+    #[test]
+    fn a_lost_battle_sinks_the_warships_and_the_company_aboard() {
+        let Some(mut world) = navy_town() else { return };
+        let warship = ship_at_post(&mut world, WARSHIP);
+        let transport = ship_at_post(&mut world, TRANSPORT);
+        company_aboard(&mut world, transport);
+        let c = world.military.companies.len() - 1;
+        let i = sea_call(&mut world, 500);
+        world.military.companies[c].kingdom_service = true;
+        assert!(world.toggle_ship_service(warship));
+        assert!(world.dispatch_request(i));
+        for _ in 0..(3 * 31 * crate::time::TICKS_PER_DAY) {
+            world.tick();
+        }
+        assert!(world.military.battle.is_none());
+        assert!(world.figures.get(warship).is_none() && world.figures.get(transport).is_none());
+        assert!(world.military.companies[c].soldiers.is_empty());
     }
 }

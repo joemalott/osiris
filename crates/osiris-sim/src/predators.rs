@@ -669,7 +669,8 @@ fn handles_own_fights(k: u16) -> bool {
     military::is_soldier(k)
         || invasions::is_invader_kind(k)
         || is_predator(k)
-        || matches!(k, crime::CONSTABLE | defenses::TOWER_SENTRY | military::STANDARD_BEARER | military::ARROW | military::JAVELIN | navy::WARSHIP | navy::TRANSPORT | navy::ENEMY_TRANSPORT | crate::tomb_robbers::TOMB_ROBBER)
+        || navy::is_enemy_ship(k)
+        || matches!(k, crime::CONSTABLE | defenses::TOWER_SENTRY | military::STANDARD_BEARER | military::ARROW | military::JAVELIN | navy::WARSHIP | navy::TRANSPORT | crate::tomb_robbers::TOMB_ROBBER)
 }
 
 #[cfg(test)]

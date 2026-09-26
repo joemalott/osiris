@@ -747,7 +747,7 @@ impl World {
         let Some(e) = self.scenario_events.list.get(i) else { return false };
         match e.resource {
             DEBEN => self.treasury >= e.amount,
-            TROOPS => self.kingdom_service_strength() > 0 && self.military.battle.is_none(),
+            TROOPS => self.military.battle.is_none() && self.troops_ready(i),
             r => self.city_stored(r) >= e.units(),
         }
     }

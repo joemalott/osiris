@@ -970,7 +970,7 @@ impl Game {
         // Walkers on the tile come first.
         let mut walkers = [0u32; 7];
         let mut n = 0;
-        for f in self.world.figures.iter().filter(|f| (f.x, f.y) == (x, y) && !f.dead && f.action != osiris_sim::military::action::ABOARD) {
+        for f in self.world.figures.iter().filter(|f| (f.x, f.y) == (x, y) && !f.dead && f.action != osiris_sim::military::action::ABOARD && !f.ship.as_ref().is_some_and(|s| s.hidden)) {
             if n < walkers.len() {
                 walkers[n] = f.id;
                 n += 1;
@@ -1315,7 +1315,7 @@ impl Game {
     /// wrongly passes over a warship on the very tile; Osiris takes it.
     pub fn ship_at(&self, x: i32, y: i32) -> Option<osiris_sim::figures::FigureId> {
         use osiris_sim::navy::{TRANSPORT, WARSHIP};
-        let afloat = |f: &&osiris_sim::figures::Figure, k: u16, r: i32| f.kind == k && !f.dead && f.action != osiris_sim::military::action::CORPSE && f.ship.is_some() && (f.x - x).abs() <= r && (f.y - y).abs() <= r;
+        let afloat = |f: &&osiris_sim::figures::Figure, k: u16, r: i32| f.kind == k && !f.dead && f.action != osiris_sim::military::action::CORPSE && f.ship.as_ref().is_some_and(|s| !s.hidden) && (f.x - x).abs() <= r && (f.y - y).abs() <= r;
         let find = |k: u16| self.world.figures.iter().find(|f| afloat(f, k, 0)).or_else(|| self.world.figures.iter().find(|f| afloat(f, k, 1))).map(|f| f.id);
         find(TRANSPORT).or_else(|| find(WARSHIP))
     }
@@ -1588,8 +1588,12 @@ impl Game {
     /// tile and foot, or for a figure placed on a monument the first sprite's.
     fn figure_sprites(&self, r: &Renderer, carts: crate::anims::CartImages, f: &osiris_sim::figures::Figure, out: &mut Vec<Sprite>) -> Option<crate::motion::Anchor> {
         let defs = &self.world.defs;
-        // Soldiers aboard a transport are out of sight.
+        // Soldiers aboard a transport, and ships away at the Kingdom's battle, are out
+        // of sight.
         if f.action == osiris_sim::military::action::ABOARD && (osiris_sim::military::is_soldier(f.kind) || f.kind == osiris_sim::military::STANDARD_BEARER) {
+            return None;
+        }
+        if f.ship.as_ref().is_some_and(|s| s.hidden) {
             return None;
         }
         let at = crate::motion::Anchor::new(f.kind, f.home, (f.x, f.y), f.pixel_offset());
