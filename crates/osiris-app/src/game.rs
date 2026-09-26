@@ -1308,6 +1308,7 @@ impl Game {
                 let marks = preview.tiles.iter().map(|t| mark((t.x, t.y), if t.red || poor { bad } else { ok })).collect();
                 return (marks, Vec::new(), cost, why);
             }
+            _ => Vec::new(),
         };
         (tiles.into_iter().map(|t| mark(t, paint)).collect(), Vec::new(), cost, None)
     }

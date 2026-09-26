@@ -38,7 +38,10 @@ pub struct BuildingStats {
 pub const TYPE_ROAD: usize = 5;
 pub const TYPE_CLEAR_LAND: usize = 9;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Everything the player does to the city. The app changes the world only through
+/// these (plus the undo snapshot, see `restore_snapshot`), so a recording of them
+/// replays a game exactly (see `replay`).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Command {
     /// Clears trees, shrubs, rubble, roads and buildings in the rectangle.
     Clear { x0: i32, y0: i32, x1: i32, y1: i32 },
@@ -47,6 +50,45 @@ pub enum Command {
     /// Places building type `kind` with its footprint's corner at `(x, y)`; houses
     /// fill the rectangle up to `(x1, y1)` with vacant lots.
     Build { kind: u16, x: i32, y: i32, x1: i32, y1: i32 },
+    /// The build tool's statue look and facing, gatehouse facing and temple complex
+    /// facing, which the next `Build` uses. Recorded only when they changed.
+    Planner { statue_variant: u8, statue_facing: u8, gatehouse_facing: u8, complex_facing: u8 },
+    /// Tax rate in percent (0-25).
+    TaxRate(i32),
+    /// Wages per ten workers (0-100).
+    Wages(i32),
+    /// Labor priority of a category (0 none, 1-9).
+    LaborPriority { category: u8, priority: u8 },
+    CycleImport(u16),
+    CycleExport(u16),
+    TradeAmount { resource: u16, change: i32 },
+    ToggleMothballed(u16),
+    ToggleStockpiled(u16),
+    OpenTradeRoute(usize),
+    Festival { god: u8, size: u8 },
+    SalaryRank(u8),
+    SendGift(u8),
+    Donate(i32),
+    DispatchBurial { resource: u16, units: i32 },
+    DispatchRequest(usize),
+    ReturnCompany(usize),
+    MoveCompany { company: usize, x: i32, y: i32 },
+    CompanyOrder { company: usize, order: crate::military::Order },
+    RotateLine(usize),
+    KingdomService(usize),
+    /// A storage building's special orders for one resource.
+    BazaarBuys { building: BuildingId, resource: u16 },
+    OrderTier { building: BuildingId, resource: u16, up: bool },
+    CycleOrder { building: BuildingId, resource: u16 },
+    EmptyAll(BuildingId),
+    /// "Accept none": a yard or granary refuses everything, a bazaar buys nothing.
+    AcceptNone(BuildingId),
+    /// A cheat code typed into the cheat box.
+    Cheat(String),
+    Rules(Rules),
+    Difficulty(u8),
+    /// "Lower Difficulty" on the Out of Time screen.
+    LowerDifficultyForTime,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -223,6 +265,9 @@ pub struct World {
     /// Dust and sounds for the screen, with the tick each came on (see `effects`).
     #[serde(skip)]
     pub fx: Vec<(u64, crate::effects::Fx)>,
+    /// The recording of the game being played, when there is one (see `replay`).
+    #[serde(skip)]
+    pub journal: Option<crate::replay::Journal>,
 }
 
 fn default_statue_facing() -> u8 {
@@ -348,6 +393,7 @@ impl World {
             wind: 0,
             plagues: Default::default(),
             fx: Vec::new(),
+            journal: None,
         }
     }
 
@@ -384,22 +430,139 @@ impl World {
     /// Runs one simulation tick.
     pub fn tick(&mut self) {
         self.run_tick();
-    }
-
-    pub fn apply(&mut self, cmd: &Command) -> Outcome {
-        match *cmd {
-            Command::Clear { x0, y0, x1, y1 } => self.clear(x0, y0, x1, y1, false),
-            Command::Road { start, end } => self.road(start, end, false),
-            Command::Build { kind, x, y, x1, y1 } => self.build(kind, x, y, x1, y1, false),
+        if self.journal.is_some() {
+            self.journal_tick();
         }
     }
 
-    /// What `cmd` would cost, without changing anything.
+    pub fn apply(&mut self, cmd: &Command) -> Outcome {
+        if self.journal.is_some() {
+            self.record(cmd);
+        }
+        const DONE: Outcome = Outcome::Done { items: 1, cost: 0 };
+        let done_if = |ok: bool| if ok { DONE } else { Outcome::Blocked };
+        let storage = |w: &mut World, id: BuildingId, f: &dyn Fn(&mut crate::buildings::Building)| match w.buildings.get_mut(id) {
+            Some(b) => {
+                f(b);
+                DONE
+            }
+            None => Outcome::Invalid("No such building"),
+        };
+        match cmd {
+            &Command::Clear { x0, y0, x1, y1 } => self.clear(x0, y0, x1, y1, false),
+            &Command::Road { start, end } => self.road(start, end, false),
+            &Command::Build { kind, x, y, x1, y1 } => self.build(kind, x, y, x1, y1, false),
+            &Command::Planner { statue_variant, statue_facing, gatehouse_facing, complex_facing } => {
+                (self.statue_variant, self.statue_facing, self.gatehouse_facing, self.complex_facing) = (statue_variant, statue_facing, gatehouse_facing, complex_facing);
+                DONE
+            }
+            &Command::TaxRate(v) => {
+                self.finance.tax_rate = v.clamp(0, 25);
+                DONE
+            }
+            &Command::Wages(v) => {
+                self.finance.wages = v.clamp(0, 100);
+                DONE
+            }
+            &Command::LaborPriority { category, priority } => {
+                self.set_labor_priority(category as usize, priority);
+                DONE
+            }
+            &Command::CycleImport(r) => {
+                self.cycle_import(r);
+                DONE
+            }
+            &Command::CycleExport(r) => {
+                self.cycle_export(r);
+                DONE
+            }
+            &Command::TradeAmount { resource, change } => {
+                self.change_trade_amount(resource, change);
+                DONE
+            }
+            &Command::ToggleMothballed(r) => {
+                self.toggle_mothballed(r);
+                DONE
+            }
+            &Command::ToggleStockpiled(r) => {
+                self.toggle_stockpiled(r);
+                DONE
+            }
+            &Command::OpenTradeRoute(c) => self.open_trade_route(c).map_or_else(Outcome::Invalid, |()| DONE),
+            &Command::Festival { god, size } => self.plan_festival(god as usize, size).map_or_else(Outcome::Invalid, |()| DONE),
+            &Command::SalaryRank(rank) => {
+                self.set_salary_rank(rank);
+                DONE
+            }
+            &Command::SendGift(size) => if self.send_gift(size as usize) { DONE } else { Outcome::NotEnoughMoney },
+            &Command::Donate(amount) => {
+                self.donate(amount);
+                DONE
+            }
+            &Command::DispatchBurial { resource, units } => Outcome::Done { items: self.dispatch_burial(resource, units), cost: 0 },
+            &Command::DispatchRequest(i) => done_if(self.dispatch_request(i)),
+            &Command::ReturnCompany(c) => {
+                self.return_company(c);
+                DONE
+            }
+            &Command::MoveCompany { company, x, y } => done_if(self.move_company(company, (x, y))),
+            &Command::CompanyOrder { company, order } => {
+                self.set_order(company, order);
+                DONE
+            }
+            &Command::RotateLine(c) => {
+                self.rotate_line(c);
+                DONE
+            }
+            &Command::KingdomService(c) => {
+                self.toggle_kingdom_service(c);
+                DONE
+            }
+            &Command::BazaarBuys { building, resource } => storage(self, building, &|b| b.toggle_bazaar_buys(resource)),
+            &Command::OrderTier { building, resource, up } => storage(self, building, &|b| b.change_order_tier(resource, up)),
+            &Command::CycleOrder { building, resource } => storage(self, building, &|b| b.cycle_order(resource)),
+            &Command::EmptyAll(building) => storage(self, building, &|b| b.toggle_empty_all()),
+            &Command::AcceptNone(building) => storage(self, building, &|b| {
+                if b.kind == crate::buildings::kind::BAZAAR {
+                    b.orders = vec![1; crate::economy::resource::COUNT];
+                } else {
+                    b.accept_none();
+                }
+            }),
+            Command::Cheat(code) => {
+                use crate::cheats::Outcome as C;
+                const NEEDS_GOD: [&str; 5] = ["Osiris is not worshipped here", "Ra is not worshipped here", "Ptah is not worshipped here", "Seth is not worshipped here", "Bast is not worshipped here"];
+                match crate::cheats::apply(self, code) {
+                    C::Applied => DONE,
+                    C::NeedsGod(g) => Outcome::Invalid(NEEDS_GOD.get(g).copied().unwrap_or("Not worshipped here")),
+                    C::NotModeled => Outcome::Invalid("Not modeled in Osiris"),
+                    C::NeedsApp => Outcome::Invalid("Needs the app"),
+                    C::Unknown => Outcome::Invalid("Unknown cheat"),
+                }
+            }
+            Command::Rules(rules) => {
+                self.rules = rules.clone();
+                DONE
+            }
+            &Command::Difficulty(d) => {
+                self.set_difficulty(d);
+                DONE
+            }
+            Command::LowerDifficultyForTime => {
+                self.lower_difficulty_for_time();
+                DONE
+            }
+        }
+    }
+
+    /// What a map command (clear, road or build) would cost, without changing
+    /// anything; any other command costs nothing.
     pub fn estimate(&mut self, cmd: &Command) -> Outcome {
         match *cmd {
             Command::Clear { x0, y0, x1, y1 } => self.clear(x0, y0, x1, y1, true),
             Command::Road { start, end } => self.road(start, end, true),
             Command::Build { kind, x, y, x1, y1 } => self.build(kind, x, y, x1, y1, true),
+            _ => Outcome::Done { items: 0, cost: 0 },
         }
     }
 
