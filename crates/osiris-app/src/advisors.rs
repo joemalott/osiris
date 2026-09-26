@@ -836,12 +836,16 @@ fn religion(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opti
         let x = px + 40.0;
         let name = ui.t(157, i);
         let st = ui.t(187, god.status as usize);
+        // Known or not, a god's line is in the light font; an unknown god's columns
+        // hold dashes (FUN_00528f10's panel).
+        draw_text(ui.r, Font::NormalWhiteOnDark, &name, x, y, font::WHITE);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &st, x + 62.0, y, font::WHITE);
         if god.status == 0 {
-            draw_text(ui.r, Font::NormalYellow, &name, x, y, font::WHITE);
-            draw_text(ui.r, Font::NormalYellow, &st, x + 62.0, y, font::WHITE);
+            let dash = ui.t(G, 37);
+            for dx in [162.0, 227.0, 292.0, 352.0, 422.0] {
+                draw_text(ui.r, Font::NormalWhiteOnDark, &dash, x + dx, y, font::WHITE);
+            }
         } else {
-            draw_text(ui.r, Font::NormalWhiteOnDark, &name, x, y, font::WHITE);
-            draw_text(ui.r, Font::NormalWhiteOnDark, &st, x + 62.0, y, font::WHITE);
             let (complexes, _) = staffed(world, 65 + i as u16);
             let (temples, active) = staffed(world, 60 + i as u16);
             let (shrines, _) = staffed(world, 140 + i as u16);
@@ -1416,9 +1420,10 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
             _ => 34,
         });
         let count = format!("{} {}", co.soldiers.len(), arm);
-        ui.label(Font::NormalWhiteOnDark, &count, px + 84.0, ry + 22.0);
+        // The strength and morale are in the dark font, under the light name.
+        ui.label(Font::NormalBlackOnDark, &count, px + 84.0, ry + 22.0);
         let morale = ui.t(138, 37 + (co.morale / 5).clamp(0, 20) as usize);
-        ui.label(Font::NormalWhiteOnDark, &morale, px + 200.0, ry + 22.0);
+        ui.label(Font::NormalBlackOnDark, &morale, px + 200.0, ry + 22.0);
         // Experience: its rank's icon and name.
         let rank = osiris_sim::military::experience_rank(co.experience);
         ui.image(ui.img.experience_icons + rank as u32, px + 172.0, ry + 1.0);
