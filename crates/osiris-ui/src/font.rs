@@ -155,6 +155,15 @@ pub fn draw_text_unrisen(r: &mut Renderer, font: Font, text: &str, x: f32, y: f3
 }
 
 fn draw(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: [f32; 4], tint: [f32; 4]) -> i32 {
+    // Glyphs land on whole device pixels and keep their pixels square at every
+    // interface size, even where the art around them is filtered smoothly.
+    let sharp = std::mem::replace(&mut r.sharp, true);
+    let w = draw_glyphs(r, font, text, x, y, color, tint);
+    r.sharp = sharp;
+    w
+}
+
+fn draw_glyphs(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: [f32; 4], tint: [f32; 4]) -> i32 {
     let d = font.def();
     let mut cx = x;
     for c in text.chars() {

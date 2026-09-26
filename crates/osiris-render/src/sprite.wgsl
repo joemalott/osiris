@@ -22,6 +22,8 @@ struct Instance {
     // bit 3: filter (drawn with the multiplying pipeline: the shape multiplies what
     //        is under it by `color`)
     // bit 4: smooth (bilinear filtering)
+    // bit 5: sharp (nearest within a texel, blended only across a texel edge that
+    //        falls inside a device pixel)
     @location(5) flags: u32,
 };
 
@@ -58,13 +60,17 @@ fn texel(t: vec2<i32>, a: vec2<i32>, b: vec2<i32>) -> vec4<f32> {
 }
 
 // Bilinear filtering within the image, weighting colours by their alpha so the
-// transparent edges don't darken it.
-fn sample_smooth(v: VOut) -> vec4<f32> {
+// transparent edges don't darken it. `k` is device pixels per texel; above 0 the
+// blend is squeezed into the device pixel a texel edge falls in (sharp scaling).
+fn sample_smooth(v: VOut, k: vec2<f32>) -> vec4<f32> {
     let dims = vec2<f32>(textureDimensions(atlas));
     let a = vec2<i32>(floor(v.lo * dims + 0.5));
     let b = max(vec2<i32>(ceil(v.hi * dims - 0.5)) - 1, a);
     let p = v.uv * dims - 0.5;
-    let f = fract(p);
+    var f = fract(p);
+    if (k.x > 0.0) {
+        f = clamp((f - 0.5) * k + 0.5, vec2<f32>(0.0), vec2<f32>(1.0));
+    }
     let t = vec2<i32>(floor(p));
     let c00 = texel(t, a, b);
     let c10 = texel(t + vec2<i32>(1, 0), a, b);
@@ -83,8 +89,12 @@ fn fs(v: VOut) -> @location(0) vec4<f32> {
     // edge pixel could otherwise land in the transparent gap beside it.
     let half = 0.5 / vec2<f32>(textureDimensions(atlas));
     var t = textureSample(atlas, atlas_sampler, clamp(v.uv, v.lo + half, max(v.hi - half, v.lo + half)));
-    if ((v.flags & 16u) != 0u) {
-        t = sample_smooth(v);
+    // Device pixels per texel, worked out here where control flow is still uniform.
+    let k = 1.0 / max(fwidth(v.uv * vec2<f32>(textureDimensions(atlas))), vec2<f32>(1e-6));
+    if ((v.flags & 32u) != 0u) {
+        t = sample_smooth(v, max(k, vec2<f32>(1.0)));
+    } else if ((v.flags & 16u) != 0u) {
+        t = sample_smooth(v, vec2<f32>(0.0));
     }
     var c = t * v.color;
     if ((v.flags & 2u) != 0u) {
