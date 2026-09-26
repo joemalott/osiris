@@ -49,6 +49,9 @@ struct Args {
     screenshot: Option<PathBuf>,
     script: Option<String>,
     size: (u32, u32),
+    /// Whether `--size` was actually typed: an explicit size (as every screenshot
+    /// passes) overrides the player's saved window, which otherwise wins.
+    size_given: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -59,6 +62,7 @@ fn parse_args() -> Result<Args> {
         screenshot: None,
         script: None,
         size: (1280, 800),
+        size_given: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -73,6 +77,7 @@ fn parse_args() -> Result<Args> {
                 let v = val()?;
                 let (w, h) = v.split_once('x').context("--size WxH")?;
                 args.size = (w.parse()?, h.parse()?);
+                args.size_given = true;
             }
             _ if a.starts_with("-psn_") => {} // macOS Finder process serial number
             _ => bail!("unknown argument {a}\n{USAGE}"),
@@ -183,6 +188,52 @@ fn save_autosave(on: bool) {
 
 fn save_difficulty(d: u8) {
     let _ = std::fs::write(user_dir().join("difficulty.txt"), format!("{d}\n"));
+}
+
+/// The interface's own design size (see sidebar.rs, top_menu.rs, menu.rs): below
+/// this the sidebar and top menu bar start folding up, so it is the smallest
+/// sensible window.
+const MIN_WINDOW: (u32, u32) = (1024, 768);
+
+fn window_state_path() -> PathBuf {
+    user_dir().join("window.txt")
+}
+
+/// The window as the player last left it: its windowed logical size (the size to
+/// come back to once it isn't maximized or full screen), whether it was maximized,
+/// and whether it was full screen. `None` on a fresh install, or if the file is
+/// unreadable.
+fn load_window_state() -> Option<((u32, u32), bool, bool)> {
+    let s = std::fs::read_to_string(window_state_path()).ok()?;
+    let mut it = s.split_whitespace();
+    let w: u32 = it.next()?.parse().ok()?;
+    let h: u32 = it.next()?.parse().ok()?;
+    let maximized = it.next()? != "0";
+    let fullscreen = it.next()? != "0";
+    (w > 0 && h > 0).then_some(((w, h), maximized, fullscreen))
+}
+
+fn save_window_state(size: (u32, u32), maximized: bool, fullscreen: bool) {
+    let _ = std::fs::write(window_state_path(), format!("{} {} {} {}\n", size.0, size.1, maximized as u8, fullscreen as u8));
+}
+
+/// `size` clamped to fit the event loop's primary monitor (its own logical size),
+/// so a window saved on a bigger screen doesn't open off the edge of a smaller one.
+fn clamp_to_monitor(size: (u32, u32), event_loop: &ActiveEventLoop) -> (u32, u32) {
+    let Some(monitor) = event_loop.primary_monitor() else { return size };
+    let logical: winit::dpi::LogicalSize<f64> = monitor.size().to_logical(monitor.scale_factor());
+    (size.0.min(logical.width as u32).max(1), size.1.min(logical.height as u32).max(1))
+}
+
+/// A sensible window size when nothing is saved yet: the largest 4:3-or-wider size
+/// that fits in about 85% of the monitor, never smaller than the interface's own
+/// minimum. Falls back to that minimum if the monitor can't be found.
+fn default_window_size(event_loop: &ActiveEventLoop) -> (u32, u32) {
+    let Some(monitor) = event_loop.primary_monitor() else { return MIN_WINDOW };
+    let logical: winit::dpi::LogicalSize<f64> = monitor.size().to_logical(monitor.scale_factor());
+    let w = (logical.width * 0.85) as u32;
+    let h = ((logical.height * 0.85) as u32).min(w * 3 / 4);
+    (w.max(MIN_WINDOW.0), h.max(MIN_WINDOW.1))
 }
 
 fn save_rules(rules: &osiris_sim::Rules) {
@@ -469,6 +520,9 @@ struct App {
     pending_path: Option<u32>,
     /// The editor waiting while its map is played: leaving the game goes back to it.
     editor_waiting: Option<Box<editor::Editor>>,
+    /// The window's logical size when neither maximized nor full screen, kept so
+    /// leaving either state (and the next launch) has a size to come back to.
+    windowed_size: (u32, u32),
 }
 
 impl App {
@@ -819,6 +873,28 @@ impl App {
             Err(e) => self.status = Some((format!("Load failed: {e}"), 3.0)),
         }
     }
+
+    /// Alt+Enter, F11, or Ctrl+Cmd+F on macOS: borderless full screen on whichever
+    /// monitor the window is already on, from any screen. The Options menu's own
+    /// Fullscreen entry (only reachable in a running game) goes through
+    /// `game::Game::fullscreen_changed` instead, since the window lives here, not
+    /// with the game.
+    fn toggle_fullscreen(&mut self) {
+        gfx::set_fullscreen(!gfx::fullscreen());
+        let Some(gfx) = &self.gfx else { return };
+        let on = gfx::fullscreen();
+        gfx.window.set_fullscreen(on.then_some(winit::window::Fullscreen::Borderless(None)));
+        if !on {
+            // A window that opened straight into full screen (a fresh install's
+            // first launch) has no windowed frame of its own to fall back to.
+            let _ = gfx.window.request_inner_size(winit::dpi::LogicalSize::new(self.windowed_size.0, self.windowed_size.1));
+        }
+        let maximized = gfx.window.is_maximized();
+        save_window_state(self.windowed_size, maximized, on);
+        if let Some(Screen::Playing(g, _)) = &mut self.screen {
+            g.sync_fullscreen_label();
+        }
+    }
 }
 
 /// The original saves the city to last.sav as each month begins while Autosave is
@@ -878,9 +954,29 @@ impl ApplicationHandler for App {
         if self.gfx.is_some() {
             return;
         }
-        let attrs = Window::default_attributes()
+        // An explicit --size (as every screenshot passes) wins outright; otherwise
+        // the player's saved window comes back, clamped to the monitor it's on now,
+        // or else a size that fits this monitor comfortably.
+        let (size, maximized, fullscreen) = if self.args.size_given {
+            (self.args.size, false, false)
+        } else if let Some((size, maximized, fullscreen)) = load_window_state() {
+            (clamp_to_monitor(size, _event_loop), maximized, fullscreen)
+        } else {
+            // A fresh install opens full screen; the size that fits the monitor
+            // becomes the windowed size to come back to once the player turns full
+            // screen off (there's no windowed session of its own to remember one).
+            (default_window_size(_event_loop), false, true)
+        };
+        self.windowed_size = size;
+        gfx::set_fullscreen(fullscreen);
+        let mut attrs = Window::default_attributes()
             .with_title("Osiris")
-            .with_inner_size(winit::dpi::LogicalSize::new(self.args.size.0, self.args.size.1));
+            .with_inner_size(winit::dpi::LogicalSize::new(size.0, size.1))
+            .with_min_inner_size(winit::dpi::LogicalSize::new(MIN_WINDOW.0, MIN_WINDOW.1))
+            .with_maximized(maximized && !fullscreen);
+        if fullscreen {
+            attrs = attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+        }
         let started = (|| -> Result<_> {
             let window = _event_loop.create_window(attrs).context("could not open a window")?;
             let library = self.library.take().context("the game art was already taken")?;
@@ -941,6 +1037,15 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(size) => {
                 if let Some(gfx) = &mut self.gfx {
                     gfx.resize(size.width, size.height);
+                    let maximized = gfx.window.is_maximized();
+                    let fullscreen = gfx.window.fullscreen().is_some();
+                    // Only a plain resize (not a maximize or a fullscreen switch)
+                    // changes the size to come back to.
+                    if !maximized && !fullscreen {
+                        let logical: winit::dpi::LogicalSize<u32> = size.to_logical(gfx.window.scale_factor());
+                        self.windowed_size = (logical.width.max(1), logical.height.max(1));
+                    }
+                    save_window_state(self.windowed_size, maximized, fullscreen);
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
@@ -953,9 +1058,17 @@ impl ApplicationHandler for App {
                 if event.repeat {
                     return;
                 }
+                // The fullscreen toggle works everywhere (menus, the city, the
+                // editor), so it is checked before anything screen-specific.
+                let alt = [KeyCode::AltLeft, KeyCode::AltRight].iter().any(|k| self.keys.contains(k));
+                let ctrl = [KeyCode::ControlLeft, KeyCode::ControlRight].iter().any(|k| self.keys.contains(k));
+                let cmd = [KeyCode::SuperLeft, KeyCode::SuperRight].iter().any(|k| self.keys.contains(k));
                 match code {
                     KeyCode::F5 => self.quicksave(),
                     KeyCode::F9 => self.quickload(),
+                    KeyCode::F11 => self.toggle_fullscreen(),
+                    KeyCode::Enter | KeyCode::NumpadEnter if alt => self.toggle_fullscreen(),
+                    KeyCode::KeyF if cfg!(target_os = "macos") && ctrl && cmd => self.toggle_fullscreen(),
                     _ => match &mut self.screen {
                         Some(Screen::Menu(m)) if m.wants_text() => {
                             let text = match code {
@@ -1259,6 +1372,14 @@ impl App {
                 }
                 if std::mem::take(&mut game.autosave_changed) {
                     save_autosave(game.autosave);
+                }
+                if std::mem::take(&mut game.fullscreen_changed) {
+                    let on = gfx::fullscreen();
+                    gfx.window.set_fullscreen(on.then_some(winit::window::Fullscreen::Borderless(None)));
+                    if !on {
+                        let _ = gfx.window.request_inner_size(winit::dpi::LogicalSize::new(self.windowed_size.0, self.windowed_size.1));
+                    }
+                    save_window_state(self.windowed_size, gfx.window.is_maximized(), on);
                 }
                 autosaved = autosave(game, &saves, &mut self.autosaved);
                 // Once the victory message has been read, go on to the next mission.
@@ -1680,6 +1801,7 @@ fn run(mut args: Args) -> Result<()> {
         sound.apply(a);
     }
     let event_loop = EventLoop::new()?;
+    let initial_size = args.size;
     let mut app = App {
         args,
         assets,
@@ -1705,6 +1827,8 @@ fn run(mut args: Args) -> Result<()> {
         run: Run::Single,
         pending_path: None,
         editor_waiting: None,
+        // Replaced in `resumed`, once the window (and its monitor) exists.
+        windowed_size: initial_size,
     };
     event_loop.run_app(&mut app)?;
     Ok(())
