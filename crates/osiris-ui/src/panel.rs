@@ -79,6 +79,21 @@ pub fn outer_panel(r: &mut Renderer, p: &PanelImages, x: f32, y: f32, w: i32, h:
     }
 }
 
+/// The inside of a window panel with no border, `w x h` 16-pixel blocks, as the
+/// original draws its drop-down menus (FUN_00536990).
+pub fn unbordered_panel(r: &mut Renderer, p: &PanelImages, x: f32, y: f32, w: i32, h: i32) {
+    let mut image_y = 0;
+    for yy in 0..h {
+        for xx in 0..w {
+            img(r, p.dialog + 13 + image_y + (xx % 10) as u32, x + 16.0 * xx as f32, y + 16.0 * yy as f32);
+        }
+        image_y += 12;
+        if image_y >= 120 {
+            image_y = 0;
+        }
+    }
+}
+
 /// A sunken text area of `w x h` 16-pixel blocks.
 pub fn inner_panel(r: &mut Renderer, p: &PanelImages, x: f32, y: f32, w: i32, h: i32) {
     let mut image_y = 0;

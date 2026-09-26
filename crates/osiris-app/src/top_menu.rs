@@ -233,11 +233,13 @@ impl TopMenu {
         } else {
             ([495.0, 645.0, 883.0], w - 1024.0)
         };
-        for ((label, value), x) in status.iter().zip(xs) {
+        for (i, ((label, value), x)) in status.iter().zip(xs).enumerate() {
             let x = x + shift;
-            let lw = text_width(r, Font::NormalBlackOnLight, label) as f32;
-            draw_text(r, Font::NormalBlackOnLight, label, x, BAR_Y, font::BLACK);
-            draw_text(r, Font::NormalBlackOnLight, value, x + lw + 4.0, BAR_Y, font::BLACK);
+            // The treasury turns yellow in debt.
+            let f = if i == 0 && value.trim_start().starts_with('-') { Font::NormalYellow } else { Font::NormalBlackOnLight };
+            let lw = text_width(r, f, label) as f32;
+            draw_text(r, f, label, x, BAR_Y, font::BLACK);
+            draw_text(r, f, value, x + lw + 4.0, BAR_Y, font::BLACK);
         }
         if let Some(name) = overlay {
             let label = format!("Overlay: {name}");
@@ -247,7 +249,8 @@ impl TopMenu {
         let h = &self.headers[open];
         let top = crate::sidebar::TOP + 4.0;
         let blocks_h = ((ITEM_H * h.entries.len() as f32 + 16.0) / 16.0).ceil() as i32;
-        panel::outer_panel(r, panels, h.x, top, (DROP_W / 16.0) as i32, blocks_h);
+        // A drop-down is the window's face with no border (FUN_00425430).
+        panel::unbordered_panel(r, panels, h.x, top, (DROP_W / 16.0) as i32, blocks_h);
         for (i, e) in h.entries.iter().enumerate() {
             let y = top + 8.0 + ITEM_H * i as f32;
             if e.action == MenuAction::Unavailable {
