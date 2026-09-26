@@ -1460,10 +1460,18 @@ impl World {
 
     /// Tick 20: a carpenters' guild holding any timber builds up a point of progress
     /// for each worker, to at most 400 (the original's daily production at 0x455900).
+    ///
+    /// The original lists the four guilds with the quarries and the brickworks as work
+    /// Ptah's altar speeds by half again, but its guild progress is counted on a
+    /// separate path that never reaches that list, so the bonus is lost. Of the guilds
+    /// only the carpenters build up progress, so with the rule on (the default) a Ptah
+    /// complex with its altar speeds them as the list intends.
     pub(crate) fn build_up_carpenters(&mut self) {
+        let ptah = self.rules.ptah_speeds_guilds && self.complex_blessing(crate::temple_complex::PTAH, crate::temple_complex::ALTAR);
         for b in self.buildings.iter_mut().filter(|b| b.kind == kind::CARPENTERS_GUILD) {
             if b.workers > 0 && b.stock.get(TIMBER as usize).is_some_and(|&t| t > 0) {
-                b.progress = (b.progress + b.workers).min(CARPENTER_PROGRESS);
+                let gain = if ptah { b.workers + b.workers / 2 } else { b.workers };
+                b.progress = (b.progress + gain).min(CARPENTER_PROGRESS);
             }
         }
     }
@@ -3272,5 +3280,23 @@ mod tests {
         // At least the jobs' own ticks, and the guild's four build-ups of 50 days.
         let work: i32 = SMALL_OBELISK_STEPS.iter().map(|j| j.1 as i32).sum();
         assert!(ticks > work + 4 * 50 * 51, "{ticks}");
+    }
+    /// A Ptah complex with its altar speeds the carpenters' guild by half again, the
+    /// bonus the original lists but never reaches; with the rule off it does not.
+    #[test]
+    fn ptahs_altar_speeds_the_carpenters() {
+        let Some((mut world, _)) = pyramid_town(false) else { return };
+        let guild = world.buildings.iter().find(|b| b.kind == kind::CARPENTERS_GUILD).map(|b| b.id).expect("guild");
+        let complex = crate::buildings::Building { kind: crate::temple_complex::OSIRIS_COMPLEX + crate::temple_complex::PTAH as u16, upgrades: crate::temple_complex::ALTAR, ..Default::default() };
+        world.buildings.insert(complex);
+        let mut gain = |world: &mut World, on: bool| {
+            world.rules.ptah_speeds_guilds = on;
+            let b = world.buildings.get_mut(guild).expect("guild");
+            (b.workers, b.progress, b.stock[TIMBER as usize]) = (12, 0, 100);
+            world.build_up_carpenters();
+            world.buildings.get(guild).expect("guild").progress
+        };
+        assert_eq!(gain(&mut world, false), 12);
+        assert_eq!(gain(&mut world, true), 18);
     }
 }

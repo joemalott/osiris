@@ -1,4 +1,5 @@
-//! Optional rule changes, saved with each game. The defaults are the original rules.
+//! Optional rule changes, saved with each game. The defaults are the original rules,
+//! except where a rule fixes a plain bug in the original (`ptah_speeds_guilds`).
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -17,6 +18,9 @@ pub struct Rules {
     /// New storage yards and granaries start refusing every good, rather than
     /// accepting what they normally take.
     pub storage_accepts_none: bool,
+    /// Fixes the original's lost bonus: a Ptah temple complex with its altar speeds
+    /// the carpenters' guild by half again, as its list of Ptah's work says it should.
+    pub ptah_speeds_guilds: bool,
 }
 
 impl Default for Rules {
@@ -30,6 +34,7 @@ impl Default for Rules {
             disease: true,
             collapse: true,
             storage_accepts_none: false,
+            ptah_speeds_guilds: true,
         }
     }
 }
