@@ -18,6 +18,7 @@ mod message_list;
 mod rules_panel;
 mod sound_options;
 mod minimap;
+mod motion;
 mod overlay;
 mod mission_brief;
 mod progress;
@@ -898,8 +899,9 @@ impl App {
 }
 
 /// The original saves the city to last.sav as each month begins while Autosave is
-/// on. Osiris keeps one autosave per city, beside its saved game; at high speeds
-/// it saves at most every few seconds, and writes the file off the main thread.
+/// on. Osiris keeps the last few autosaves of each city beside its saved game (see
+/// `AUTOSAVES`); at high speeds it saves at most every few seconds, and writes the
+/// file off the main thread.
 fn autosave(game: &game::Game, saves: &Path, last: &mut Option<(i32, std::time::Instant)>) -> Option<PathBuf> {
     let w = &game.world;
     let month = w.time.year * 12 + w.time.month as i32;
@@ -915,12 +917,15 @@ fn autosave(game: &game::Game, saves: &Path, last: &mut Option<(i32, std::time::
                 return None;
             }
             let bytes = w.save().ok()?;
-            let path = autosave_path(saves, &w.scenario_name);
-            let written = path.clone();
+            let saves = saves.to_owned();
+            let name = w.scenario_name.clone();
+            let written = autosave_path(&saves, &name, 1);
             std::thread::spawn(move || {
-                let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
+                let _ = std::fs::create_dir_all(&saves);
+                let path = autosave_path(&saves, &name, 1);
                 let tmp = path.with_extension("tmp");
                 if std::fs::write(&tmp, bytes).is_ok() {
+                    rotate_autosaves(&saves, &name);
                     let _ = std::fs::rename(&tmp, &path);
                 }
             });
@@ -930,8 +935,30 @@ fn autosave(game: &game::Game, saves: &Path, last: &mut Option<(i32, std::time::
     }
 }
 
-fn autosave_path(saves: &Path, scenario: &str) -> PathBuf {
-    saves.join(format!("{} autosave.osiris", sanitize(scenario)))
+/// How many monthly autosaves each city keeps, so one bad month doesn't overwrite
+/// the only good one.
+const AUTOSAVES: usize = 3;
+
+/// The city's `n`th newest autosave: "<city> autosave.osiris", then "<city> autosave
+/// 2.osiris" and so on. The newest keeps the plain name, which the family history
+/// remembers for Resume.
+fn autosave_path(saves: &Path, scenario: &str, n: usize) -> PathBuf {
+    match n {
+        0 | 1 => saves.join(format!("{} autosave.osiris", sanitize(scenario))),
+        _ => saves.join(format!("{} autosave {n}.osiris", sanitize(scenario))),
+    }
+}
+
+/// Moves each of the city's autosaves one place older, dropping the oldest, to make
+/// room for a new one under the plain name. Renames keep the files' times, so the
+/// Load list (newest first) shows them in order.
+fn rotate_autosaves(saves: &Path, scenario: &str) {
+    for n in (1..AUTOSAVES).rev() {
+        let from = autosave_path(saves, scenario, n);
+        if from.exists() {
+            let _ = std::fs::rename(&from, autosave_path(saves, scenario, n + 1));
+        }
+    }
 }
 
 pub fn sanitize(name: &str) -> String {
@@ -1794,6 +1821,11 @@ fn run(mut args: Args) -> Result<()> {
                 let p = [if p[0] < 0.0 { r.screen[0] + p[0] } else { p[0] }, if p[1] < 0.0 { r.screen[1] + p[1] } else { p[1] }];
                 game.set_cursor(r, p);
             }
+            // OSIRIS_INTERP=t runs one more tick and draws the figures t of the way
+            // through it, gliding from where they stood (motion.rs).
+            if let Some(t) = std::env::var("OSIRIS_INTERP").ok().and_then(|s| s.parse().ok()) {
+                game.interpolation_test(r, t);
+            }
             game.draw(r);
         });
     }
@@ -1835,4 +1867,25 @@ fn run(mut args: Args) -> Result<()> {
     };
     event_loop.run_app(&mut app)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn autosaves_rotate_and_keep_the_last_few() {
+        let dir = std::env::temp_dir().join(format!("osiris-autosave-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for month in 1..=5 {
+            rotate_autosaves(&dir, "Thinis");
+            std::fs::write(autosave_path(&dir, "Thinis", 1), format!("{month}")).unwrap();
+        }
+        let read = |n| std::fs::read_to_string(autosave_path(&dir, "Thinis", n)).ok();
+        assert_eq!([read(1), read(2), read(3)], [Some("5".into()), Some("4".into()), Some("3".into())]);
+        assert!(!autosave_path(&dir, "Thinis", AUTOSAVES + 1).exists());
+        assert_eq!(autosave_path(&dir, "Thinis", 2).file_name().unwrap(), "Thinis autosave 2.osiris");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
