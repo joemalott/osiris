@@ -287,7 +287,7 @@ fn check_images(game: &Path) -> Result<()> {
         let (mut drawn, mut unknown, mut wrong) = (0, 0, 0);
         let mut example = None;
         let mut map = osiris_sim::map::Map::from_scenario(s);
-        osiris_sim::terrain_images::redraw_on_load(&mut map, &defs, s.version);
+        osiris_sim::terrain_images::redraw_on_load(&mut map, &defs);
         for y in 0..map.height {
             for x in 0..map.width {
                 let id = map.images.at_or(x, y, 0);

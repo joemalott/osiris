@@ -106,27 +106,16 @@ pub fn rebuild_with_edge_margin(map: &mut Map, defs: &Defs, edge_margin: i32) ->
     pass.choices
 }
 
-/// What a new city does to the map's stored images. Maps the original didn't save
-/// (older than version 147, with ids from an earlier sprite layout, or newer than 160,
-/// from another editor) have all their terrain drawn again. The rest have their rocks,
-/// ore, cliffs and dunes redrawn (the Cleopatra missions store their cliffs with ids
-/// from another layout) and lose any image outside the diamond, as the full pass
-/// leaves them: the Sandbox maps keep thousands of stale tiles there.
-pub fn redraw_on_load(map: &mut Map, defs: &Defs, version: i32) {
-    if !(147..=160).contains(&version) {
-        rebuild(map, defs);
-    } else {
-        redraw_outcrops(map, defs);
-    }
-}
-
-/// Redraws only rocks, ore, cliffs and dunes, as the original does on every start, and
-/// clears the tiles outside the diamond.
-pub fn redraw_outcrops(map: &mut Map, defs: &Defs) {
-    let mut pass = Pass::new(map, defs);
-    pass.rocks(map);
-    pass.dunes(map);
-    pass.clear_outside(map);
+/// What a new city does to the map's stored images: the original redraws the whole
+/// terrain every time it starts a map (FUN_004de600 -> FUN_004d5980 -> FUN_004be160,
+/// then FUN_004dea50) or loads a saved game or campaign mission (FUN_004d52a0:
+/// FUN_004dea50, then FUN_004be160), so the images a file stores are never shown as
+/// they are. That also clears what older layouts and other editors left: ids from an
+/// earlier sprite layout (before version 147), the Cleopatra missions' cliffs, stale
+/// tiles outside the diamond (thousands in the Sandbox maps), land blocks laid up to
+/// the edge by an earlier build, and water frames saved mid-animation.
+pub fn redraw_on_load(map: &mut Map, defs: &Defs) {
+    rebuild(map, defs);
 }
 
 /// Redraws land freed in play (cleared land, a removed road or building), as the
@@ -1199,7 +1188,7 @@ mod tests {
         let diamond = Diamond::new(map.width, map.height);
         let outside = |map: &Map| (0..map.height).flat_map(|y| (0..map.width).map(move |x| (x, y))).filter(|&(x, y)| !diamond.inside(x, y) && map.images.at_or(x, y, 0) != 0).count();
         assert!(outside(&map) > 4000);
-        redraw_on_load(&mut map, &defs, scenario.version);
+        redraw_on_load(&mut map, &defs);
         assert_eq!(outside(&map), 0);
     }
 
@@ -1208,7 +1197,7 @@ mod tests {
         let Some(data) = pharaoh_data_dir() else { return };
         let (scenario, mut map, defs, library) = load(&data, "Bridges.map");
         assert!(scenario.version < 147);
-        redraw_on_load(&mut map, &defs, scenario.version);
+        redraw_on_load(&mut map, &defs);
         let (terrain_pack, _) = library.pack_by_name("Pharaoh_Terrain").expect("terrain pack");
         let mut drawn = 0;
         for y in 0..map.height {

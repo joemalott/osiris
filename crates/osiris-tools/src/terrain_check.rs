@@ -266,7 +266,7 @@ pub fn check_terrain_images(game: &Path, options: &Options) -> Result<Report> {
             (map, choices) = (legacy, legacy_choices);
         }
         let mut on_load = stored.clone();
-        osiris_sim::terrain_images::redraw_on_load(&mut on_load, &defs, s.version);
+        osiris_sim::terrain_images::redraw_on_load(&mut on_load, &defs);
         let (covered_stored, covered_on_load) = (covered(&stored), covered(&on_load));
         let (mut tiles, mut exact, mut holes, mut holes_on_load) = (0, 0, 0, 0);
         let (mut outside, mut outside_on_load) = (0, 0);
