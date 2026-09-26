@@ -1507,7 +1507,7 @@ impl Game {
                 });
             }
         }
-        let cx = crate::anims::AnimContext { world: &self.world, r, ticks: self.world.time.total_ticks, millis: (self.anim_clock * 1000.0) as u64 };
+        let cx = crate::anims::AnimContext { world: &self.world, r, millis: (self.anim_clock * 1000.0) as u64 };
         crate::anims::building_animations(&cx, &mut out);
         out
     }

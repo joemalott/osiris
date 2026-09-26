@@ -32,7 +32,7 @@ key = "water_lift"
 size = 2
 labor = "food_production"
 image = { pack = "Pharaoh_Terrain", group = 50, offset = 0 }
-anims = { preview = { pack = "Pharaoh_Terrain", group = 50, offset = 0 }, work_n = { pack = "SprAmbient", group = 1, offset = 1, frames = 12, x = 50, y = 15, duration = 8 }, work_e = { pack = "SprAmbient", group = 2, offset = 1, frames = 12, x = 54, y = 14, duration = 8 }, work_s = { pack = "SprAmbient", group = 3, offset = 1, frames = 12, x = 60, y = 15, duration = 8 }, work_w = { pack = "SprAmbient", group = 4, offset = 1, frames = 12, x = 68, y = 20, duration = 8 } }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 50, offset = 0 }, work_n = { pack = "SprAmbient", group = 1, offset = 0 }, work_e = { pack = "SprAmbient", group = 2, offset = 0 }, work_s = { pack = "SprAmbient", group = 3, offset = 0 }, work_w = { pack = "SprAmbient", group = 4, offset = 0 } }
 needs = ["water_access", "shoreline", "floodplain_shoreline"]
 flags = ["draw_normal_anim"]
 text_id = 107
@@ -369,7 +369,7 @@ size = 3
 labor = "entertainment"
 figure = ["juggler", "musician"]
 image = { pack = "Pharaoh_General", group = 114, offset = 0 }
-anims = { square = { pack = "Pharaoh_General", group = 58, offset = 0 }, stand_sn_s = { pack = "Pharaoh_General", group = 92, offset = 0 }, stand_sn_n = { pack = "Pharaoh_General", group = 92, offset = 1 }, stand_we_w = { pack = "Pharaoh_General", group = 92, offset = 2 }, stand_we_e = { pack = "Pharaoh_General", group = 92, offset = 3 }, juggler = { pack = "SprAmbient", group = 7, offset = 0, frames = 26, x = 35, y = 15, duration = 2 }, musician_sn = { pack = "SprAmbient", group = 10, offset = 0, frames = 11, x = -10, y = -36, duration = 3 }, musician_we = { pack = "SprAmbient", group = 9, offset = 0, frames = 11, x = 30, y = 10, duration = 3 } }
+anims = { square = { pack = "Pharaoh_General", group = 58, offset = 0 }, stand_sn_s = { pack = "Pharaoh_General", group = 92, offset = 0 }, stand_sn_n = { pack = "Pharaoh_General", group = 92, offset = 1 }, stand_we_w = { pack = "Pharaoh_General", group = 92, offset = 2 }, stand_we_e = { pack = "Pharaoh_General", group = 92, offset = 3 }, juggler = { pack = "SprAmbient", group = 7, offset = 0, x = 29, y = 14 }, musician_sn = { pack = "SprAmbient", group = 9, offset = 0, x = 52, y = -3 }, musician_we = { pack = "SprAmbient", group = 10, offset = 0, x = 20, y = 0 } }
 flags = ["is_entertainment"]
 text_id = 71
 help = "message_building_bandstand"
@@ -385,7 +385,7 @@ size = 2
 labor = "entertainment"
 figure = "juggler"
 image = { pack = "Pharaoh_General", group = 114, offset = 0 }
-anims = { square = { pack = "Pharaoh_General", group = 112, offset = 0 }, juggler = { pack = "SprAmbient", group = 7, offset = -1, x = 35, y = 17 } }
+anims = { square = { pack = "Pharaoh_General", group = 112, offset = 0 }, juggler = { pack = "SprAmbient", group = 7, offset = 0, x = 29, y = 14 } }
 flags = ["is_entertainment", "keeps_visitor_paths"]
 text_id = 72
 help = "message_building_booth"
@@ -411,7 +411,7 @@ key = "pavillion"
 size = 4
 figure = ["dancer", "juggler", "musician"]
 image = { pack = "Pharaoh_General", group = 48, offset = 0, x = 0, y = 0 }
-anims = { square = { pack = "Pharaoh_General", group = 50, offset = 0, x = 0, y = 0 }, stand_sn_s = { pack = "Pharaoh_General", group = 92, offset = 0 }, stand_sn_n = { pack = "Pharaoh_General", group = 92, offset = 1 }, stand_sn_e = { pack = "Pharaoh_General", group = 92, offset = 2 }, juggler = { pack = "SprAmbient", group = 7, offset = -1, x = 35, y = 17 }, dancer = { pack = "SprAmbient", group = 6, offset = 0, frames = 35, x = 65, y = 0 }, musician_sn = { pack = "SprAmbient", group = 9, offset = 0, frames = 11, x = 50, y = 0 }, musician_we = { pack = "SprAmbient", group = 10, offset = 0, frames = 11, x = 48, y = 4 }, booth = { pack = "Pharaoh_General", group = 114, offset = 0, x = 0, y = 0 } }
+anims = { square = { pack = "Pharaoh_General", group = 50, offset = 0, x = 0, y = 0 }, stand_sn_s = { pack = "Pharaoh_General", group = 92, offset = 0 }, stand_sn_n = { pack = "Pharaoh_General", group = 92, offset = 1 }, stand_sn_e = { pack = "Pharaoh_General", group = 92, offset = 2 }, juggler = { pack = "SprAmbient", group = 7, offset = 0, x = 29, y = 14 }, dancer = { pack = "SprAmbient", group = 6, offset = 0, x = 64, y = 0 }, musician_sn = { pack = "SprAmbient", group = 9, offset = 0, x = 52, y = -3 }, musician_we = { pack = "SprAmbient", group = 10, offset = 0, x = 20, y = 0 }, booth = { pack = "Pharaoh_General", group = 114, offset = 0, x = 0, y = 0 } }
 flags = ["is_entertainment"]
 text_id = 74
 help = "message_building_pavilion"
@@ -424,7 +424,7 @@ size = 3
 labor = "entertainment"
 figure = "musician"
 image = { pack = "Pharaoh_General", group = 51, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 51, offset = 0 }, work = { pack = "SprAmbient", group = 10, offset = 0, frames = 11, x = 52, y = -18, duration = 4 } }
+anims = { preview = { pack = "Pharaoh_General", group = 51, offset = 0 }, work = { pack = "SprAmbient", group = 10, offset = 0, x = 82, y = 14 } }
 flags = ["draw_normal_anim"]
 text_id = 75
 help = "message_building_trading_centers"
@@ -439,7 +439,7 @@ key = "dance_school"
 size = 4
 figure = "dancer"
 image = { pack = "Pharaoh_General", group = 52, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 52, offset = 0 }, work = { pack = "SprAmbient", group = 6, offset = 0, frames = 35, x = 104, y = 0, duration = 2 } }
+anims = { preview = { pack = "Pharaoh_General", group = 52, offset = 0 }, work = { pack = "SprAmbient", group = 6, offset = 0, x = 108, y = 1 } }
 flags = ["is_entertainment", "draw_normal_anim"]
 text_id = 76
 help = "message_building_trading_centers"
@@ -507,7 +507,7 @@ size = 3
 labor = "military"
 figure = "fcharioteer"
 image = { pack = "Pharaoh_General", group = 66, offset = 0 }
-anims = { ground = { pack = "Pharaoh_General", group = 66, offset = 1 }, picture = { pack = "Pharaoh_General", group = 66, offset = 3, x = 93, y = -21 } }
+anims = { ground = { pack = "Pharaoh_General", group = 66, offset = 1 }, picture = { pack = "Pharaoh_General", group = 66, offset = 3, x = 93, y = -20 } }
 flags = ["is_fort", "is_military"]
 text_id = 89
 help = "message_fort_and_company"
@@ -552,7 +552,7 @@ size = 3
 labor = "military"
 figure = "archer"
 image = { pack = "Pharaoh_General", group = 66, offset = 0 }
-anims = { ground = { pack = "Pharaoh_General", group = 66, offset = 1 }, picture = { pack = "Pharaoh_General", group = 66, offset = 2, x = 93, y = -21 } }
+anims = { ground = { pack = "Pharaoh_General", group = 66, offset = 1 }, picture = { pack = "Pharaoh_General", group = 66, offset = 2, x = 93, y = -20 } }
 flags = ["is_fort", "is_military"]
 text_id = 89
 help = "message_fort_and_company"
@@ -567,7 +567,7 @@ size = 3
 labor = "military"
 figure = "infantry"
 image = { pack = "Pharaoh_General", group = 66, offset = 0 }
-anims = { ground = { pack = "Pharaoh_General", group = 66, offset = 1 }, picture = { pack = "Pharaoh_General", group = 66, offset = 4, x = 93, y = -21 } }
+anims = { ground = { pack = "Pharaoh_General", group = 66, offset = 1 }, picture = { pack = "Pharaoh_General", group = 66, offset = 4, x = 93, y = -20 } }
 flags = ["is_fort", "is_military"]
 text_id = 89
 help = "message_fort_and_company"
@@ -876,7 +876,7 @@ size = 4
 labor = "infrastructure"
 figure = "storageyard_cart"
 image = { pack = "Pharaoh_General", group = 99, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 99, offset = 0 }, work = { pack = "SprAmbient", group = 47, offset = 0, frames = 23 }, resources = { pack = "Pharaoh_General", group = 99, offset = 2 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 } }
+anims = { preview = { pack = "Pharaoh_General", group = 99, offset = 0 }, work = { pack = "SprAmbient", group = 47, offset = 0, x = 113, y = 3 }, resources = { pack = "Pharaoh_General", group = 99, offset = 2 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 } }
 flags = ["is_food", "keeps_visitor_paths", "perimeter_access"]
 text_id = 98
 help = "message_building_granary"
@@ -898,7 +898,7 @@ size = 3
 labor = "industry_commerce"
 figure = "storageyard_cart"
 image = { pack = "Pharaoh_General", group = 82, offset = 0, x = 0, y = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 82, offset = 0, x = 0, y = 0 }, cover = { pack = "Pharaoh_General", group = 82, offset = 17, x = -5, y = -42 }, space_empty = { pack = "Pharaoh_General", group = 83, offset = 0 }, space_filled = { pack = "Pharaoh_General", group = 84, offset = 0 }, work = { pack = "SprAmbient", group = 51, offset = 1, frames = 14, x = 10, y = -10, duration = 3 } }
+anims = { preview = { pack = "Pharaoh_General", group = 82, offset = 0, x = 0, y = 0 }, cover = { pack = "Pharaoh_General", group = 82, offset = 17, x = -4, y = -42 }, space_empty = { pack = "Pharaoh_General", group = 83, offset = 0 }, space_filled = { pack = "Pharaoh_General", group = 84, offset = 0 }, work = { pack = "SprAmbient", group = 51, offset = 0, x = 22, y = 24 } }
 flags = ["is_industry"]
 text_id = 99
 help = "message_building_storage_yard"
@@ -921,7 +921,7 @@ key = "shipwright"
 size = 3
 labor = "industry_commerce"
 image = { pack = "Pharaoh_Terrain", group = 26, offset = 0, frames = 1 }
-anims = { preview = { pack = "Pharaoh_Terrain", group = 26, offset = 0, frames = 1 }, wood = { pack = "Pharaoh_General", group = 202, offset = 0, x = 55, y = 20 }, work_warship = { pack = "SprAmbient", group = 52, offset = 0, frames = 12, x = 70, y = 20, duration = 4 }, work_fishing_boat = { pack = "SprAmbient", group = 54, offset = 0, frames = 11, x = 70, y = 20, duration = 4 }, work_transport = { pack = "SprAmbient", group = 54, offset = 0, frames = 11, x = 70, y = 20, duration = 4 } }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 26, offset = 0, frames = 1 }, wood = { pack = "Pharaoh_General", group = 202, offset = 0, x = 55, y = 20 }, work_warship = { pack = "SprAmbient", group = 45, offset = 0 }, work_fishing_boat = { pack = "SprAmbient", group = 54, offset = 0 }, work_transport = { pack = "SprAmbient", group = 52, offset = 0 } }
 needs = ["water_access", "shoreline"]
 flags = ["is_industry"]
 inputs = ["timber"]
@@ -940,7 +940,7 @@ size = 3
 labor = "industry_commerce"
 figure = "docker"
 image = { pack = "Pharaoh_Terrain", group = 49, offset = 0 }
-anims = { preview = { pack = "Pharaoh_Terrain", group = 49, offset = 0 }, work_n = { pack = "SprAmbient", group = 55, offset = 3, frames = 25, x = 135, y = -7, duration = 8 }, work_w = { pack = "SprAmbient", group = 55, offset = 1, frames = 25, x = 100, y = -7, duration = 8 }, work_s = { pack = "SprAmbient", group = 55, offset = 0, frames = 25, x = 55, y = 7, duration = 4 }, work_e = { pack = "SprAmbient", group = 55, offset = 2, frames = 25, x = 55, y = -27, duration = 4 } }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 49, offset = 0 }, work = { pack = "SprAmbient", group = 55, offset = 0 }, unload = { pack = "SprAmbient", group = 56, offset = 0 } }
 needs = ["water_access", "shoreline"]
 flags = ["is_industry"]
 text_id = 101
@@ -956,7 +956,7 @@ size = 2
 labor = "food_production"
 figure = "fishing_boat"
 image = { pack = "Pharaoh_Terrain", group = 18, offset = 0 }
-anims = { preview = { pack = "Pharaoh_Terrain", group = 18, offset = 0 }, work_n = { pack = "SprAmbient", group = 46, offset = 0, frames = 24, x = 65, y = 0, duration = 1 }, work_w = { pack = "SprAmbient", group = 46, offset = 0, frames = 24, x = 80, y = 7, duration = 3 }, work_s = { pack = "SprAmbient", group = 46, offset = 2, frames = 24, x = 55, y = -27, duration = 4 }, work_e = { pack = "SprAmbient", group = 46, offset = 3, frames = 24, x = 55, y = -27, duration = 4 }, wait_n = { pack = "SprAmbient", group = 55, offset = 3, frames = 25, x = 85, y = 20, duration = 8 }, wait_w = { pack = "SprAmbient", group = 55, offset = 0, frames = 25, x = 85, y = 7, duration = 3 }, wait_s = { pack = "SprAmbient", group = 55, offset = 2, frames = 25, x = 50, y = 17, duration = 4 }, wait_e = { pack = "SprAmbient", group = 55, offset = 3, frames = 25, x = 55, y = -27, duration = 4 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 } }
+anims = { preview = { pack = "Pharaoh_Terrain", group = 18, offset = 0 }, work = { pack = "SprAmbient", group = 46, offset = 0 }, wait = { pack = "SprAmbient", group = 55, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 } }
 needs = ["water_access", "shoreline"]
 flags = ["is_food"]
 outputs = ["fish"]
@@ -1270,7 +1270,7 @@ key = "stone_quarry"
 size = 2
 labor = "industry_commerce"
 image = { pack = "Pharaoh_General", group = 187, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 187, offset = 0 }, work = { pack = "SprAmbient", group = 49, offset = 0, frames = 6, x = 84, y = 15, duration = 3 }, work_2 = { pack = "SprAmbient", group = 49, offset = 7, frames = 6, x = 44, y = 20, duration = 3 } }
+anims = { preview = { pack = "Pharaoh_General", group = 187, offset = 0 }, work = { pack = "SprAmbient", group = 49, offset = 0, x = 90, y = 17 }, work_2 = { pack = "SprAmbient", group = 50, offset = 0, x = 40, y = 20 } }
 needs = ["rock"]
 flags = ["is_extractor", "is_industry"]
 outputs = ["stone"]
@@ -1285,7 +1285,7 @@ key = "limestone_quarry"
 size = 2
 labor = "industry_commerce"
 image = { pack = "Pharaoh_General", group = 170, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 170, offset = 0 }, work = { pack = "SprAmbient", group = 49, offset = 0, frames = 16, x = 54, y = 15, duration = 2 } }
+anims = { preview = { pack = "Pharaoh_General", group = 170, offset = 0 }, work = { pack = "SprAmbient", group = 49, offset = 0, x = 90, y = 17 }, work_2 = { pack = "SprAmbient", group = 50, offset = 0, x = 40, y = 20 } }
 needs = ["rock"]
 flags = ["is_extractor", "is_industry", "draw_normal_anim"]
 outputs = ["limestone"]
@@ -1542,7 +1542,7 @@ key = "gold_mine"
 size = 2
 labor = "industry_commerce"
 image = { pack = "Pharaoh_General", group = 185, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 185, offset = 0 }, work = { pack = "SprAmbient", group = 48, offset = 0, frames = 16, x = 54, y = 15, duration = 2 } }
+anims = { preview = { pack = "Pharaoh_General", group = 185, offset = 0 }, work = { pack = "SprAmbient", group = 48, offset = 0, x = 54, y = 15 } }
 needs = ["rock", "ore"]
 flags = ["is_extractor", "is_industry", "keeps_visitor_paths", "draw_normal_anim"]
 outputs = ["gold"]
@@ -1559,7 +1559,7 @@ key = "gemstone_mine"
 size = 2
 labor = "industry_commerce"
 image = { pack = "Pharaoh_General", group = 188, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 188, offset = 0 }, work = { pack = "SprAmbient", group = 48, offset = 0, frames = 16, x = 54, y = 15, duration = 2 }, gems = { pack = "Pharaoh_General", group = 203, offset = 0, x = 93, y = 0 } }
+anims = { preview = { pack = "Pharaoh_General", group = 188, offset = 0 }, work = { pack = "SprAmbient", group = 48, offset = 0, x = 54, y = 15 }, gems = { pack = "Pharaoh_General", group = 203, offset = 0, x = 93, y = 0 } }
 needs = ["rock"]
 flags = ["is_extractor", "is_industry", "keeps_visitor_paths"]
 outputs = ["gems"]
@@ -1953,7 +1953,7 @@ key = "granite_quarry"
 size = 2
 labor = "industry_commerce"
 image = { pack = "Pharaoh_General", group = 38, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 38, offset = 0 }, work = { pack = "SprAmbient", group = 49, offset = 0, frames = 16, x = 54, y = 15, duration = 2 } }
+anims = { preview = { pack = "Pharaoh_General", group = 38, offset = 0 }, work = { pack = "SprAmbient", group = 49, offset = 0, x = 90, y = 17 }, work_2 = { pack = "SprAmbient", group = 50, offset = 0, x = 40, y = 20 } }
 needs = ["rock"]
 flags = ["is_extractor", "is_industry", "draw_normal_anim"]
 outputs = ["granite"]
@@ -1969,7 +1969,7 @@ key = "copper_mine"
 size = 2
 labor = "industry_commerce"
 image = { pack = "Pharaoh_General", group = 196, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 196, offset = 0 }, work = { pack = "SprAmbient", group = 48, offset = 0, frames = 16, x = 54, y = 15, duration = 2 } }
+anims = { preview = { pack = "Pharaoh_General", group = 196, offset = 0 }, work = { pack = "SprAmbient", group = 48, offset = 0, x = 54, y = 15 } }
 needs = ["rock", "ore"]
 flags = ["is_extractor", "is_industry", "keeps_visitor_paths"]
 outputs = ["copper"]
@@ -1985,7 +1985,7 @@ key = "sandstone_quarry"
 size = 2
 labor = "industry_commerce"
 image = { pack = "Pharaoh_General", group = 197, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 197, offset = 0 }, work = { pack = "SprAmbient", group = 49, offset = 0, frames = 16, x = 54, y = 15, duration = 2 } }
+anims = { preview = { pack = "Pharaoh_General", group = 197, offset = 0 }, work = { pack = "SprAmbient", group = 49, offset = 0, x = 90, y = 17 }, work_2 = { pack = "SprAmbient", group = 50, offset = 0, x = 40, y = 20 } }
 needs = ["rock"]
 flags = ["is_extractor", "is_industry", "draw_normal_anim"]
 outputs = ["sandstone"]

@@ -449,6 +449,13 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 world.take_stored(id, r, have);
                 world.add_stored(id, r, n);
             }
+            // Gives the venue at P N days of juggling, music and dancing.
+            ["shows", p, n] => {
+                let (x, y) = parse_point(p)?;
+                let id = world.map.building.at_or(x, y, 0);
+                let b = world.buildings.get_mut(id).context("no building there")?;
+                b.shows = [n.parse()?; 3];
+            }
             ["opentrade", c] => {
                 let c: usize = c.parse()?;
                 world.trade.cities.get_mut(c).context("no such trade city")?.open = true;

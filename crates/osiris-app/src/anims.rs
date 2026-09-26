@@ -1,27 +1,54 @@
 //! Animations drawn over buildings: staff at work, performers at venues, and the
-//! grain heaps in granaries. Most buildings follow one of two general rules; the
-//! granary and the venues have their own, as in the original.
+//! grain heaps in granaries.
+//!
+//! The original's building pass (FUN_00436b60) animates a building only when the
+//! image on its draw tile has frames of its own (`num_animation_sprites`), and runs
+//! that many frames. Most buildings show the frames stored after that image, placed
+//! by the image's record: `sprite_offset` from the image's top-left corner. A few
+//! types show frames from SprAmbient instead, at a spot measured from the draw
+//! tile less each frame's own anchor; those spots are the original's, kept in the
+//! tables below or in the building's anims.
 
 use crate::city_view::{self, Overlay};
+use osiris_formats::ImageRecord;
 use osiris_render::Renderer;
 use osiris_sim::World;
 use osiris_sim::buildings::{Building, kind};
 use osiris_sim::defs::Anim;
 use osiris_sim::map::edge;
 
-/// Where the granary's eight heaps of food sit, from its first heap.
-const GRANARY_SPOTS: [(i32, i32); 8] = [(0, 0), (16, 9), (35, 18), (51, 26), (-16, 7), (1, 16), (20, 26), (37, 35)];
-const GRANARY_FIRST_SPOT: (i32, i32) = (110, -74);
-/// Where the granary's two scribes stand; the second works only when over half staffed.
-const GRANARY_SCRIBES: [(i32, i32); 2] = [(114, 2), (96, -4)];
+/// Where the granary's eight heaps of food sit, from its draw tile (FUN_00442280).
+const GRANARY_SPOTS: [(i32, i32); 8] = [(110, -73), (126, -64), (145, -55), (161, -47), (94, -66), (111, -57), (130, -47), (147, -38)];
 /// Stored units that fill one heap.
 const GRANARY_SPOT_UNITS: i32 = 400;
+/// Where a fishing wharf's staff stand, by the wharf's facing (FUN_00438350).
+const WHARF_SPOTS: [(i32, i32); 4] = [(75, 10), (78, 7), (62, 18), (48, 8)];
+/// Where a dock's dockers stand, by facing: waiting, then unloading a ship.
+const DOCK_SPOTS: [[(i32, i32); 4]; 2] = [[(132, -7), (115, 25), (60, 20), (49, -4)], [(152, -13), (123, 16), (65, 14), (38, -12)]];
+/// Unloading dockers have 20 frames, however many the dock's image has.
+const DOCK_UNLOAD_FRAMES: u32 = 20;
+/// Where the boat on a shipwright's stocks sits, by facing (FUN_00438210).
+const SHIPWRIGHT_SPOTS: [(i32, i32); 4] = [(110, 20), (85, 20), (85, 20), (100, 10)];
+/// Where a water lift's shaduf stands, by facing.
+const LIFT_SPOTS: [(i32, i32); 4] = [(54, 15), (53, 13), (62, 15), (65, 21)];
+
+/// The anims of buildings the original draws with frames from another group at a
+/// set spot rather than their own image's frames: quarries (two workers), mines,
+/// and the conservatory's and dance school's pupils.
+fn ambient_keys(k: u16) -> &'static [&'static str] {
+    match k {
+        // Plain stone, limestone, granite and sandstone quarries.
+        106 | 107 | 216 | 221 => &["work", "work_2"],
+        // Gold, gemstone and copper mines.
+        161 | 162 | 217 => &["work"],
+        kind::CONSERVATORY | kind::DANCE_SCHOOL => &["work"],
+        _ => &[],
+    }
+}
 
 pub struct AnimContext<'a> {
     pub world: &'a World,
     pub r: &'a Renderer,
-    /// Game ticks since the start, for animations stepped by the game clock.
-    pub ticks: u64,
     /// Unpaused real time in milliseconds, for animations with their own speed.
     pub millis: u64,
 }
@@ -40,14 +67,37 @@ impl AnimContext<'_> {
         out.push(Overlay { x, y, pos: [p[0] + (offset.0 - ax) as f32, p[1] + (offset.1 - ay) as f32], image });
     }
 
-    /// The current frame of `a`, a looping animation (0-based), or `None` if it has
-    /// no frames. `phase` keeps neighbouring buildings out of step.
-    fn frame(&self, a: &Anim, frames: u32, phase: u64) -> Option<u32> {
-        (frames > 0).then(|| ((self.ticks + phase) / a.duration.max(1) as u64 % frames as u64) as u32)
+    /// The frame (from 1) of `rec`'s own animation showing now, at its own speed and
+    /// back and forth if it reverses, or `None` if the image has no frames. `phase`
+    /// keeps neighbouring buildings out of step.
+    fn native_frame(&self, rec: &ImageRecord, phase: u64) -> Option<u32> {
+        let n = rec.num_animation_sprites as u64;
+        if n == 0 {
+            return None;
+        }
+        let step = self.millis / (20 * (rec.animation_speed_id as u64).max(1)) + phase;
+        let frame = if rec.animation_can_reverse {
+            let k = step % (2 * n);
+            if k < n { k + 1 } else { 2 * n - k }
+        } else {
+            step % n + 1
+        };
+        Some(frame as u32)
+    }
+
+    /// The current frame of the image on tile `(x, y)`, as `native_frame`.
+    fn tile_frame(&self, x: i32, y: i32, phase: u64) -> Option<u32> {
+        self.native_frame(self.r.record(self.world.map.images.at_or(x, y, 0))?, phase)
     }
 
     fn anim(&self, b: &Building, key: &str) -> Option<&Anim> {
         self.world.defs.building(b.kind)?.anims.get(key)
+    }
+
+    /// Which of its four facings `b`'s image on tile `(x, y)` is.
+    fn facing(&self, b: &Building, x: i32, y: i32) -> usize {
+        let first = self.world.defs.building(b.kind).map_or(0, |d| d.image);
+        (self.world.map.images.at_or(x, y, 0).wrapping_sub(first) & 3) as usize
     }
 }
 
@@ -74,10 +124,9 @@ pub fn building_animations(cx: &AnimContext, out: &mut Vec<Overlay>) {
             continue;
         }
         if osiris_sim::military::fort_soldier(b.kind).is_some() {
-            // The fort's emblem: which kind of company it holds.
-            // A patch of the south-east wall carrying the relief, placed from the
-            // fort's leftmost (draw) tile, as the original places it; it lands at
-            // (93, 50) inside the fort's image.
+            // The fort's emblem: which kind of company it holds. A patch of the
+            // south-east wall carrying the relief, placed from the fort's leftmost
+            // (draw) tile as the original places it.
             if let Some(a) = cx.anim(b, "picture") {
                 let p = cx.point(b.x, b.y + b.size - 1);
                 out.push(Overlay { x: b.x, y: b.y + b.size - 1, pos: [p[0] + a.x as f32, p[1] + a.y as f32], image: a.image });
@@ -99,71 +148,67 @@ pub fn building_animations(cx: &AnimContext, out: &mut Vec<Overlay>) {
     }
 }
 
-/// A building at work: its "work" animation at a set offset, or else the frames
-/// stored after its own image, drawn where that image says.
+/// A building at work: the frames stored after the image on its draw tile, placed
+/// where that image's record says, or for the few types in `ambient_keys` their
+/// SprAmbient frames at the original's spots.
 fn working(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
     let (dx, dy) = (b.x, b.y + b.size - 1);
-    let phase = b.id as u64 * 7;
-    // An offset of (0, 0) or (-1, -1) means the image's own frames are used.
-    let work = cx.anim(b, "work").filter(|a| a.frames > 1 && !matches!((a.x, a.y), (0, 0) | (-1, -1)));
-    if let Some(a) = work {
-        if let Some(f) = cx.frame(a, a.frames, phase) {
-            cx.sprite(out, dx, dy, (a.x, a.y), a.image + f);
+    let base = cx.world.map.images.at_or(dx, dy, 0);
+    let Some(rec) = cx.r.record(base) else { return };
+    let Some(frame) = cx.native_frame(rec, b.id as u64 * 7) else { return };
+    let keys = ambient_keys(b.kind);
+    if !keys.is_empty() {
+        for a in keys.iter().filter_map(|k| cx.anim(b, k)) {
+            cx.sprite(out, dx, dy, (a.x, a.y), a.image + frame - 1);
         }
         return;
     }
-    let base = cx.world.map.images.at_or(dx, dy, 0);
-    let Some(rec) = cx.r.record(base) else { return };
-    let n = rec.num_animation_sprites as u64;
-    if n == 0 {
-        return;
-    }
-    let step = cx.millis / (20 * (rec.animation_speed_id as u64).max(1)) + phase;
-    let frame = if rec.animation_can_reverse {
-        let k = step % (2 * n);
-        if k < n { k + 1 } else { 2 * n - k }
-    } else {
-        step % n + 1
-    };
     let p = cx.point(dx, dy);
     let tiles = if rec.kind == osiris_formats::ImageKind::Isometric { rec.isometric_tiles().max(1) } else { 1 };
     let y = p[1] + rec.sprite_offset_y as f32 - rec.height as f32 + city_view::TILE_H / 2.0 * (tiles + 1) as f32;
-    out.push(Overlay { x: dx, y: dy, pos: [p[0] + rec.sprite_offset_x as f32, y], image: base + frame as u32 });
+    out.push(Overlay { x: dx, y: dy, pos: [p[0] + rec.sprite_offset_x as f32, y], image: base + frame });
 }
 
-/// Buildings on the river. A fishing wharf shows its boat unloading while the boat is
-/// in, and its staff waiting otherwise; a dock shows its dockers while a ship is
-/// moored; the shipwright shows a boat on the stocks. Wharf and dock animations have a
-/// variant per facing (their frames step by four), picked from the facing the image is
-/// drawn with: n, w, s, e for the base image and the three after it.
+/// Buildings on the river. A fishing wharf shows its staff waiting, or unloading
+/// while its boat is in; a dock shows its dockers, unloading while a ship is moored;
+/// the shipwright shows the boat on its stocks. Wharf and dock frames come in fours,
+/// one per facing, and each facing has its own spot. Transport and warship wharves
+/// and the ferry have no frames in their images, so nothing moves on them.
 fn shore(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
     use osiris_sim::water::{DOCK, FISHING_WHARF, SHIPWRIGHT};
     if b.workers <= 0 {
         return;
     }
     let (dx, dy) = (b.x, b.y + b.size - 1);
-    let phase = b.id as u64 * 7;
-    let facing = ["_n", "_w", "_s", "_e"][b.orientation as usize % 4];
-    let key = match b.kind {
+    let Some(frame) = cx.tile_frame(dx, dy, b.id as u64 * 7) else { return };
+    let facing = cx.facing(b, dx, dy);
+    // The original's frame for facing i is the (i - 1)th of each four.
+    let variant = (facing as u32 + 3) % 4;
+    match b.kind {
         FISHING_WHARF => {
             let boat_in = cx.world.wharf_boat(b.id).and_then(|f| cx.world.figures.get(f)).is_some_and(|f| f.action == osiris_sim::fishing::action::AT_WHARF);
-            format!("{}{facing}", if boat_in { "work" } else { "wait" })
-        }
-        DOCK if cx.world.moored_ship(b.id).is_some() => format!("work{facing}"),
-        SHIPWRIGHT if b.progress > 0 => {
-            if let Some(a) = cx.anim(b, "work_fishing_boat")
-                && let Some(f) = cx.frame(a, a.frames, phase)
-            {
-                cx.sprite(out, dx, dy, (a.x, a.y), a.image + f);
+            if let Some(a) = cx.anim(b, if boat_in { "work" } else { "wait" }) {
+                cx.sprite(out, dx, dy, WHARF_SPOTS[facing], a.image + 4 * (frame - 1) + variant);
             }
-            return;
         }
-        _ => return,
-    };
-    if let Some(a) = cx.anim(b, &key)
-        && let Some(f) = cx.frame(a, a.frames, phase)
-    {
-        cx.sprite(out, dx, dy, (a.x, a.y), a.image + 4 * f);
+        DOCK => {
+            let unloading = cx.world.moored_ship(b.id).is_some();
+            let (key, frame) = if unloading { ("unload", frame.min(DOCK_UNLOAD_FRAMES)) } else { ("work", frame) };
+            if let Some(a) = cx.anim(b, key) {
+                cx.sprite(out, dx, dy, DOCK_SPOTS[unloading as usize][facing], a.image + 4 * (frame - 1) + variant);
+            }
+        }
+        SHIPWRIGHT if b.progress > 0 => {
+            let key = match b.boat_kind {
+                0 => "work_fishing_boat",
+                osiris_sim::navy::WARSHIP => "work_warship",
+                _ => "work_transport",
+            };
+            if let Some(a) = cx.anim(b, key) {
+                cx.sprite(out, dx, dy, SHIPWRIGHT_SPOTS[facing], a.image + frame - 1);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -173,11 +218,11 @@ fn water_lift(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
     if !cx.world.lift_pumping(b) {
         return;
     }
-    let key = ["work_n", "work_e", "work_s", "work_w"][b.orientation as usize % 4];
-    if let Some(a) = cx.anim(b, key)
-        && let Some(f) = cx.frame(a, a.frames, b.id as u64 * 7)
-    {
-        cx.sprite(out, b.x, b.y + b.size - 1, (a.x, a.y), a.image + f);
+    let (dx, dy) = (b.x, b.y + b.size - 1);
+    let Some(frame) = cx.tile_frame(dx, dy, b.id as u64 * 7) else { return };
+    let facing = cx.facing(b, dx, dy);
+    if let Some(a) = cx.anim(b, ["work_n", "work_e", "work_s", "work_w"][facing]) {
+        cx.sprite(out, dx, dy, LIFT_SPOTS[facing], a.image + frame - 1);
     }
 }
 
@@ -229,22 +274,22 @@ fn monument(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
     }
 }
 
-/// The granary: a heap of food per 400 units stored in its eight spots, and its
-/// scribes at work. (Its image's own frames are the heaps, not an animation.)
+/// The granary: a heap of food in its eight spots per 400 units stored (the first
+/// up to 600), and its scribe at work. (Its image's own frames are the heaps, and
+/// their count is the scribe's.)
 fn granary(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
     let (dx, dy) = (b.x, b.y + b.size - 1);
+    let p = cx.point(dx, dy);
     if let Some(heaps) = cx.anim(b, "resources") {
         let mut spot = 0;
         for (r, &amount) in b.stock.iter().enumerate().skip(1) {
             if amount <= 0 {
                 continue;
             }
-            let filled = ((amount - 199) as f32 / GRANARY_SPOT_UNITS as f32).ceil().max(1.0) as usize;
+            let filled = ((amount - 200) as f32 / GRANARY_SPOT_UNITS as f32).ceil().max(1.0) as usize;
             for _ in 0..filled {
                 let Some(&(sx, sy)) = GRANARY_SPOTS.get(spot) else { break };
-                let p = cx.point(dx, dy);
-                let pos = [p[0] + (GRANARY_FIRST_SPOT.0 + sx) as f32, p[1] + (GRANARY_FIRST_SPOT.1 + sy) as f32];
-                out.push(Overlay { x: dx, y: dy, pos, image: heaps.image + r as u32 });
+                out.push(Overlay { x: dx, y: dy, pos: [p[0] + sx as f32, p[1] + sy as f32], image: heaps.image + r as u32 });
                 spot += 1;
             }
         }
@@ -252,35 +297,33 @@ fn granary(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
     if b.workers <= 0 {
         return;
     }
-    let Some(a) = cx.anim(b, "work") else { return };
-    let needed = cx.world.workers_needed(b.kind);
-    let scribes = if b.workers * 2 > needed { 2 } else { 1 };
-    for (i, &at) in GRANARY_SCRIBES.iter().take(scribes).enumerate() {
-        if let Some(f) = cx.frame(a, a.frames, b.id as u64 * 7 + i as u64 * 5) {
-            cx.sprite(out, dx, dy, at, a.image + 1 + f);
-        }
+    if let Some(a) = cx.anim(b, "work")
+        && let Some(frame) = cx.tile_frame(dx, dy, b.id as u64 * 7)
+    {
+        cx.sprite(out, dx, dy, (a.x, a.y), a.image + frame - 1);
     }
 }
 
 /// The storage yard's hut: its clerk at work when staffed, then its roof over him.
-/// Both are drawn from the hut's tile in the yard's north corner.
+/// Both are drawn from the hut's tile in the yard's north corner; the roof by its
+/// top-left corner.
 fn storage_yard(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
-    let p = cx.point(b.x, b.y);
-    // The clerk's frames are placed by their top-left corner: the original ignores
-    // their own anchors here, which would stand him on the roof.
     if b.workers > 0
         && let Some(a) = cx.anim(b, "work")
-        && let Some(f) = cx.frame(a, a.frames, b.id as u64 * 7)
+        && let Some(frame) = cx.tile_frame(b.x, b.y, b.id as u64 * 7)
     {
-        out.push(Overlay { x: b.x, y: b.y, pos: [p[0] + a.x as f32, p[1] + a.y as f32], image: a.image + f });
+        cx.sprite(out, b.x, b.y, (a.x, a.y), a.image + frame - 1);
     }
     if let Some(cover) = cx.anim(b, "cover") {
+        let p = cx.point(b.x, b.y);
         out.push(Overlay { x: b.x, y: b.y, pos: [p[0] + cover.x as f32, p[1] + cover.y as f32], image: cover.image });
     }
 }
 
 /// A venue's performers, each on its own piece of the venue while it has shows:
-/// jugglers at the stall, musicians on the stage, dancers on the pavilion floor.
+/// jugglers at the stall, dancers on the pavilion floor, and musicians on the stage
+/// pieces that have frames (one kind on the south half of a north-south stage,
+/// the other on the east half of a west-east one).
 fn venue(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
     if b.workers <= 0 {
         return;
@@ -296,37 +339,29 @@ fn venue(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
         if map.edges.at_or(x, y, 0) & edge::DRAW_TILE == 0 {
             continue;
         }
+        let Some(frame) = cx.tile_frame(x, y, phase) else { continue };
         let img = Some(map.images.at_or(x, y, 0));
-        let key = if img == stall && b.shows[0] > 0 {
+        let key = if img == stall {
             "juggler"
-        } else if img == floor && b.shows[2] > 0 {
+        } else if img == floor {
             "dancer"
-        } else if b.shows[1] > 0 && stage.is_some() {
-            let off = img.zip(stage).map(|(i, s)| i.wrapping_sub(s));
-            // The original plays its musicians on the stage halves facing the crowd.
-            match (b.kind, off) {
-                (kind::BANDSTAND, Some(1)) => "musician_we",
-                (kind::BANDSTAND, Some(3)) => "musician_sn",
-                (kind::PAVILION, Some(0)) => "musician_sn",
-                (kind::PAVILION, Some(2)) => "musician_we",
-                _ => continue,
-            }
+        } else if img == stage {
+            "musician_sn"
+        } else if img.zip(stage).is_some_and(|(i, s)| i.wrapping_sub(s) < 4) {
+            "musician_we"
         } else {
             continue;
         };
-        let Some(a) = cx.anim(b, key) else { continue };
-        if a.frames > 0 {
-            if let Some(f) = cx.frame(a, a.frames, phase) {
-                cx.sprite(out, x, y, (a.x, a.y), a.image + f);
-            }
-        } else {
-            // Booth jugglers take their frame count from the stall's image and
-            // number their frames from one.
-            let n = img.and_then(|i| cx.r.record(i)).map_or(0, |rec| rec.num_animation_sprites as u32);
-            let slow = Anim { duration: 2, ..*a };
-            if let Some(f) = cx.frame(&slow, n, phase) {
-                cx.sprite(out, x, y, (a.x, a.y), a.image + 1 + f);
-            }
+        let shows = match key {
+            "juggler" => b.shows[0],
+            "dancer" => b.shows[2],
+            _ => b.shows[1],
+        };
+        if shows <= 0 {
+            continue;
+        }
+        if let Some(a) = cx.anim(b, key) {
+            cx.sprite(out, x, y, (a.x, a.y), a.image + frame - 1);
         }
     }
 }
