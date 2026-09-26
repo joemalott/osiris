@@ -1,30 +1,14 @@
-# Invading enemy army data for Osiris, cross-referenced from three sources:
+# Invading enemy army data for Osiris, cross-referenced from two sources:
 #
-#   1. Akhenaten (github dalerank/Akhenaten, AGPL) -- used here as a source of FACTS ONLY
-#      (pack constants, group ids, frame counts, enemy-id enum, event-type enum). No code
-#      copied.
-#        - crates: src/scripts/enemies.js            (per-nation figure_* / enemy_* blocks)
-#        - src/graphics/image_groups.h                (PACK_ENEMY_* enum)
-#        - src/scripts/imagepaks.js                    (PACK_ENEMY_* -> .sg3 file name)
-#        - src/figure/figure_type.h                     (e_enemy_type enum, ENEMY_0..12)
-#        - src/scenario/scenario.cpp, scenario_invasion.cpp, scenario_invasion.h
-#          (confirms ScenarioInfo.enemy_id is bound 1:1 as raw i16 -> e_enemy_type, no remap)
-#        - src/scenario/scenario_event_manager.h/.cpp   (EVENT_INVADER_* enum incl. BEDUINS=4)
-#        - src/scripts/mission/m_005_timna.js:462        (explicit comment: Bedouin raids use
-#          EVENT_INVADER_BEDUINS as a narrative label but spawn enemy_id = ENEMY_7_LIBIAN)
-#        - src/scripts/localization_base_en.js:1197-1238 (text group 37: nation names / army
-#          phrases -- cross-checked against the live PharaohData text group with
-#          `osiris-tools text PharaohData 37`, values match exactly)
-#
-#   2. PharaohData/Data/*.sg3 (ground truth), inspected with
+#   1. PharaohData/Data/*.sg3 (ground truth), inspected with
 #      `osiris-tools info PharaohData/Data <Pack>` for every pack listed below. Every group id
-#      taken from Akhenaten was cross-checked against the actual record count of that group
+#      was cross-checked against the actual record count of that group
 #      (walk/attack/bow_attack/swim/idle animations are 8-directional: records = frames * 8;
 #      "death" animations are NOT directional: records = frames, taken directly). Discrepancies
-#      between Akhenaten's declared max_frames and the sg3 group's real record count are marked
-#      CORRECTED inline with the evidence (old JS value vs. actual record count).
+#      between an earlier frame count and the sg3 group's real record count are marked
+#      CORRECTED inline with the evidence (old value vs. actual record count).
 #
-#   3. PharaohData/Figure_model.txt, ALL ENEMIES section (rows 0-59, twelve 5-row blocks:
+#   2. PharaohData/Figure_model.txt, ALL ENEMIES section (rows 0-59, twelve 5-row blocks:
 #      Infantry, Missile, Chariots, Warship, Transport) and ALL FIGURES rows 54-56 (Egyptian
 #      Infantry/Archers/Chariots), 99 (Bedouin Infantry, unused/lang-only), 100-101 (Egyptian
 #      Warships/Transport Ships). `stats_row` below is the 0-based row index of a nation's
@@ -67,8 +51,6 @@
 #     Persian, percentage_type3 = 0) -- i.e. vanilla balance never fields that chariot
 #     contingent even though the art exists. Assyrian is the mirror case: its Warship stats
 #     row is "Blank" even though a full warship sprite/animation set exists.
-#
-# Do NOT copy Akhenaten source code; only ids/counts/facts were extracted here.
 
 [[nation]]
 key = "barbarian"

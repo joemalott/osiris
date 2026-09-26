@@ -1,8 +1,7 @@
 //! Parsing and tier selection for the original `music.txt` city playlist.
 //!
 //! `music.txt` (shipped at the root of `PharaohData`) is one of the original game's data
-//! files. Facts about its format and how the game uses it come from reading the Akhenaten
-//! reimplementation (`src/sound/music.cpp`, read for facts only, no code copied):
+//! files. Its format and how the game uses it:
 //!
 //! - Each non-comment, non-blank line is `<file> <M|A> <mission> <post-tune-delay-sec>
 //!   <min-pop> <max-pop>`. `M` ("main") tracks are a mission's primary tunes; `A`

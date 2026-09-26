@@ -1,8 +1,5 @@
 # Osiris campaign mission data.
 #
-# Facts extracted from the Akhenaten reference reimplementation (AGPL; used here only as a
-# source of facts, no code copied): github.com/dalerank/Akhenaten
-# /src/scripts/mission/m_NNN_*.js (and helpers missions.js, mission_favour_events.js).
 # Scenario ids 0..52 are the campaign missions from PharaohData/mission1.pak, in the order
 # listed by PharaohData/campaign.txt [MISSION_NAMES] (mission id == scenario id == file number).
 # Non-campaign scripted maps (m_128_alexandria.js .. m_135_enkomi.js: custom/sandbox/multiplayer

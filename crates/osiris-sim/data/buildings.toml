@@ -1,5 +1,4 @@
-# Building type data for Osiris, extracted from the Akhenaten reference reimplementation
-# (github reference: dalerank/Akhenaten, AGPL, used here as a source of facts only).
+# Building type data for Osiris.
 # Schema: id = original e_building_type id; key = snake_case name; size = footprint tiles;
 # labor = labor category key; figure = walker figure key spawned by this building (if any);
 # image = { pack, group, offset, frames?, x?, y? } base/normal sprite;

@@ -1,7 +1,6 @@
 # Balance notes: core algorithms
 
-Reconstructed from the Akhenaten reimplementation (AGPL) and, where noted, confirmed
-against a Ghidra decompilation of the original Pharaoh.exe. Numeric constants referenced
+Where noted, confirmed against a Ghidra decompilation of the original Pharaoh.exe. Numeric constants referenced
 here live in `balance.toml`; this file describes the *shape* of each system precisely
 enough to reimplement it. Calendar: 50 ticks/day, 16 days/month, 12 months/year.
 

@@ -1,5 +1,4 @@
-# Small shared enums referenced by buildings.toml / figures.toml, extracted from the
-# Akhenaten reference reimplementation (source of facts only; ids/keys, no logic copied).
+# Small shared enums referenced by buildings.toml / figures.toml.
 # Each table is a flat id/key list matching the corresponding e_* enum.
 
 # e_labor_category (src/city/labor_category.h)

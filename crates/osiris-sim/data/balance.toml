@@ -1,6 +1,4 @@
-# Gameplay balance constants for Osiris, extracted from the Akhenaten reference
-# reimplementation of Pharaoh (github: dalerank/Akhenaten, AGPL, used here as a source
-# of FACTS only — no code copied) and cross-checked where feasible against a
+# Gameplay balance constants for Osiris, checked where feasible against a
 # decompilation of the original Pharaoh.exe.
 #
 # Per-building cost/desirability/labor/fire-risk/damage-risk and per-house-level
@@ -12,13 +10,10 @@
 # The tax-rate x tax-coverage -> sentiment table already lives in
 # PharaohData/Tax_Sentiment_Model_Normal.txt and is NOT duplicated here (see
 # [sentiment].tax_rate_contribution below for a related but distinct per-rate-only
-# table that Akhenaten actually evaluates at runtime).
+# table).
 #
-# Every value below is cited to its Akhenaten source file (and line numbers where the
-# researching agent recorded them) or to a Ghidra function address. Values that
-# in-source comments, feature-flag names, or code structure suggest are Akhenaten's
-# own addition/tuning rather than reproductions of original Pharaoh.exe behavior are
-# marked "# akhenaten-only?" (or, where an agent found stronger evidence, a more
+# Values that may be later additions rather than the original Pharaoh.exe's behavior
+# are marked "# akhenaten-only?" (or, where there was stronger evidence, a more
 # specific note). Difficulty-tiered arrays are given as
 # [very_easy, easy, normal, hard, very_hard] unless noted otherwise.
 

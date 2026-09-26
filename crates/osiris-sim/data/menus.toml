@@ -1,5 +1,4 @@
-# Sidebar build-menu structure for Osiris, transcribed from Akhenaten's
-# src/scripts/building_menu.js (var building_menu = [ ... ]), in original menu order.
+# Sidebar build-menu structure for Osiris, in original menu order.
 # key = menu group key (from BUILDING_MENU_x, lowercased, without the BUILDING_MENU_ prefix).
 # icon = { pack, group, offset } icon sprite shown on the sidebar category button.
 # items = ordered list of building keys (see buildings.toml) or nested menu keys

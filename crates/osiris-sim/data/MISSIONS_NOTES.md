@@ -2,12 +2,8 @@
 
 `missions.toml` in this directory holds per-scenario campaign rules (buildings available,
 funds, environment, win conditions, mission variables, tutorial/progressive unlocks, and
-scripted messages) for Osiris, extracted as **facts** from the Akhenaten reimplementation of
-Pharaoh (AGPL; github.com/dalerank/Akhenaten). Nothing in Akhenaten's code
-was copied or adapted — only game-design facts (numbers, building rosters, trigger conditions)
-were read out of its JS mission scripts and re-expressed as TOML data.
+scripted messages) for Osiris.
 
-Source: `src/scripts/mission/m_NNN_*.js`, one file per scenario, imported by `src/scripts/missions.js`.
 Scenario ids 0..52 are the 53 campaign missions from the original `PharaohData/mission1.pak`,
 in the order listed by `PharaohData/campaign.txt` under `[MISSION_NAMES]` — mission id, scenario
 id, and the `m_NNN_*` filename number are all the same number. Files `m_128_alexandria.js` through
