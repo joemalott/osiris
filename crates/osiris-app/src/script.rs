@@ -653,6 +653,36 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     eprintln!("{y:4} {row}");
                 }
             }
+            // The city between two corners: ~ water, # road (= under the flood), F farm,
+            // H house, B other building, d ditch, p open floodplain, g open land with
+            // groundwater, . other open land, x blocked.
+            ["citymap", a, b] => {
+                use osiris_sim::map::{mask, terrain};
+                let (a, b) = (parse_point(a)?, parse_point(b)?);
+                for y in a.1..=b.1 {
+                    let row: String = (a.0..=b.0)
+                        .map(|x| {
+                            let t = world.map.terrain.at_or(x, y, 0);
+                            let b = world.buildings.get(world.map.building.at_or(x, y, 0));
+                            match b {
+                                Some(b) if world.is_farm(b.kind) => 'F',
+                                Some(b) if b.is_house() => 'H',
+                                Some(_) => 'B',
+                                None if t & terrain::SUBMERGED_ROAD != 0 => '=',
+                                None if t & terrain::ROAD != 0 => '#',
+                                None if t & terrain::CANAL != 0 => 'd',
+                                None if t & terrain::WATER != 0 => '~',
+                                None if t & mask::NOT_CLEAR & !terrain::FLOODPLAIN != 0 => 'x',
+                                None if t & terrain::FLOODPLAIN != 0 => 'p',
+                                None if t & terrain::GROUNDWATER != 0 => 'g',
+                                None => '.',
+                            }
+                        })
+                        .collect();
+                    eprintln!("{y:4} {row}");
+                }
+                eprintln!("     x from {}", a.0);
+            }
             ["grassmap"] => {
                 // Where the grass and meadow are: G full grass, g growing grass, M meadow,
                 // ~ water, p floodplain, x other blocked terrain, . bare land.
@@ -870,6 +900,76 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     }
                 }
                 eprintln!("{:?} pop {} sentiment {} migration {:?} houses {levels:?}", world.time, world.population, world.sentiment, world.migration);
+            }
+            // A city's state in a few lines: people, walkers, houses by level and what
+            // holds them back, the flood, the farms' crops, and the food and goods
+            // held by kind of building.
+            ["status"] => {
+                use osiris_sim::buildings::kind;
+                let w = &*world;
+                let mut levels: std::collections::BTreeMap<u8, (i32, i32)> = Default::default();
+                let mut blocked: std::collections::BTreeMap<String, i32> = Default::default();
+                for b in w.buildings.iter() {
+                    if let Some(h) = &b.house {
+                        let e = levels.entry(h.level).or_default();
+                        e.0 += 1;
+                        e.1 += h.population;
+                        if let Some(n) = h.blocked_by.filter(|_| h.population > 0) {
+                            *blocked.entry(format!("{n:?}")).or_default() += 1;
+                        }
+                    }
+                }
+                let levels: Vec<String> = levels.iter().map(|(l, (n, p))| format!("L{l}:{n}/{p}p")).collect();
+                let mut desirability: std::collections::BTreeMap<i32, i32> = Default::default();
+                for b in w.buildings.iter().filter(|b| b.house.as_ref().is_some_and(|h| h.population > 0)) {
+                    *desirability.entry(b.desirability.div_euclid(10) * 10).or_default() += 1;
+                }
+                let walkers = w.figures.iter().filter(|f| !f.dead).count();
+                eprintln!("status {} {:?} day {}: pop {} walkers {walkers} treasury {} flood {:?} unemployed {}% workers {}/{} shortage {} sentiment {} migration {:?}", w.time.year, w.time.month, w.time.day, w.population, w.treasury, w.flood_state(), w.unemployment, w.labor.employed, w.labor.needed, w.labor.shortage, w.sentiment, w.migration);
+                let awaited: Vec<i32> = w.buildings.iter().filter_map(|b| b.house.as_ref()).map(|h| h.incoming).filter(|&n| n > 0).collect();
+                let immigrants: i32 = w.figures.iter().filter(|f| f.kind == osiris_sim::people::figure_kind::IMMIGRANT && !f.dead).map(|f| f.amount).sum();
+                eprintln!("  houses {} held back by {blocked:?}; desirability by tens {desirability:?}; {} houses await {} newcomers, {immigrants} on the way", levels.join(" "), awaited.len(), awaited.iter().sum::<i32>());
+                let farms: Vec<_> = w.buildings.iter().filter(|b| w.is_farm(b.kind)).collect();
+                let tended = farms.iter().filter(|b| b.workers > 0).count();
+                let crop: i32 = farms.iter().map(|b| b.progress).sum();
+                let held: i32 = farms.iter().map(|b| b.stock.iter().sum::<i32>()).sum();
+                let fertility: i32 = farms.iter().map(|b| w.fertility(b.id)).sum();
+                let peasants = w.figures.iter().filter(|f| f.kind == osiris_sim::farms::PEASANT && !f.dead).count();
+                eprintln!("  farms {} tended {tended} crop {}% fertility {} on average, produce waiting {held}, peasants out {peasants}", farms.len(), crop * 100 / (farms.len().max(1) as i32 * osiris_sim::farms::PROGRESS_MAX), fertility / farms.len().max(1) as i32);
+                for (name, k) in [("granaries", kind::GRANARY), ("bazaars", kind::BAZAAR), ("yards", kind::STORAGE_YARD)] {
+                    let mut stock: std::collections::BTreeMap<String, i32> = Default::default();
+                    let ids: Vec<_> = w.buildings.iter().filter(|b| b.kind == k).map(|b| b.id).collect();
+                    for &id in &ids {
+                        for r in 1..osiris_sim::economy::resource::COUNT as u16 {
+                            let n = w.stored(id, r);
+                            if n > 0 {
+                                *stock.entry(w.defs.resources.get(r as usize).cloned().unwrap_or_default()).or_default() += n;
+                            }
+                        }
+                    }
+                    eprintln!("  {name} {} holding {stock:?}", ids.len());
+                }
+            }
+            // Whether someone on foot can walk from a to b, and how many steps it takes.
+            ["route", a, b] => {
+                let (a, b) = (parse_point(a)?, parse_point(b)?);
+                let r = osiris_sim::figures::find_route(&world.map, osiris_sim::figures::Travel::Land, a, b);
+                let reach = osiris_sim::figures::route_distances(&world.map, osiris_sim::figures::Travel::Land, a);
+                let reached = reach.iter().filter(|&&d| d > 0).count();
+                eprintln!("route {a:?} -> {b:?}: {:?} steps; {reached} tiles reachable from {a:?}", r.map(|r| r.len()));
+            }
+            // How many buildings of each kind stand (houses by level apart).
+            ["kinds"] => {
+                let mut kinds: std::collections::BTreeMap<String, i32> = Default::default();
+                for b in world.buildings.iter().filter(|b| !b.is_house()) {
+                    *kinds.entry(world.defs.building(b.kind).map_or_else(|| b.kind.to_string(), |d| d.key.clone())).or_default() += 1;
+                }
+                eprintln!("kinds: {kinds:?}");
+            }
+            // Every message the city has been sent, oldest first: month/year and key.
+            ["log"] => {
+                let keys: Vec<String> = world.notices.log.iter().map(|n| format!("{}/{} {}", n.month, n.year, n.key)).collect();
+                eprintln!("log: {}", keys.join(", "));
             }
             ["taxrate", n] => world.finance.tax_rate = n.parse::<i32>()?.clamp(0, 25),
             ["ratings"] => {
