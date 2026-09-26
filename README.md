@@ -188,10 +188,6 @@ cargo test --release -p osiris-sim --test saved_buildings -- --ignored
 - `crates/osiris-app`: the game
 - `crates/osiris-tools`: command-line inspection tools
 
-## Author
-
-Osiris is written by [joemalott](https://github.com/joemalott).
-
 ## Credits
 
 Osiris stands on the work of others who kept these games alive.
@@ -200,10 +196,7 @@ Osiris stands on the work of others who kept these games alive.
 [Akhenaten](https://github.com/dalerank/Akhenaten), the open-source reimplementation of
 *Pharaoh* that has done more than any other project to document how the game works.
 Before that came [CaesarIA](https://github.com/dalerank/caesaria-game), a remake of
-*Caesar III*. Many facts in Osiris's data tables (building and walker types, image
-groups, event and enemy ids, balance constants) were read from Akhenaten and are
-credited in each file's header. No code was copied from it: Osiris is an independent
-program with its own design, written fresh in Rust to try to make everything efficient.
+*Caesar III*.
 
 [Julius](https://github.com/bvschaik/julius) and
 [Augustus](https://github.com/Keriew/augustus) documented the file formats and
