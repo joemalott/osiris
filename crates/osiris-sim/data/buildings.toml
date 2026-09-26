@@ -1087,8 +1087,8 @@ key = "tax_collector_upgraded"
 size = 2
 labor = "government"
 figure = "tax_collector"
-image = { pack = "Pharaoh_General", group = 64, offset = 0, x = 0, y = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 64, offset = 0, x = 0, y = 0 }, work = { pack = "Pharaoh_General", group = 64, offset = 1, frames = 11, x = 10, y = 10 } }
+image = { pack = "Pharaoh_General", group = 63, offset = 13, x = 0, y = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 63, offset = 13, x = 0, y = 0 } }
 flags = ["is_tax_collector", "is_administration"]
 text_id = 106
 help = "message_building_tax_collector"
