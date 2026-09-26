@@ -18,6 +18,7 @@ mod message_list;
 mod rules_panel;
 mod sound_options;
 mod minimap;
+mod motion;
 mod overlay;
 mod mission_brief;
 mod progress;
@@ -1695,6 +1696,11 @@ fn run(mut args: Args) -> Result<()> {
                 // Negative coordinates count from the right or bottom edge.
                 let p = [if p[0] < 0.0 { r.screen[0] + p[0] } else { p[0] }, if p[1] < 0.0 { r.screen[1] + p[1] } else { p[1] }];
                 game.set_cursor(r, p);
+            }
+            // OSIRIS_INTERP=t runs one more tick and draws the figures t of the way
+            // through it, gliding from where they stood (motion.rs).
+            if let Some(t) = std::env::var("OSIRIS_INTERP").ok().and_then(|s| s.parse().ok()) {
+                game.interpolation_test(r, t);
             }
             game.draw(r);
         });

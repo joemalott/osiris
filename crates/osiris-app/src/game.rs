@@ -121,6 +121,11 @@ pub struct Game {
     cursor: [f32; 2],
     drag_start: Option<(i32, i32)>,
     accumulator: f32,
+    /// How far into the current tick the frame falls (0..=1), when figures are drawn
+    /// gliding between ticks (see `motion.rs`); `None` draws them where they stand.
+    interp: Option<f32>,
+    /// Where the figures stood at the last ticks drawn, for gliding between them.
+    motion: crate::motion::Motion,
     message: Option<(String, f32)>,
     messages: Arc<MessageTable>,
     /// The phrases of eventmsg.txt, for scenario event messages.
@@ -230,6 +235,8 @@ impl Game {
             cursor: [0.0, 0.0],
             drag_start: None,
             accumulator: 0.0,
+            interp: None,
+            motion: Default::default(),
             message: None,
             messages,
             dialog: None,
@@ -492,6 +499,7 @@ impl Game {
         // A lost city stands still behind the lost-mission screen, and the city waits
         // while a menu or a full window (overseers, empire, messages, rules) is open.
         if self.paused || self.dialog.is_some() || self.world.lost || self.menu_open() {
+            self.interp = None;
             return;
         }
         let ms = ms_per_tick(self.speed);
@@ -511,6 +519,21 @@ impl Game {
                 break;
             }
         }
+        // Up to normal speed a tick lasts at least a frame at 50 Hz, and figures glide
+        // between ticks; faster, several ticks go by in a frame and they are drawn
+        // where they stand.
+        self.interp = (self.speed <= 100).then(|| (self.accumulator / ms).clamp(0.0, 1.0));
+    }
+
+    /// For checking the gliding headless (`OSIRIS_INTERP`): takes the figures as they
+    /// stand, runs one tick, and draws the next frame `t` of the way through it.
+    pub fn interpolation_test(&mut self, r: &Renderer, t: f32) {
+        self.interp = Some(t);
+        self.sprites(r);
+        self.world.tick();
+        let sprites = self.sprites(r);
+        let moved = self.world.figures.iter().filter(|f| self.motion.moved(f.id)).count();
+        eprintln!("interpolation at {t}: {} figures, {moved} drawn between ticks, {} sprites", self.world.figures.len(), sprites.len());
     }
 
     pub fn set_cursor(&mut self, r: &Renderer, screen: [f32; 2]) {
@@ -1332,74 +1355,104 @@ impl Game {
             self.sound(s);
         }
         let carts = *self.cart_images.get_or_insert_with(|| crate::anims::CartImages::load(&r.library).expect("cart images"));
-        let defs = &self.world.defs;
         let mut out = Vec::new();
+        let mut placed = Vec::new();
         for f in self.world.figures.iter().filter(|f| self.view_overlay.is_none_or(|v| v.shows_figure(&self.world, f.kind))) {
-            if let Some(s) = crate::tomb_view::figure_sprite(&self.world, f) {
-                out.push(s);
-                continue;
+            let first = out.len();
+            let at = self.figure_sprites(r, carts, f, &mut out);
+            if let Some(at) = at.filter(|_| out.len() > first) {
+                placed.push((f.id, at, first..out.len()));
             }
-            // Craftsmen at work on a monument.
-            if matches!(f.kind, osiris_sim::monuments::BRICKLAYER | osiris_sim::monuments::STONEMASON | osiris_sim::monuments::CARPENTER)
-                && matches!(f.action, 2 | osiris_sim::monuments::AT_SPOT)
-                && f.moving
-                && let Some(work) = defs.figure(f.kind).and_then(|d| d.anims.get("work"))
-            {
-                let frame = (self.world.time.total_ticks / work.duration.max(1) as u64 % work.frames.max(1) as u64) as u32;
-                out.push(Sprite { behind: false, x: f.x, y: f.y, offset: f.pixel_offset(), image: work.image + f.direction as u32 + 8 * frame });
-                continue;
+        }
+        // Each figure glides from where it stood a tick ago (see `motion.rs`).
+        match self.interp {
+            Some(t) => {
+                self.motion.record(self.world.time.total_ticks, placed.iter().map(|(id, at, _)| (*id, *at)));
+                for (id, at, range) in &placed {
+                    if let Some(shift) = self.motion.shift(*id, at, t) {
+                        for s in &mut out[range.clone()] {
+                            s.x += shift.tile.0;
+                            s.y += shift.tile.1;
+                            s.offset.0 += shift.offset.0;
+                            s.offset.1 += shift.offset.1;
+                        }
+                    }
+                }
             }
-            // The wild beasts, in water or out.
-            if osiris_sim::predators::is_predator(f.kind) {
-                out.extend(crate::army_view::beast_sprite(&self.world, f));
-                continue;
-            }
-            if let Some(s) = crate::water_view::figure_sprite(&self.world, f) {
-                out.push(s);
-                continue;
-            }
-            if f.kind == osiris_sim::military::STANDARD_BEARER {
-                out.extend(crate::army_view::standard_sprites(r, &self.world, f, self.world.time.total_ticks));
-                continue;
-            }
-            if let Some(s) = crate::army_view::fighter_sprite(&self.world, f) {
-                out.push(s);
-                continue;
-            }
-            if let Some(s) = crate::disaster_view::figure_sprite(&self.world, f).or_else(|| crate::army_view::fallen_sprite(&self.world, f)) {
-                out.push(s);
-                continue;
-            }
-            // A sentry at his post stands on top of his tower.
-            if f.kind == osiris_sim::defenses::TOWER_SENTRY
-                && f.action == osiris_sim::military::action::AT_STANDARD
-                && let Some(walk) = defs.figure(f.kind).and_then(|d| d.anims.get("walk"))
-            {
-                out.push(Sprite { behind: false, x: f.x + 1, y: f.y + 1, offset: (0, -52), image: walk.image + f.direction as u32 });
-                continue;
-            }
-            let Some(walk) = defs.figure(f.kind).and_then(|d| d.anims.get("walk")) else { continue };
-            let frame = if f.moving { f.frame(walk.frames.max(1)) } else { 0 };
-            let offset = f.pixel_offset();
-            let walker = Sprite { behind: false, x: f.x, y: f.y, offset, image: walk.image + f.direction as u32 + 8 * frame };
-            if !matches!(f.kind, osiris_sim::economy::CART_PUSHER | osiris_sim::economy::STORAGEYARD_CART | osiris_sim::docks::DOCKER) {
-                out.push(walker);
-                continue;
-            }
-            // The cart, drawn behind its pusher when it is on the far side.
-            let (image, (cx, cy)) = carts.cart(f.cargo, f.amount, f.direction);
-            let cart = Sprite { behind: false, x: f.x, y: f.y, offset: (offset.0 + cx, offset.1 + cy - 7), image };
-            if cy < 0 {
-                out.extend([cart, walker]);
-            } else {
-                out.extend([walker, cart]);
-            }
+            None => self.motion.clear(),
         }
         if self.view_overlay.is_none() {
             out.extend(crate::water_view::fishing_points(&self.world));
             out.extend(self.disasters.cloud_sprites(&self.world, self.world.time.total_ticks));
         }
         out
+    }
+
+    /// Pushes figure `f`'s sprites, and gives where it stands for the gliding: its
+    /// tile and foot, or for a figure placed on a monument the first sprite's.
+    fn figure_sprites(&self, r: &Renderer, carts: crate::anims::CartImages, f: &osiris_sim::figures::Figure, out: &mut Vec<Sprite>) -> Option<crate::motion::Anchor> {
+        let defs = &self.world.defs;
+        let at = crate::motion::Anchor::new(f.kind, f.home, (f.x, f.y), f.pixel_offset());
+        if let Some(s) = crate::tomb_view::figure_sprite(&self.world, f) {
+            out.push(s);
+            return Some(crate::motion::Anchor::new(f.kind, f.home, (s.x, s.y), s.offset));
+        }
+        // Craftsmen at work on a monument.
+        if matches!(f.kind, osiris_sim::monuments::BRICKLAYER | osiris_sim::monuments::STONEMASON | osiris_sim::monuments::CARPENTER)
+            && matches!(f.action, 2 | osiris_sim::monuments::AT_SPOT)
+            && f.moving
+            && let Some(work) = defs.figure(f.kind).and_then(|d| d.anims.get("work"))
+        {
+            let frame = (self.world.time.total_ticks / work.duration.max(1) as u64 % work.frames.max(1) as u64) as u32;
+            out.push(Sprite { behind: false, x: f.x, y: f.y, offset: f.pixel_offset(), image: work.image + f.direction as u32 + 8 * frame });
+            return Some(at);
+        }
+        // The wild beasts, in water or out.
+        if osiris_sim::predators::is_predator(f.kind) {
+            out.extend(crate::army_view::beast_sprite(&self.world, f));
+            return Some(at);
+        }
+        if let Some(s) = crate::water_view::figure_sprite(&self.world, f) {
+            out.push(s);
+            return Some(at);
+        }
+        if f.kind == osiris_sim::military::STANDARD_BEARER {
+            out.extend(crate::army_view::standard_sprites(r, &self.world, f, self.world.time.total_ticks));
+            return Some(at);
+        }
+        if let Some(s) = crate::army_view::fighter_sprite(&self.world, f) {
+            out.push(s);
+            return Some(at);
+        }
+        if let Some(s) = crate::disaster_view::figure_sprite(&self.world, f).or_else(|| crate::army_view::fallen_sprite(&self.world, f)) {
+            out.push(s);
+            return Some(at);
+        }
+        // A sentry at his post stands on top of his tower.
+        if f.kind == osiris_sim::defenses::TOWER_SENTRY
+            && f.action == osiris_sim::military::action::AT_STANDARD
+            && let Some(walk) = defs.figure(f.kind).and_then(|d| d.anims.get("walk"))
+        {
+            out.push(Sprite { behind: false, x: f.x + 1, y: f.y + 1, offset: (0, -52), image: walk.image + f.direction as u32 });
+            return Some(at);
+        }
+        let walk = defs.figure(f.kind).and_then(|d| d.anims.get("walk"))?;
+        let frame = if f.moving { f.frame(walk.frames.max(1)) } else { 0 };
+        let offset = f.pixel_offset();
+        let walker = Sprite { behind: false, x: f.x, y: f.y, offset, image: walk.image + f.direction as u32 + 8 * frame };
+        if !matches!(f.kind, osiris_sim::economy::CART_PUSHER | osiris_sim::economy::STORAGEYARD_CART | osiris_sim::docks::DOCKER) {
+            out.push(walker);
+            return Some(at);
+        }
+        // The cart, drawn behind its pusher when it is on the far side.
+        let (image, (cx, cy)) = carts.cart(f.cargo, f.amount, f.direction);
+        let cart = Sprite { behind: false, x: f.x, y: f.y, offset: (offset.0 + cx, offset.1 + cy - 7), image };
+        if cy < 0 {
+            out.extend([cart, walker]);
+        } else {
+            out.extend([walker, cart]);
+        }
+        Some(at)
     }
 
     /// Images drawn over buildings: growing crops on farms.
