@@ -620,9 +620,9 @@ impl World {
                 by0 = by0.min(b.y);
                 bx1 = bx1.max(b.x + b.size - 1);
                 by1 = by1.max(b.y + b.size - 1);
-                let (x, y, size) = (b.x, b.y, b.size);
-                self.dust(x, y, size);
             }
+            // The original pulls a building down with a dig, and no dust or crash.
+            self.fx(crate::effects::Fx::Sound(crate::effects::DIG));
             self.demolish(id);
         }
         let (x0, y0, x1, y1) = (bx0, by0, bx1, by1);

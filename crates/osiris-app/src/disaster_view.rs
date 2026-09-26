@@ -67,8 +67,9 @@ pub struct Disasters {
 }
 
 impl Disasters {
-    /// Takes the sim's queued effects: clouds are kept, sounds returned to be played.
-    pub fn take(&mut self, world: &mut World) -> Vec<&'static str> {
+    /// Takes the sim's queued effects: clouds are kept, sounds returned to be played
+    /// (figures' sounds as `Fx::FigureSound`, the rest as `Fx::Sound`).
+    pub fn take(&mut self, world: &mut World) -> Vec<Fx> {
         let mut sounds = Vec::new();
         for (tick, fx) in world.fx.drain(..) {
             match fx {
@@ -91,7 +92,7 @@ impl Disasters {
                         });
                     }
                 }
-                Fx::Sound(s) => sounds.push(s),
+                sound @ (Fx::Sound(_) | Fx::FigureSound { .. }) => sounds.push(sound),
             }
         }
         sounds

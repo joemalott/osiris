@@ -1160,8 +1160,11 @@ impl World {
         if let Some(l) = self.line(foe) {
             armor += l.armor();
         }
+        // A blow that fells its man is heard as his cry, one that doesn't as the blow.
         if self.hurt(foe, blow(attack, armor)) {
             self.learn(company, victim);
+        } else {
+            self.figure_sound(fid, 2);
         }
     }
 
@@ -1190,6 +1193,7 @@ impl World {
         f.route.clear();
         f.moving = false;
         let formation = if f.kind == crate::navy::ENEMY_TRANSPORT { 0 } else { f.formation };
+        self.figure_sound(fid, 3);
         // The share of the company still standing that he was.
         let standing = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map_or(0, |c| {
             c.soldiers.iter().chain(&c.recruits).filter(|&&s| self.figures.get(s).is_some_and(|f| !f.dead && f.action != action::CORPSE)).count() as i32
@@ -1360,6 +1364,7 @@ impl World {
         if let Some(f) = self.figures.get_mut(fid) {
             f.direction = crate::figures::direction_to((x, y), (tx, ty)).unwrap_or(f.direction);
         }
+        self.figure_sound(fid, 2);
         let missile = self.figures.spawn(if mine { ARROW } else { JAVELIN }, x, y, Travel::Land);
         let company = if mine { 0 } else { self.company_of(fid).map_or(0, |c| c as u16 + 1) };
         let attack = if mine { self.balance.unit(SPEAR).missile_attack } else { stats.missile_attack };

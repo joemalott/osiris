@@ -1,8 +1,9 @@
-//! Music, sound effects, speech and city ambience playback for Osiris.
+//! Music, sound effects, speech and city sounds for Osiris.
 //!
 //! [`Audio`] is the single entry point: it owns every rodio handle the crate needs (the
-//! output device, a music player, a speech player, and one looping player per active city
-//! ambience channel) and exposes plain methods for the game loop to call. There is no global
+//! output device, a music player, a speech player and the city's ambience player) and
+//! exposes plain methods for the game loop to call. Which sound belongs to what is in
+//! [`city`]. There is no global
 //! or process-wide audio state; everything lives on the `Audio` value the caller holds.
 //!
 //! If no audio output device is available, [`Audio::new`] still succeeds: it returns an
@@ -17,10 +18,10 @@
 //! audio.play_music(&Track::new("Ra"));
 //! audio.update_music(1200); // called periodically with the current city population
 //! audio.play_effect("BUTTON.WAV");
-//! audio.set_city_sounds(&[(46, 0.8)]); // building id 46 = apothecary
+//! audio.play_city_sound("well.wav", 0.5); // a well, in the middle of the view
 //! ```
 
-mod city_sounds;
+pub mod city;
 pub mod error;
 mod music;
 mod stream;
@@ -59,11 +60,14 @@ struct Inner {
     music_rows: Vec<music::MusicRow>,
     music_current: Mutex<Option<String>>,
 
-    city_sound_table: HashMap<u32, city_sounds::ChannelSound>,
-    city_channels: Mutex<HashMap<u32, rodio::Player>>,
+    /// The city's ambience (`AUDIO/Ambient`), its file and how far it has faded in.
+    ambient_player: rodio::Player,
+    ambient: Mutex<(Option<String>, f32)>,
+    /// Files found (or not) under `AUDIO`, whatever the case of their names.
+    found: Mutex<HashMap<PathBuf, Option<PathBuf>>>,
 
     effects_volume: Mutex<f32>,
-    /// Scales every city sound's own volume.
+    /// The volume of the city's sounds and ambience.
     city_volume: Mutex<f32>,
 }
 
@@ -73,9 +77,7 @@ impl Audio {
     /// an `AUDIO/` folder with `Music/`, `Ambient/`, `Wavs/` and `Voice/`).
     ///
     /// Never fails because a sound device is unavailable: in that case this returns `Ok` with
-    /// an `Audio` that silently does nothing. It can fail if the crate's own embedded
-    /// `city_sounds.toml` cannot be parsed, which would indicate a bug in this crate rather
-    /// than a problem with `game_dir`.
+    /// an `Audio` that silently does nothing.
     pub fn new(game_dir: &Path) -> Result<Audio> {
         let device = match rodio::DeviceSinkBuilder::open_default_sink() {
             Ok(device) => device,
@@ -87,12 +89,7 @@ impl Audio {
         // Full-volume music drowns the city's sounds; start it well below them.
         music_player.set_volume(DEFAULT_MUSIC_VOLUME);
         let speech_player = rodio::Player::connect_new(&mixer);
-
-        let city_sound_table =
-            city_sounds::parse(city_sounds::EMBEDDED_TOML).map_err(|source| Error::Config {
-                what: "data/city_sounds.toml",
-                source,
-            })?;
+        let ambient_player = rodio::Player::connect_new(&mixer);
 
         let music_rows = std::fs::read_to_string(game_dir.join("music.txt"))
             .map(|text| music::parse_music_txt(&text))
@@ -112,8 +109,9 @@ impl Audio {
                 speech_player,
                 music_rows,
                 music_current: Mutex::new(None),
-                city_sound_table,
-                city_channels: Mutex::new(HashMap::new()),
+                ambient_player,
+                ambient: Mutex::new((None, 0.0)),
+                found: Mutex::new(HashMap::new()),
                 effects_volume: Mutex::new(1.0),
                 city_volume: Mutex::new(1.0),
             }),
@@ -236,17 +234,39 @@ impl Audio {
         }
     }
 
-    /// Reports which building-type looping ambience channels should currently be audible.
-    ///
-    /// `active` is a list of `(building_type_id, volume)` pairs, where `building_type_id`
-    /// matches the `id` field in `crates/osiris-sim/data/buildings.toml` (see
-    /// `data/city_sounds.toml` for the id -> file mapping) and `volume` is `0.0..=1.0` (the
-    /// caller decides how loud, e.g. based on how many of that building are visible). Building
-    /// ids missing from the list, or given a volume of `0.0` or less, have their ambience
-    /// stopped. Calling this again with an id that is already playing just updates its volume.
-    pub fn set_city_sounds(&self, active: &[(u32, f32)]) {
+    /// Plays one of the city's sounds (`AUDIO/Wavs/<name>`) at the city-sounds volume,
+    /// panned by `pan` from 0 (left) to 1 (right). A name the data lacks plays nothing,
+    /// as in the original.
+    pub fn play_city_sound(&self, name: &str, pan: f32) {
         let Some(inner) = &self.inner else { return };
-        inner.set_city_sounds(active);
+        let volume = *inner.city_volume.lock().unwrap();
+        inner.play_panned(&Path::new("Wavs").join(name), volume, pan);
+    }
+
+    /// Plays a sound effect (`AUDIO/Wavs/<name>`) at `scale` of the effects volume,
+    /// panned by `pan` from 0 (left) to 1 (right); a missing file plays nothing.
+    pub fn play_effect_panned(&self, name: &str, scale: f32, pan: f32) {
+        let Some(inner) = &self.inner else { return };
+        let volume = *inner.effects_volume.lock().unwrap() * scale;
+        inner.play_panned(&Path::new("Wavs").join(name), volume, pan);
+    }
+
+    /// Says a walker's phrase (`AUDIO/Voice/Walker/<name>`) on the speech channel.
+    pub fn play_walker_voice(&self, name: &str) {
+        let Some(inner) = &self.inner else { return };
+        if let Some(path) = inner.find(&Path::new("Voice").join("Walker").join(name)) {
+            inner.play_speech(&path);
+        }
+    }
+
+    /// Keeps the city's ambience (`AUDIO/Ambient/<name>`) going; call it every frame the
+    /// city is shown, with `None` when it should be silent. A new ambience starts
+    /// quiet and fades in, five points of a hundred a frame at 30 frames a second, up
+    /// to the city-sounds volume; one that ends starts again the same way. `None` stops
+    /// it at once.
+    pub fn update_city_ambient(&self, name: Option<&str>, dt: f32) {
+        let Some(inner) = &self.inner else { return };
+        inner.update_ambient(name, dt);
     }
 }
 
@@ -282,7 +302,13 @@ impl Inner {
     }
 
     fn play_effect(&self, name_or_path: &Path) {
-        let path = self.resolve_effect_path(name_or_path);
+        let mut path = self.resolve_effect_path(name_or_path);
+        if !path.exists()
+            && let Ok(sub) = path.strip_prefix(self.game_dir.join("AUDIO"))
+            && let Some(found) = self.find(&sub.to_path_buf())
+        {
+            path = found;
+        }
         match open_source(&path) {
             Ok(source) => {
                 let volume = *self.effects_volume.lock().unwrap();
@@ -307,46 +333,95 @@ impl Inner {
         }
     }
 
-    fn set_city_sounds(&self, active: &[(u32, f32)]) {
-        let mut channels = self.city_channels.lock().unwrap();
-        let scale = *self.city_volume.lock().unwrap();
-        let scaled: Vec<(u32, f32)> = active.iter().map(|&(id, v)| (id, v * scale)).collect();
-        let active = &scaled[..];
-
-        for &(id, volume) in active {
-            if volume <= 0.0 {
-                continue;
-            }
-            if let Some(player) = channels.get(&id) {
-                player.set_volume(volume.clamp(0.0, 1.0));
-                continue;
-            }
-            let Some(entry) = self.city_sound_table.get(&id) else {
-                continue;
-            };
-            let path = self.audio_path(&entry.file);
-            match open_looped_source(&path) {
-                Ok(source) => {
-                    let player = rodio::Player::connect_new(&self.mixer);
-                    player.set_volume(volume.clamp(0.0, 1.0));
-                    player.append(source);
-                    channels.insert(id, player);
-                }
-                Err(err) => {
-                    eprintln!("osiris-audio: could not play city sound for building {id}: {err}")
-                }
-            }
+    /// `sub` under `AUDIO`, matching each part's name without regard to case (the
+    /// data mixes `WELL.WAV` and `well_r.wav`), or `None` if there is no such file.
+    fn find(&self, sub: &Path) -> Option<PathBuf> {
+        let mut found = self.found.lock().unwrap();
+        if let Some(hit) = found.get(sub) {
+            return hit.clone();
         }
+        let hit = find_ignoring_case(&self.game_dir.join("AUDIO"), sub);
+        found.insert(sub.to_path_buf(), hit.clone());
+        hit
+    }
 
-        channels.retain(|id, player| {
-            let keep = active
-                .iter()
-                .any(|&(active_id, volume)| active_id == *id && volume > 0.0);
-            if !keep {
-                player.stop();
+    fn play_panned(&self, sub: &Path, volume: f32, pan: f32) {
+        let Some(path) = self.find(sub) else { return };
+        if volume <= 0.0 {
+            return;
+        }
+        match open_source(&path) {
+            Ok(source) => {
+                let pan = pan.clamp(0.0, 1.0);
+                let sides = vec![(2.0 * (1.0 - pan)).min(1.0), (2.0 * pan).min(1.0)];
+                self.mixer.add(rodio::source::ChannelVolume::new(source.amplify(volume), sides));
             }
-            keep
-        });
+            Err(err) => eprintln!("osiris-audio: could not play {path:?}: {err}"),
+        }
+    }
+
+    fn update_ambient(&self, name: Option<&str>, dt: f32) {
+        let mut ambient = self.ambient.lock().unwrap();
+        let Some(name) = name else {
+            if ambient.0.take().is_some() {
+                self.ambient_player.stop();
+            }
+            ambient.1 = 0.0;
+            return;
+        };
+        if ambient.0.as_deref() != Some(name) || self.ambient_player.empty() {
+            self.ambient_player.stop();
+            self.ambient_player.set_volume(0.0);
+            ambient.0 = Some(name.to_owned());
+            ambient.1 = 0.0;
+            if let Some(path) = self.find(&Path::new("Ambient").join(name)) {
+                match open_source(&path) {
+                    Ok(source) => self.ambient_player.append(source),
+                    Err(err) => eprintln!("osiris-audio: could not play {path:?}: {err}"),
+                }
+            }
+            return;
+        }
+        // Five points a frame at 30 frames a second, never above the city volume.
+        let cap = *self.city_volume.lock().unwrap();
+        ambient.1 = (ambient.1 + 1.5 * dt).min(cap);
+        self.ambient_player.set_volume(ambient.1);
+    }
+}
+
+/// `sub` under `root`, each part of it matched without regard to case.
+fn find_ignoring_case(root: &Path, sub: &Path) -> Option<PathBuf> {
+    let mut path = root.to_path_buf();
+    for part in sub.components() {
+        let exact = path.join(part);
+        if exact.exists() {
+            path = exact;
+            continue;
+        }
+        let want = part.as_os_str();
+        let dir = std::fs::read_dir(&path).ok()?;
+        path = dir.filter_map(|e| e.ok()).find(|e| e.file_name().eq_ignore_ascii_case(want))?.path();
+    }
+    Some(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The shipped data spells names in either case; the original's tables find them.
+    #[test]
+    fn tables_find_the_data_whatever_the_case() {
+        let Some(audio) = test_support::pharaoh_audio_dir() else {
+            eprintln!("skipping: PharaohData/AUDIO not found");
+            return;
+        };
+        for name in ["well.wav", "well_r.wav", "tem_ra_l.wav", "shr_osiris.wav", "water1.wav"] {
+            assert!(find_ignoring_case(&audio, &Path::new("Wavs").join(name)).is_some(), "{name}");
+        }
+        assert!(find_ignoring_case(&audio, Path::new("Ambient/housing1.mp3")).is_some());
+        assert!(find_ignoring_case(&audio, Path::new("Voice/Walker/doctor_g01.wav")).is_some());
+        assert!(find_ignoring_case(&audio, Path::new("Wavs/plaza1.wav")).is_none());
     }
 }
 
