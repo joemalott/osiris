@@ -300,7 +300,11 @@ fn original_type(kind: u16) -> u16 {
 /// Walker `f`'s speech row: by his type, a priest's by his temple's god and a
 /// hunter's by his prey.
 fn speech_row(world: &World, f: &Figure) -> Option<i16> {
-    let kind = original_type(f.kind) as usize;
+    let mut kind = original_type(f.kind) as usize;
+    // A festival walker speaks as the priest, performer, scribe or noble he looks.
+    if *city::VOICE_ROWS.get(kind)? == -4 {
+        kind = osiris_sim::festivals::festival_look(world, f).0 as usize;
+    }
     match *city::VOICE_ROWS.get(kind)? {
         -3 => god_of(world, f.home).map(|g| 29 + g as i16),
         -2 => {

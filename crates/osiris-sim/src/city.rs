@@ -153,6 +153,7 @@ impl World {
                 crate::royal_tombs::TOMB_ARTISAN => self.update_tomb_worker(fid),
                 crate::monuments::SLED | crate::monuments::SLED_PULLER => self.update_sled_follower(fid),
                 crate::monuments::FUNERAL_WALKER => self.update_funeral_walker(fid),
+                crate::festivals::FESTIVAL_GUY => self.update_festival_walker(fid),
                 crate::trade::CARAVAN_DONKEY => self.update_donkey(fid),
                 crate::food::MARKET_BUYER => self.update_buyer(fid),
                 k if crate::animals::is_animal(k) => self.update_animal(fid),

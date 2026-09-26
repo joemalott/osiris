@@ -731,7 +731,13 @@ impl World {
         if f.months_left > 0 {
             return;
         }
-        let f = self.religion.festival.take().expect("present");
+        self.hold_festival();
+    }
+
+    /// The festival's day (FUN_004ea000): its lift to sentiment and its god, its
+    /// message, and its people walking to the square.
+    fn hold_festival(&mut self) {
+        let Some(f) = self.religion.festival.take() else { return };
         let (first, second) = self.religion.festival_slots;
         let (sentiment, mood) = match (first < 1, second < 1, f.size) {
             (true, _, festival::SMALL) => (6, 1),
@@ -761,12 +767,23 @@ impl World {
             g.months_since_festival = 0;
         }
         let key = match f.size {
-            festival::SMALL => "message_common_festival",
-            festival::LARGE => "message_lavish_festival",
-            festival::GRAND => "message_grand_festival",
-            _ => return,
+            festival::SMALL => Some("message_common_festival"),
+            festival::LARGE => Some("message_lavish_festival"),
+            festival::GRAND => Some("message_grand_festival"),
+            _ => None,
         };
-        self.post(key, None, true);
+        if let Some(key) = key {
+            self.post(key, None, true);
+        }
+        // 10, 20 or 30 by size, and 40 for Bast's own.
+        self.send_festival_people(f.size as i32 * 10);
+    }
+
+    /// Holds a festival of `size` (1 small .. 3 grand, 4 Bast's) for `god` at once, in
+    /// place of any being prepared and without paying for it (the script harness).
+    pub fn festival_now(&mut self, god: usize, size: u8) {
+        self.religion.festival = Some(PlannedFestival { god, size: size.clamp(1, BAST_FESTIVAL), months_left: 0 });
+        self.hold_festival();
     }
 
     /// The mood of the least happy known god, for the overseers.

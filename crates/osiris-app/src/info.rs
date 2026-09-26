@@ -370,7 +370,7 @@ impl InfoPanel {
             let Some(f) = world.figures.get(fid) else { continue };
             let rect = [x + 27.0 + 60.0 * i as f32, y + 45.0, 52.0, 52.0];
             panel::button_border(ui.r, ui.panels, rect[0], rect[1], 52, 52, i == selected);
-            ui.image(ui.img.portraits + f.kind as u32, rect[0] + 4.0, rect[1] + 4.0);
+            ui.image(portrait(ui, world, f), rect[0] + 4.0, rect[1] + 4.0);
             if ui.clicked(rect) {
                 pick = Some(i);
             }
@@ -378,14 +378,16 @@ impl InfoPanel {
         let Some(f) = ids.get(selected).and_then(|&fid| world.figures.get(fid)) else {
             return (Some(InfoAction::Close), None);
         };
-        ui.image(ui.img.portraits + f.kind as u32, x + 30.0, y + 108.0);
+        ui.image(portrait(ui, world, f), x + 30.0, y + 108.0);
         // Boats have boat names; everyone else a person's name.
         let boat = matches!(f.kind, 20 | 25 | 76 | 77 | 78 | 92 | 93 | 100 | 101);
         let (group, count) = if boat { (261, 16) } else { (254, 128) };
         // Animals have no names.
         let name = if osiris_sim::animals::is_animal(f.kind) || osiris_sim::predators::is_predator(f.kind) { ui.t(TYPE_NAMES, f.kind as usize) } else { ui.t(group, f.id as usize % count) };
         ui.label(Font::LargeBlackOnDark, &name, x + 90.0, y + 108.0);
-        let mut kind = ui.t(TYPE_NAMES, f.kind as usize);
+        // A festival walker is named for what he looks (FUN_004fab20).
+        let look = if f.kind == osiris_sim::festivals::FESTIVAL_GUY { osiris_sim::festivals::festival_look(world, f).0 } else { f.kind };
+        let mut kind = ui.t(TYPE_NAMES, look as usize);
         if let Some(home) = world.buildings.get(f.home) {
             let home_name = world.defs.building(home.kind).and_then(|d| d.text_id).filter(|&g| g > 0).map(|g| ui.t(g as usize, 0)).unwrap_or_default();
             if !home_name.is_empty() {
@@ -772,6 +774,26 @@ impl InfoPanel {
         let desc = ui.t(TEXT_TERRAIN, 36 + k);
         ui.wrapped(Font::NormalBlackOnDark, &desc, wx + 30.0, wy + 78.0, 26.0 * 16.0);
         closed.then_some(InfoAction::Close)
+    }
+}
+
+/// Walker `f`'s portrait (FUN_004fa8c0): by his type, a festival walker's by the type
+/// he looks, and a priest's by his temple's god, the priests of Ra, Ptah, Seth and
+/// Bast having their own.
+fn portrait(ui: &Ui, world: &World, f: &osiris_sim::figures::Figure) -> u32 {
+    const PRIEST: u16 = 27;
+    let look = if f.kind == osiris_sim::festivals::FESTIVAL_GUY { osiris_sim::festivals::festival_look(world, f).0 } else { f.kind };
+    let god = world.buildings.get(f.home).and_then(|b| match b.kind {
+        k @ 60..=69 => Some((k - 60) % 5),
+        k @ 140..=144 => Some(k - 140),
+        _ => None,
+    });
+    match (look, god) {
+        (PRIEST, Some(1)) => ui.img.more_portraits + 3,
+        (PRIEST, Some(2)) => ui.img.more_portraits + 2,
+        (PRIEST, Some(3)) => ui.img.more_portraits + 4,
+        (PRIEST, Some(4)) => ui.img.more_portraits + 1,
+        _ => ui.img.portraits + look as u32,
     }
 }
 

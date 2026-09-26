@@ -733,7 +733,7 @@ id = 91
 key = "festival_guy"
 category = "citizen"
 permission = "entertainer"
-anims = { juggler_walk = { pack = "SprMain", group = 130, offset = 0, frames = 12 }, musician_walk = { pack = "SprMain", group = 191, offset = 0, frames = 12 }, dancer_walk = { pack = "SprMain", group = 128, offset = 0, frames = 12 }, priest_ra_walk = { pack = "SprMain", group = 210, offset = 0, frames = 12 }, priest_osiris_walk = { pack = "SprMain", group = 197, offset = 0, frames = 12 }, priest_ptah_walk = { pack = "SprMain", group = 187, offset = 0, frames = 12 }, priest_seth_walk = { pack = "SprMain", group = 193, offset = 0, frames = 12 }, priest_bast_walk = { pack = "SprMain", group = 208, offset = 0, frames = 12 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 91 } }
+anims = { juggler_walk = { pack = "SprMain", group = 130, offset = 0, frames = 12 }, musician_walk = { pack = "SprMain", group = 191, offset = 0, frames = 12 }, dancer_walk = { pack = "SprMain", group = 128, offset = 0, frames = 12 }, priest_ra_walk = { pack = "SprMain", group = 210, offset = 0, frames = 12 }, priest_osiris_walk = { pack = "SprMain", group = 197, offset = 0, frames = 12 }, priest_ptah_walk = { pack = "SprMain", group = 187, offset = 0, frames = 12 }, priest_seth_walk = { pack = "SprMain", group = 193, offset = 0, frames = 12 }, priest_bast_walk = { pack = "SprMain", group = 208, offset = 0, frames = 12 }, scribe_walk = { pack = "SprMain", group = 57, offset = 0, frames = 12 }, noble_walk = { pack = "SprMain", group = 199, offset = 0, frames = 12 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 91 } }
 max_amount = 25
 max_damage = 10
 overlay = "religion"

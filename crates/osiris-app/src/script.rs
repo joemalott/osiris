@@ -539,6 +539,16 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let keys: Vec<&str> = world.messages.iter().skip(before).map(String::as_str).collect();
                 eprintln!("{step}: posted {keys:?}");
             }
+            // Holds a festival for god g (0 Osiris .. 4 Bast) of size s (1 small, 2
+            // lavish, 3 grand, 4 Bast's own) now, and lists who set out for the square.
+            ["festival", g, s] => {
+                let before: Vec<u32> = world.figures.iter().map(|f| f.id).collect();
+                world.festival_now(g.parse::<usize>()?.min(4), s.parse()?);
+                for f in world.figures.iter().filter(|f| f.kind == osiris_sim::festivals::FESTIVAL_GUY && !before.contains(&f.id)) {
+                    let home = world.buildings.get(f.home).map_or(0, |b| b.kind);
+                    eprintln!("  festival walker {} from building {} (kind {home}) at {},{} as {:?}", f.id, f.home, f.x, f.y, osiris_sim::festivals::festival_look(&world, f));
+                }
+            }
             // Starts the scenario's earthquake now, or one at a tile with a severity.
             ["quake"] => eprintln!("{step}: started {}", world.quake_now(None, None)),
             ["quake", p, n] => eprintln!("{step}: started {}", world.quake_now(Some(parse_point(p)?), Some(n.parse()?))),
