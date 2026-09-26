@@ -140,6 +140,12 @@ pub struct Game {
     minimap: Option<Minimap>,
     pub audio: Option<Arc<Audio>>,
     music_timer: f32,
+    /// The city's sounds and ambience (city_sounds.rs), the last frame's length, what
+    /// the information window last spoke for, and the newest message heard.
+    city_sounds: crate::city_sounds::CitySounds,
+    frame_dt: f32,
+    heard_info: Option<(u8, u32)>,
+    heard_notice: Option<(usize, String, u32, i32)>,
     /// Map-changing actions since the minimap was last rebuilt.
     map_changed: bool,
     /// The world as it was before the last build action, and when that was.
@@ -211,6 +217,15 @@ pub struct Game {
     /// A recorded game being watched (`--replay`): it runs the city in place of
     /// the clock until it ends.
     pub replay: Option<osiris_sim::replay::Player>,
+}
+
+impl Drop for Game {
+    /// Leaving the city silences its ambience.
+    fn drop(&mut self) {
+        if let Some(a) = &self.audio {
+            a.update_city_ambient(None, 0.0);
+        }
+    }
 }
 
 impl Game {
@@ -290,12 +305,48 @@ impl Game {
             cheat_unlock_missions: false,
             replay_map: None,
             replay: None,
+            city_sounds: Default::default(),
+            frame_dt: 0.0,
+            heard_info: None,
+            heard_notice: None,
         }
     }
 
     fn sound(&self, name: &str) {
         if let Some(a) = &self.audio {
             a.play_effect(name);
+        }
+    }
+
+    /// The part of the screen the city shows: left of the sidebar, below the top menu.
+    fn city_rect(&self, r: &Renderer) -> crate::city_sounds::View {
+        [0.0, sidebar::TOP, sidebar::panel_left(r.screen[0]), r.screen[1]]
+    }
+
+    /// The information window's opening sound, when it opens on something new: a
+    /// building's own sound, a walker's phrase or an animal's cry.
+    fn info_sound(&mut self, r: &Renderer) {
+        let now = match self.info.as_ref().map(|i| i.target) {
+            Some(crate::info::Target::Building(id)) => Some((0, id)),
+            Some(crate::info::Target::Figures(ids, _, selected)) => Some((1, ids[selected as usize])),
+            _ => None,
+        };
+        if now == self.heard_info {
+            return;
+        }
+        self.heard_info = now;
+        let Some(a) = &self.audio else { return };
+        match now {
+            Some((0, id)) => {
+                if let Some(b) = self.world.buildings.get(id) {
+                    self.city_sounds.building_opened(a, b.kind);
+                }
+            }
+            Some((_, fid)) => {
+                let view = self.city_rect(r);
+                self.city_sounds.figure_opened(a, &self.world, r, view, fid);
+            }
+            None => {}
         }
     }
 
@@ -332,8 +383,8 @@ impl Game {
             };
             m.clone()
         };
+        // Its fanfare played when it was posted.
         self.dialog = Some(MessageDialog::new(r, &msg, &self.text));
-        self.sound("BUTTON.WAV");
     }
 
 
@@ -469,6 +520,15 @@ impl Game {
         }
         if !self.paused && !self.menu_open() {
             self.anim_clock += dt;
+        }
+        self.frame_dt = dt;
+        // Every message posted comes with a fanfare (FUN_004e0cf0).
+        let newest = self.world.notices.log.last().map(|n| (self.world.notices.log.len(), n.key.clone(), n.month, n.year));
+        if newest != self.heard_notice {
+            if self.heard_notice.is_some() && newest.is_some() {
+                self.sound("FANFARE1.WAV");
+            }
+            self.heard_notice = newest;
         }
         if let Some((_, t)) = &mut self.message {
             *t -= dt;
@@ -813,7 +873,10 @@ impl Game {
                     return None;
                 }
                 if self.tool != Tool::None {
+                    // The original clicks as the button goes down and has no sound for
+                    // building itself (BUILD.WAV is loaded but never played).
                     self.drag_start = self.hover;
+                    self.sound("BUTTON.WAV");
                 } else if let Some((x, y)) = self.hover
                     && self.command_company(x, y)
                 {
@@ -881,8 +944,8 @@ impl Game {
     /// Opens the information window for whatever is under the cursor.
     pub fn inspect(&mut self) {
         let Some((x, y)) = self.hover else { return };
+        // Right-click: the window's own sound plays, not a click (info_sound).
         self.info = Some(InfoPanel::new(self.info_target(x, y)));
-        self.sound("BUTTON.WAV");
     }
 
     /// What an info click on tile `(x, y)` shows: its walkers, else its building,
@@ -1136,7 +1199,6 @@ impl Game {
                     if items > 0 {
                         self.map_changed = true;
                         self.undo = snapshot.map(|s| (s, self.world.time.total_ticks));
-                        self.sound("BUILD.WAV");
                     }
                 }
             }
@@ -1375,8 +1437,17 @@ impl Game {
     }
 
     fn sprites(&mut self, r: &Renderer) -> Vec<Sprite> {
-        for s in self.disasters.take(&mut self.world) {
-            self.sound(s);
+        let view = self.city_rect(r);
+        for fx in self.disasters.take(&mut self.world) {
+            match fx {
+                osiris_sim::effects::Fx::Sound(s) => self.sound(s),
+                osiris_sim::effects::Fx::FigureSound { x, y, kind, slot } => {
+                    if let Some(a) = &self.audio {
+                        self.city_sounds.figure_sound(a, r, view, &self.world, (x, y), kind, slot);
+                    }
+                }
+                osiris_sim::effects::Fx::Dust { .. } => {}
+            }
         }
         let carts = *self.cart_images.get_or_insert_with(|| crate::anims::CartImages::load(&r.library).expect("cart images"));
         let mut out = Vec::new();
@@ -1514,6 +1585,12 @@ impl Game {
 
     pub fn draw(&mut self, r: &mut Renderer) {
         self.next_dialog(r);
+        if let Some(a) = &self.audio {
+            // The original makes them only while the city itself is the window.
+            let shown = !self.menu_open() && self.dialog.is_none() && !self.world.lost;
+            let view = self.city_rect(r);
+            self.city_sounds.frame(a, &self.world, r, view, self.frame_dt, shown, self.sound_prefs.city.on);
+        }
         if let Some(a) = &mut self.advisors {
             let images = *self.advisor_images.get_or_insert_with(|| crate::advisors::AdvisorImages::load(&r.library).expect("overseer images"));
             let ui_images = *self.ui_images.get_or_insert_with(|| crate::widgets::UiImages::load(&r.library).expect("ui images"));
@@ -1683,6 +1760,7 @@ impl Game {
                 None => {}
             }
         }
+        self.info_sound(r);
         if let Some(p) = &self.rules_panel {
             p.draw(r, &self.images.panels, &self.world.rules, sidebar::panel_left(r.screen[0]), "Changes apply now, and to every game you play.");
         }

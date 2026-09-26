@@ -190,6 +190,7 @@ impl World {
         }
         f.attack_tick = 0;
         let armor = self.fighter_stats(target).missile_armor;
+        self.figure_sound(fid, 2);
         self.hurt(target, (stats.missile_attack - armor).max(1));
     }
 

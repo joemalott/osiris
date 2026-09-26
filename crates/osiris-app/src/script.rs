@@ -1043,6 +1043,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     world.time.year, world.time.month, world.population, world.treasury, r.culture, r.prosperity, r.prosperity_max, r.monument, r.kingdom, l.employed, l.available, l.needed, l.shortage, world.unemployment, f.last_year, r.tribute_unpaid_years
                 );
             }
+            ["citysounds", p] => eprintln!("{}", crate::city_sounds::describe(&world, parse_point(p)?)),
             ["report"] => {
                 let houses: Vec<String> = world
                     .buildings

@@ -5,6 +5,7 @@ mod advisors;
 mod anims;
 mod popup;
 mod army_view;
+mod city_sounds;
 mod city_view;
 mod data_dir;
 mod disaster_view;
