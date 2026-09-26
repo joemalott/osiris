@@ -13,6 +13,7 @@ mod empire_window;
 mod game;
 mod gfx;
 mod info;
+mod megacity;
 mod menu;
 mod message_list;
 mod rules_panel;

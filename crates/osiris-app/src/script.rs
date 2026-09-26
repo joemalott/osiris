@@ -90,6 +90,15 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             // A planned city R tiles each way from its centre, for benchmarks.
             ["benchcity", r, s] => bench_city(world, r.parse()?, s.parse()?),
+            // A big self-sustaining city from the map (see megacity.rs), from seed S,
+            // with an optional region half-size R; the view goes to it unless a `view`
+            // step says otherwise.
+            ["megacity", s] | ["megacity", s, _] => {
+                let r = parts.get(2).map_or(Ok(0), |r| r.parse())?;
+                if let Some(c) = crate::megacity::megacity(world, s.parse()?, r) {
+                    view.centre.get_or_insert(c);
+                }
+            }
             // Writes the city as a saved game named NAME into the player's saves, where
             // Load Saved Game finds it.
             ["save", name @ ..] if !name.is_empty() => {
