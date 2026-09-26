@@ -59,22 +59,22 @@ const AMOUNT_SHIFT: f32 = 6.0;
 
 #[derive(Clone, Copy)]
 pub struct EmpireImages {
-    map: u32,
-    bars: u32,
-    route_dot: u32,
+    pub(crate) map: u32,
+    pub(crate) bars: u32,
+    pub(crate) route_dot: u32,
     /// Cities: group 5 for trading cities and ours, 169 for the rest, 164 and 167 for
     /// Pharaoh's city (167 also for ours once the governor is Pharaoh).
-    cities_trading: u32,
-    cities: u32,
-    pharaoh: u32,
-    pharaoh_trading: u32,
-    flag: u32,
-    tiers: u32,
-    icons: u32,
-    context: u32,
-    advisors: u32,
+    pub(crate) cities_trading: u32,
+    pub(crate) cities: u32,
+    pub(crate) pharaoh: u32,
+    pub(crate) pharaoh_trading: u32,
+    pub(crate) flag: u32,
+    pub(crate) tiers: u32,
+    pub(crate) icons: u32,
+    pub(crate) context: u32,
+    pub(crate) advisors: u32,
     /// The OK and cancel buttons of the yes/no window: group 96, offsets 0 and 4.
-    ok_cancel: u32,
+    pub(crate) ok_cancel: u32,
 }
 
 impl EmpireImages {
@@ -103,8 +103,13 @@ impl EmpireImages {
     }
 
     fn city(&self, c: &osiris_sim::trade::TradeCity, pharaoh_rank: bool) -> u32 {
-        let foreign = FOREIGN_IMAGE.get(c.name_id as usize).copied().unwrap_or(11) as u32;
-        match c.city_type {
+        self.city_image(c.city_type, c.name_id, pharaoh_rank)
+    }
+
+    /// The picture of a city of kind `city_type` named `name_id` (FUN_004425c0).
+    pub(crate) fn city_image(&self, city_type: u8, name_id: u8, pharaoh_rank: bool) -> u32 {
+        let foreign = FOREIGN_IMAGE.get(name_id as usize).copied().unwrap_or(11) as u32;
+        match city_type {
             city::OURS if pharaoh_rank => self.pharaoh_trading,
             city::OURS => self.cities_trading,
             city::PHARAOH_TRADING => self.pharaoh_trading,

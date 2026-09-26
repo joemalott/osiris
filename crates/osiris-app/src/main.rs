@@ -657,7 +657,10 @@ impl App {
     /// Opens a map in the Mission Editor.
     fn edit(&mut self, path: &Path) {
         match editor::Editor::open(path, self.assets.defs.clone(), self.assets.text.clone(), maps_dir()) {
-            Ok(e) => self.screen = Some(Screen::Editor(Box::new(e))),
+            Ok(mut e) => {
+                e.data = self.assets.data.clone();
+                self.screen = Some(Screen::Editor(Box::new(e)));
+            }
             Err(e) => self.status = Some((format!("Could not open the map: {e}"), 5.0)),
         }
     }
@@ -1424,8 +1427,10 @@ impl ApplicationHandler for App {
                         }
                         (MouseButton::Left, ElementState::Released) => e.release(),
                         (MouseButton::Right, ElementState::Pressed) => {
-                            e.cancel();
-                            self.drag = Some(self.cursor);
+                            e.right_press(screen, at);
+                            if !e.kingdom_open() {
+                                self.drag = Some(self.cursor);
+                            }
                         }
                         (MouseButton::Middle, ElementState::Pressed) => self.drag = Some(self.cursor),
                         (_, ElementState::Released) => self.drag = None,
@@ -1600,8 +1605,12 @@ impl App {
                     (KeyCode::ArrowDown, 0.0, 1.0, cy >= screen[1] as f64 - 8.0),
                 ] {
                     if self.keys.contains(&k) || (edges && at_edge) {
-                        gfx.renderer.camera.x += dx * pan;
-                        gfx.renderer.camera.y += dy * pan;
+                        if e.kingdom_open() {
+                            e.scroll_kingdom(screen, dx * 900.0 * dt, dy * 900.0 * dt);
+                        } else {
+                            gfx.renderer.camera.x += dx * pan;
+                            gfx.renderer.camera.y += dy * pan;
+                        }
                     }
                 }
                 e.update(dt);
@@ -1805,7 +1814,8 @@ fn run(mut args: Args) -> Result<()> {
         if let Some(steps) = args.script.as_deref().filter(|s| editor::script::is_editor_script(s)) {
             let start = editor::script::map_path(&data, editor::DEFAULT_MAP);
             let mut e = editor::Editor::open(&start, assets.defs.clone(), assets.text.clone(), maps_dir())?;
-            let done = e.run_script(&data, steps)?;
+            e.data = data.clone();
+            let done = e.run_script(&data, &library, gfx::screenshot_screen(args.size), steps)?;
             match done.play {
                 Some(p) => play_map = Some(p),
                 None => {

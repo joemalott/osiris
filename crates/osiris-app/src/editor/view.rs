@@ -195,7 +195,7 @@ pub struct View {
     /// Where a road being dragged began.
     road_from: Option<(i32, i32)>,
     /// The open submenu: its button and entries.
-    menu: Option<(u8, Vec<(String, Item)>)>,
+    pub(super) menu: Option<(u8, Vec<(String, Item)>)>,
     pressed: Option<Button>,
     top: Option<TopMenu>,
     pub popup: Option<Popup>,
@@ -204,6 +204,8 @@ pub struct View {
     confirm: Option<(Confirm, ConfirmThen)>,
     confirm_click: Option<[f32; 2]>,
     pub options: Option<super::options::Options>,
+    /// The Kingdom map, while it is open (it takes the whole screen).
+    pub kingdom: Option<super::kingdom::Kingdom>,
     /// A click on the Options screen, for its widgets to take as they are drawn.
     pub options_click: Option<[f32; 2]>,
     /// The camera as last drawn (its top-left corner, plus the game's 30-pixel bar
@@ -354,11 +356,15 @@ impl Editor {
     }
 
     pub fn wants_text(&self) -> bool {
-        matches!(self.view.popup, Some(Popup::SaveName(_))) || self.view.options.as_ref().is_some_and(|o| o.wants_text())
+        matches!(self.view.popup, Some(Popup::SaveName(_))) || self.view.options.as_ref().is_some_and(|o| o.wants_text()) || self.kingdom_wants_text()
     }
 
     /// Typed text: backspace is `\u{8}`, Enter `\n`.
     pub fn type_text(&mut self, s: &str) {
+        if self.kingdom_wants_text() {
+            self.type_kingdom(s);
+            return;
+        }
         if let Some(o) = &mut self.view.options {
             o.type_text(&mut self.scenario, s);
             self.dirty = true;
@@ -408,6 +414,13 @@ impl Editor {
     /// A right-click: closes the popup, options or submenu open, else puts the tool
     /// down.
     pub fn cancel(&mut self) {
+        if let Some(k) = &mut self.view.kingdom {
+            // Escape closes what is open over the Kingdom map, else leaves it as OK does.
+            if !k.close_popups() {
+                self.leave_kingdom();
+            }
+            return;
+        }
         if self.view.popup.is_some() {
             self.view.popup = None;
         } else if let Some(o) = &mut self.view.options {
@@ -425,8 +438,20 @@ impl Editor {
         }
     }
 
+    /// A right-click: the Kingdom map's own use of it, or else `cancel`.
+    pub fn right_press(&mut self, screen: [f32; 2], p: [f32; 2]) {
+        if self.view.kingdom.is_some() {
+            self.kingdom_right(screen, p);
+        } else {
+            self.cancel();
+        }
+    }
+
     pub fn update(&mut self, dt: f32) {
         self.view.clock += dt;
+        if let Some(k) = &mut self.view.kingdom {
+            k.tick(dt);
+        }
         if let Some((_, t)) = &mut self.view.status {
             *t -= dt;
             if *t <= 0.0 {
@@ -456,6 +481,10 @@ impl Editor {
 
     pub fn set_cursor(&mut self, r: &Renderer, p: [f32; 2]) {
         self.view.cursor = p;
+        if self.view.kingdom.is_some() {
+            self.kingdom_move(r.screen, p);
+            return;
+        }
         if let Some(t) = &mut self.view.top {
             t.hover(p);
         }
@@ -478,6 +507,10 @@ impl Editor {
         let screen = r.screen;
         if self.view.confirm.is_some() {
             self.view.confirm_click = Some(p);
+            return None;
+        }
+        if self.view.kingdom.is_some() {
+            self.kingdom_press(&r.library, screen, p);
             return None;
         }
         if let Some(popup) = &self.view.popup {
@@ -509,7 +542,7 @@ impl Editor {
         if let Some(b) = self.button_at(screen, p) {
             self.view.pressed = Some(b);
             match b {
-                Button::Kingdom => self.view.say("The Kingdom map can't be edited yet."),
+                Button::Kingdom => self.open_kingdom(),
                 Button::Options => {
                     self.view.menu = None;
                     self.view.options = Some(Default::default());
@@ -546,6 +579,7 @@ impl Editor {
     }
 
     pub fn release(&mut self) {
+        self.kingdom_release();
         self.view.pressed = None;
         self.view.stroke = None;
         if let (Some(a), Some(b)) = (self.view.road_from.take(), self.view.hover) {
@@ -654,6 +688,17 @@ impl Editor {
         self.view.images = Some(img);
         if !self.view.placed {
             self.place_camera(r);
+        }
+        if self.view.kingdom.is_some() {
+            self.draw_kingdom(r, panels);
+            if self.view.confirm.is_some() {
+                self.draw_confirm(r, panels);
+            }
+            if let Some((s, _)) = &self.view.status {
+                let sw = text_width(r, Font::LargeBlackOnDark, s) as f32;
+                draw_text(r, Font::LargeBlackOnDark, s, ((r.screen[0] - sw) / 2.0).max(10.0), 60.0, font::WHITE);
+            }
+            return;
         }
         let [w, h] = r.screen;
         let ox = panel_left(w);
@@ -782,8 +827,8 @@ impl Editor {
             let _ = (bw, bh);
         }
         let t = |g: usize, i: usize| self.text.get(g, i).unwrap_or("").trim().to_owned();
-        // Kingdom (44/132) and Options (2/0) on their buttons; the Kingdom map comes later.
-        osiris_ui::draw_text_tinted(r, Font::NormalWhiteOnDark, &t(44, 132), ox + 11.0, TOP + 128.0, [0.6, 0.55, 0.5, 1.0]);
+        // Kingdom (44/132) and Options (2/0) on their buttons.
+        draw_text(r, Font::NormalBlackOnLight, &t(44, 132), ox + 11.0, TOP + 128.0, font::BLACK);
         draw_text(r, Font::NormalBlackOnLight, &t(2, 0), ox + 94.0, TOP + 128.0, font::BLACK);
         self.draw_info(r, ox);
         // The strip down the right edge.

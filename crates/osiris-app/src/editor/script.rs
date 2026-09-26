@@ -22,13 +22,22 @@
 //!   view on a tile, `editzoom Z` zooms, `edithover x,y`
 //!   puts the mouse there;
 //! - `editsave PATH` saves the map; `editplay` saves it and screenshots the city
-//!   started from it instead.
+//!   started from it instead;
+//! - `editkingdom` opens the Kingdom map; `editkbutton N` presses its button labelled
+//!   44/N (0 Add object, 1 Edit objects, 2 Delete object, 3 General, 166 Add route,
+//!   167 Edit route, 223 Reset, 7 OK); `editkclick x,y` and `editkright x,y` click
+//!   the screen, `editkat x,y` and `editkrightat x,y` a pixel of the empire map,
+//!   `editkdrag x,y` drags what is held to one; `editktype DIGITS` types on its
+//!   keypad and accepts; `editkscroll x,y` scrolls it; `editkstate` prints its
+//!   cities and routes.
 
+use super::kingdom::Scripted;
 use super::options::{Options, Page};
 use super::terrain::Paint;
 use super::view::Popup;
 use super::{Editor, MAP_SIZES, Point, Tool};
 use anyhow::{Context, Result, bail};
+use osiris_formats::ImageLibrary;
 use osiris_sim::map::terrain as bits;
 use std::path::{Path, PathBuf};
 
@@ -92,7 +101,12 @@ pub fn is_editor_script(script: &str) -> bool {
 }
 
 impl Editor {
-    pub fn run_script(&mut self, data: &Path, script: &str) -> Result<Outcome> {
+    pub fn run_script(&mut self, data: &Path, lib: &ImageLibrary, screen: [f32; 2], script: &str) -> Result<Outcome> {
+        let kingdom = |e: &mut Editor, a: Scripted| -> Result<()> {
+            anyhow::ensure!(e.kingdom_open(), "the Kingdom map isn't open (editkingdom)");
+            e.run_scripted(lib, screen, a);
+            Ok(())
+        };
         let mut out = Outcome::default();
         for step in script.split(';').map(str::trim).filter(|s| !s.is_empty()) {
             let parts: Vec<&str> = step.split_whitespace().collect();
@@ -102,7 +116,9 @@ impl Editor {
                     // The name may have spaces: the rest of the step.
                     let name = step.split_once(' ').map_or("", |(_, n)| n.trim());
                     let path = map_path(data, name);
+                    let data_dir = std::mem::take(&mut self.data);
                     *self = Editor::open(&path, self.defs.clone(), self.text.clone(), self.maps_dir.clone())?;
+                    self.data = data_dir;
                 }
                 ["editnew", n] => {
                     let n: i32 = n.parse()?;
@@ -187,6 +203,36 @@ impl Editor {
                         out.play = Some(p);
                     }
                 }
+                ["editkingdom"] => self.open_kingdom(),
+                ["editkbutton", n] => kingdom(self, Scripted::Button(n.parse()?))?,
+                ["editkclick", p] => {
+                    let (x, y) = point(p)?;
+                    kingdom(self, Scripted::Click([x as f32, y as f32]))?;
+                }
+                ["editkright", p] => {
+                    let (x, y) = point(p)?;
+                    kingdom(self, Scripted::Right([x as f32, y as f32]))?;
+                }
+                ["editkat", p] => {
+                    let (x, y) = point(p)?;
+                    kingdom(self, Scripted::MapClick(x, y))?;
+                }
+                ["editkrightat", p] => {
+                    let (x, y) = point(p)?;
+                    kingdom(self, Scripted::MapRight(x, y))?;
+                }
+                ["editkdrag", p] => {
+                    let (x, y) = point(p)?;
+                    kingdom(self, Scripted::DragTo(x, y))?;
+                }
+                ["editktype", digits] => {
+                    kingdom(self, Scripted::Type(format!("{digits}\n")))?;
+                }
+                ["editkscroll", p] => {
+                    let (x, y) = point(p)?;
+                    kingdom(self, Scripted::Scroll(x, y))?;
+                }
+                ["editkstate"] => kingdom(self, Scripted::State)?,
                 ["editinfo", p] => {
                     let (x, y) = point(p)?;
                     let m = &self.map;
