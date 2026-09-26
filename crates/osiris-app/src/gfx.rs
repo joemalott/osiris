@@ -181,7 +181,7 @@ pub fn screenshot(
     library: ImageLibrary,
     size: (u32, u32),
     out: &std::path::Path,
-    draw: impl FnOnce(&mut Renderer),
+    mut draw: impl FnMut(&mut Renderer),
 ) -> Result<()> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(adapter(&instance, None))?;
@@ -213,6 +213,24 @@ pub fn screenshot(
     let sprites = renderer.instance_count();
     let t0 = std::time::Instant::now();
     renderer.flush(&texture.create_view(&Default::default()), Some(CLEAR));
+    // OSIRIS_BENCH_FRAMES=N draws N more frames and reports the time spent building
+    // the sprite list and drawing it, for benchmarks.
+    if let Some(n) = std::env::var("OSIRIS_BENCH_FRAMES").ok().and_then(|s| s.parse::<u32>().ok()) {
+        let view = texture.create_view(&Default::default());
+        let (mut build, mut gpu) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
+        for _ in 0..n {
+            let t = std::time::Instant::now();
+            draw(&mut renderer);
+            build += t.elapsed();
+            let t = std::time::Instant::now();
+            renderer.flush(&view, Some(CLEAR));
+            renderer.device().poll(wgpu::PollType::wait_indefinitely())?;
+            gpu += t.elapsed();
+        }
+        eprintln!("frames {n}: build {:?} draw {:?} per frame", build / n.max(1), gpu / n.max(1));
+        draw(&mut renderer);
+        renderer.flush(&view, Some(CLEAR));
+    }
 
     let row = (w * 4).div_ceil(256) * 256;
     let buffer = renderer.device().create_buffer(&wgpu::BufferDescriptor {
