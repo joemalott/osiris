@@ -207,8 +207,10 @@ const ARROW: f32 = 24.0;
 const SPEED_DOWN: (f32, f32) = (STATUS_TEXT_X, STATUS_Y + 22.0);
 const SPEED_UP: (f32, f32) = (STATUS_TEXT_X + 24.0, STATUS_Y + 22.0);
 
-/// How much of the top bar image carries its patterned border, from the left.
-const TOP_BAR_BORDERED: f32 = 845.0;
+/// How much of the top bar image carries its patterned border, from the left. The
+/// editor's top bar is the same image (Pharaoh_General 121/8) and tiles it the same
+/// way.
+pub const TOP_BAR_BORDERED: f32 = 845.0;
 
 #[derive(Clone)]
 pub struct SidebarImages {

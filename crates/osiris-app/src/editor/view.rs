@@ -11,7 +11,9 @@ use super::terrain::Paint;
 use super::{Editor, Point, Request, Tool};
 use crate::city_view::{self, CityView, Highlight, Overlay, Sprite};
 use crate::minimap::Minimap;
+use crate::popup::Confirm;
 use crate::top_menu::{Entry, MenuAction, TopMenu};
+use crate::widgets::UiImages;
 use osiris_formats::scenario::TilePoint;
 use osiris_render::{Paint as Tint, Renderer, Space, WHITE};
 use osiris_sim::map::{Map, terrain as bits};
@@ -139,6 +141,15 @@ pub enum Popup {
     SaveName(String),
 }
 
+/// What answering "yes" to a yes/no warning goes on to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfirmThen {
+    Play,
+    SaveName,
+    Exit,
+    Open,
+}
+
 /// The images the editor draws, found once.
 #[derive(Clone, Copy)]
 struct Images {
@@ -188,6 +199,10 @@ pub struct View {
     pressed: Option<Button>,
     top: Option<TopMenu>,
     pub popup: Option<Popup>,
+    /// A yes/no warning open (Play or Save with points missing, or unsaved changes
+    /// about to be discarded), and what a yes goes on to do.
+    confirm: Option<(Confirm, ConfirmThen)>,
+    confirm_click: Option<[f32; 2]>,
     pub options: Option<super::options::Options>,
     /// A click on the Options screen, for its widgets to take as they are drawn.
     pub options_click: Option<[f32; 2]>,
@@ -198,7 +213,7 @@ pub struct View {
     pub free_scroll: bool,
     /// H: cliffs are drawn as plain rock.
     pub hide_cliffs: bool,
-    clock: f32,
+    pub clock: f32,
     status: Option<(String, f32)>,
     /// The camera was placed where the map's editor left it.
     placed: bool,
@@ -236,25 +251,72 @@ impl Editor {
             (t(7, 0), vec![e(t(7, 1), 1), e(t(7, 2), 2), e(t(7, 3), 3), e(t(44, 215), 5), e(t(7, 4), 4)]),
             (t(2, 0), vec![off(t(2, 1)), off(t(2, 2)), off(t(2, 3))]),
             (t(3, 0), vec![off(t(3, 8)), off(t(3, 7))]),
-            (t(10, 0), vec![e(t(10, 1), 11), e(t(10, 2), 12), e(t(10, 3), 13), e(t(10, 4), 14), e(t(10, 5), 15), off(t(10, 8)), e(t(10, 10), 20)]),
+            (t(10, 0), vec![e("Undo".to_owned(), 21), e(t(10, 1), 11), e(t(10, 2), 12), e(t(10, 3), 13), e(t(10, 4), 14), e(t(10, 5), 15), off(t(10, 8)), e(t(10, 10), 20)]),
         ])
+    }
+
+    /// The question a yes/no warning asks before an action that would lose
+    /// something: `verb` names the action ("Play", "Save") in "This map has no
+    /// entry point. `verb` anyway?", listing whichever of entry, exit and river
+    /// points the black info box is showing in red.
+    fn warn_missing(&self, verb: &str) -> Option<Confirm> {
+        let missing = self.missing_points();
+        let list = match missing.as_slice() {
+            [] => return None,
+            [a] => format!("no {a}"),
+            [a, b] => format!("no {a} or no {b}"),
+            [a, b, c] => format!("no {a}, no {b} or no {c}"),
+            _ => unreachable!("only three kinds of point are checked"),
+        };
+        Some(Confirm { title: "Warning".to_owned(), question: format!("This map has {list}. {verb} anyway?") })
+    }
+
+    /// The question asked before discarding changes the title's "*" says aren't saved.
+    fn warn_unsaved(&self) -> Option<Confirm> {
+        self.dirty.then(|| Confirm { title: "Unsaved changes".to_owned(), question: "This map has changes that haven't been saved. Continue anyway?".to_owned() })
     }
 
     /// A choice from the menu bar.
     pub fn menu_command(&mut self, code: u16) {
         match code {
             1 => self.view.popup = Some(Popup::Sizes),
-            2 => self.request = Some(Request::Open),
-            3 => self.view.popup = Some(Popup::SaveName(self.name.clone())),
-            4 => self.request = Some(Request::Exit),
-            5 => {
+            2 => match self.warn_unsaved() {
+                Some(c) => self.view.confirm = Some((c, ConfirmThen::Open)),
+                None => self.request = Some(Request::Open),
+            },
+            3 => match self.warn_missing("Save") {
+                Some(c) => self.view.confirm = Some((c, ConfirmThen::SaveName)),
+                None => self.view.popup = Some(Popup::SaveName(self.name.clone())),
+            },
+            4 => match self.warn_unsaved() {
+                Some(c) => self.view.confirm = Some((c, ConfirmThen::Exit)),
+                None => self.request = Some(Request::Exit),
+            },
+            5 => match self.warn_missing("Play") {
+                Some(c) => self.view.confirm = Some((c, ConfirmThen::Play)),
+                None => self.run_confirm(ConfirmThen::Play),
+            },
+            11..=15 => self.clear_points(code as usize - 10),
+            20 => {
+                self.push_undo();
+                self.refresh_map();
+            }
+            21 => self.undo(),
+            _ => {}
+        }
+    }
+
+    /// What answering "yes" to a warning goes on to do.
+    fn run_confirm(&mut self, then: ConfirmThen) {
+        match then {
+            ConfirmThen::Play => {
                 if let Err(e) = self.play() {
                     self.view.say(&format!("Could not play the map: {e}"));
                 }
             }
-            11..=15 => self.clear_points(code as usize - 10),
-            20 => self.refresh_map(),
-            _ => {}
+            ConfirmThen::SaveName => self.view.popup = Some(Popup::SaveName(self.name.clone())),
+            ConfirmThen::Exit => self.request = Some(Request::Exit),
+            ConfirmThen::Open => self.request = Some(Request::Open),
         }
     }
 
@@ -326,14 +388,19 @@ impl Editor {
         }
     }
 
-    /// Keys the editor answers: H hides cliffs, Alt+Z refreshes the map, Alt+D lets
-    /// the view past the map's edges; Escape backs out of what is open.
-    pub fn key(&mut self, key: &str, alt: bool) {
-        match (key, alt) {
-            ("h", false) => self.view.hide_cliffs = !self.view.hide_cliffs,
-            ("z", true) => self.refresh_map(),
-            ("d", true) => self.view.free_scroll = !self.view.free_scroll,
-            ("escape", _) => self.cancel(),
+    /// Keys the editor answers: H hides cliffs, Alt+Z refreshes the map, Ctrl+Z
+    /// (Cmd+Z on macOS) undoes the last stroke, road, point or Refresh Map, Alt+D
+    /// lets the view past the map's edges; Escape backs out of what is open.
+    pub fn key(&mut self, key: &str, alt: bool, ctrl: bool) {
+        match (key, alt, ctrl) {
+            ("h", false, false) => self.view.hide_cliffs = !self.view.hide_cliffs,
+            ("z", true, false) => {
+                self.push_undo();
+                self.refresh_map();
+            }
+            ("z", false, true) => self.undo(),
+            ("d", true, false) => self.view.free_scroll = !self.view.free_scroll,
+            ("escape", _, _) => self.cancel(),
             _ => {}
         }
     }
@@ -409,6 +476,10 @@ impl Editor {
     /// minimap).
     pub fn press(&mut self, r: &Renderer, p: [f32; 2]) -> Option<(i32, i32)> {
         let screen = r.screen;
+        if self.view.confirm.is_some() {
+            self.view.confirm_click = Some(p);
+            return None;
+        }
         if let Some(popup) = &self.view.popup {
             self.click_popup(screen, p, matches!(popup, Popup::Sizes));
             return None;
@@ -460,9 +531,13 @@ impl Editor {
         self.view.menu = None;
         let tile = city_view::world_to_tile(&self.map, r.screen_to_world(p))?;
         match self.tool {
-            Tool::Road => self.view.road_from = Some(tile),
+            Tool::Road => {
+                self.push_undo();
+                self.view.road_from = Some(tile);
+            }
             Tool::None => {}
             _ => {
+                self.push_undo();
                 self.view.stroke = Some(tile);
                 self.apply(tile.0, tile.1);
             }
@@ -625,6 +700,9 @@ impl Editor {
         if self.view.popup.is_some() {
             self.draw_popup(r, panels);
         }
+        if self.view.confirm.is_some() {
+            self.draw_confirm(r, panels);
+        }
         if let Some((s, _)) = &self.view.status {
             let sw = text_width(r, Font::LargeBlackOnDark, s) as f32;
             draw_text(r, Font::LargeBlackOnDark, s, ((ox - sw) / 2.0).max(10.0), 60.0, font::WHITE);
@@ -666,12 +744,16 @@ impl Editor {
     fn draw_panel(&mut self, r: &mut Renderer, panels: &PanelImages, img: &Images) {
         let [w, h] = r.screen;
         let ox = panel_left(w);
-        // The top bar, laid leftwards from the strip.
+        // The top bar, laid leftwards from the strip: one copy ends at the strip, more
+        // are laid a bordered length apart, each drawn after (so it covers) the plain
+        // end of the one before it, as the sidebar's own top bar does.
         let bar_w = r.record(img.top_bar).map_or(1000.0, |rec| rec.width as f32);
-        let mut x = w - STRIP_W - bar_w;
-        while x > -bar_w {
+        let mut starts = vec![w - STRIP_W - bar_w];
+        while starts.last().is_some_and(|&x| x > 0.0) {
+            starts.push(starts.last().copied().unwrap_or(0.0) - crate::sidebar::TOP_BAR_BORDERED);
+        }
+        for &x in starts.iter().rev() {
             r.image(img.top_bar, [x, 0.0], WHITE, Space::Screen);
-            x -= 845.0;
         }
         r.rect([ox, TOP], [w - ox, h - TOP], [0.0, 0.0, 0.0, 1.0], Space::Screen);
         // The reliefs below the panel: the short one on an 800x600 screen, else the
@@ -813,6 +895,27 @@ impl Editor {
                     r.image(ok + 4 + hot([x + 192.0, y + 100.0, 34.0, 34.0]), [x + 192.0, y + 100.0], WHITE, Space::Screen);
                 }
             }
+            None => {}
+        }
+    }
+
+    /// A yes/no warning (in popup.rs's style) over everything else, as the
+    /// original's own popups sit.
+    fn draw_confirm(&mut self, r: &mut Renderer, panels: &PanelImages) {
+        let Some((c, _)) = &self.view.confirm else { return };
+        let img = match UiImages::load(&r.library) {
+            Ok(i) => i,
+            Err(_) => return,
+        };
+        let cursor = self.view.cursor;
+        let click = self.view.confirm_click.take();
+        let text = self.text.clone();
+        match c.draw(r, panels, img, &text, cursor, click) {
+            Some(true) => {
+                let (_, then) = self.view.confirm.take().expect("just matched Some");
+                self.run_confirm(then);
+            }
+            Some(false) => self.view.confirm = None,
             None => {}
         }
     }

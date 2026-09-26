@@ -38,6 +38,64 @@ const ERA_BYTE: usize = 996;
 /// Osiris's own terrain bits, which no map of the original holds.
 const OSIRIS_BITS: u32 = bits::BRIDGE | bits::WALKABLE_BUILDING;
 
+/// How many strokes Ctrl+Z (Cmd+Z on macOS) can step back through.
+const UNDO_LIMIT: usize = 20;
+
+/// One undo step: the map and the point lists as they stood before a stroke, a
+/// road, a point placed, or an explicit Refresh Map (not before an Options change,
+/// which undo leaves alone).
+struct Snapshot {
+    map: Map,
+    entry: TilePoint,
+    exit: TilePoint,
+    river_in: TilePoint,
+    river_out: TilePoint,
+    invasion_land: Vec<TilePoint>,
+    invasion_sea: Vec<TilePoint>,
+    fishing: Vec<TilePoint>,
+    predator: Vec<TilePoint>,
+    prey: Vec<TilePoint>,
+    disembark: Vec<TilePoint>,
+}
+
+impl Snapshot {
+    fn capture(e: &Editor) -> Self {
+        let i = &e.scenario.info;
+        Self {
+            map: e.map.clone(),
+            entry: i.entry_point,
+            exit: i.exit_point,
+            river_in: i.river_entry_point,
+            river_out: i.river_exit_point,
+            invasion_land: i.invasion_points_land.clone(),
+            invasion_sea: i.invasion_points_sea.clone(),
+            fishing: i.fishing_points.clone(),
+            predator: i.predator_herd_points.clone(),
+            prey: i.prey_herd_points.clone(),
+            disembark: i.disembark_points.clone(),
+        }
+    }
+
+    /// Puts the map and points back as they were; leaves everything else (the
+    /// scenario's options) as it stands now.
+    fn restore(self, e: &mut Editor) {
+        e.map = self.map;
+        let i = &mut e.scenario.info;
+        i.entry_point = self.entry;
+        i.exit_point = self.exit;
+        i.river_entry_point = self.river_in;
+        i.river_exit_point = self.river_out;
+        i.invasion_points_land = self.invasion_land;
+        i.invasion_points_sea = self.invasion_sea;
+        i.fishing_points = self.fishing;
+        i.predator_herd_points = self.predator;
+        i.prey_herd_points = self.prey;
+        i.disembark_points = self.disembark;
+        e.redraw();
+        e.dirty = true;
+    }
+}
+
 /// A point the editor places, and which slot of its list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Point {
@@ -130,8 +188,8 @@ pub struct Editor {
     /// Kings, 3 Alexandria, 4 Abu Simbel): byte 996 of the scenario's info, which
     /// `ScenarioInfo` doesn't keep.
     pub era: u8,
-    /// The number beside Open Play, which "doesn't do anything" (the guide): byte 998.
-    pub open_play_number: u8,
+    /// Ctrl+Z history: the state before each of the last `UNDO_LIMIT` strokes.
+    history: Vec<Snapshot>,
     pub view: view::View,
     pub request: Option<Request>,
 }
@@ -153,7 +211,7 @@ impl Editor {
         let own = path.parent().is_some_and(|p| p == maps_dir);
         let map = Map::from_scenario(&scenario);
         let byte = |at: usize| template.get("scenario_info").and_then(|d| d.get(at)).copied().unwrap_or(0);
-        let (era, open_play_number) = (byte(ERA_BYTE), byte(ERA_BYTE + 2));
+        let era = byte(ERA_BYTE);
         let mut e = Self {
             defs,
             text,
@@ -167,7 +225,7 @@ impl Editor {
             brush: 2,
             dirty: false,
             era,
-            open_play_number,
+            history: Vec::new(),
             view: view::View::default(),
             request: None,
         };
@@ -223,6 +281,7 @@ impl Editor {
         self.map = Map::from_scenario(&self.scenario);
         self.view = view::View::default();
         self.dirty = true;
+        self.history.clear();
         self.refresh_map();
     }
 
@@ -233,6 +292,24 @@ impl Editor {
         terrain::refresh_grass(&mut self.map, self.scenario.info.climate);
         terrain::refresh_deep_water(&mut self.map);
         self.redraw();
+    }
+
+    /// Remembers the map and its points as they are now, so Ctrl+Z can put them
+    /// back: called before a stroke begins (mouse down), a road is dragged, or an
+    /// explicit Refresh Map, never for an Options change. Oldest steps past
+    /// `UNDO_LIMIT` are dropped.
+    fn push_undo(&mut self) {
+        self.history.push(Snapshot::capture(self));
+        if self.history.len() > UNDO_LIMIT {
+            self.history.remove(0);
+        }
+    }
+
+    /// Ctrl+Z (Cmd+Z on macOS): undoes the last stroke, road, point or Refresh Map.
+    pub fn undo(&mut self) {
+        if let Some(s) = self.history.pop() {
+            s.restore(self);
+        }
     }
 
     /// Redraws every terrain image as the game will when the map starts (the
@@ -489,6 +566,24 @@ impl Editor {
         self.request = Some(Request::Play(path));
         Ok(())
     }
+
+    /// What the black info box already lists in red: no entry point, no exit
+    /// point, or the river's ends not both set. Play and Save warn before going
+    /// ahead without them.
+    pub fn missing_points(&self) -> Vec<&'static str> {
+        let i = &self.scenario.info;
+        let mut v = Vec::new();
+        if !i.entry_point.is_valid() {
+            v.push("entry point");
+        }
+        if !i.exit_point.is_valid() {
+            v.push("exit point");
+        }
+        if !(i.river_entry_point.is_valid() && i.river_exit_point.is_valid()) {
+            v.push("river points");
+        }
+        v
+    }
 }
 
 /// The ground each climate's beast lives on (table 0x5e4cb4 by climate and the
@@ -587,5 +682,77 @@ mod tests {
         let m = Map::from_scenario(&s);
         assert!(m.terrain.at_or(40, 42, 0) & bits::WATER != 0);
         assert_eq!(m.images.at_or(40, 42, 0), e.map.images.at_or(40, 42, 0));
+    }
+
+    /// Every field the Options screens show, set away from its default, comes back
+    /// unchanged from a save and reopen: description, starting conditions, climate,
+    /// enemy and its toggle, gods and temple complexes, buildings allowed, every win
+    /// criterion, era, monuments, burial provisions, flood plain settings and the
+    /// picture.
+    #[test]
+    fn options_round_trip() {
+        use osiris_formats::scenario::Goal;
+
+        let Some(data) = data() else { return };
+        let mut e = editor(&data, DEFAULT_MAP);
+        e.era = 1; // Pyramids: monuments 1-3 below (kind 1) fit any era, but 1 in particular.
+        let i = &mut e.scenario.info;
+        i.subtitle = "Round-trip test map".to_owned();
+        i.player_rank = 5;
+        i.start_year = -1234;
+        i.initial_funds = 54321;
+        i.rescue_loan = 999;
+        i.win.milestone_years = [11, 22, 33];
+        i.debt_interest_rate = 12;
+        i.current_pharaoh = 7;
+        i.player_incarnation = 3;
+        i.climate = 2;
+        i.enemy_id = 5;
+        i.player_faction = 1;
+        i.gods = [1, 2, 0, 2, 1];
+        i.gods_known = [true, true, false, true, true];
+        if i.reserved.len() < 114 {
+            i.reserved.resize(114, 0);
+        }
+        for (g, &known) in i.gods_known.iter().enumerate() {
+            i.reserved[104 + g] = known as i16;
+        }
+        for id in [2, 10, 20, 30, 40] {
+            i.reserved[id] = 1;
+        }
+        i.is_open_play = false;
+        i.win.culture = Goal { enabled: true, value: 111 };
+        i.win.prosperity = Goal { enabled: true, value: 222 };
+        i.win.kingdom = Goal { enabled: true, value: 333 };
+        i.win.housing_count = Goal { enabled: true, value: 5 };
+        i.win.housing_level = Goal { enabled: true, value: 9 };
+        i.win.time_limit = Goal { enabled: true, value: 44 };
+        i.win.survival_time = Goal { enabled: true, value: 55 };
+        i.win.population = Goal { enabled: true, value: 6000 };
+        i.monuments = [1, 2, 3];
+        if i.burial_provisions_required.len() < 36 {
+            i.burial_provisions_required.resize(36, 0);
+        }
+        for (n, &r) in [1, 8, 10, 13, 15, 17, 18, 19, 20, 23, 24, 25, 26, 28, 30].iter().enumerate() {
+            i.burial_provisions_required[r] = 100 + n as u32;
+        }
+        i.image_id = 5;
+        let f = &mut e.scenario.floodplain_settings;
+        if f.len() < 12 {
+            f.resize(12, 0);
+        }
+        f[0..4].copy_from_slice(&210i32.to_le_bytes());
+        f[4..8].copy_from_slice(&90i32.to_le_bytes());
+        f[8..12].copy_from_slice(&60i32.to_le_bytes());
+
+        let bytes = e.to_bytes().unwrap();
+        let path = std::env::temp_dir().join(format!("osiris-options-roundtrip-{}.map", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+        let reopened = Editor::open(&path, e.defs.clone(), e.text.clone(), e.maps_dir.clone()).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(reopened.era, e.era);
+        assert_eq!(format!("{:?}", reopened.scenario.info), format!("{:?}", e.scenario.info));
+        assert_eq!(reopened.scenario.floodplain_settings, e.scenario.floodplain_settings);
     }
 }

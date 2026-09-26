@@ -8,9 +8,13 @@
 //!   use it (grass, trees, water, floodplain, marsh, meadow, rock, ore, cliff, dunes,
 //!   and the points entry, exit, invasion N, riverin, riverout, fishing N, killer N,
 //!   prey N, disembark N);
-//! - `editroad x,y x,y` lays a road; `editrefresh` is Refresh Map;
+//! - `editroad x,y x,y` lays a road; `editrefresh` is Refresh Map; `editundo` is
+//!   Ctrl+Z;
 //! - `editclimate N` sets the terrain set (0 humid, 1 normal, 2 arid);
 //! - `editmenu N` opens tool button N's submenu, `edittop N` a menu of the bar,
+//!   `editmenucmd N` runs menu bar command N directly (2 Load map, 3 Save map,
+//!   4 Exit builder, 5 Play this mission, 20 Refresh Map, 21 Undo; missing points
+//!   or unsaved changes opens the yes/no warning rather than going ahead),
 //!   `editpopup sizes|save`, `editoptions [PAGE]` the Options screen (main,
 //!   starting, date, win, monuments, allowed, gods, flood), `editchooser PAGE WHAT`
 //!   with a value's list or keypad open over it;
@@ -114,6 +118,7 @@ impl Editor {
                     }
                     let (x, y) = point(p)?;
                     self.tool = tool(name, 0)?;
+                    self.push_undo();
                     let changed = self.apply(x, y);
                     eprintln!("{step}: changed {changed}");
                 }
@@ -121,20 +126,27 @@ impl Editor {
                     let n = if parts.len() == 4 { parts[2].parse()? } else { 0 };
                     self.tool = tool(name, n)?;
                     let (x, y) = point(p)?;
+                    self.push_undo();
                     let placed = self.apply(x, y);
                     eprintln!("{step}: placed {placed}");
                 }
                 ["editroad", a, b] => {
                     self.tool = Tool::Road;
+                    self.push_undo();
                     let changed = self.road(point(a)?, point(b)?);
                     eprintln!("{step}: changed {changed}");
                 }
-                ["editrefresh"] => self.refresh_map(),
+                ["editrefresh"] => {
+                    self.push_undo();
+                    self.refresh_map();
+                }
+                ["editundo"] => self.undo(),
                 ["editclimate", n] => {
                     self.scenario.info.climate = n.parse::<u8>()?.min(2);
                     self.refresh_map();
                 }
                 ["editmenu", n] => self.open_submenu(n.parse()?),
+                ["editmenucmd", n] => self.menu_command(n.parse()?),
                 ["edittop", n] => self.open_top_menu(n.parse()?),
                 ["editpopup", "sizes"] => self.view.popup = Some(Popup::Sizes),
                 ["editpopup", "save"] => self.view.popup = Some(Popup::SaveName(self.name.clone())),
