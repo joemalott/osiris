@@ -16,7 +16,7 @@
 
 use osiris_formats::empire::city;
 use osiris_formats::{ImageLibrary, TextTable};
-use osiris_render::{Renderer, Space};
+use osiris_render::{Renderer, Space, WHITE};
 use osiris_sim::World;
 use osiris_ui::{Font, PanelImages, draw_text, font, panel, rich_text, text_width};
 
@@ -153,17 +153,27 @@ pub struct EmpireWindow {
 }
 
 impl EmpireWindow {
-    /// The map's rectangle on screen, centred when the screen is wider than the map.
+    /// How much the map is enlarged: a screen wider than the map's 1200 pixels gets it
+    /// stretched to fill the space between the side bars, rather than stone panels
+    /// beside it (the original's screens were never wider than the map). Cities,
+    /// names, flags and route dots keep their size and sit where the map puts them.
+    fn scale(screen: [f32; 2]) -> f32 {
+        ((screen[0] - 2.0 * BAR) / MAP_W).max(1.0)
+    }
+
+    /// The map's rectangle on screen.
     fn view(screen: [f32; 2]) -> [f32; 4] {
-        let w = (screen[0] - 2.0 * BAR).min(MAP_W);
-        let h = (screen[1] - PANEL_TOP - BAR).min(MAP_H);
+        let s = Self::scale(screen);
+        let w = (screen[0] - 2.0 * BAR).min(MAP_W * s);
+        let h = (screen[1] - PANEL_TOP - BAR).min(MAP_H * s);
         [((screen[0] - w) / 2.0).floor(), BAR, w, h]
     }
 
+    /// Keeps the scroll, in screen pixels of the enlarged map, inside the map.
     fn clamp(&mut self, screen: [f32; 2]) {
-        let v = Self::view(screen);
-        self.scroll[0] = self.scroll[0].clamp(0.0, (MAP_W - v[2]).max(0.0));
-        self.scroll[1] = self.scroll[1].clamp(0.0, (MAP_H - v[3]).max(0.0));
+        let (v, s) = (Self::view(screen), Self::scale(screen));
+        self.scroll[0] = self.scroll[0].clamp(0.0, (MAP_W * s - v[2]).max(0.0));
+        self.scroll[1] = self.scroll[1].clamp(0.0, (MAP_H * s - v[3]).max(0.0));
     }
 
     /// Centres the view on our city the first time it is shown.
@@ -174,14 +184,23 @@ impl EmpireWindow {
         self.centred = true;
         let v = Self::view(screen);
         if let Some(c) = world.trade.cities.iter().find(|c| c.city_type == city::OURS) {
-            self.scroll = [c.pos.0 as f32 - v[2] / 2.0, c.pos.1 as f32 - v[3] / 2.0];
+            let s = Self::scale(screen);
+            self.scroll = [c.pos.0 as f32 * s - v[2] / 2.0, c.pos.1 as f32 * s - v[3] / 2.0];
         }
         self.clamp(screen);
     }
 
     fn to_screen(&self, screen: [f32; 2], p: (i32, i32)) -> [f32; 2] {
-        let v = Self::view(screen);
-        [v[0] + p.0 as f32 - self.scroll[0], v[1] + p.1 as f32 - self.scroll[1]]
+        let (v, s) = (Self::view(screen), Self::scale(screen));
+        [(v[0] + p.0 as f32 * s - self.scroll[0]).floor(), (v[1] + p.1 as f32 * s - self.scroll[1]).floor()]
+    }
+
+    /// The top-left corner of an image `w` by `h` that the map places at `p`: on an
+    /// enlarged map its centre follows the map, so it stays on its spot of the art.
+    fn place(&self, screen: [f32; 2], p: (i32, i32), w: f32, h: f32) -> [f32; 2] {
+        let grow = Self::scale(screen) - 1.0;
+        let at = self.to_screen(screen, p);
+        [(at[0] + w / 2.0 * grow).floor(), (at[1] + h / 2.0 * grow).floor()]
     }
 
     pub fn select(&mut self, city: Option<usize>) {
@@ -284,8 +303,8 @@ impl EmpireWindow {
     fn city_at(&self, r: &Renderer, world: &World, images: &EmpireImages, p: [f32; 2]) -> Option<usize> {
         let pharaoh = world.assigned_rank() >= 10;
         world.trade.cities.iter().position(|c| {
-            let at = self.to_screen(r.screen, c.pos);
             let (w, h) = r.record(images.city(c, pharaoh)).map_or((37.0, 34.0), |rec| (rec.width as f32, rec.height as f32));
+            let at = self.place(r.screen, c.pos, w, h);
             p[0] >= at[0] && p[1] >= at[1] && p[0] < at[0] + w && p[1] < at[1] + h
         })
     }
@@ -353,13 +372,14 @@ impl EmpireWindow {
         let v = Self::view(screen);
         r.rect([0.0, 0.0], screen, [0.0, 0.0, 0.0, 1.0], Space::Screen);
         r.set_clip(Some(v));
-        img(r, images.map, v[0] - self.scroll[0], v[1] - self.scroll[1]);
+        let s = Self::scale(screen);
+        r.image_scaled(images.map, [v[0] - self.scroll[0], v[1] - self.scroll[1]], [MAP_W * s, MAP_H * s], WHITE, Space::Screen);
         let pharaoh = world.assigned_rank() >= 10;
         for c in &world.trade.cities {
-            let at = self.to_screen(screen, c.pos);
             let image = images.city(c, pharaoh);
-            img(r, image, at[0], at[1]);
             let (w, h) = r.record(image).map_or((0.0, 0.0), |rec| (rec.width as f32, rec.height as f32));
+            let at = self.place(screen, c.pos, w, h);
+            img(r, image, at[0], at[1]);
             let name = text.get(CITY_NAMES, c.name_id as usize).unwrap_or("");
             let tw = text_width(r, Font::SmallPlain, name) as f32;
             let (x, y) = match c.text_align {
@@ -383,7 +403,7 @@ impl EmpireWindow {
             }
         }
         r.set_clip(None);
-        self.draw_frame(r, images, v);
+        self.draw_frame(r, images);
         self.draw_panel(r, panels, world, text, images);
         if let Some(popup) = self.popup {
             self.draw_popup(r, panels, world, text, images, popup);
@@ -455,27 +475,10 @@ impl EmpireWindow {
     }
 
     /// Bars around the map and the stone panel below it.
-    fn draw_frame(&self, r: &mut Renderer, images: &EmpireImages, v: [f32; 4]) {
+    fn draw_frame(&self, r: &mut Renderer, images: &EmpireImages) {
         let screen = r.screen;
         let (vert, horiz, cross, bottom) = (images.bars, images.bars + 1, images.bars + 2, images.bars + 3);
         let (w, h) = (screen[0], screen[1]);
-        // A screen wider than the map gets the panel's stone either side of it rather
-        // than black.
-        if v[0] > BAR {
-            for (x0, x1) in [(0.0, v[0]), (v[0] + v[2], w)] {
-                r.set_clip(Some([x0, 0.0, x1 - x0, h - DIVIDER]));
-                let mut y = 0.0;
-                while y < h - DIVIDER {
-                    let mut x = x0;
-                    while x < x1 {
-                        img(r, bottom, x, y);
-                        x += 70.0;
-                    }
-                    y += 40.0;
-                }
-            }
-            r.set_clip(None);
-        }
         for y in [h - DIVIDER, h - DIVIDER + 40.0, h - DIVIDER + 80.0, h - DIVIDER + 120.0] {
             let mut x = 0.0;
             while x < w - 70.0 {
@@ -492,13 +495,7 @@ impl EmpireWindow {
             }
             img(r, horiz, w - 86.0, y);
         }
-        // When the screen is wider than the map, the map is framed where it ends too.
-        let mut sides = vec![(0.0, h), (w - BAR, h)];
-        if v[0] > BAR {
-            sides.push((v[0] - BAR, h - PANEL_TOP));
-            sides.push((v[0] + v[2], h - PANEL_TOP));
-        }
-        for (x, end) in sides {
+        for (x, end) in [(0.0, h), (w - BAR, h)] {
             let mut y = BAR;
             while y < end - 86.0 {
                 img(r, vert, x, y);
