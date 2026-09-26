@@ -259,10 +259,7 @@ terrain_usage = "any"
 id = 25
 key = "fishing_boat"
 category = "citizen"
-anims = { walk = { pack = "SprMain", group = 134, offset = 0, frames = 4, duration = 3 }, swim = { pack = "SprMain", group = 134, offset = 0, frames = 4, duration = 3 }, death = { pack = "SprMain", group = 135, offset = 0, frames = 8, loop = false }, work = { pack = "SprMain", group = 135, offset = 0, frames = 6, duration = 5 }, idle = { pack = "SprMain", group = 136, offset = 3, frames = 1 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 25 } }
-fish_per_trip = 50
-fishing_time_base = 200
-fishing_time_multiplier = 1
+anims = { walk = { pack = "SprMain", group = 134, offset = 0, frames = 4, duration = 3 }, swim = { pack = "SprMain", group = 134, offset = 0, frames = 4, duration = 3 }, death = { pack = "SprMain", group = 136, offset = 0, frames = 11, loop = false }, work = { pack = "SprMain", group = 135, offset = 0, frames = 9, duration = 1 }, idle = { pack = "SprMain", group = 137, offset = 0, frames = 1 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 25 } }
 max_damage = 20
 terrain_usage = "any"
 

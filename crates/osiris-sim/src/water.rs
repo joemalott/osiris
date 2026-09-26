@@ -568,6 +568,31 @@ mod tests {
     }
 
     #[test]
+    fn a_boat_brings_a_cart_of_fish_a_trip() {
+        use crate::fishing::{FISHING_BOAT, action};
+        let Some(mut world) = sandbox_town() else { return };
+        let wharf = world.map.building.at_or(165, 124, 0);
+        let (mut trips, mut most) = (0, 0);
+        let mut carts = std::collections::BTreeMap::new();
+        for _ in 0..12000 {
+            world.tick();
+            for f in world.figures.iter() {
+                // Each trip fishes 200 ticks and comes back with 100.
+                if f.kind == FISHING_BOAT && f.action == action::FISHING && f.counter == 200 {
+                    trips += 1;
+                }
+                if f.kind == crate::economy::CART_PUSHER && f.home == wharf {
+                    carts.entry(f.id).or_insert(f.amount);
+                }
+            }
+            // The boat stays in while its catch waits, so the wharf never holds two.
+            most = most.max(world.buildings.get(wharf).map_or(0, |b| b.stock[crate::economy::resource::FISH as usize]));
+        }
+        assert!(trips >= 3, "{trips} trips");
+        assert!(!carts.is_empty() && carts.values().all(|&n| n == 100) && most == 100, "{carts:?}, most {most}");
+    }
+
+    #[test]
     fn fish_reach_the_granary_and_ships_trade_at_the_dock() {
         let Some(mut world) = sandbox_town() else { return };
         let yard = world.map.building.at_or(182, 132, 0);

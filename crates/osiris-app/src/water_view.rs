@@ -49,7 +49,9 @@ pub fn figure_sprite(world: &World, f: &Figure) -> Option<Sprite> {
         "work" => frame(a, ticks + f.id as u64 * 7),
         _ => 0,
     };
-    Some(Sprite { behind: false, x: f.x, y: f.y, offset: f.pixel_offset(), image: a.image + f.direction as u32 + 8 * step })
+    // A fishing boat casts its net turned two steps from its heading (FUN_004937a0).
+    let dir = if key == "work" && f.kind == FISHING_BOAT { (f.direction as u32 + 6) % 8 } else { f.direction as u32 };
+    Some(Sprite { behind: false, x: f.x, y: f.y, offset: f.pixel_offset(), image: a.image + dir + 8 * step })
 }
 
 /// Fish jumping at each fishing ground: bubbles, then a leap.
