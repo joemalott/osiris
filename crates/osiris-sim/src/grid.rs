@@ -1,10 +1,35 @@
 //! Dense per-tile storage sized to the map.
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Grid<T> {
     width: i32,
     height: i32,
     data: Vec<T>,
+    /// Names the contents with a number no other contents have had (a clone keeps it
+    /// until one of the two changes), so searches can remember what they found for
+    /// them. 0 until asked for, and again after every change.
+    #[serde(skip)]
+    version: AtomicU64,
+}
+
+impl<T: Clone> Clone for Grid<T> {
+    fn clone(&self) -> Self {
+        Self { width: self.width, height: self.height, data: self.data.clone(), version: AtomicU64::new(self.version.load(Ordering::Relaxed)) }
+    }
+}
+
+static NEXT_VERSION: AtomicU64 = AtomicU64::new(1);
+
+pub(crate) fn fresh_version() -> u64 {
+    NEXT_VERSION.fetch_add(1, Ordering::Relaxed)
+}
+
+impl<T: PartialEq> PartialEq for Grid<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.width == other.width && self.height == other.height && self.data == other.data
+    }
 }
 
 impl<T: Copy + Default> Grid<T> {
@@ -19,6 +44,7 @@ impl<T: Copy> Grid<T> {
             width,
             height,
             data: vec![value; (width.max(0) * height.max(0)) as usize],
+            version: AtomicU64::new(0),
         }
     }
 
@@ -29,7 +55,7 @@ impl<T: Copy> Grid<T> {
                 data.push(f(x, y));
             }
         }
-        Self { width, height, data }
+        Self { width, height, data, version: AtomicU64::new(0) }
     }
 
     pub fn width(&self) -> i32 {
@@ -38,6 +64,18 @@ impl<T: Copy> Grid<T> {
 
     pub fn height(&self) -> i32 {
         self.height
+    }
+
+    /// Identifies the current contents: equal versions mean equal contents.
+    pub fn version(&self) -> u64 {
+        match self.version.load(Ordering::Relaxed) {
+            0 => {
+                let v = fresh_version();
+                self.version.store(v, Ordering::Relaxed);
+                v
+            }
+            v => v,
+        }
     }
 
     pub fn contains(&self, x: i32, y: i32) -> bool {
@@ -57,23 +95,33 @@ impl<T: Copy> Grid<T> {
         self.get(x, y).unwrap_or(outside)
     }
 
+    pub fn fill(&mut self, v: T) {
+        self.data.fill(v);
+        *self.version.get_mut() = 0;
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        &self.data
+    }
+}
+
+impl<T: Copy + PartialEq> Grid<T> {
     pub fn set(&mut self, x: i32, y: i32, v: T) {
-        if let Some(i) = self.index(x, y) {
+        if let Some(i) = self.index(x, y)
+            && self.data[i] != v
+        {
             self.data[i] = v;
+            *self.version.get_mut() = 0;
         }
     }
 
     pub fn update(&mut self, x: i32, y: i32, f: impl FnOnce(T) -> T) {
         if let Some(i) = self.index(x, y) {
-            self.data[i] = f(self.data[i]);
+            let v = f(self.data[i]);
+            if self.data[i] != v {
+                self.data[i] = v;
+                *self.version.get_mut() = 0;
+            }
         }
-    }
-
-    pub fn fill(&mut self, v: T) {
-        self.data.fill(v);
-    }
-
-    pub fn as_slice(&self) -> &[T] {
-        &self.data
     }
 }
