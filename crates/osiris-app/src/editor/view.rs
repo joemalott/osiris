@@ -264,8 +264,8 @@ impl Editor {
         let list = match missing.as_slice() {
             [] => return None,
             [a] => format!("no {a}"),
-            [a, b] => format!("no {a} or no {b}"),
-            [a, b, c] => format!("no {a}, no {b} or no {c}"),
+            [a, b] => format!("no {a} and no {b}"),
+            [a, b, c] => format!("no {a}, {b} or {c}"),
             _ => unreachable!("only three kinds of point are checked"),
         };
         Some(Confirm { title: "Warning".to_owned(), question: format!("This map has {list}. {verb} anyway?") })
