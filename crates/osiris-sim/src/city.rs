@@ -133,7 +133,8 @@ impl World {
             let kind = self.figures.get(fid).map_or(0, |f| f.kind);
             let fallen = self.figures.get(fid).is_some_and(|f| f.action == crate::military::action::CORPSE)
                 && !crate::plagues::keeps_own_corpse(kind)
-                && !crate::predators::is_predator(kind);
+                && !crate::predators::is_predator(kind)
+                && !crate::animals::is_animal(kind);
             // Anyone a beast has set upon trades blows (or lies fallen) instead.
             let fought = !fallen && self.fight_in_place(fid);
             match kind {
@@ -160,6 +161,7 @@ impl World {
                 k if crate::animals::is_animal(k) => self.update_animal(fid),
                 k if crate::predators::is_predator(k) => self.update_predator(fid),
                 k if crate::animals::is_hunter(k) => self.update_hunter(fid),
+                crate::animals::HUNTER_SPEAR => self.update_hunter_spear(fid),
                 crate::farms::PEASANT => self.update_peasant(fid),
                 crate::crime::ROBBER => self.update_thief(fid),
                 crate::tomb_robbers::TOMB_ROBBER => self.update_tomb_robber(fid),

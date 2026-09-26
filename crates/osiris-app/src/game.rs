@@ -1502,6 +1502,11 @@ impl Game {
             out.push(Sprite { behind: false, x: f.x, y: f.y, offset: f.pixel_offset(), image: work.image + f.direction as u32 + 8 * frame });
             return Some(at);
         }
+        // Game, hunters and their spears.
+        if let Some(s) = crate::hunt_view::figure_sprite(&self.world, f) {
+            out.extend(s);
+            return Some(at);
+        }
         // The wild beasts, in water or out.
         if osiris_sim::predators::is_predator(f.kind) {
             out.extend(crate::army_view::beast_sprite(&self.world, f));

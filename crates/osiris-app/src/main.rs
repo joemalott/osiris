@@ -13,6 +13,7 @@ mod editor;
 mod empire_window;
 mod game;
 mod gfx;
+mod hunt_view;
 mod info;
 mod megacity;
 mod menu;

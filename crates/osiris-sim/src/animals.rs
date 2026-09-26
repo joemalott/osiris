@@ -2,8 +2,10 @@
 //! a herd of the climate's game (birds in the humid north, antelope in the middle
 //! lands, ostriches in the desert), at each predator point a pack of its beasts (see
 //! `predators`). Twice a day each herd grows back an animal it has lost, and a pack
-//! that is whole moves the spot it prowls around. Hunting lodges send hunters after
-//! the nearest animal; a kill is carried home as a load of game meat.
+//! that is whole moves the spot it prowls around. Game takes fright at hunters and
+//! beasts and runs from them. Hunting lodges send hunters after the nearest animal;
+//! they spear it from two tiles off, and a kill is carried home as a load of game
+//! meat.
 
 use crate::buildings::{BuildingId, kind};
 use crate::economy::{LOAD, resource};
@@ -142,19 +144,39 @@ impl Herd {
     }
 }
 
-mod action {
+pub mod action {
+    // Game.
     pub const RESTING: u16 = 1;
     pub const WANDERING: u16 = 2;
+    /// Game that has seen a hunter or beast near, or a startled herd-mate, and stands
+    /// watching.
+    pub const ALERT: u16 = 14;
+    /// Game running a tile from what frightened it.
+    pub const FLEEING: u16 = 16;
+    // Hunters.
     pub const CHASING: u16 = 1;
     pub const CARRYING: u16 = 2;
-    /// A new hunter waits a moment before looking for prey.
+    /// A new hunter waits a moment in the lodge before looking for prey.
     pub const STARTING: u16 = 3;
-    /// Lost its prey: heading home, looking again now and then.
+    /// Heading home empty-handed, looking again now and then.
     pub const GIVING_UP: u16 = 4;
+    /// Standing, about to look for prey.
+    pub const LOOKING: u16 = 8;
+    /// Butchering the kill.
+    pub const BUTCHERING: u16 = 10;
+    /// Walking to the kill.
+    pub const TO_KILL: u16 = 11;
+    /// Throwing his spear (and waiting to see it land).
+    pub const THROWING: u16 = 15;
 }
 
-/// Ticks between a hunter's looks for new prey on its way home empty-handed.
-const RESCAN_TICKS: i32 = 12;
+/// A hunter's spear or arrow in flight.
+pub const HUNTER_SPEAR: u16 = 74;
+
+/// Ticks a killed animal lies before it is gone, if no hunter comes for it.
+const CARCASS_TICKS: i32 = 500;
+/// The most game a hunter's search looks at: the first 30 animals.
+const PREY_LIST: usize = 30;
 
 pub fn is_animal(k: u16) -> bool {
     matches!(k, figure_kind::BIRDS | figure_kind::OSTRICH | figure_kind::ANTELOPE)
@@ -162,6 +184,12 @@ pub fn is_animal(k: u16) -> bool {
 
 pub fn is_hunter(k: u16) -> bool {
     matches!(k, figure_kind::OSTRICH_HUNTER | figure_kind::ANTELOPE_HUNTER | figure_kind::BIRDS_HUNTER)
+}
+
+/// What game runs from: hunters, crocodiles, hyenas and hippos (the first four of the
+/// original's list at 0x5e4dd0).
+fn frightens(k: u16) -> bool {
+    is_hunter(k) || matches!(k, figure_kind::CROCODILE | figure_kind::HYENA | figure_kind::HIPPO)
 }
 
 impl World {
@@ -244,7 +272,28 @@ impl World {
         self.figures.iter().any(|f| !f.dead && (f.x, f.y) == (x, y))
     }
 
+    /// Game grazes and wanders about its herd's point, as before, and watches for
+    /// danger as the original's does (FUN_004eb000, from the ostrich's FUN_0049bd40):
+    /// grazing, every 8 ticks, and walking, every 12, it is put on its guard by a
+    /// hunter or beast within 6 tiles or a herd-mate on its guard within 3. On its
+    /// guard it watches every tick, and a hunter or beast within 2 sends it running a
+    /// tile away one time in four; after 20 looks it calms down. Game runs with a
+    /// running herd-mate beside it, to where that one runs. A kill lies 500 ticks
+    /// unless its hunter comes for it.
     pub(crate) fn update_animal(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        if f.action == crate::military::action::CORPSE {
+            let f = self.figures.get_mut(fid).expect("present");
+            f.counter += 1;
+            if f.counter > CARCASS_TICKS {
+                f.dead = true;
+            }
+            return;
+        }
+        // A lodge gone or unstaffed lets go of the animals it claimed.
+        if f.target != 0 && !self.buildings.get(f.target).is_some_and(|b| b.kind == kind::HUNTING_LODGE && b.workers > 0) {
+            self.figures.get_mut(fid).expect("present").target = 0;
+        }
         let Some(herd) = self.herds.iter().position(|h| h.members.contains(&fid)) else {
             if let Some(f) = self.figures.get_mut(fid) {
                 f.dead = true;
@@ -254,17 +303,41 @@ impl World {
         let (hx, hy, radius) = (self.herds[herd].x, self.herds[herd].y, self.herds[herd].radius);
         let Some(f) = self.figures.get(fid) else { return };
         match f.action {
+            action::ALERT => self.watch(fid),
+            action::FLEEING => {
+                let map = &self.map;
+                let f = self.figures.get_mut(fid).expect("present");
+                match f.walk(map) {
+                    Step::Moving => {}
+                    Step::Lost => f.dead = true,
+                    _ => {
+                        f.speed = 1;
+                        f.action = action::ALERT;
+                        f.counter = 0;
+                    }
+                }
+            }
             action::WANDERING => {
                 let map = &self.map;
                 let f = self.figures.get_mut(fid).expect("present");
                 if f.walk(map) != Step::Moving {
                     f.action = action::RESTING;
                     f.counter = 60;
+                    return;
+                }
+                if f.anim_tick % 12 == 0 {
+                    self.sense_danger(fid);
                 }
             }
             _ => {
+                let f = self.figures.get_mut(fid).expect("present");
+                f.anim_tick += 1;
+                if f.anim_tick % 8 == 0 && self.sense_danger(fid) {
+                    return;
+                }
+                let f = self.figures.get_mut(fid).expect("present");
                 if f.counter > 0 {
-                    self.figures.get_mut(fid).expect("present").counter -= 1;
+                    f.counter -= 1;
                     return;
                 }
                 self.rng.next();
@@ -278,6 +351,78 @@ impl World {
                     f.counter = 20;
                 }
             }
+        }
+    }
+
+    /// The first figure within `r` tiles of `at` (other than `me`) that `want` picks.
+    fn figure_near(&self, me: FigureId, at: (i32, i32), r: i32, want: impl Fn(&crate::figures::Figure) -> bool) -> Option<FigureId> {
+        self.figures.iter().find(|o| o.id != me && !o.dead && (o.x - at.0).abs() <= r && (o.y - at.1).abs() <= r && want(o)).map(|o| o.id)
+    }
+
+    /// Game not on its guard looks about: a running herd-mate beside it, a herd-mate
+    /// on its guard within 3 tiles or a hunter or beast within 6 puts it on its guard.
+    /// True when it is.
+    fn sense_danger(&mut self, fid: FigureId) -> bool {
+        let Some(f) = self.figures.get(fid) else { return false };
+        let at = (f.x, f.y);
+        let mate = |r: i32, act: u16| self.figure_near(fid, at, r, |o| is_animal(o.kind) && o.action == act);
+        let alarmed = mate(1, action::FLEEING).or_else(|| mate(3, action::ALERT)).is_some() || self.figure_near(fid, at, 6, |o| frightens(o.kind)).is_some();
+        if alarmed {
+            let f = self.figures.get_mut(fid).expect("present");
+            f.route.clear();
+            f.moving = false;
+            f.action = action::ALERT;
+            f.counter = 0;
+        }
+        alarmed
+    }
+
+    /// Game on its guard: it runs with a running herd-mate beside it, or one time in
+    /// four from a hunter or beast within 2 tiles; after 20 looks it calms down.
+    fn watch(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let at = (f.x, f.y);
+        if let Some(mate) = self.figure_near(fid, at, 1, |o| is_animal(o.kind) && o.action == action::FLEEING) {
+            let to = self.figures.get(mate).and_then(|m| m.destination).unwrap_or(at);
+            self.rng.next();
+            let jx = (self.rng.short() & 3) - 2;
+            self.rng.next();
+            let jy = (self.rng.short() & 3) - 2;
+            self.run_to(fid, (to.0 + jx, to.1 + jy));
+            return;
+        }
+        if let Some(threat) = self.figure_near(fid, at, 2, |o| frightens(o.kind)) {
+            self.rng.next();
+            let from = self.figures.get(threat).map_or(at, |t| (t.x, t.y));
+            if self.rng.short() & 3 == 0 && let Some(to) = self.away_from(at, from) {
+                self.run_to(fid, to);
+                return;
+            }
+        }
+        let f = self.figures.get_mut(fid).expect("present");
+        f.counter += 1;
+        if f.counter > 20 {
+            f.action = action::RESTING;
+            f.counter = 0;
+        }
+    }
+
+    /// The tile beside `at` directly away from `from`, or the next one round (clockwise)
+    /// that game can run to (FUN_004eabf0).
+    fn away_from(&self, at: (i32, i32), from: (i32, i32)) -> Option<(i32, i32)> {
+        let d = crate::figures::direction_to(from, at).unwrap_or(0) as usize;
+        (0..7).map(|k| (d + k) % 8).map(|k| (at.0 + crate::map::NEIGHBOURS[k].0, at.1 + crate::map::NEIGHBOURS[k].1)).find(|&(x, y)| {
+            crate::figures::passable(&self.map, Travel::Land, x, y) && !self.map.terrain_is(x, y, terrain::DIKE)
+        })
+    }
+
+    fn run_to(&mut self, fid: FigureId, to: (i32, i32)) {
+        let map = &self.map;
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        f.moving = false;
+        if f.go_to(map, to) {
+            f.action = action::FLEEING;
+            f.speed = 2;
         }
     }
 
@@ -410,7 +555,10 @@ impl World {
         (0..=10).find_map(|r| (at.1 - r..=at.1 + r).find_map(|y| (at.0 - r..=at.0 + r).find(|&x| ok(x, y)).map(|x| (x, y))))
     }
 
-    /// Tick 31: lodges send hunters while short of game meat.
+    /// Tick 31: lodges send hunters while short of game meat (FUN_00462180 for the
+    /// lodge): three at full staff, two from three quarters, one from a quarter, no
+    /// more than the room under 500 allows. Each waits in the lodge 0 to 31 ticks
+    /// before he comes out to look for prey.
     pub(crate) fn lodge_walkers(&mut self) {
         let lodges: Vec<BuildingId> = self.buildings.iter().filter(|b| b.kind == kind::HUNTING_LODGE).map(|b| b.id).collect();
         let hunter = self.hunter_kind();
@@ -420,8 +568,6 @@ impl World {
             if b.workers <= 0 || b.stock[resource::GAMEMEAT as usize] >= STOP_HUNTING_AT {
                 continue;
             }
-            // Hunters out at once by staffing: three at full staff, two from three
-            // quarters, one from a quarter; no more than the room under 500 allows.
             let wanted = match b.workers * 100 / self.workers_needed(b.kind).max(1) {
                 p if p >= 100 => MAX_HUNTERS,
                 p if p >= 75 => 2,
@@ -432,7 +578,8 @@ impl World {
             let out = self.figures.iter().filter(|f| f.home == id && is_hunter(f.kind) && !f.dead).count();
             for _ in out..wanted {
                 let fid = self.figures.spawn(hunter, road.0, road.1, Travel::Land);
-                let wait = self.rng.byte() & 31;
+                self.rng.next();
+                let wait = self.rng.short() & 31;
                 if let Some(f) = self.figures.get_mut(fid) {
                     f.home = id;
                     f.action = action::STARTING;
@@ -442,18 +589,94 @@ impl World {
         }
     }
 
-    /// The nearest live animal no other lodge's hunter is after.
-    fn prey_for(&self, fid: FigureId, pos: (i32, i32)) -> Option<(FigureId, i32, i32)> {
+    /// The game hunter `fid` at `from` goes for (FUN_004a2320): of the first 30 live
+    /// animals not claimed by another lodge, the one a walker from `from` comes to
+    /// first (searching north, east, south, west over open ground), if it is no more
+    /// than `range` steps away.
+    fn game_for(&self, fid: FigureId, from: (i32, i32), range: i32) -> Option<FigureId> {
         let home = self.figures.get(fid)?.home;
-        let claimed: Vec<FigureId> =
-            self.figures.iter().filter(|h| is_hunter(h.kind) && h.home != home && !h.dead && h.action == action::CHASING).map(|h| h.target).collect();
-        self.figures
+        let list: Vec<(FigureId, (i32, i32))> = self
+            .figures
             .iter()
-            .filter(|a| is_animal(a.kind) && !a.dead && a.action != crate::military::action::CORPSE && !claimed.contains(&a.id))
-            .min_by_key(|a| ((a.x - pos.0).abs().max((a.y - pos.1).abs()), a.id))
-            .map(|a| (a.id, a.x, a.y))
+            .filter(|a| is_animal(a.kind) && !a.dead && a.action != crate::military::action::CORPSE && (a.target == 0 || a.target == home))
+            .take(PREY_LIST)
+            .map(|a| (a.id, (a.x, a.y)))
+            .collect();
+        if list.is_empty() {
+            return None;
+        }
+        let map = &self.map;
+        if !map.contains(from.0, from.1) {
+            return None;
+        }
+        let w = map.width;
+        let mut dist = vec![-1i32; (w * map.height) as usize];
+        dist[(from.1 * w + from.0) as usize] = 0;
+        let mut queue = std::collections::VecDeque::from([from]);
+        while let Some((x, y)) = queue.pop_front() {
+            let d = dist[(y * w + x) as usize];
+            if d >= range {
+                continue;
+            }
+            for k in [0, 2, 4, 6] {
+                let (nx, ny) = (x + crate::map::NEIGHBOURS[k].0, y + crate::map::NEIGHBOURS[k].1);
+                if !map.contains(nx, ny) || dist[(ny * w + nx) as usize] >= 0 || !crate::figures::passable(map, Travel::Land, nx, ny) {
+                    continue;
+                }
+                dist[(ny * w + nx) as usize] = d + 1;
+                // Of animals sharing a tile, the last listed.
+                if let Some(&(id, _)) = list.iter().rev().find(|a| a.1 == (nx, ny)) {
+                    return Some(id);
+                }
+                queue.push_back((nx, ny));
+            }
+        }
+        None
     }
 
+    /// Hunter `fid` makes for animal `aid`, claiming it for his lodge.
+    fn go_after(&mut self, fid: FigureId, aid: FigureId) -> bool {
+        let Some(home) = self.figures.get(fid).map(|f| f.home) else { return false };
+        let Some(at) = self.figures.get_mut(aid).map(|a| {
+            a.target = home;
+            (a.x, a.y)
+        }) else {
+            return false;
+        };
+        let map = &self.map;
+        let f = self.figures.get_mut(fid).expect("present");
+        f.target = aid;
+        f.moving = false;
+        if f.go_to(map, at) {
+            f.action = action::CHASING;
+            true
+        } else {
+            f.dead = true;
+            false
+        }
+    }
+
+    /// Hunter `fid` heads back to his lodge's road, as `act`; gone if he is there.
+    fn hunter_home(&mut self, fid: FigureId, act: u16) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let road = self.buildings.get(f.home).and_then(|b| b.road);
+        let map = &self.map;
+        let f = self.figures.get_mut(fid).expect("present");
+        f.action = act;
+        match road {
+            Some(r) if r == (f.x, f.y) && act == action::GIVING_UP => f.dead = true,
+            Some(r) if f.go_to(map, r) => {}
+            _ => f.dead = true,
+        }
+    }
+
+    /// A hunter, as the original's (FUN_004a2430): out of the lodge he looks for the
+    /// nearest game and goes after it, looking again every 12 ticks (and when he
+    /// gets where he was going) for game within 6 steps; within 2 tiles of it he stops
+    /// and throws his spear (on the 9th tick of the throw). If it strikes, he walks to
+    /// the kill, butchers it (18 ticks; birds are just picked up) and carries 100 game
+    /// meat home; if it misses, he looks again. Finding nothing, he goes home, on the
+    /// way looking for game within 100 steps every 12 ticks.
     pub(crate) fn update_hunter(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
         let (home, act, pos) = (f.home, f.action, (f.x, f.y));
@@ -461,93 +684,142 @@ impl World {
             self.figures.get_mut(fid).expect("present").dead = true;
             return;
         }
+        // His animation's 12 frames come round every 12 ticks.
+        let f = self.figures.get_mut(fid).expect("present");
+        f.look = (f.look + 1) % 12;
+        let wrapped = f.look == 0;
         match act {
             action::STARTING => {
-                let f = self.figures.get_mut(fid).expect("present");
-                if f.counter > 0 {
-                    f.counter -= 1;
-                    return;
-                }
-                // With nothing to hunt the hunter goes straight back in.
-                match self.prey_for(fid, pos) {
-                    Some((aid, ..)) => {
-                        let f = self.figures.get_mut(fid).expect("present");
-                        f.action = action::CHASING;
-                        f.target = aid;
-                    }
-                    None => self.figures.get_mut(fid).expect("present").dead = true,
-                }
-            }
-            action::GIVING_UP => {
-                let f = self.figures.get_mut(fid).expect("present");
                 f.counter -= 1;
                 if f.counter <= 0 {
-                    f.counter = RESCAN_TICKS;
-                    if let Some((aid, ..)) = self.prey_for(fid, pos) {
-                        let f = self.figures.get_mut(fid).expect("present");
-                        f.action = action::CHASING;
-                        f.target = aid;
-                        f.route.clear();
-                        return;
-                    }
-                }
-                let map = &self.map;
-                let f = self.figures.get_mut(fid).expect("present");
-                if f.walk(map) != Step::Moving {
-                    f.dead = true;
+                    f.action = action::LOOKING;
+                    f.counter = 0;
                 }
             }
-            action::CHASING => {
-                // Re-aim at the nearest animal each time we reach a tile centre.
-                let moving = f.moving;
-                if !moving {
-                    let Some((aid, ax, ay)) = self.prey_for(fid, pos) else {
-                        // The prey is gone: head home, looking for more on the way.
-                        let road = self.buildings.get(home).and_then(|b| b.road);
-                        let map = &self.map;
-                        let f = self.figures.get_mut(fid).expect("present");
-                        f.action = action::GIVING_UP;
-                        f.counter = RESCAN_TICKS;
-                        match road {
-                            Some(r) if f.go_to(map, r) => {}
-                            _ => f.dead = true,
-                        }
-                        return;
-                    };
-                    self.figures.get_mut(fid).expect("present").target = aid;
-                    if (ax - pos.0).abs() <= 1 && (ay - pos.1).abs() <= 1 {
-                        // The kill: the animal falls and the hunter carries it home.
-                        if let Some(a) = self.figures.get_mut(aid) {
-                            a.dead = true;
-                        }
-                        let road = self.buildings.get(home).and_then(|b| b.road);
-                        let map = &self.map;
-                        let f = self.figures.get_mut(fid).expect("present");
-                        f.action = action::CARRYING;
-                        f.cargo = resource::GAMEMEAT;
-                        f.amount = LOAD;
-                        match road {
-                            Some(r) if f.go_to(map, r) => {}
-                            _ => f.dead = true,
-                        }
-                        return;
+            action::LOOKING => {
+                f.counter -= 1;
+                if f.counter > 0 {
+                    return;
+                }
+                match self.game_for(fid, pos, 1000) {
+                    Some(aid) => {
+                        self.go_after(fid, aid);
                     }
-                    let map = &self.map;
-                    let f = self.figures.get_mut(fid).expect("present");
-                    if !f.go_to(map, (ax, ay)) {
+                    None => self.hunter_home(fid, action::GIVING_UP),
+                }
+            }
+            action::CHASING | action::GIVING_UP => {
+                let map = &self.map;
+                let step = f.walk(map);
+                match step {
+                    Step::Lost => {
                         f.dead = true;
                         return;
                     }
+                    Step::Blocked if act == action::CHASING => {
+                        f.route.clear();
+                        f.action = action::LOOKING;
+                        f.counter = 20;
+                        return;
+                    }
+                    Step::Blocked => {
+                        self.hunter_home(fid, action::GIVING_UP);
+                        return;
+                    }
+                    _ => {}
                 }
+                let arrived = step == Step::Arrived;
+                // Mid-step he looks when he reaches the next tile.
+                if wrapped && self.figures.get(fid).is_some_and(|f| f.moving) {
+                    self.figures.get_mut(fid).expect("present").look = 11;
+                    return;
+                }
+                if act == action::GIVING_UP {
+                    if wrapped && let Some(aid) = self.game_for(fid, pos, 100) {
+                        self.go_after(fid, aid);
+                    } else if arrived {
+                        self.figures.get_mut(fid).expect("present").dead = true;
+                    }
+                    return;
+                }
+                if !wrapped && !arrived {
+                    return;
+                }
+                match self.game_for(fid, pos, 6) {
+                    Some(aid) => {
+                        let Some(at) = self.figures.get(aid).map(|a| (a.x, a.y)) else { return };
+                        if (at.0 - pos.0).abs().max((at.1 - pos.1).abs()) <= 2 {
+                            if let Some(a) = self.figures.get_mut(aid) {
+                                a.target = home;
+                            }
+                            let f = self.figures.get_mut(fid).expect("present");
+                            f.target = aid;
+                            f.route.clear();
+                            f.destination = Some(at);
+                            f.direction = crate::figures::direction_to(pos, at).unwrap_or(f.direction);
+                            f.action = action::THROWING;
+                            f.counter = 0;
+                        } else {
+                            self.go_after(fid, aid);
+                        }
+                    }
+                    None if arrived => self.hunter_home(fid, action::GIVING_UP),
+                    None => {}
+                }
+            }
+            action::THROWING => {
+                f.counter += 1;
+                if f.counter == 9 {
+                    let (target, to) = (f.target, f.destination.unwrap_or(pos));
+                    self.figure_sound(fid, 2);
+                    let spear = self.figures.spawn(HUNTER_SPEAR, pos.0, pos.1, Travel::Any);
+                    if let Some(s) = self.figures.get_mut(spear) {
+                        s.home = fid;
+                        s.foe = target;
+                        s.destination = Some(to);
+                        s.direction = crate::figures::direction_to(pos, to).unwrap_or(0);
+                    }
+                } else if f.counter > 300 {
+                    f.action = action::LOOKING;
+                }
+            }
+            action::TO_KILL => {
                 let map = &self.map;
-                let f = self.figures.get_mut(fid).expect("present");
-                if matches!(f.walk(map), Step::Blocked | Step::Lost) {
-                    f.route.clear();
+                match f.walk(map) {
+                    Step::Moving => {}
+                    Step::Arrived => {
+                        let aid = f.target;
+                        let kill = self.figures.get(aid).is_some_and(|a| !a.dead && is_animal(a.kind) && a.action == crate::military::action::CORPSE && (a.x, a.y) == pos);
+                        if kill {
+                            self.figures.get_mut(aid).expect("present").dead = true;
+                            let f = self.figures.get_mut(fid).expect("present");
+                            f.action = action::BUTCHERING;
+                            f.counter = 0;
+                        } else {
+                            let f = self.figures.get_mut(fid).expect("present");
+                            f.action = action::LOOKING;
+                            f.counter = 20;
+                        }
+                    }
+                    Step::Blocked => {
+                        f.route.clear();
+                        f.action = action::LOOKING;
+                        f.counter = 0;
+                    }
+                    Step::Lost => f.dead = true,
+                }
+            }
+            action::BUTCHERING => {
+                f.counter += 1;
+                let ticks = if f.kind == figure_kind::BIRDS_HUNTER { 0 } else { 18 };
+                if f.counter > ticks {
+                    f.cargo = resource::GAMEMEAT;
+                    f.amount = LOAD;
+                    self.hunter_home(fid, action::CARRYING);
                 }
             }
             _ => {
                 let map = &self.map;
-                let f = self.figures.get_mut(fid).expect("present");
                 match f.walk(map) {
                     Step::Moving => {}
                     Step::Arrived => {
@@ -557,9 +829,89 @@ impl World {
                             b.stock[resource::GAMEMEAT as usize] += amount;
                         }
                     }
-                    _ => f.dead = true,
+                    Step::Blocked => self.hunter_home(fid, action::CARRYING),
+                    Step::Lost => f.dead = true,
                 }
             }
         }
+    }
+
+    /// A hunter's spear (FUN_004a2e90) flies a tile every 3 ticks toward where his
+    /// prey stood, for at most 104 ticks. Game it meets on the way falls, and the
+    /// hunter goes to the kill; landing on none, it sends him looking again.
+    pub(crate) fn update_hunter_spear(&mut self, fid: FigureId) {
+        let Some(s) = self.figures.get_mut(fid) else { return };
+        s.counter += 1;
+        let hunter = s.home;
+        if s.counter > 104 {
+            s.dead = true;
+            return;
+        }
+        if s.counter % 3 == 0
+            && let Some((tx, ty)) = s.destination
+            && (s.x, s.y) != (tx, ty)
+        {
+            s.x += (tx - s.x).signum();
+            s.y += (ty - s.y).signum();
+        }
+        let at = (s.x, s.y);
+        let landed = s.destination.is_none_or(|d| d == at);
+        let hit = self.figures.iter().find(|a| is_animal(a.kind) && !a.dead && a.action != crate::military::action::CORPSE && (a.x, a.y) == at).map(|a| a.id);
+        match hit {
+            Some(aid) => {
+                self.figures.get_mut(fid).expect("present").dead = true;
+                if let Some(a) = self.figures.get_mut(aid) {
+                    a.action = crate::military::action::CORPSE;
+                    a.counter = 0;
+                    a.route.clear();
+                    a.moving = false;
+                    a.speed = 1;
+                }
+                self.figure_sound(aid, 3);
+                let map = &self.map;
+                if let Some(h) = self.figures.get_mut(hunter).filter(|h| is_hunter(h.kind) && !h.dead) {
+                    h.target = aid;
+                    h.action = action::TO_KILL;
+                    if !h.go_to(map, at) {
+                        h.action = action::LOOKING;
+                    }
+                }
+            }
+            None if landed && self.figures.get(fid).is_some_and(|s| s.counter % 3 == 0) => {
+                self.figures.get_mut(fid).expect("present").dead = true;
+                if let Some(h) = self.figures.get_mut(hunter).filter(|h| is_hunter(h.kind) && h.action == action::THROWING) {
+                    h.action = action::LOOKING;
+                }
+            }
+            None => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hunters_spear_game_and_carry_it_home() {
+        use crate::world::{Command, Outcome};
+        let Some(mut world) = crate::economy::tests::mission(1) else { return };
+        for cmd in [Command::Road { start: (79, 75), end: (79, 82) }, Command::Build { kind: kind::HUNTING_LODGE, x: 77, y: 80, x1: 77, y1: 80 }] {
+            assert!(matches!(world.apply(&cmd), Outcome::Done { .. }), "{cmd:?}");
+        }
+        let (mut spears, mut alert, mut butchered) = (0, 0, 0);
+        for _ in 0..3000 {
+            world.tick();
+            spears += world.figures.iter().filter(|f| f.kind == HUNTER_SPEAR && f.counter == 1).count();
+            alert += world.figures.iter().filter(|f| is_animal(f.kind) && f.action == action::ALERT).count();
+            butchered += world.figures.iter().filter(|f| is_hunter(f.kind) && f.action == action::BUTCHERING && f.counter == 1).count();
+        }
+        // Hunters threw spears, the ostriches took fright, and what was killed came
+        // home a hundred at a time.
+        assert!(spears > 3 && alert > 0 && butchered > 0, "{spears} {alert} {butchered}");
+        let lodge = world.buildings.iter().find(|b| b.kind == kind::HUNTING_LODGE).expect("lodge");
+        let carted: i32 = world.figures.iter().filter(|f| f.kind == crate::economy::CART_PUSHER && f.home == lodge.id).map(|f| f.amount).sum();
+        let meat = lodge.stock[resource::GAMEMEAT as usize] + carted;
+        assert!(meat >= 100 && meat % 100 == 0 && meat <= butchered as i32 * 100, "{meat}");
     }
 }
