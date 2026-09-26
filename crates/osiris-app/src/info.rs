@@ -6,7 +6,7 @@
 //! out the same way for most types: 0 name, 1 description, then status lines.
 
 use crate::widgets::{Ui, inside};
-use osiris_sim::World;
+use osiris_sim::{Command, World};
 use osiris_sim::buildings::{Building, kind};
 use osiris_sim::economy::resource;
 use osiris_sim::houses::Need;
@@ -308,7 +308,7 @@ impl InfoPanel {
         let clicked = (0..5).find(|&i| ui.clicked(rect(i)));
         match clicked {
             Some(4) if !co.at_fort => {
-                world.return_company(c);
+                world.apply(&Command::ReturnCompany(c));
                 action = Some(InfoAction::Close);
             }
             Some(4) | None => {}
@@ -321,7 +321,7 @@ impl InfoPanel {
                     2 => Order::Engage,
                     _ => Order::MopUp,
                 };
-                world.set_order(c, order);
+                world.apply(&Command::CompanyOrder { company: c, order });
                 // Mopping up, the company goes after the enemy by itself; for the
                 // rest the player now clicks where to send it.
                 action = Some(if order == Order::MopUp { InfoAction::Close } else { InfoAction::SelectCompany(c) });
@@ -353,7 +353,7 @@ impl InfoPanel {
         let rotate = ui.t(G, 77);
         ui.centred(Font::NormalBlackOnLight, &rotate, r[0], y + ((hb - 2) * 16) as f32, 320.0);
         if ui.clicked(r) {
-            world.rotate_line(c);
+            world.apply(&Command::RotateLine(c));
         }
         action
     }
@@ -668,7 +668,7 @@ impl InfoPanel {
                 let (s, f) = if b.bazaar_buys(r) { (ui.t(TEXT_BAZAAR, 8), Font::NormalWhiteOnDark) } else { (ui.t(TEXT_BAZAAR, 9), Font::NormalBlackOnLight) };
                 ui.label(f, &s, x + 300.0, ry + 2.0);
                 if ui.clicked(row) {
-                    world.buildings.get_mut(id).expect("present").toggle_bazaar_buys(r);
+                    world.apply(&Command::BazaarBuys { building: id, resource: r });
                 }
                 continue;
             }
@@ -683,14 +683,14 @@ impl InfoPanel {
             ui.label(f, &s, x + 196.0, ry + 2.0);
             if matches!(o, order::ACCEPT | order::GET) {
                 if ui.arrow(x + w - 112.0, ry - 3.0, false) {
-                    world.buildings.get_mut(id).expect("present").change_order_tier(r, false);
+                    world.apply(&Command::OrderTier { building: id, resource: r, up: false });
                 }
                 if ui.arrow(x + w - 88.0, ry - 3.0, true) {
-                    world.buildings.get_mut(id).expect("present").change_order_tier(r, true);
+                    world.apply(&Command::OrderTier { building: id, resource: r, up: true });
                 }
             }
             if ui.clicked(row) {
-                world.buildings.get_mut(id).expect("present").cycle_order(r);
+                world.apply(&Command::CycleOrder { building: id, resource: r });
             }
         }
         let b = world.buildings.get(id).expect("present");
@@ -701,17 +701,12 @@ impl InfoPanel {
                 ui.t(TEXT_YARD, if b.empty_all { 5 } else { 4 })
             };
             if ui.button([x + 80.0, y + h - 64.0, 300.0, 24.0], &empty, Font::NormalBlackOnLight) {
-                world.buildings.get_mut(id).expect("present").toggle_empty_all();
+                world.apply(&Command::EmptyAll(id));
             }
         }
         let none = ui.t(TEXT_YARD, 7);
         if ui.button([x + 80.0, y + h - 38.0, 300.0, 24.0], &none, Font::NormalBlackOnLight) {
-            let b = world.buildings.get_mut(id).expect("present");
-            if bazaar {
-                b.orders = vec![1; resource::COUNT];
-            } else {
-                b.accept_none();
-            }
+            world.apply(&Command::AcceptNone(id));
         }
         if list.len() > rows {
             if self.scroll > 0 && ui.arrow(x + w - 46.0, y + 46.0, true) {

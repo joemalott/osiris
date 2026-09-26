@@ -7,7 +7,7 @@
 
 use osiris_formats::{ImageLibrary, TextTable};
 use osiris_render::{Renderer, Space, WHITE};
-use osiris_sim::World;
+use osiris_sim::{Command, World};
 use osiris_sim::buildings::kind;
 use osiris_sim::trade::status;
 use crate::widgets::{Ui, UiImages, inside};
@@ -365,10 +365,10 @@ fn labor(ui: &mut Ui, lock: u32, world: &mut World, [px, py]: [f32; 2], popup: &
     let wage_title = ui.t(G, 14);
     draw_text(ui.r, Font::NormalWhiteOnDark, &wage_title, px + 70.0, py + 359.0, font::WHITE);
     if ui.arrow(px + 158.0, py + 354.0, false) {
-        world.finance.wages = (world.finance.wages - 1).max(0);
+        world.apply(&Command::Wages(world.finance.wages - 1));
     }
     if ui.arrow(px + 182.0, py + 354.0, true) {
-        world.finance.wages = (world.finance.wages + 1).min(100);
+        world.apply(&Command::Wages(world.finance.wages + 1));
     }
     let wages = format!("{} {} {} {})", world.finance.wages, ui.t(G, 15), ui.t(G, 18), world.finance.kingdom_wages);
     draw_text(ui.r, Font::NormalWhiteOnDark, &wages, px + 230.0, py + 359.0, font::WHITE);
@@ -392,7 +392,7 @@ fn priority_popup(ui: &mut Ui, world: &mut World, category: usize) -> bool {
     for i in 0..ranks {
         let rect = [x0 + 34.0 * i as f32, y + 60.0, 30.0, 30.0];
         if ui.button(rect, &(i + 1).to_string(), Font::LargeBlackOnLight) {
-            world.set_labor_priority(category, i as u8 + 1);
+            world.apply(&Command::LaborPriority { category: category as u8, priority: i as u8 + 1 });
             return true;
         }
     }
@@ -400,7 +400,7 @@ fn priority_popup(ui: &mut Ui, world: &mut World, category: usize) -> bool {
     // 280 width), its top 40 pixels above the panel's bottom edge.
     let none = ui.t(G, 26);
     if ui.button([x + (w - 280.0) / 2.0, y + h - 40.0, 280.0, 25.0], &none, Font::NormalBlackOnLight) {
-        world.set_labor_priority(category, 0);
+        world.apply(&Command::LaborPriority { category: category as u8, priority: 0 });
         return true;
     }
     ui.click.take().is_some_and(|c| !inside([x, y, w, h], c))
@@ -576,17 +576,17 @@ fn resource_popup(ui: &mut Ui, world: &mut World, r: u16) -> bool {
         let text_rect = if set_amount { [rect[0], rect[1], rect[2] - 56.0, rect[3]] } else { rect };
         if ui.button(text_rect, &label, Font::NormalBlackOnLight) {
             if buying {
-                world.cycle_import(r);
+                world.apply(&Command::CycleImport(r));
             } else {
-                world.cycle_export(r);
+                world.apply(&Command::CycleExport(r));
             }
         }
         if set_amount {
             if ui.arrow(rect[0] + rect[2] - 51.0, rect[1] + 3.0, false) {
-                world.change_trade_amount(r, -100);
+                world.apply(&Command::TradeAmount { resource: r, change: -100 });
             }
             if ui.arrow(rect[0] + rect[2] - 28.0, rect[1] + 3.0, true) {
-                world.change_trade_amount(r, 100);
+                world.apply(&Command::TradeAmount { resource: r, change: 100 });
             }
         }
     }
@@ -594,13 +594,13 @@ fn resource_popup(ui: &mut Ui, world: &mut World, r: u16) -> bool {
     if makes {
         let on = ui.t(G, if world.is_mothballed(r) { 17 } else { 16 });
         if ui.button([x + (w - 400.0) / 2.0, y + 130.0, 400.0, 30.0], &on, Font::NormalBlackOnLight) {
-            world.toggle_mothballed(r);
+            world.apply(&Command::ToggleMothballed(r));
         }
     }
     let stock = if world.is_stockpiled(r) { format!("{} - {}", ui.t(G, 26), ui.t(G, 27)) } else { format!("{} - {}", ui.t(G, 28), ui.t(G, 29)) };
     // The original's stockpile_industry button is a two-line, 50-pixel-tall split button.
     if ui.button([x + (w - 400.0) / 2.0, y + 168.0, 400.0, 50.0], &stock, Font::NormalBlackOnLight) {
-        world.toggle_stockpiled(r);
+        world.apply(&Command::ToggleStockpiled(r));
     }
     ui.click.take().is_some_and(|c| !inside([x, y, w, h], c))
 }
@@ -618,10 +618,10 @@ fn financial(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Advis
     let rate = ui.t(G, 1);
     draw_text(ui.r, Font::NormalWhiteOnDark, &rate, bx + 70.0, by + 30.0, font::WHITE);
     if ui.arrow(bx + 170.0, by + 25.0, false) {
-        world.finance.tax_rate = (world.finance.tax_rate - 1).max(0);
+        world.apply(&Command::TaxRate(world.finance.tax_rate - 1));
     }
     if ui.arrow(bx + 195.0, by + 25.0, true) {
-        world.finance.tax_rate = (world.finance.tax_rate + 1).min(25);
+        world.apply(&Command::TaxRate(world.finance.tax_rate + 1));
     }
     let (covered, uncovered) = world.monthly_tax_estimate();
     let estimate = format!("{}% {} {} Deben", world.finance.tax_rate, ui.t(G, 4), covered * 12);
@@ -959,7 +959,7 @@ fn festival_popup(ui: &mut Ui, world: &mut World, god: Option<usize>) -> Festiva
             for (i, size) in [osiris_sim::religion::festival::SMALL, osiris_sim::religion::festival::LARGE, osiris_sim::religion::festival::GRAND].into_iter().enumerate() {
                 let label = format!("{} - {} {} Deben", ui.t(58, 31 + i), ui.t(58, 30), world.festival_cost(size));
                 if ui.button([x + 38.0, y + 76.0 + 40.0 * i as f32, 340.0, 28.0], &label, Font::NormalBlackOnLight) {
-                    let _ = world.plan_festival(g, size);
+                    world.apply(&Command::Festival { god: g as u8, size });
                     return FestivalChoice::Close;
                 }
             }
@@ -1226,7 +1226,7 @@ fn salary_popup(ui: &mut Ui, world: &mut World) -> bool {
         let line = format!("{} {} {}", ui.t(G, 4 + rank), osiris_sim::kingdom::SALARIES[rank], ui.t(G, 3));
         ui.label(f, &line, rect[0] + 32.0, rect[1] + 3.0);
         if ui.clicked(rect) {
-            world.set_salary_rank(rank as u8);
+            world.apply(&Command::SalaryRank(rank as u8));
             return true;
         }
     }
@@ -1258,7 +1258,7 @@ fn gift_popup(ui: &mut Ui, world: &mut World) -> bool {
         let send = format!("{} {} Db", ui.t(G, 66 + size), cost);
         let can = cost <= world.governor.savings;
         if ui.button([x + 116.0, ry, 250.0, 18.0], &send, if can { Font::NormalWhiteOnDark } else { Font::SmallPlain }) && can {
-            world.send_gift(size);
+            world.apply(&Command::SendGift(size as u8));
             return true;
         }
     }
@@ -1307,7 +1307,7 @@ fn burial_popup(ui: &mut Ui, world: &mut World, r: u16, amount: i32) -> Option<i
     draw_text(ui.r, Font::NormalWhiteOnDark, &amount.to_string(), x + 220.0, y + 112.0, font::WHITE);
     let send = ui.t(G, 6);
     if ui.button([x + 48.0, y + 148.0, 160.0, 24.0], &send, Font::NormalBlackOnLight) {
-        world.dispatch_burial(r, amount * 100);
+        world.apply(&Command::DispatchBurial { resource: r, units: amount * 100 });
         return None;
     }
     let cancel = ui.t(G, 7);
@@ -1355,7 +1355,7 @@ fn donate_popup(ui: &mut Ui, world: &mut World, amount: i32) -> Option<i32> {
     draw_text(ui.r, Font::NormalWhiteOnDark, &value, x + 256.0, y + 88.0, font::WHITE);
     let give = ui.t(G, 18);
     if ui.button([x + 80.0, y + 123.0, 160.0, 20.0], &give, Font::NormalBlackOnLight) {
-        world.donate(amount);
+        world.apply(&Command::Donate(amount));
         return None;
     }
     if ui.button([x + 272.0, y + 123.0, 160.0, 20.0], "Cancel", Font::NormalBlackOnLight) {
@@ -1386,7 +1386,7 @@ fn request_popup(ui: &mut Ui, world: &mut World, i: usize, can: bool) -> bool {
     ui.centred(Font::NormalBlackOnLight, &line, x, y + 60.0, w);
     if can {
         if ui.button([x + 140.0, y + 110.0, 100.0, 24.0], "Yes", Font::NormalBlackOnLight) {
-            world.dispatch_request(i);
+            world.apply(&Command::DispatchRequest(i));
             return true;
         }
         ui.button([x + 260.0, y + 110.0, 100.0, 24.0], "No", Font::NormalBlackOnLight)
@@ -1430,7 +1430,7 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
         }
         let back = format!("{} {}", ui.t(G, 3), ui.t(G, 4));
         if !co.at_fort && ui.button([px + 450.0, ry + 4.0, 110.0, 22.0], &back, Font::NormalWhiteOnDark) {
-            world.return_company(*c);
+            world.apply(&Command::ReturnCompany(*c));
         }
         // Kingdom service: lit when the company answers Pharaoh's calls for troops.
         let service = format!("{} {}", ui.t(G, 5), ui.t(G, 6));
@@ -1438,7 +1438,7 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
         panel::button_border(ui.r, ui.panels, rect[0], rect[1], rect[2] as i32, rect[3] as i32, co.kingdom_service);
         ui.centred(if co.kingdom_service { Font::NormalYellow } else { Font::NormalWhiteOnDark }, &service, rect[0], rect[1] + 3.0, rect[2]);
         if ui.clicked(rect) {
-            world.toggle_kingdom_service(*c);
+            world.apply(&Command::KingdomService(*c));
         }
         if co.abroad > 0 {
             let away = format!("{} {}", co.abroad, ui.t(G, 29));

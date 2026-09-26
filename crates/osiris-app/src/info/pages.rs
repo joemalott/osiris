@@ -7,7 +7,7 @@
 
 use super::{InfoAction, InfoPanel, TEXT_FRAME, TEXT_GENERAL, TEXT_RESOURCES, TEXT_YARD, city_foods};
 use crate::widgets::Ui;
-use osiris_sim::World;
+use osiris_sim::{Command, World};
 use osiris_sim::buildings::Building;
 use osiris_sim::economy::resource;
 use osiris_ui::{Font, panel};
@@ -292,10 +292,10 @@ impl InfoPanel {
                 let rate = format!("{} {}%", ui.t(60, 1), world.finance.tax_rate);
                 ui.label(Font::NormalBlackOnLight, &rate, x + 260.0, y + 43.0);
                 if ui.arrow(x + 406.0, y + 33.0, false) {
-                    world.finance.tax_rate = (world.finance.tax_rate - 1).max(0);
+                    world.apply(&Command::TaxRate(world.finance.tax_rate - 1));
                 }
                 if ui.arrow(x + 430.0, y + 33.0, true) {
-                    world.finance.tax_rate = (world.finance.tax_rate + 1).min(25);
+                    world.apply(&Command::TaxRate(world.finance.tax_rate + 1));
                 }
             }
             k::STORAGE_YARD | k::GRANARY | k::BAZAAR => {

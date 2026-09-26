@@ -112,6 +112,29 @@ impl Balance {
         Self { stats, houses, tax_sentiment: Vec::new(), units: Vec::new(), enemy_units: Vec::new() }
     }
 
+    /// The model files of difficulty `d` (as spelled in their names) in the game
+    /// folder `data`: buildings and houses, tax sentiment and fighting units.
+    pub fn load(data: &std::path::Path, d: &str) -> Result<Self, String> {
+        let model_path = data.join(format!("Pharaoh_Model_{d}.txt"));
+        let model_text = std::fs::read(&model_path).map_err(|e| format!("{}: {e}", model_path.display()))?;
+        let model = Model::parse(&String::from_utf8_lossy(&model_text)).map_err(|e| format!("{}: {e}", model_path.display()))?;
+        let mut balance = Self::from_model(&model);
+        if let Ok(t) = std::fs::read(data.join(format!("Tax_Sentiment_Model_{d}.txt"))) {
+            balance.tax_sentiment = osiris_formats::model::parse_tax_sentiment(&String::from_utf8_lossy(&t));
+        }
+        let figures = data.join(format!("Figure_model_{}.txt", d.to_lowercase()));
+        if let Ok(t) = std::fs::read(figures).or_else(|_| std::fs::read(data.join("Figure_model.txt"))) {
+            balance.set_units(&osiris_formats::model::parse_figures(&String::from_utf8_lossy(&t)).map_err(|e| e.to_string())?);
+        }
+        Ok(balance)
+    }
+
+    /// The balance tables of all five difficulties, as the game plays them.
+    pub fn load_all(data: &std::path::Path) -> Result<std::sync::Arc<[std::sync::Arc<Self>; 5]>, String> {
+        let list = crate::difficulty::FILE_NAMES.iter().map(|d| Self::load(data, d).map(std::sync::Arc::new)).collect::<Result<Vec<_>, _>>()?;
+        Ok(std::sync::Arc::new(list.try_into().unwrap_or_else(|_| unreachable!("five difficulties"))))
+    }
+
     /// Takes the fighting stats from a parsed `Figure_model*.txt`.
     pub fn set_units(&mut self, rows: &[osiris_formats::FigureModel]) {
         for f in rows {

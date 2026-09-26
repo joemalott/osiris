@@ -114,6 +114,14 @@ fn goal(t: &toml::Table, key: &str) -> Goal {
 /// the original), and the original's types they are now.
 const OLD_PALACES: [(u16, u16); 2] = [(84, kind::VILLAGE_PALACE), (85, kind::TOWN_PALACE)];
 
+/// Building types of earlier Osiris builds that loading a game turns into others
+/// (palaces, walls, towers, gatehouses): never to be offered, or a city allowed
+/// them wouldn't come back from a save the same.
+pub fn is_obsolete_kind(k: u16) -> bool {
+    use crate::defenses::{OLD_GATEHOUSE, OLD_TOWER, OLD_WALL};
+    OLD_PALACES.iter().any(|p| p.0 == k) || [OLD_WALL, OLD_TOWER, OLD_GATEHOUSE].contains(&k)
+}
+
 impl World {
     /// A saved game's palaces of the old types become the original's, in the city and
     /// in the lists of what may be built.
