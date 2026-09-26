@@ -666,12 +666,16 @@ impl Editor {
     fn draw_panel(&mut self, r: &mut Renderer, panels: &PanelImages, img: &Images) {
         let [w, h] = r.screen;
         let ox = panel_left(w);
-        // The top bar, laid leftwards from the strip.
+        // The top bar, laid leftwards from the strip: one copy ends at the strip, more
+        // are laid a bordered length apart, each drawn after (so it covers) the plain
+        // end of the one before it, as the sidebar's own top bar does.
         let bar_w = r.record(img.top_bar).map_or(1000.0, |rec| rec.width as f32);
-        let mut x = w - STRIP_W - bar_w;
-        while x > -bar_w {
+        let mut starts = vec![w - STRIP_W - bar_w];
+        while starts.last().is_some_and(|&x| x > 0.0) {
+            starts.push(starts.last().copied().unwrap_or(0.0) - crate::sidebar::TOP_BAR_BORDERED);
+        }
+        for &x in starts.iter().rev() {
             r.image(img.top_bar, [x, 0.0], WHITE, Space::Screen);
-            x -= 845.0;
         }
         r.rect([ox, TOP], [w - ox, h - TOP], [0.0, 0.0, 0.0, 1.0], Space::Screen);
         // The reliefs below the panel: the short one on an 800x600 screen, else the
