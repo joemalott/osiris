@@ -280,7 +280,7 @@ impl InfoPanel {
             staff_row(ui, world, b, x, y + sy, None);
         }
         for (dx, dy, text) in &page.dark {
-            ui.wrapped(Font::NormalWhiteOnDark, text, x + dx, y + dy, 368.0);
+            ui.wrapped(Font::NormalBlackOnDark, text, x + dx, y + dy, 368.0);
         }
         if let Some((image, [px, py])) = page.picture {
             ui.image(image, x + px, y + py);
@@ -327,9 +327,10 @@ pub(super) fn staff_row(ui: &mut Ui, world: &World, b: &Building, x: f32, y: f32
     let word = ui.t(TEXT_GENERAL, if b.workers == 1 { 12 } else { 13 });
     let line = format!("{} {} ({} {}", b.workers, word, needed, ui.t(TEXT_FRAME, 0));
     let ly = if desc.is_some() { y + 10.0 } else { y + 16.0 };
-    ui.label(Font::NormalWhiteOnDark, &line, x + 60.0, ly);
+    // Both lines are in the dark font (FUN_004fc5c0).
+    ui.label(Font::NormalBlackOnDark, &line, x + 60.0, ly);
     if let Some(d) = desc {
-        ui.wrapped(Font::NormalWhiteOnDark, &d, x + 70.0, y + 26.0, 380.0);
+        ui.wrapped(Font::NormalBlackOnDark, &d, x + 70.0, y + 26.0, 380.0);
     }
 }
 

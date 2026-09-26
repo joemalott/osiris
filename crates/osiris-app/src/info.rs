@@ -344,9 +344,10 @@ impl InfoPanel {
             _ => (58, 22),
         };
         let title = ui.t(G, title);
-        ui.label(Font::NormalYellow, &title, x + 24.0, y + 236.0);
+        // The order's name light, its description dark (FUN_00510b00).
+        ui.label(Font::NormalWhiteOnDark, &title, x + 24.0, y + 236.0);
         let text = ui.t(G, text);
-        ui.wrapped(Font::NormalWhiteOnDark, &text, x + 24.0, y + 252.0, (wb - 4) as f32 * 16.0);
+        ui.wrapped(Font::NormalBlackOnDark, &text, x + 24.0, y + 252.0, (wb - 4) as f32 * 16.0);
         // The switch that turns the line.
         let r = [x + ((wb - 20) * 16 / 2) as f32, y + (hb * 16 - 40) as f32, 320.0, 30.0];
         panel::button_border(ui.r, ui.panels, r[0], r[1], 320, 30, ui.hot(r));
@@ -520,13 +521,14 @@ impl InfoPanel {
             format!("{} {} {}% {}", ui.t(G, fine), ui.t(G, 2), pct, ui.t(G, 0))
         };
         ui.wrapped(Font::NormalBlackOnLight, &line, x + 32.0, y + 66.0, 26.0 * 16.0);
+        // The materials are listed on the window itself, with no sunken panel under
+        // them (the original's pyramid window).
         if !finished && !needs.is_empty() {
-            panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 180.0, 27, 5);
             for (i, &(r, got, want)) in needs.iter().enumerate() {
                 let ry = y + 192.0 + 24.0 * i as f32;
                 ui.icon(r, x + 32.0, ry);
                 let s = format!("{} / {} {}", got, want, ui.t(TEXT_RESOURCES, r as usize));
-                ui.label(Font::NormalWhiteOnDark, &s, x + 60.0, ry + 2.0);
+                ui.label(Font::NormalBlackOnLight, &s, x + 60.0, ry + 2.0);
             }
         }
         closed.then_some(InfoAction::Close)
@@ -602,19 +604,20 @@ impl InfoPanel {
             format!("{} {}", ui.t(TEXT_HOUSE, 22), cap - h.population)
         };
         let people = format!("{} {} ( {} )", h.population, ui.t(TEXT_HOUSE, 20), room);
-        ui.label(Font::NormalWhiteOnDark, &people, x + 64.0, y + 164.0);
+        // The panel's lines are in the dark font (FUN_004fc150, FUN_004fc2d0, FUN_004fc3b0).
+        ui.label(Font::NormalBlackOnDark, &people, x + 64.0, y + 164.0);
         let tax = if h.coverage.tax <= 0 {
             ui.t(TEXT_HOUSE, 23)
         } else {
             let amount = world.house_tax(h.level, h.population);
             format!("{} {} {}", ui.t(TEXT_HOUSE, 24), amount, ui.t(TEXT_HOUSE, 25))
         };
-        ui.wrapped(Font::NormalWhiteOnDark, &tax, x + 36.0, y + 194.0, 23.0 * 16.0);
+        ui.wrapped(Font::NormalBlackOnDark, &tax, x + 36.0, y + 194.0, 23.0 * 16.0);
         let crime = ui.t(TEXT_HOUSE, crime_line(h.happiness));
-        ui.wrapped(Font::NormalWhiteOnDark, &crime, x + 36.0, y + 214.0, 27.0 * 16.0);
+        ui.wrapped(Font::NormalBlackOnDark, &crime, x + 36.0, y + 214.0, 27.0 * 16.0);
         if world.balance.house(h.level).food_types <= 0 {
             let s = ui.t(TEXT_HOUSE, 33);
-            ui.wrapped(Font::NormalWhiteOnDark, &s, x + 36.0, y + 234.0, 27.0 * 16.0);
+            ui.wrapped(Font::NormalBlackOnDark, &s, x + 36.0, y + 234.0, 27.0 * 16.0);
         }
         closed.then_some(InfoAction::Close)
     }
@@ -665,7 +668,7 @@ impl InfoPanel {
             ui.label(Font::NormalWhiteOnDark, &name, x + 76.0, ry + 2.0);
             let b = world.buildings.get(id).expect("present");
             if bazaar {
-                let (s, f) = if b.bazaar_buys(r) { (ui.t(TEXT_BAZAAR, 8), Font::NormalWhiteOnDark) } else { (ui.t(TEXT_BAZAAR, 9), Font::NormalBlackOnLight) };
+                let (s, f) = if b.bazaar_buys(r) { (ui.t(TEXT_BAZAAR, 8), Font::NormalWhiteOnDark) } else { (ui.t(TEXT_BAZAAR, 9), Font::NormalYellow) };
                 ui.label(f, &s, x + 300.0, ry + 2.0);
                 if ui.clicked(row) {
                     world.apply(&Command::BazaarBuys { building: id, resource: r });
@@ -674,11 +677,12 @@ impl InfoPanel {
             }
             let o = b.order(r);
             let quarter = |ui: &Ui, tier: u8| if tier >= 4 { ui.t(TEXT_YARD, 28) } else { format!("{} {}", ui.t(TEXT_YARD, 24 + tier as usize), ui.t(TEXT_YARD, if granary { 30 } else { 29 })) };
+            // Taking goods in is light, refusing or emptying them yellow (FUN_00501b60).
             let (s, f) = match o {
                 order::ACCEPT => (format!("{} {}", ui.t(TEXT_YARD, 18), quarter(ui, b.order_tier(r, false))), Font::NormalWhiteOnDark),
-                order::GET => (format!("{} {}", ui.t(TEXT_YARD, 19), quarter(ui, b.order_tier(r, true))), Font::NormalYellow),
-                order::EMPTY => (ui.t(TEXT_YARD, 21), Font::NormalBlackOnLight),
-                _ => (ui.t(TEXT_YARD, 8), Font::NormalBlackOnLight),
+                order::GET => (format!("{} {}", ui.t(TEXT_YARD, 19), quarter(ui, b.order_tier(r, true))), Font::NormalWhiteOnDark),
+                order::EMPTY => (ui.t(TEXT_YARD, 21), Font::NormalYellow),
+                _ => (ui.t(TEXT_YARD, 8), Font::NormalYellow),
             };
             ui.label(f, &s, x + 196.0, ry + 2.0);
             if matches!(o, order::ACCEPT | order::GET) {
@@ -766,7 +770,7 @@ impl InfoPanel {
         let ([wx, wy], closed) = self.frame(ui, 29, 20, &title);
         panel::inner_panel(ui.r, ui.panels, wx + 16.0, wy + 50.0, 27, 11);
         let desc = ui.t(TEXT_TERRAIN, 36 + k);
-        ui.wrapped(Font::NormalWhiteOnDark, &desc, wx + 30.0, wy + 78.0, 26.0 * 16.0);
+        ui.wrapped(Font::NormalBlackOnDark, &desc, wx + 30.0, wy + 78.0, 26.0 * 16.0);
         closed.then_some(InfoAction::Close)
     }
 }
