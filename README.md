@@ -92,6 +92,43 @@ against a map, and the result is saved as a screenshot:
 osiris --mission 3 --script "road 70,76 100,76; build 10 72,77; ticks 5000; report" --screenshot out.png
 ```
 
+Without `--screenshot` the script runs on the city and the game opens on it, paused,
+to play on. `save NAME` writes the city into the current family's saves, where Load
+Saved Game lists it.
+
+### A test megacity
+
+`megacity S [R]` lays out a big city from the map with the game's own build commands:
+floodplain farms with work camps and granaries, meadow farms with a water lift and
+ditches, workshops and storage yards, and blocks of housing and services (seed `S`,
+region `R` tiles each way from its centre, 60 by default). Of the campaign maps tried,
+mission 39 (Tut in the Valley) gives it the most floodplain: 97 farms, and the city
+grows to about 9,000 people in six years.
+Mission 23 (Thinis) is smaller, 40 floodplain farms and about 8,000 people, but has
+fertile meadow, so it also shows meadow farms watered by a water lift and ditches.
+`allowall` lets the city use every building, `noinvasions` keeps the raids away, and
+`safe` turns off fire and collapse while nothing is staffed yet (`unsafe` turns them
+back on). A year is 9,792 ticks, and `status` prints people, walkers, houses, the flood,
+the farms and the food.
+
+Build it and play it (the game opens paused on the city):
+
+```
+osiris --mission 39 --script "allowall; noinvasions; safe; megacity 1"
+```
+
+Build it, run it five years, and save it as "Test megacity" for Load Saved Game:
+
+```
+osiris --mission 39 --script "allowall; noinvasions; safe; megacity 1; ticks 48960; save Test megacity" --screenshot megacity.png
+```
+
+Benchmark it: a year of ticks on the grown city, then 30 frames at 4K.
+
+```
+OSIRIS_BENCH_FRAMES=30 osiris --mission 39 --size 3840x2160 --script "allowall; noinvasions; safe; megacity 1; ticks 48960; timed 9792; status; zoom 0.5" --screenshot megacity-4k.png
+```
+
 `osiris-tools` inspects the data files: it can dump sprite packs to PNG, print text
 groups and messages, and parse every map and campaign mission.
 

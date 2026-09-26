@@ -175,11 +175,17 @@ impl World {
     /// Sends immigrant walkers to houses reachable by road that have no one on the way
     /// yet: vacant lots first, up to four each, then houses with room for more than
     /// seven, four each, then any room, filling it. Whoever finds no room stays away.
+    /// A house whose road can't be walked to from the entry takes no one, as the
+    /// original skips houses with no distance from the entry; otherwise the first such
+    /// houses would be picked every day and their immigrants turned back, and no one
+    /// would ever reach the rest.
     fn create_immigrants(&mut self, mut people: i32) {
         let entry = self.entry_point;
         if !self.map.contains(entry.0, entry.1) {
             return;
         }
+        let from_entry = crate::figures::route_distances(&self.map, Travel::Land, entry);
+        let reachable = |(x, y): (i32, i32)| self.map.contains(x, y) && from_entry[(y * self.map.width + x) as usize] > 0;
         let per = self.migration_params.per_walker;
         let houses: Vec<BuildingId> = self.buildings.iter().filter(|b| b.is_house()).map(|b| b.id).collect();
         for pass in 0..3 {
@@ -200,7 +206,7 @@ impl World {
                 }
                 let n = if pass == 2 { people.min(room) } else { people.min(per).min(room) };
                 // Immigrants walk to the house's road access and step in from there.
-                let Some(target) = b.road else { continue };
+                let Some(target) = b.road.filter(|&r| reachable(r)) else { continue };
                 let fid = self.figures.spawn(figure_kind::IMMIGRANT, entry.0, entry.1, Travel::Land);
                 let f = self.figures.get_mut(fid).expect("just spawned");
                 f.target = id;
@@ -369,6 +375,47 @@ mod tests {
         assert_eq!(batch(&mut queue, 1, 4), Some(4));
         assert_eq!(queue, 0);
         assert_eq!(batch(&mut queue, 0, 4), None);
+    }
+
+    /// Newcomers go only to houses whose road they can walk to from the entry: a lot
+    /// beside a stretch of road cut off from the rest is passed over for one they can
+    /// reach, even when it comes first.
+    #[test]
+    fn newcomers_skip_houses_they_cant_reach() {
+        use crate::map::mask;
+        use crate::world::{Command, Outcome};
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.is_dir() {
+            return;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).expect("open image library");
+        let scenario = osiris_formats::Scenario::load_map(&data.join("Maps/Sandbox.map")).expect("load map");
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).expect("load defs"));
+        let model_text = std::fs::read(data.join("Pharaoh_Model_Normal.txt")).expect("read model");
+        let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&model_text)).expect("parse model");
+        let mut world = World::new(&scenario, defs, std::sync::Arc::new(crate::balance::Balance::from_model(&model)));
+        world.start(&scenario);
+        world.scenario_allowed = None;
+        let (w, h) = (world.map.width, world.map.height);
+        let (x, y) = (0..h - 12).flat_map(|y| (0..w - 12).map(move |x| (x, y))).find(|&(x, y)| world.map.area_clear_of(x, y, 12, mask::NOT_CLEAR)).expect("a clear patch");
+        // A road from the entry, and a lone road tile below it walled in by four lots.
+        let lone = (x + 2, y + 7);
+        assert!(matches!(world.apply(&Command::Road { start: (x, y), end: (x + 10, y) }), Outcome::Done { .. }));
+        assert!(matches!(world.apply(&Command::Road { start: lone, end: lone }), Outcome::Done { .. }));
+        world.entry_point = (x, y);
+        let build = |world: &mut World, (bx, by): (i32, i32)| {
+            assert!(matches!(world.apply(&Command::Build { kind: kind::VACANT_LOT, x: bx, y: by, x1: bx, y1: by }), Outcome::Done { .. }));
+            world.map.building.at_or(bx, by, 0)
+        };
+        let cut_off = build(&mut world, (lone.0, lone.1 - 1));
+        for wall in [(lone.0, lone.1 + 1), (lone.0 - 1, lone.1), (lone.0 + 1, lone.1)] {
+            build(&mut world, wall);
+        }
+        let reachable = build(&mut world, (x + 8, y + 1));
+        assert_eq!(world.buildings.get(cut_off).and_then(|b| b.road), Some(lone));
+        world.create_immigrants(4);
+        let targets: Vec<u32> = world.figures.iter().filter(|f| f.kind == figure_kind::IMMIGRANT).map(|f| f.target).collect();
+        assert_eq!(targets, vec![reachable]);
     }
 
     #[test]
