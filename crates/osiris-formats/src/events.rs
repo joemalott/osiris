@@ -211,7 +211,10 @@ pub fn write_events(file: &mut ChunkFile, events: &[EventRecord]) -> Result<()> 
         return Err(crate::Error::Invalid(format!("{} events, room for {slots}", events.len())));
     }
     for (i, e) in events.iter().enumerate() {
-        let bytes = e.to_bytes();
+        let mut bytes = e.to_bytes();
+        // Bytes 4-5 number the event by its place, as the original renumbers them
+        // when one is deleted (FUN_00448e30).
+        bytes[4..6].copy_from_slice(&(i as i16).to_le_bytes());
         data[i * RECORD + 4..(i + 1) * RECORD].copy_from_slice(&bytes[4..]);
     }
     // The count is the list's own i32 at the chunk's start.

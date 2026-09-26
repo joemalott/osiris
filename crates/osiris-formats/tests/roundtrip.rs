@@ -253,8 +253,10 @@ fn event_edits_survive_a_save() {
     for (a, b) in s.events.iter().zip(&back.events) {
         assert_eq!(key(a), key(b));
     }
-    // The events after the deleted one are the file's own, moved up a slot.
-    for (a, b) in before[2..].iter().zip(&back.events[1..]) {
-        assert_eq!(a.raw[4..], b.raw[4..]);
+    // The events after the deleted one are the file's own, moved up a slot and
+    // numbered by their new place.
+    for (i, (a, b)) in before[2..].iter().zip(&back.events[1..]).enumerate() {
+        assert_eq!(a.raw[6..], b.raw[6..]);
+        assert_eq!(i16::from_le_bytes([b.raw[4], b.raw[5]]), i as i16 + 1);
     }
 }
