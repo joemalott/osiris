@@ -53,6 +53,7 @@ pub mod rng;
 pub mod royal_tombs;
 pub mod replay;
 pub mod rules;
+pub mod saved_buildings;
 pub mod scenario_events;
 pub mod sentiment;
 pub mod services;
