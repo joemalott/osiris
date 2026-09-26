@@ -351,10 +351,12 @@ impl World {
     /// flotsam a moment; the wharves will want new ones.
     pub(crate) fn sink_boats(&mut self) {
         for fid in self.figures.ids() {
-            let Some(f) = self.figures.get_mut(fid) else { continue };
+            let Some(f) = self.figures.get(fid) else { continue };
             if !matches!(f.kind, crate::fishing::FISHING_BOAT | crate::navy::WARSHIP | crate::navy::TRANSPORT) || f.dead || f.action == crate::military::action::CORPSE {
                 continue;
             }
+            self.drown_company(fid);
+            let Some(f) = self.figures.get_mut(fid) else { continue };
             f.kind = SHIPWRECK;
             f.home = 0;
             f.target = 0;

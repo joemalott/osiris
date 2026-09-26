@@ -58,11 +58,7 @@ impl World {
                 self.update_farms();
                 self.update_venues();
             }
-            34 => {
-                self.update_navy_yards();
-                self.update_shipwrights();
-                self.update_ferries();
-            }
+            34 => self.update_ferries(),
             31 => {
                 self.generate_walkers();
                 self.send_carts();
@@ -73,6 +69,8 @@ impl World {
                 self.venue_walkers();
                 self.guild_walkers();
                 self.artisan_walkers();
+                // The shipwright's part of the daily building pass (FUN_00462180).
+                self.update_shipwrights();
             }
             35 => self.decay_house_services(),
             32 => self.update_trade(),
@@ -170,8 +168,7 @@ impl World {
                 crate::military::STANDARD_BEARER => self.update_standard_bearer(fid),
                 crate::military::ARROW | crate::military::JAVELIN => self.update_missile(fid),
                 crate::navy::ENEMY_TRANSPORT => self.update_enemy_transport(fid),
-                crate::navy::WARSHIP => self.update_warship(fid),
-                crate::navy::TRANSPORT => self.update_warship(fid),
+                crate::navy::WARSHIP | crate::navy::TRANSPORT => self.update_ship(fid),
                 k if crate::invasions::is_invader_kind(k) => self.update_invader(fid),
                 crate::defenses::TOWER_SENTRY => self.update_sentry(fid),
                 crate::fishing::FISHING_BOAT => self.update_fishing_boat(fid),

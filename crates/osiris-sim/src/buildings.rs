@@ -126,10 +126,16 @@ pub struct Building {
     /// Damage invaders have done it.
     #[serde(default)]
     pub enemy_damage: i32,
-    /// The ship a shipwright is building: warship or transport (0 for none, or a
-    /// fishing boat).
+    /// The ship a shipwright is building: its figure type (fishing boat, transport or
+    /// warship), or 0 for none.
     #[serde(default)]
     pub boat_kind: u16,
+    /// The ship a shipwright is repairing (0 for none), and those waiting their turn,
+    /// first come first served.
+    #[serde(default)]
+    pub repairing: FigureId,
+    #[serde(default)]
+    pub repair_queue: Vec<FigureId>,
     /// A venue's days of shows left, per performer (juggler, musician, dancer).
     #[serde(default)]
     pub shows: [i32; 3],

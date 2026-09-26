@@ -1,11 +1,8 @@
 //! The shipwright and the fishing fleet.
 //!
-//! A fishing wharf needs a boat, and boats come from a shipwright. While a staffed
-//! wharf with open water has no boat and none is on its way, a shipwright starts one.
-//! Its progress grows daily by its staffing: 1 a day under a quarter staffed, 2 under
-//! half, 4 under three quarters, 6 below full and 8 when full; a fishing boat takes
-//! 100 and no timber. The finished boat is launched on open water beside the yard,
-//! waits a moment, and sails to the first wharf still lacking one.
+//! A fishing wharf needs a boat, and boats come from a shipwright (see `navy.rs`,
+//! where the yard builds fishing boats, transports and warships alike). The new boat
+//! is launched for the first wharf lacking one, waits 50 ticks and sails to it.
 //!
 //! The boat, as the original's (FUN_004937a0), stays in while its last catch waits at
 //! the wharf, then rests `5 x (102 - staffing %)` ticks (10 when fully staffed; an
@@ -17,17 +14,13 @@
 
 use crate::buildings::BuildingId;
 use crate::economy::resource;
-use crate::figures::{FigureId, Step, Travel};
-use crate::water::{FISHING_WHARF, SHIPWRIGHT};
+use crate::figures::{FigureId, Step};
+use crate::water::FISHING_WHARF;
 use crate::world::World;
 
 pub const FISHING_BOAT: u16 = 25;
 
-/// Progress a fishing boat takes when the building says nothing.
-const BOAT_COST: i32 = 100;
-/// (staffing %, daily progress) steps for building a fishing boat.
-const BOAT_PROGRESS: [(i32, i32); 5] = [(1, 1), (25, 2), (50, 4), (75, 6), (100, 8)];
-/// Ticks a new boat waits before looking for a wharf.
+/// Ticks a new boat waits before sailing for its wharf, and between its tries.
 const LAUNCH_WAIT: i32 = 50;
 /// What a boat brings back, and the ticks it fishes.
 const CATCH: i32 = 100;
@@ -60,75 +53,13 @@ impl World {
         self.figures.iter().find(|f| f.kind == FISHING_BOAT && f.home == id && !f.dead && f.action != action::CREATED).map(|f| f.id)
     }
 
-    /// Wharves able to fish that have no boat.
-    fn wharves_wanting_boats(&self) -> Vec<BuildingId> {
-        self.buildings
-            .iter()
-            .filter(|b| b.kind == FISHING_WHARF && b.workers > 0 && self.wharf_boat(b.id).is_none())
-            .map(|b| b.id)
-            .filter(|&id| self.has_open_water(id))
-            .collect()
-    }
-
-    /// Daily: shipwrights start and build fishing boats, and launch finished ones.
-    pub(crate) fn update_shipwrights(&mut self) {
-        let yards: Vec<BuildingId> = self.buildings.iter().filter(|b| b.kind == SHIPWRIGHT).map(|b| b.id).collect();
-        if yards.is_empty() {
-            return;
-        }
-        let cost = self.building_int(SHIPWRIGHT, "fishingboat_progress_cost", BOAT_COST);
-        let mut wanted = self.wharves_wanting_boats().len() as i32;
-        // Boats already launched or on the stocks cover some of that.
-        wanted -= self.figures.iter().filter(|f| f.kind == FISHING_BOAT && f.action == action::CREATED).count() as i32;
-        wanted -= yards.iter().filter(|&&y| self.buildings.get(y).is_some_and(|b| b.progress > 0 && b.boat_kind == 0)).count() as i32;
-        for id in yards {
-            let pct = self.staffing(id);
-            let Some(b) = self.buildings.get_mut(id) else { continue };
-            // Busy with a warship or transport.
-            if b.boat_kind != 0 {
-                continue;
-            }
-            if b.progress == 0 {
-                // A new boat is laid down; work starts the next day.
-                if wanted > 0 && b.workers > 0 {
-                    b.progress = 1;
-                    wanted -= 1;
-                }
-                continue;
-            }
-            if b.progress <= cost {
-                let gain = BOAT_PROGRESS.iter().rev().find(|&&(p, _)| pct >= p).map_or(0, |&(_, g)| g);
-                b.progress = (b.progress + gain).min(cost + 1);
-            }
-            if b.progress > cost {
-                self.launch_boat(id);
-            }
-        }
-    }
-
-    /// Puts a finished boat in the water beside shipwright `id`, if there is a tile
-    /// with water all round it and the yard has road access.
-    fn launch_boat(&mut self, id: BuildingId) {
-        let Some(b) = self.buildings.get(id) else { return };
-        if b.road.is_none() {
-            return;
-        }
-        let map = &self.map;
-        let open = |x: i32, y: i32| {
-            map.terrain_is(x, y, crate::map::terrain::WATER | crate::map::terrain::DEEPWATER)
-                && !map.terrain_is(x, y, crate::map::terrain::BUILDING)
-                && crate::map::NEIGHBOURS.iter().all(|&(dx, dy)| map.terrain_is(x + dx, y + dy, crate::map::terrain::WATER))
-        };
-        let Some((x, y)) = crate::buildings::ring(b.x, b.y, b.size).find(|&(x, y)| open(x, y)) else { return };
-        let direction = (b.orientation + 3) % 8;
-        let fid = self.figures.spawn(FISHING_BOAT, x, y, Travel::Water);
+    /// A new boat launched by a shipwright for wharf `home` (see `navy.rs`) waits 50
+    /// ticks and then sails for it (the boat's action 8, FUN_004937a0).
+    pub(crate) fn fishing_boat_launched(&mut self, fid: FigureId) {
         if let Some(f) = self.figures.get_mut(fid) {
-            f.home = id;
             f.action = action::CREATED;
             f.counter = LAUNCH_WAIT;
-            f.direction = direction;
         }
-        self.buildings.get_mut(id).expect("present").progress = 0;
     }
 
     /// The nearest wharf without a boat to `from`, for a new or homeless boat.
@@ -182,7 +113,9 @@ impl World {
                 return;
             }
             f.counter = LAUNCH_WAIT;
-            if let Some(w) = self.wharf_for_boat(pos) {
+            // The wharf the shipwright built it for, while it still wants a boat.
+            let own = self.buildings.get(home).is_some_and(|b| b.kind == FISHING_WHARF) && self.wharf_boat(home).is_none();
+            if let Some(w) = if own { Some(home) } else { self.wharf_for_boat(pos) } {
                 self.figures.get_mut(fid).expect("present").home = w;
                 if !self.boat_to_wharf(fid, action::GOING_TO_WHARF) {
                     let f = self.figures.get_mut(fid).expect("present");

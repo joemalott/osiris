@@ -926,11 +926,8 @@ flags = ["is_industry"]
 inputs = ["timber"]
 text_id = 100
 help = "message_building_whipwright"
-fishingboat_progress_cost = 100
 info_sound = "Wavs/shipyrd.wav"
 min_houses_coverage = 50
-transport_progress_cost = 400
-warship_progress_cost = 400
 
 [[building]]
 id = 75

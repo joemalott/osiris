@@ -37,6 +37,15 @@ pub fn figure_sprite(world: &World, f: &Figure) -> Option<Sprite> {
         }
         TRADE_SHIP => (TRADE_SHIP, if matches!(f.action, ship_action::MOORED | ship_action::QUEUED) { "idle" } else { "walk" }),
         FERRY_BOAT => (FERRY_BOAT, if f.moving { "walk" } else { "idle" }),
+        // The city's warships and transports under way, and going down (FUN_004b1d50).
+        k if osiris_sim::navy::is_city_ship(k) => {
+            if f.action == osiris_sim::military::action::CORPSE {
+                let a = anim(world, k, "death")?;
+                let step = (f.counter as u32 * a.frames / 128).min(a.frames.max(1) - 1);
+                return Some(Sprite { behind: false, x: f.x, y: f.y, offset: (0, 0), image: a.image + step });
+            }
+            (k, "walk")
+        }
         k if f.travel != Travel::Water && world.map.terrain_is(f.x, f.y, terrain::WATER) => {
             // On foot across a ferry crossing: drawn in the ferry boat.
             if anim(world, k, "swim").is_some() { (k, "swim") } else { (FERRY_BOAT, "walk") }

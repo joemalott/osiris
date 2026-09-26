@@ -139,6 +139,9 @@ pub struct Figure {
     /// army raised them).
     #[serde(default)]
     pub band: u8,
+    /// The city's warships and transports: their orders and state (see `navy.rs`).
+    #[serde(default)]
+    pub ship: Option<Box<crate::navy::Ship>>,
 }
 
 impl Figure {
@@ -183,6 +186,7 @@ impl Figure {
             link: 0,
             yard: 0,
             band: 0,
+            ship: None,
         }
     }
 

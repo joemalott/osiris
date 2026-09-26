@@ -141,6 +141,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 if let Some(m) = world.mission.as_mut() {
                     m.allowed.extend(all);
                 }
+                // A custom map's own list, too.
+                world.scenario_allowed = None;
             }
             // Runs N ticks, reporting the time taken, the slowest tick and figures that never moved.
             ["timed", n] => {
@@ -525,6 +527,50 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["company", c, p] => {
                 let (x, y) = parse_point(p)?;
                 world.apply(&Command::MoveCompany { company: c.parse()?, x, y });
+            }
+            // The shipwrights (job, progress, repair, queue, timber) and the city's
+            // ships (tile, action, damage, hull %, state).
+            ["ships"] => {
+                for b in world.buildings.iter().filter(|b| b.kind == osiris_sim::water::SHIPWRIGHT) {
+                    eprintln!("  shipwright {} at {},{} workers {} job {} progress {} repairing {} queue {:?} timber {}", b.id, b.x, b.y, b.workers, b.boat_kind, b.progress, b.repairing, b.repair_queue, b.stock[osiris_sim::economy::resource::TIMBER as usize]);
+                }
+                for f in world.figures.iter().filter(|f| osiris_sim::navy::is_city_ship(f.kind) || f.kind == osiris_sim::fishing::FISHING_BOAT) {
+                    eprintln!("  ship {} kind {} at {},{} home {} action {} damage {} hull {}% foe {} route {} docked {} {:?}", f.id, f.kind, f.x, f.y, f.home, f.action, f.damage, world.hull_percent(f.id), f.foe, f.route.len(), world.ship_docked(f.id), f.ship);
+                }
+                eprintln!("  wanted {:?}", world.ship_wanted());
+            }
+            ["shiporder", id, o] => {
+                use osiris_sim::navy::ShipOrder;
+                let order = match *o {
+                    "hold" => ShipOrder::Hold,
+                    "engage" => ShipOrder::Engage,
+                    "seek" => ShipOrder::Seek,
+                    "evade" => ShipOrder::Evade,
+                    "repair" => ShipOrder::Repair,
+                    _ => ShipOrder::Return,
+                };
+                let out = world.apply(&Command::ShipOrder { ship: id.parse()?, order });
+                eprintln!("{step}: {out:?}");
+            }
+            ["moveship", id, p] => {
+                let (x, y) = parse_point(p)?;
+                let out = world.apply(&Command::MoveShip { ship: id.parse()?, x, y });
+                eprintln!("{step}: {out:?}");
+            }
+            ["embark", id, c] => {
+                let out = world.apply(&Command::Embark { ship: id.parse()?, company: c.parse()? });
+                eprintln!("{step}: {out:?}");
+            }
+            ["disembark", id, p] => {
+                let (x, y) = parse_point(p)?;
+                let out = world.apply(&Command::Disembark { ship: id.parse()?, x, y });
+                eprintln!("{step}: {out:?}");
+            }
+            // Damages ship ID by N (for trying repairs).
+            ["hurtship", id, n] => {
+                if let Some(f) = world.figures.get_mut(id.parse()?) {
+                    f.damage = n.parse()?;
+                }
             }
             ["fortreturn", c] => _ = world.apply(&Command::ReturnCompany(c.parse()?)),
             // The company window's switch that turns the next held line.

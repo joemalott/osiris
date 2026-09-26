@@ -28,6 +28,11 @@ pub struct UiImages {
     /// (Pharaoh_Unloaded groups 34-36): four orders, return to fort, and its greyed
     /// frame; the charioteers' greyed charge last.
     pub company_orders: [u32; 3],
+    /// The ship window's order buttons (Pharaoh_Unloaded groups 37 and 38): a
+    /// warship's hold, engage nearby, seek and destroy, repair, return to wharf and
+    /// that greyed; a transport's hold, evade, embark, disembark, repair, return and
+    /// that greyed.
+    pub ship_orders: [u32; 2],
     /// The companies' emblems, one per company name (Pharaoh_General group 127).
     pub company_emblems: u32,
     /// The standards' flags: infantry, archers, chariots, nine frames each, the
@@ -55,6 +60,7 @@ impl UiImages {
             more_portraits: lib.group_id("Pharaoh_Unloaded", 27, 0)?,
             experience_icons: lib.group_id("Pharaoh_General", 2, 0)?,
             company_orders: [lib.group_id("Pharaoh_Unloaded", 34, 0)?, lib.group_id("Pharaoh_Unloaded", 35, 0)?, lib.group_id("Pharaoh_Unloaded", 36, 0)?],
+            ship_orders: [lib.group_id("Pharaoh_Unloaded", 37, 0)?, lib.group_id("Pharaoh_Unloaded", 38, 0)?],
             company_emblems: lib.group_id("Pharaoh_General", 127, 0)?,
             company_flags: lib.group_id("Pharaoh_General", 126, 0)?,
             standard_pole: lib.group_id("Pharaoh_General", 54, 0)?,

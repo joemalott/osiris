@@ -103,6 +103,17 @@ enum Entry {
     Submenu(String),
 }
 
+/// What a map click does with a ship selected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShipClick {
+    /// Sail there, or (a warship) go after the enemy there.
+    Move,
+    /// Take the company clicked aboard.
+    Embark,
+    /// Put the company aboard ashore there.
+    Disembark,
+}
+
 pub struct Game {
     pub world: World,
     pub view: CityView,
@@ -155,6 +166,8 @@ pub struct Game {
     pub advisors: Option<crate::advisors::Advisors>,
     /// The company awaiting orders: the next map click sends it there.
     pub selected_company: Option<usize>,
+    /// The warship or transport awaiting orders, and what the next map click does.
+    pub selected_ship: Option<(osiris_sim::figures::FigureId, ShipClick)>,
     advisor_images: Option<crate::advisors::AdvisorImages>,
     ui_images: Option<crate::widgets::UiImages>,
     empire_images: Option<crate::empire_window::EmpireImages>,
@@ -271,6 +284,7 @@ impl Game {
             empire: None,
             advisors: None,
             selected_company: None,
+            selected_ship: None,
             advisor_images: None,
             ui_images: None,
             empire_images: None,
@@ -390,7 +404,8 @@ impl Game {
 
     /// Nothing modal is open and no tool is in hand.
     pub fn idle(&self) -> bool {
-        self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.empire.is_none() && self.advisors.is_none() && self.rules_panel.is_none() && !self.difficulty_panel && self.sound_window.is_none() && self.confirm.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
+        self.selected_ship.is_none()
+            && self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.empire.is_none() && self.advisors.is_none() && self.rules_panel.is_none() && !self.difficulty_panel && self.sound_window.is_none() && self.confirm.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
     }
 
     pub fn close_dialog(&mut self) {
@@ -955,7 +970,7 @@ impl Game {
         // Walkers on the tile come first.
         let mut walkers = [0u32; 7];
         let mut n = 0;
-        for f in self.world.figures.iter().filter(|f| (f.x, f.y) == (x, y) && !f.dead) {
+        for f in self.world.figures.iter().filter(|f| (f.x, f.y) == (x, y) && !f.dead && f.action != osiris_sim::military::action::ABOARD) {
             if n < walkers.len() {
                 walkers[n] = f.id;
                 n += 1;
@@ -963,6 +978,10 @@ impl Game {
         }
         if let Some(c) = walkers[..n].iter().find_map(|&w| self.world.company_of(w)) {
             crate::info::Target::Company(c)
+        } else if let Some(s) = walkers[..n].iter().copied().find(|&w| self.world.figures.get(w).is_some_and(|f| osiris_sim::navy::is_city_ship(f.kind))).or_else(|| self.ship_at(x, y)) {
+            // A ship on the tile or beside it (the original lists the figures on the
+            // tile and the eight round it).
+            crate::info::Target::Ship(s)
         } else if n > 0 {
             crate::info::Target::Figures(walkers, n as u8, 0)
         } else if id != 0 {
@@ -1237,7 +1256,7 @@ impl Game {
         if self.dialog.take().is_some() || self.empire.take().is_some() || self.info.take().is_some() || self.message_list.take().is_some() || self.rules_panel.take().is_some() || std::mem::take(&mut self.difficulty_panel) || self.cancel_sound_window() || self.confirm.take().is_some() {
             return;
         }
-        if self.selected_company.take().is_some() {
+        if self.selected_company.take().is_some() || self.selected_ship.take().is_some() {
             return;
         }
         if self.sidebar.open.take().is_some() {
@@ -1254,6 +1273,18 @@ impl Game {
     /// clicking one of the city's soldiers or a standard opens his company's
     /// window. True when the click was used.
     fn command_company(&mut self, x: i32, y: i32) -> bool {
+        if let Some((ship, click)) = self.selected_ship.take() {
+            let cmd = match click {
+                ShipClick::Move => Some(Command::MoveShip { ship, x, y }),
+                ShipClick::Embark => self.company_at(x, y).map(|company| Command::Embark { ship, company }),
+                ShipClick::Disembark => Some(Command::Disembark { ship, x, y }),
+            };
+            if let Some(cmd) = cmd {
+                self.world.apply(&cmd);
+            }
+            self.sound("BUTTON.WAV");
+            return true;
+        }
         if let Some(c) = self.selected_company.take() {
             let Some(company) = self.world.military.companies.get(c) else { return false };
             let clicked = self.world.map.building.at_or(x, y, 0);
@@ -1267,8 +1298,74 @@ impl Game {
             }
             return true;
         }
-        let Some(c) = self.company_at(x, y) else { return false };
-        self.info = Some(InfoPanel::new(crate::info::Target::Company(c)));
+        if let Some(c) = self.company_at(x, y) {
+            self.info = Some(InfoPanel::new(crate::info::Target::Company(c)));
+            self.sound("BUTTON.WAV");
+            return true;
+        }
+        // A transport, then a warship, on the tile or next to it takes orders
+        // (FUN_004d8310).
+        let Some(ship) = self.ship_at(x, y) else { return false };
+        self.select_ship(ship, ShipClick::Move);
+        true
+    }
+
+    /// The city's transport, else warship, on tile `(x, y)` or one beside it, those
+    /// on the tile first (FUN_0040b790, FUN_0040b6d0). The original's warship test
+    /// wrongly passes over a warship on the very tile; Osiris takes it.
+    pub fn ship_at(&self, x: i32, y: i32) -> Option<osiris_sim::figures::FigureId> {
+        use osiris_sim::navy::{TRANSPORT, WARSHIP};
+        let afloat = |f: &&osiris_sim::figures::Figure, k: u16, r: i32| f.kind == k && !f.dead && f.action != osiris_sim::military::action::CORPSE && f.ship.is_some() && (f.x - x).abs() <= r && (f.y - y).abs() <= r;
+        let find = |k: u16| self.world.figures.iter().find(|f| afloat(f, k, 0)).or_else(|| self.world.figures.iter().find(|f| afloat(f, k, 1))).map(|f| f.id);
+        find(TRANSPORT).or_else(|| find(WARSHIP))
+    }
+
+    /// Takes command of a ship: the next map click moves it, or picks the company to
+    /// take aboard, or the shore to land it on.
+    pub fn select_ship(&mut self, ship: osiris_sim::figures::FigureId, click: ShipClick) {
+        self.selected_ship = Some((ship, click));
+        self.selected_company = None;
+        self.info = None;
+        self.advisors = None;
+        let what = match click {
+            ShipClick::Move => "click where to send the ship",
+            ShipClick::Embark => "click the company to take aboard",
+            ShipClick::Disembark => "click where to put the company ashore",
+        };
+        self.say(&format!("{}: {what}", self.ship_name(ship)));
+        self.sound("BUTTON.WAV");
+    }
+
+    fn ship_name(&self, ship: osiris_sim::figures::FigureId) -> String {
+        let warship = self.world.figures.get(ship).is_some_and(|f| f.kind == osiris_sim::navy::WARSHIP);
+        self.text.get(184, if warship { 1 } else { 0 }).unwrap_or("").to_owned()
+    }
+
+    /// A hotkey for the selected ship (the original's window procedure, 0x414cd0):
+    /// warships H hold, N engage nearby, A seek and destroy; transports H hold,
+    /// E evade, K embark or disembark; both R repair and W return to the wharf. True
+    /// when the key was used.
+    pub fn ship_key(&mut self, key: char) -> bool {
+        use osiris_sim::navy::ShipOrder;
+        let Some((ship, _)) = self.selected_ship else { return false };
+        let Some(f) = self.world.figures.get(ship) else { return false };
+        let warship = f.kind == osiris_sim::navy::WARSHIP;
+        let aboard = f.ship.as_ref().is_some_and(|s| s.aboard.is_some());
+        let order = match (key, warship) {
+            ('h', _) => ShipOrder::Hold,
+            ('n', true) => ShipOrder::Engage,
+            ('a', true) => ShipOrder::Seek,
+            ('e', false) => ShipOrder::Evade,
+            ('r', _) => ShipOrder::Repair,
+            ('w', _) => ShipOrder::Return,
+            ('k', false) => {
+                self.select_ship(ship, if aboard { ShipClick::Disembark } else { ShipClick::Embark });
+                return true;
+            }
+            _ => return false,
+        };
+        self.world.apply(&Command::ShipOrder { ship, order });
+        self.selected_ship = None;
         self.sound("BUTTON.WAV");
         true
     }
@@ -1276,7 +1373,7 @@ impl Game {
     /// The company of a soldier or standard on or beside tile `(x, y)`, those on
     /// the tile first.
     pub fn company_at(&self, x: i32, y: i32) -> Option<usize> {
-        let near = |f: &&osiris_sim::figures::Figure, r: i32| !f.dead && f.action != osiris_sim::military::action::CORPSE && (f.x - x).abs() <= r && (f.y - y).abs() <= r;
+        let near = |f: &&osiris_sim::figures::Figure, r: i32| !f.dead && f.action != osiris_sim::military::action::CORPSE && f.action != osiris_sim::military::action::ABOARD && (f.x - x).abs() <= r && (f.y - y).abs() <= r;
         let find = |r: i32| self.world.figures.iter().filter(|f| near(f, r)).find_map(|f| self.world.company_of(f.id));
         find(0).or_else(|| find(1))
     }
@@ -1360,6 +1457,10 @@ impl Game {
         let Some(cmd) = self.pending_command() else {
             let tint = |(x, y): (i32, i32), color: [f32; 4]| Highlight { x, y, color, paint: Paint::Silhouette };
             let mut tiles: Vec<Highlight> = self.hover.map(|t| tint(t, [1.0, 1.0, 1.0, 0.25])).into_iter().collect();
+            // The selected ship.
+            if let Some(f) = self.selected_ship.and_then(|(s, _)| self.world.figures.get(s)) {
+                tiles.push(tint((f.x, f.y), [1.0, 0.85, 0.2, 0.35]));
+            }
             // The selected company's soldiers.
             if let Some(c) = self.selected_company.and_then(|c| self.world.military.companies.get(c)) {
                 for f in c.soldiers.iter().filter_map(|&s| self.world.figures.get(s)) {
@@ -1487,6 +1588,10 @@ impl Game {
     /// tile and foot, or for a figure placed on a monument the first sprite's.
     fn figure_sprites(&self, r: &Renderer, carts: crate::anims::CartImages, f: &osiris_sim::figures::Figure, out: &mut Vec<Sprite>) -> Option<crate::motion::Anchor> {
         let defs = &self.world.defs;
+        // Soldiers aboard a transport are out of sight.
+        if f.action == osiris_sim::military::action::ABOARD && (osiris_sim::military::is_soldier(f.kind) || f.kind == osiris_sim::military::STANDARD_BEARER) {
+            return None;
+        }
         let at = crate::motion::Anchor::new(f.kind, f.home, (f.x, f.y), f.pixel_offset());
         if let Some(s) = crate::tomb_view::figure_sprite(&self.world, f) {
             out.push(s);
@@ -1792,6 +1897,7 @@ impl Game {
                     self.open_advisor(a);
                 }
                 Some(crate::info::InfoAction::SelectCompany(c)) => self.select_company(c),
+                Some(crate::info::InfoAction::SelectShip(s, click)) => self.select_ship(s, click),
                 None => {}
             }
         }

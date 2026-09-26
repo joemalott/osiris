@@ -1661,6 +1661,20 @@ impl App {
 fn key_pressed(g: &mut game::Game, code: KeyCode, ctrl: bool) {
     use game::Tool;
     use osiris_sim::buildings::kind;
+    // With a ship selected, its order keys come first.
+    let ship_key = match code {
+        KeyCode::KeyH => Some('h'),
+        KeyCode::KeyN => Some('n'),
+        KeyCode::KeyA => Some('a'),
+        KeyCode::KeyE => Some('e'),
+        KeyCode::KeyK => Some('k'),
+        KeyCode::KeyR => Some('r'),
+        KeyCode::KeyW => Some('w'),
+        _ => None,
+    };
+    if !ctrl && let Some(c) = ship_key && g.ship_key(c) {
+        return;
+    }
     match (code, ctrl) {
         (KeyCode::Escape, _) => g.cancel(),
         (KeyCode::F2, _) => g.open_rules(),

@@ -962,24 +962,22 @@ fn shipwright_page(ui: &Ui, world: &World, b: &Building) -> Page {
     let mut p = Page::new(16, t(0));
     let wood = stock(b, resource::TIMBER);
     p.rows.push(Row { resource: resource::TIMBER, icon: [30.0, 38.0], text: format!("{} {}", t(7), units(ui, wood)), at: [58.0, 44.0], yellow: false });
-    let navy = b.boat_kind != 0;
+    // What the original's window says (its case 0x4a): the work done on a hull out
+    // of 160, and whether there is the wood for it; a repair, and whether there is
+    // wood; or, idle, whether any wharf wants a boat.
+    let fishing = osiris_sim::fishing::FISHING_BOAT;
     if b.road.is_none() {
         p.line(62.0, ui.t(TEXT_FRAME, 25));
-    } else if b.progress > 0 {
-        // Building: how far along, and whether it has the wood for it.
-        let cost = if navy { 400 } else { 100 };
-        p.line(62.0, format!("{} {}% {}", t(2), (b.progress * 100 / cost).min(100), t(3)));
-        p.line(86.0, t(if !navy || wood >= 100 { 5 } else { 9 }));
+    } else if b.boat_kind != 0 {
+        p.line(62.0, format!("{} {}% {}", t(2), b.progress * 100 / osiris_sim::navy::HULL_WORK, t(3)));
+        p.line_narrow(86.0, t(if wood < osiris_sim::navy::SHIP_TIMBER && b.boat_kind != fishing { 9 } else { 5 }), 368.0);
+    } else if b.repairing != 0 {
+        p.line_narrow(86.0, t(if wood < 1 { 10 } else { 6 }), 368.0);
     } else {
-        let wants = |wharf: u16, ship: u16| {
-            world.buildings.iter().any(|w| w.kind == wharf && !world.figures.iter().any(|f| f.kind == ship && f.home == w.id && !f.dead))
-        };
-        let navy_wanted = wants(k::WARSHIP_WHARF, osiris_sim::navy::WARSHIP) || wants(k::TRANSPORT_WHARF, osiris_sim::navy::TRANSPORT);
-        let boats_wanted = world.buildings.iter().any(|w| w.kind == k::FISHING_WHARF && w.workers > 0 && world.wharf_boat(w.id).is_none());
-        if navy_wanted && wood < 100 {
-            p.line(86.0, t(9));
-        } else if !navy_wanted && !boats_wanted {
-            p.line(86.0, t(4));
+        match world.ship_wanted() {
+            None => p.line_narrow(86.0, t(4), 368.0),
+            Some(k) if k == fishing || wood >= osiris_sim::navy::SHIP_TIMBER => {}
+            Some(_) => p.line_narrow(86.0, t(9), 368.0),
         }
     }
     p.staffed();

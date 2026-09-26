@@ -189,6 +189,8 @@ pub mod action {
     pub const AT_STANDARD: u16 = 84;
     pub const ATTACK: u16 = 90;
     pub const FLEEING: u16 = 148;
+    /// Aboard a transport, out of sight (the original's 0x12).
+    pub const ABOARD: u16 = 150;
     pub const CORPSE: u16 = 149;
 }
 
@@ -719,6 +721,10 @@ impl World {
     /// destination"). Charioteers under orders to charge set off at the charge,
     /// and must rest their horses before charging again.
     pub fn move_company(&mut self, company: usize, tile: (i32, i32)) -> bool {
+        // Aboard a transport, it goes where the ship takes it.
+        if self.company_ship(company).is_some() {
+            return false;
+        }
         let Some(standard) = self.military.companies.get(company).map(|c| c.standard) else { return false };
         let from = self.figures.get(standard).map(|f| (f.x, f.y));
         let map = &self.map;
@@ -789,6 +795,9 @@ impl World {
 
     /// Orders a company back to its fort.
     pub fn return_company(&mut self, company: usize) {
+        if self.company_ship(company).is_some() {
+            return;
+        }
         let Some(c) = self.military.companies.get_mut(company) else { return };
         c.at_fort = true;
         let (standard, soldiers, ground) = (c.standard, c.soldiers.clone(), c.ground);
@@ -818,6 +827,9 @@ impl World {
         let (act, kind) = (f.action, f.kind);
         if act == action::CORPSE {
             self.update_corpse(fid);
+            return;
+        }
+        if act == action::ABOARD {
             return;
         }
         // Charged horses recover a little with each man's turn.
@@ -1232,7 +1244,7 @@ impl World {
     /// request `request`.
     pub(crate) fn send_to_battle(&mut self, request: usize, enemy: i32) {
         let strength = self.kingdom_service_strength();
-        let marked: Vec<usize> = (0..self.military.companies.len()).filter(|&c| self.military.companies[c].kingdom_service && !self.military.companies[c].soldiers.is_empty()).collect();
+        let marked: Vec<usize> = (0..self.military.companies.len()).filter(|&c| self.military.companies[c].kingdom_service && !self.military.companies[c].soldiers.is_empty() && self.company_ship(c).is_none()).collect();
         let exit = self.exit_point;
         for &c in &marked {
             let soldiers = self.military.companies[c].soldiers.clone();
@@ -1418,6 +1430,9 @@ impl World {
     pub(crate) fn update_standard_bearer(&mut self, fid: FigureId) {
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return };
+        if f.action == action::ABOARD {
+            return;
+        }
         if f.walk(map) != Step::Moving {
             f.action = if f.action == action::GOING_TO_FORT { action::AT_REST } else { action::AT_STANDARD };
         }

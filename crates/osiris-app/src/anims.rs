@@ -165,7 +165,7 @@ const NEEDS_BOTH: [u16; 3] = [204, 226, 232];
 /// bricklayers, whose bricks go to the site by sled) never has any, as in the
 /// original, where their stock stays empty.
 fn has_materials(world: &World, b: &Building) -> bool {
-    if !NEEDS_MATERIAL.contains(&b.kind) || (b.kind == kind::SHIPWRIGHT && b.boat_kind == 0) {
+    if !NEEDS_MATERIAL.contains(&b.kind) || (b.kind == kind::SHIPWRIGHT && b.boat_kind == osiris_sim::fishing::FISHING_BOAT) {
         return true;
     }
     let Some(def) = world.defs.building(b.kind) else { return true };
@@ -320,9 +320,9 @@ fn shore(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
                 cx.sprite(out, dx, dy, DOCK_SPOTS[unloading as usize][facing], a.image + 4 * (frame - 1) + variant);
             }
         }
-        SHIPWRIGHT if b.progress > 0 && has_materials(cx.world, b) => {
+        SHIPWRIGHT if b.boat_kind != 0 && has_materials(cx.world, b) => {
             let key = match b.boat_kind {
-                0 => "work_fishing_boat",
+                osiris_sim::fishing::FISHING_BOAT => "work_fishing_boat",
                 osiris_sim::navy::WARSHIP => "work_warship",
                 _ => "work_transport",
             };

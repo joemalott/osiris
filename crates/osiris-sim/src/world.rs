@@ -89,6 +89,13 @@ pub enum Command {
     Difficulty(u8),
     /// "Lower Difficulty" on the Out of Time screen.
     LowerDifficultyForTime,
+    /// The city's warships and transports (see `navy`): an order from the ship's
+    /// window or a hotkey; a map click with the ship selected (sail there, or go
+    /// after the enemy there); taking a company aboard; putting it ashore.
+    ShipOrder { ship: crate::figures::FigureId, order: crate::navy::ShipOrder },
+    MoveShip { ship: crate::figures::FigureId, x: i32, y: i32 },
+    Embark { ship: crate::figures::FigureId, company: usize },
+    Disembark { ship: crate::figures::FigureId, x: i32, y: i32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -577,6 +584,10 @@ impl World {
                 self.lower_difficulty_for_time();
                 DONE
             }
+            &Command::ShipOrder { ship, order } => done_if(self.order_ship(ship, order)),
+            &Command::MoveShip { ship, x, y } => done_if(self.move_ship(ship, (x, y))),
+            &Command::Embark { ship, company } => done_if(self.embark(ship, company)),
+            &Command::Disembark { ship, x, y } => done_if(self.disembark(ship, (x, y))),
         }
     }
 

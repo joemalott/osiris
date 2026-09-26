@@ -458,7 +458,7 @@ impl World {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::grid::Grid;
 
@@ -516,7 +516,7 @@ mod tests {
     /// The Sandbox map with a small town on the south bank of its river: houses, a
     /// fishing wharf, a dock, a granary and a storage yard, and a shipwright and a ferry
     /// landing on the north bank opposite another.
-    fn sandbox_town() -> Option<World> {
+    pub(crate) fn sandbox_town() -> Option<World> {
         let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
         if !data.is_dir() {
             return None;
