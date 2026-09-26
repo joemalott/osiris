@@ -63,8 +63,6 @@ pub struct Floods {
     rows: Grid<i8>,
     /// Tiles bucketed by row, for fast per-row updates as the flood advances or recedes.
     row_tiles: Vec<Vec<(i32, i32)>>,
-    /// Rotating variant counters for the water-edge context table.
-    water_counters: Vec<u32>,
 }
 
 impl Default for Floods {
@@ -85,7 +83,6 @@ impl Default for Floods {
             floodplain_width: 0,
             rows: Grid::new(0, 0),
             row_tiles: Vec::new(),
-            water_counters: Vec::new(),
         }
     }
 }
@@ -255,7 +252,6 @@ impl World {
             floodplain_width: width,
             rows,
             row_tiles,
-            water_counters: Vec::new(),
         };
         // Establish the right state/target for wherever in the year the scenario starts,
         // without stepping flood_progress or firing transition hooks off a fake "Farmable"
