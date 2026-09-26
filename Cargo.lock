@@ -1691,6 +1691,7 @@ dependencies = [
  "env_logger",
  "log",
  "osiris-audio",
+ "osiris-bink",
  "osiris-formats",
  "osiris-render",
  "osiris-sim",
@@ -1713,6 +1714,10 @@ dependencies = [
  "thiserror 2.0.20",
  "toml",
 ]
+
+[[package]]
+name = "osiris-bink"
+version = "0.1.6"
 
 [[package]]
 name = "osiris-formats"

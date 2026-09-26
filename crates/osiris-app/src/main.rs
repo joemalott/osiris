@@ -20,6 +20,7 @@ mod rules_panel;
 mod sound_options;
 mod minimap;
 mod motion;
+mod movie;
 mod overlay;
 mod mission_brief;
 mod progress;
@@ -498,6 +499,8 @@ enum Screen {
     Menu(Box<menu::Menu>),
     Playing(Box<game::Game>, Option<usize>),
     Editor(Box<editor::Editor>),
+    /// One of the original's movies, and the screen that follows it.
+    Movie(Box<movie::Movie>, Box<Screen>),
 }
 
 struct App {
@@ -572,6 +575,37 @@ impl App {
         menu.difficulty = load_difficulty();
         menu.editor_maps = editor::list_maps(&self.assets.data, &maps_dir());
         menu
+    }
+
+    /// Plays movie `name` (movie.rs), then shows `then`; straight to `then` when the
+    /// player turned movies off or the install hasn't got it.
+    fn play_movie(&mut self, name: &str, then: Screen) {
+        let started = if self.sound.movies { movie::Movie::start(&self.assets.data, name, self.audio.as_deref(), self.sound.movie_volume()) } else { None };
+        match started {
+            Some(m) => {
+                log::info!("playing movie {name}");
+                if let Some(a) = &self.audio {
+                    a.stop_music();
+                }
+                if let Some(gfx) = &self.gfx {
+                    gfx.window.set_cursor_visible(false);
+                }
+                self.screen = Some(Screen::Movie(Box::new(m), Box::new(then)));
+            }
+            None => self.screen = Some(then),
+        }
+    }
+
+    /// The movie is over or skipped: on to the screen after it, with the music back.
+    fn end_movie(&mut self) {
+        let Some(Screen::Movie(_, then)) = self.screen.take() else { return };
+        self.screen = Some(*then);
+        if let Some(gfx) = &self.gfx {
+            gfx.window.set_cursor_visible(true);
+        }
+        if let Some(a) = &self.audio {
+            a.update_music(0);
+        }
     }
 
     /// Back to the main menu, or to the Mission Editor when its map was being played.
@@ -851,7 +885,12 @@ impl App {
                     if now != 5 && now < c.sections.len() {
                         menu.show_periods(now, true);
                     }
-                    self.screen = Some(Screen::Menu(menu));
+                    // The New Kingdom won, the closing movie plays (FUN_00418640).
+                    if now == 5 {
+                        self.play_movie(movie::WIN_GRAND, Screen::Menu(menu));
+                    } else {
+                        self.screen = Some(Screen::Menu(menu));
+                    }
                     return;
                 }
             } else {
@@ -1121,10 +1160,18 @@ impl ApplicationHandler for App {
                     // registry before the rest of the menu is reachable.
                     menu.open_page("family");
                 }
-                self.screen = Some(Screen::Menu(menu));
+                // The original opens with its intro movie at every launch
+                // (FUN_00413ed0); a --script run goes without.
+                if self.args.script.is_none() {
+                    self.play_movie(movie::INTRO, Screen::Menu(menu));
+                } else {
+                    self.screen = Some(Screen::Menu(menu));
+                }
             }
         }
-        if let Some(a) = &self.audio {
+        if let Some(a) = &self.audio
+            && !matches!(self.screen, Some(Screen::Movie(..)))
+        {
             a.update_music(0);
         }
     }
@@ -1163,6 +1210,14 @@ impl ApplicationHandler for App {
                 let alt = [KeyCode::AltLeft, KeyCode::AltRight].iter().any(|k| self.keys.contains(k));
                 let ctrl = [KeyCode::ControlLeft, KeyCode::ControlRight].iter().any(|k| self.keys.contains(k));
                 let cmd = [KeyCode::SuperLeft, KeyCode::SuperRight].iter().any(|k| self.keys.contains(k));
+                // Any key skips a movie, as in the original, but for the full screen
+                // switch (and a modifier held for it).
+                if let Some(Screen::Movie(m, _)) = &mut self.screen
+                    && movie::skips(code, alt, ctrl && cmd)
+                {
+                    m.skip();
+                    return;
+                }
                 match code {
                     KeyCode::F5 => self.quicksave(),
                     KeyCode::F9 => self.quickload(),
@@ -1181,6 +1236,7 @@ impl ApplicationHandler for App {
                             }
                         }
                         Some(Screen::Menu(m)) if code == KeyCode::Escape => m.back(),
+                        Some(Screen::Movie(..)) => {}
                         Some(Screen::Editor(e)) if e.wants_text() => {
                             let text = match code {
                                 KeyCode::Backspace => Some("\u{8}".to_owned()),
@@ -1275,7 +1331,7 @@ impl ApplicationHandler for App {
                     Some(Screen::Menu(m)) => m.hover(gfx.renderer.screen, at),
                     Some(Screen::Playing(g, _)) => g.set_cursor(&gfx.renderer, at),
                     Some(Screen::Editor(e)) => e.set_cursor(&gfx.renderer, at),
-                    None => {}
+                    Some(Screen::Movie(..)) | None => {}
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -1347,6 +1403,9 @@ impl ApplicationHandler for App {
                         (_, ElementState::Released) => self.drag = None,
                         _ => {}
                     },
+                    // A left click skips a movie, as in the original.
+                    Some(Screen::Movie(m, _)) if (button, state) == (MouseButton::Left, ElementState::Pressed) => m.skip(),
+                    Some(Screen::Movie(..)) => {}
                     None => {}
                 }
                 self.editor_request();
@@ -1371,7 +1430,7 @@ impl ApplicationHandler for App {
                         }
                     }
                     Some(Screen::Editor(_)) => city_view::zoom_at(&mut gfx.renderer, at, 1.1f32.powf(steps)),
-                    None => {}
+                    Some(Screen::Movie(..)) | None => {}
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -1528,7 +1587,14 @@ impl App {
                     }
                 });
             }
+            Some(Screen::Movie(m, _)) => {
+                m.update();
+                gfx.frame(|r| m.draw(r));
+            }
             None => {}
+        }
+        if matches!(&self.screen, Some(Screen::Movie(m, _)) if m.done) {
+            self.end_movie();
         }
         self.editor_request();
         match lost_choice {
@@ -1747,6 +1813,11 @@ fn run(mut args: Args) -> Result<()> {
             Some(s) if play_map.is_none() => script::run_script(&mut world, s)?,
             _ => script::ScriptView { keep_dialogs: args.replay.is_none(), ..Default::default() },
         };
+        if let Some((name, seconds)) = &view.movie {
+            let mut m = movie::Movie::silent(&data, name).with_context(|| format!("no movie {name} in {}", data.display()))?;
+            m.seek_blocking(*seconds);
+            return gfx::screenshot(library, args.size, out, |r| m.draw(r));
+        }
         let images = sidebar::SidebarImages::load(&library)?;
         if view.menu {
             // A campaign part-way through: `menuwins` steps into it (each a mission won

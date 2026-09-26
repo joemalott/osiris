@@ -52,6 +52,8 @@ pub struct ScriptView {
     pub slide: Option<(bool, f32)>,
     /// A building tool held with the cursor on a tile, to show its placement preview.
     pub hold: Option<(u16, (i32, i32))>,
+    /// A movie to show instead, and how many seconds into it.
+    pub movie: Option<(String, f64)>,
 }
 
 /// Runs `--script` steps against the world.
@@ -190,6 +192,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["rules"] => view.rules = true,
             ["difficultywindow"] => view.difficulty = true,
             ["soundwindow"] => view.sound = true,
+            ["movie", name, seconds] => view.movie = Some((name.to_string(), seconds.parse()?)),
             ["leave"] => view.leave = true,
             ["overlay", name] => view.overlay = Some(name.to_string()),
             ["topmenu", n] => view.top_menu = Some(n.parse()?),
