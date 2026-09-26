@@ -273,6 +273,13 @@ fn family_saves_dir(name: &str) -> PathBuf {
     family_dir(name).join("saves")
 }
 
+/// Where the current family's saved games go (Load Saved Game lists them), or the
+/// pre-family folder while no family is chosen, as `App::saves_dir` picks.
+pub fn player_saves_dir() -> PathBuf {
+    let family = load_current_family();
+    if family.is_empty() { legacy_saves_dir() } else { family_saves_dir(&family) }
+}
+
 /// A family folder's exact display name, read back from its `name.txt`, falling
 /// back to the folder name itself if that's missing.
 fn family_display_name(dir: &Path) -> String {
@@ -622,6 +629,35 @@ impl App {
         self.autosaved = None;
         start_camera(&mut gfx.renderer, &mut game);
         self.screen = Some(Screen::Playing(Box::new(game), mission));
+    }
+
+    /// `--script` in a window: its steps run on the city `--mission` or `--map` just
+    /// started (after the player's rules are applied, so steps like `safe` hold), and
+    /// the game opens on it paused, the camera where a `view` step points. The Mission
+    /// Editor's steps are for screenshots only.
+    fn run_start_script(&mut self) {
+        let Some(steps) = self.args.script.clone().filter(|s| !editor::script::is_editor_script(s)) else { return };
+        let (Some(Screen::Playing(game, _)), Some(gfx)) = (&mut self.screen, &mut self.gfx) else { return };
+        log::info!("running --script on the city");
+        match script::run_script(&mut game.world, &steps) {
+            Ok(view) => {
+                game.paused = true;
+                if !view.keep_dialogs {
+                    game.close_dialog();
+                }
+                if let Some(z) = view.zoom {
+                    gfx.renderer.camera.zoom = z;
+                }
+                if let Some((x, y)) = view.centre.or(view.info) {
+                    game.view.center_on(&mut gfx.renderer, &game.world.map, x, y);
+                }
+                self.status = Some(("Script done; the game is paused".into(), 4.0));
+            }
+            Err(e) => {
+                log::error!("--script: {e:#}");
+                self.status = Some((format!("Script failed: {e:#}"), 8.0));
+            }
+        }
     }
 
     fn choose(&mut self, choice: menu::Choice, event_loop: &ActiveEventLoop) {
@@ -1006,9 +1042,13 @@ impl ApplicationHandler for App {
                 if self.screen.is_none() {
                     self.screen = Some(Screen::Menu(self.menu()));
                 }
+                self.run_start_script();
             }
             Some((source, mission)) => match new_world(&self.assets, &source, load_difficulty()) {
-                Ok(world) => self.start(world, mission),
+                Ok(world) => {
+                    self.start(world, mission);
+                    self.run_start_script();
+                }
                 Err(e) => {
                     self.status = Some((format!("{e}"), 5.0));
                     self.screen = Some(Screen::Menu(self.menu()));

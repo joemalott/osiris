@@ -90,6 +90,16 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             // A planned city R tiles each way from its centre, for benchmarks.
             ["benchcity", r, s] => bench_city(world, r.parse()?, s.parse()?),
+            // Writes the city as a saved game named NAME into the player's saves, where
+            // Load Saved Game finds it.
+            ["save", name @ ..] if !name.is_empty() => {
+                let dir = crate::player_saves_dir();
+                std::fs::create_dir_all(&dir)?;
+                let path = dir.join(format!("{}.osiris", crate::sanitize(&name.join(" "))));
+                let bytes = world.save().map_err(anyhow::Error::msg)?;
+                std::fs::write(&path, &bytes)?;
+                eprintln!("saved {} ({} bytes)", path.display(), bytes.len());
+            }
             // Lets every building type be built.
             ["allowall"] => {
                 let all: Vec<u16> = (0..world.defs.buildings.len() as u16).filter(|&k| world.defs.building(k).is_some()).collect();
