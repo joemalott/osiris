@@ -48,12 +48,11 @@ pub fn set_fullscreen(on: bool) {
     FULLSCREEN.store(on, Ordering::Relaxed);
 }
 
-/// The Options menu's label for the fullscreen toggle: the original's own display
-/// settings strings (group 42: "Full screen" and "Windowed screen"), showing the
-/// window's current mode.
+/// The Options menu's label for the fullscreen toggle, in the Autosave entry's form:
+/// the original's own "Full screen" (group 42, its display settings) and whether it's on.
 pub fn fullscreen_label(text: &TextTable) -> String {
-    let (i, fallback) = if fullscreen() { (1, "Full screen") } else { (2, "Windowed screen") };
-    text.get(42, i).map_or_else(|| fallback.to_owned(), |s| s.trim().to_owned())
+    let name = text.get(42, 1).map_or("Full screen", |s| s.trim());
+    format!("{name} - {}  (F11)", if fullscreen() { "ON" } else { "OFF" })
 }
 
 /// Device pixels per interface pixel, for a screen `height` device pixels tall whose
