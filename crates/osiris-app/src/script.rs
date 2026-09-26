@@ -572,6 +572,11 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 world.rules.fire = false;
                 world.rules.collapse = false;
             }
+            // Fire and collapse back on, as `safe` turns them off.
+            ["unsafe"] => {
+                world.rules.fire = true;
+                world.rules.collapse = true;
+            }
             // Sets every house to level L and fills it, for benchmarks of a big city.
             ["populate", l] => {
                 let l: u8 = l.parse()?;

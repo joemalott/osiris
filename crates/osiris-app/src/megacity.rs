@@ -75,7 +75,7 @@ const MARKET: Card = &[
 ];
 const WATER: Card = &[
     (TEMPLE_B, 0, 0),
-    (SHRINE, 3, 0),
+    (FIREHOUSE, 3, 0),
     (SHRINE, 3, 1),
     (SMALL_STATUE, 3, 2),
     (WATER_SUPPLY, 0, 3),
@@ -87,7 +87,7 @@ const WATER: Card = &[
 ];
 const LAW: Card = &[
     (COURTHOUSE, 0, 0),
-    (SHRINE, 3, 0),
+    (FIREHOUSE, 3, 0),
     (POLICE, 3, 1),
     (SHRINE, 3, 2),
     (kind::TAX_COLLECTOR, 0, 3),
