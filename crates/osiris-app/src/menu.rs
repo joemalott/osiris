@@ -1304,7 +1304,8 @@ impl Menu {
         bg_text(r, Font::NormalBlackOnLight, &b.subtitle, px + 16.0, py + 46.0);
 
         panel::inner_panel(r, panels, px + 16.0, py + 64.0, 36, 6);
-        bg_text(r, Font::NormalYellow, &t(62, 10), px + 32.0, py + 72.0);
+        // The heading is light on the dark panel, the goals yellow on their labels.
+        bg_text(r, Font::NormalWhiteOnDark, &t(62, 10), px + 32.0, py + 72.0);
         let w = &b.brief.win;
         let mut goals = Vec::new();
         if w.population.enabled {
@@ -1320,12 +1321,12 @@ impl Menu {
         }
         for (line, [x, y]) in goals.iter().zip(GOAL_SLOTS) {
             panel::label(r, panels, px + x, py + y, 15, 0);
-            bg_text(r, Font::NormalBlue, line, px + x + 8.0, py + y + 3.0);
+            bg_text(r, Font::NormalYellow, line, px + x + 8.0, py + y + 3.0);
         }
         if let Some(line) = &b.tutorial {
             let [x, y] = GOAL_SLOTS[4];
             panel::label(r, panels, px + x, py + y, 34, 0);
-            bg_text(r, Font::NormalBlue, line, px + x + 8.0, py + y + 3.0);
+            bg_text(r, Font::NormalYellow, line, px + x + 8.0, py + y + 3.0);
         }
 
         panel::inner_panel(r, panels, px + 16.0, py + 168.0, 34, 15);
