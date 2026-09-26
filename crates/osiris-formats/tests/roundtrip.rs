@@ -183,3 +183,78 @@ fn invasion_points_are_sixteen_xs_then_ys() {
     assert_eq!(p(&s.info.invasion_points_sea, 0), (70, 1));
     assert_eq!(p(&s.info.invasion_points_sea, 3), (138, 69));
 }
+
+/// Events edited, added and deleted come back from a saved map with every field the
+/// Mission Editor sets; the events left alone keep their bytes.
+#[test]
+fn event_edits_survive_a_save() {
+    use osiris_formats::{EventRecord, EventValue};
+    let Some(data) = data_dir() else { return };
+    let path = data.join("Maps").join("Warfare.map");
+    let Ok(file) = ChunkFile::open(&path, Layout::Map) else { return };
+    let mut s = Scenario::from_chunks(&file).unwrap();
+    let before = s.events.clone();
+    assert!(before.len() > 10);
+    // Change the first event into a festival request from a city.
+    {
+        let e = &mut s.events[0];
+        e.kind = 1;
+        e.subtype = 3;
+        e.sender = 0;
+        e.god = 2;
+        e.trigger = 0;
+        e.month = 5;
+        e.year_fixed = -1;
+        e.time.min = 3;
+        e.time.max = 6;
+        e.item = EventValue { value: 15, fixed: 15, min: 5, max: -1 };
+        e.amount = EventValue { value: 7, fixed: -1, min: 7, max: 12 };
+        e.location = [2, -1, 2, 4];
+        e.months = 18;
+        e.on_completed = 3;
+        e.on_refusal = -1;
+        e.on_too_late = 9;
+        e.on_defeat = -1;
+        e.link_reasons = [0, 2, 5, 6];
+    }
+    // Delete the second, and add an invasion by sea at the end.
+    s.events.remove(1);
+    s.events.push(EventRecord {
+        kind: 2,
+        trigger: 0x10,
+        item: EventValue { value: 1, fixed: 3, min: -1, max: -1 },
+        amount: EventValue { value: 0, fixed: -1, min: 20, max: 40 },
+        location: [0, -1, 9, 12],
+        route: [0, 2, -1, -1],
+        months: 6,
+        god: 4,
+        attack_target: 3,
+        on_completed: -1,
+        on_refusal: -1,
+        on_too_late: -1,
+        on_defeat: -1,
+        year_fixed: 2,
+        time: EventValue { value: 0, fixed: 0, min: -1, max: -1 },
+        link_reasons: [6; 4],
+        ..Default::default()
+    });
+
+    let out = std::env::temp_dir().join(format!("osiris-events-roundtrip-{}.map", std::process::id()));
+    s.save_map(&path, &out).unwrap();
+    let back = Scenario::from_chunks(&ChunkFile::open(&out, Layout::Map).unwrap()).unwrap();
+    std::fs::remove_file(&out).ok();
+    assert_eq!(back.events.len(), s.events.len());
+    let key = |e: &EventRecord| {
+        format!(
+            "{} {} {} {} {} {:?} {:?} {:?} {:?} {:?} {} {} {} {} {} {} {} {} {} {:?}",
+            e.kind, e.subtype, e.sender, e.god, e.trigger, (e.month, e.year_fixed, e.time.min, e.time.max), e.item, e.amount, e.location, e.route, e.months, e.attack_target, e.on_completed, e.on_refusal, e.on_too_late, e.on_defeat, e.city, e.defeat_link, e.year, e.link_reasons
+        )
+    };
+    for (a, b) in s.events.iter().zip(&back.events) {
+        assert_eq!(key(a), key(b));
+    }
+    // The events after the deleted one are the file's own, moved up a slot.
+    for (a, b) in before[2..].iter().zip(&back.events[1..]) {
+        assert_eq!(a.raw[4..], b.raw[4..]);
+    }
+}

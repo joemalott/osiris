@@ -494,7 +494,7 @@ impl Scenario {
 
     /// Writes the scenario's grids, info, random seed, camera and flood settings into
     /// `file`, the mirror of `from_chunks`, and the empire (its objects, routes and
-    /// prices). The events are left as the file holds them. Works on either layout;
+    /// prices), and the events. Works on either layout;
     /// every chunk keeps its size, so a scenario whose `floodplain_settings` came from
     /// a file version with a different size is an error.
     pub fn write_chunks(&self, file: &mut ChunkFile) -> Result<()> {
@@ -519,7 +519,8 @@ impl Scenario {
             .get_mut("scenario_info")
             .ok_or_else(|| crate::Error::Invalid("missing chunk scenario_info".into()))?;
         self.info.write_into(info);
-        self.empire.write_chunks(file)
+        self.empire.write_chunks(file)?;
+        crate::events::write_events(file, &self.events)
     }
 
     /// `template` with this scenario written into it: pass the file the scenario was

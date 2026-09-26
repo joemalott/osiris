@@ -526,10 +526,11 @@ fn empire_cmd(game: &Path, what: &str) -> Result<()> {
         println!("route {i}: type {} step {} {} points {:?}", r.route_type, r.step, r.points.len(), r.points.first());
     }
     println!("prices {:?}", s.empire.prices.iter().take(12).collect::<Vec<_>>());
+    println!("events {}, count field {:?}", s.events.len(), s.events.first().map(|e| &e.raw[0..4]));
     for (i, e) in s.events.iter().enumerate() {
         println!(
-            "event {i:3} type {:2} trig {:2} y{} m{} time {:?} item {:?} amount {:?} loc {:?} months {} sender {} sub {} city {} tag {} chain c{} r{} l{} d{} reasons {:?}",
-            e.kind, e.trigger, e.year, e.month, (e.time.min, e.time.max), e.item, e.amount, e.location, e.months, e.sender, e.subtype, e.city, e.tag, e.on_completed, e.on_refusal, e.on_too_late, e.on_defeat, e.reasons
+            "event {i:3} type {:2} trig {:2} m{} year {} {:?} item {:?} amount {:?} loc {:?} route {:?} months {} god/ships {} target {} sender {} sub {} city {} chain c{} r{} l{} d{} link reasons {:?} reasons {:?}",
+            e.kind, e.trigger, e.month, e.year, (e.year_fixed, e.time.min, e.time.max), (e.item.fixed, e.item.min, e.item.max), (e.amount.value, e.amount.fixed, e.amount.min, e.amount.max), e.location, e.route, e.months, e.god, e.attack_target, e.sender, e.subtype, e.city, e.on_completed, e.on_refusal, e.on_too_late, e.on_defeat, e.link_reasons, e.reasons
         );
     }
     Ok(())
