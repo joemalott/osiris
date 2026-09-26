@@ -1568,6 +1568,8 @@ impl Game {
                 })
                 .collect(),
         });
+        self.view.art = city_view::TerrainArt::new(&self.world.defs);
+        self.view.water_step = (self.anim_clock * 15.0) as u32;
         self.view.draw(r, &self.world.map, &marks, &ghost, marker, &sprites, &overlays, draw.as_ref());
         self.disasters.draw_hail(r, &self.world, self.anim_clock, sidebar::panel_left(r.screen[0]), sidebar::TOP);
         self.draw_overlay(r, cost, why);

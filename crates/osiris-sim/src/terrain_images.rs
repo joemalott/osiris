@@ -20,18 +20,49 @@ use crate::defs::{ContextRow, Defs};
 use crate::grid::Grid;
 use crate::map::{Map, NEIGHBOURS, terrain};
 
-/// The set a rebuilt tile's image was picked from: its first image and how many images
-/// it holds. The pass picks one of them from state a map doesn't store (a rotating
-/// counter, the floodplain's growth), so a stored map can hold another image of the set.
+/// The set a rebuilt tile's image was picked from: its first image, how many images it
+/// holds and how far apart they lie (0 or 1: side by side). The pass picks one of them
+/// from state a map doesn't store (a rotating counter, the floodplain's growth, how often
+/// the water has been drawn), so a stored map can hold another image of the set.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Choice {
     pub first: u32,
     pub count: u32,
+    pub stride: u32,
 }
 
 impl Choice {
     pub fn contains(&self, image: u32) -> bool {
-        (self.first..self.first + self.count).contains(&image)
+        let step = self.stride.max(1);
+        image >= self.first && (image - self.first) % step == 0 && (image - self.first) / step < self.count
+    }
+}
+
+/// Water the city view animates, as the original's (FUN_00430ef0) does whenever it
+/// draws a tile more than 60 ms after the last step: open water steps through its six
+/// images one at a time, deep water through its six 15-image loops. The step is written
+/// back into the image grid, so a saved game holds whichever frame each tile was on.
+/// Returns the set `image` belongs to, if it animates.
+pub fn animated_water(defs: &Defs, image: u32) -> Option<Choice> {
+    let t = &defs.terrain;
+    if (t.flood_water..t.flood_water + 6).contains(&image) {
+        Some(Choice { first: t.flood_water, count: 6, stride: 1 })
+    } else if (t.deepwater..t.deepwater + 90).contains(&image) {
+        Some(Choice { first: t.deepwater + (image - t.deepwater) % 15, count: 6, stride: 15 })
+    } else {
+        None
+    }
+}
+
+/// The image an animated water tile shows `step` frames after `image` (see
+/// `animated_water`); other images are returned as they are.
+pub fn water_frame(defs: &Defs, image: u32, step: u32) -> u32 {
+    match animated_water(defs, image) {
+        Some(c) => {
+            let frame = (image - c.first) / c.stride.max(1);
+            c.first + (frame + step) % c.count * c.stride.max(1)
+        }
+        None => image,
     }
 }
 
@@ -53,7 +84,19 @@ const NO_GRASS: u32 = terrain::TREE | terrain::ROCK | terrain::MEADOW | terrain:
 /// also marks the floodplain's banks as grassland (groundwater) and clears meadow,
 /// marshland and dunes from them.
 pub fn rebuild(map: &mut Map, defs: &Defs) -> Grid<Choice> {
+    rebuild_with_edge_margin(map, defs, EDGE_MARGIN)
+}
+
+/// How many tiles from the diamond's edge bare land keeps to single tiles: its blocks
+/// may not reach within 3 tiles of the edge (FUN_0047c880 asks FUN_0046f9a0).
+pub const EDGE_MARGIN: i32 = 3;
+
+/// `rebuild`, with bare land blocks kept `edge_margin` tiles from the diamond's edge.
+/// Some campaign missions and Gateway to Atlantis were saved by an earlier build that
+/// laid blocks right up to the edge (margin 0); the checker redraws them that way.
+pub fn rebuild_with_edge_margin(map: &mut Map, defs: &Defs, edge_margin: i32) -> Grid<Choice> {
     let mut pass = Pass::new(map, defs);
+    pass.edge_margin = edge_margin;
     pass.shrubs_to_trees(map);
     pass.clear(map);
     pass.run(map);
@@ -254,6 +297,7 @@ struct Pass<'a> {
     banks: Grid<Bank>,
     counters: Counters,
     choices: Grid<Choice>,
+    edge_margin: i32,
 }
 
 impl<'a> Pass<'a> {
@@ -264,6 +308,7 @@ impl<'a> Pass<'a> {
             banks: Grid::new(map.width, map.height),
             counters: Counters::default(),
             choices: Grid::new(map.width, map.height),
+            edge_margin: EDGE_MARGIN,
         }
     }
 
@@ -282,14 +327,14 @@ impl<'a> Pass<'a> {
 
     fn put_choice(&mut self, map: &mut Map, x: i32, y: i32, image: u32, first: u32, count: u32) {
         map.set_single_image(x, y, image);
-        self.choices.set(x, y, Choice { first, count });
+        self.choices.set(x, y, Choice { first, count, stride: 1 });
     }
 
     fn put_footprint(&mut self, map: &mut Map, x: i32, y: i32, size: i32, image: u32) {
         map.set_footprint(x, y, size, image);
         for yy in y..y + size {
             for xx in x..x + size {
-                self.choices.set(xx, yy, Choice { first: image, count: 1 });
+                self.choices.set(xx, yy, Choice { first: image, count: 1, stride: 1 });
             }
         }
     }
@@ -676,7 +721,7 @@ impl<'a> Pass<'a> {
         for yy in y..y + size {
             for xx in x..x + size {
                 let t = Self::t(map, xx, yy);
-                if self.diamond.near_edge(xx, yy, 3) || self.banks.at_or(xx, yy, Bank::None) == Bank::Shore {
+                if self.diamond.near_edge(xx, yy, self.edge_margin) || self.banks.at_or(xx, yy, Bank::None) == Bank::Shore {
                     return false;
                 }
                 let fp = t & terrain::FLOODPLAIN != 0;
@@ -814,21 +859,42 @@ impl<'a> Pass<'a> {
             (Self::count(floodplain) > 0).then(|| self.water_beside_floodplain(x, y, offset, item, floodplain))
         };
         // Open water, shores, and deep water: its variant picks one of six 15-frame loops.
-        let image = image.unwrap_or_else(|| {
-            if t & terrain::DEEPWATER == 0 {
+        let image = match image {
+            Some(image) => image,
+            None if t & terrain::DEEPWATER == 0 => {
                 if offset == 0 { terrain_images.flood_water + item } else { terrain_images.water + item + offset }
-            } else {
-                let tiles = Self::neighbours_without(map, x, y, terrain::DEEPWATER);
-                let rows = &self.defs.contexts.shore;
-                let c = rows.iter().rev().find(|row| row_matches(row, tiles));
-                let (offset, item) = c.map_or((0, 0), |row| {
-                    let v = row.variants.max(1);
-                    (row.offsets[0], if r != 0 { r % v } else { 1 % v })
-                });
-                terrain_images.deepwater + item * 15 + offset
             }
-        });
-        self.put(map, x, y, image);
+            None => self.deep_water(map, x, y, r),
+        };
+        match animated_water(self.defs, image) {
+            Some(c) => {
+                map.set_single_image(x, y, image);
+                self.choices.set(x, y, c);
+            }
+            None => self.put(map, x, y, image),
+        }
+    }
+
+    /// Deep water by the deep water around it. The original (FUN_0047a220) searches the
+    /// shore table from its last row and picks the row's variant by the random grid,
+    /// or where that is 0 by the row's rotating counter, and first resets every counter
+    /// of the table (FUN_00484ee0): grass beside the floodplain picks from the same
+    /// table and counters, so each deep water tile restarts their rotation.
+    fn deep_water(&mut self, map: &Map, x: i32, y: i32, r: u32) -> u32 {
+        let base = self.defs.terrain.deepwater;
+        let rows = &self.defs.contexts.shore;
+        self.counters.shore.clear();
+        self.counters.shore.resize(rows.len(), 0);
+        let tiles = Self::neighbours_without(map, x, y, terrain::DEEPWATER);
+        let Some(i) = rows.iter().rposition(|row| row_matches(row, tiles)) else { return base };
+        let v = rows[i].variants.max(1);
+        let item = if r != 0 {
+            r % v
+        } else {
+            self.counters.shore[i] = if 1 >= v { 0 } else { 1 };
+            self.counters.shore[i]
+        };
+        base + item * 15 + rows[i].offsets[0]
     }
 
     /// River water beside the floodplain (`floodplain` marks those neighbours): where a
@@ -1009,18 +1075,19 @@ pub(crate) fn cliff_image(map: &Map, defs: &Defs, x: i32, y: i32) -> u32 {
     cliff_offset(map, x, y, r).map_or(defs.terrain.rock + (r & 7), |o| defs.terrain.cliff + o)
 }
 
-/// Offsets 9..12, 15..18 and 36..48 name CliffTiles.bmp frames whose "top" pixels are
-/// almost entirely missing (a corrupt or unfinished part of the sheet): the frame
-/// decodes to little more than a hairline down its edges, so a tile drawn from one
-/// shows as a bare vertical line. `fixed` substitutes a full 8-neighbour look, which
-/// every broken frame is close enough to, for any offset landing on one of them.
-fn fixed(offset: u32, r: u32) -> u32 {
-    const BROKEN: [std::ops::Range<u32>; 3] = [9..12, 15..18, 36..48];
-    if BROKEN.iter().any(|b| b.contains(&offset)) { 48 + r % 24 } else { offset }
-}
+/// Cliff images at these offsets from the cliff group are the flat tops of a plateau:
+/// the city view draws them with the tall images, 150 pixels up, level with the tops
+/// of the cliff columns around them (FUN_00439f10), not with the ground.
+pub const CLIFF_TOPS: std::ops::Range<u32> = 48..72;
+
+/// How far above its tile the city view draws a plateau top (`CLIFF_TOPS`).
+pub const CLIFF_TOP_RISE: i32 = 150;
 
 /// Which cliff image a cliff tile takes from the cliffs around it (orientation 0), or
-/// `None` for a lone outcrop, drawn as plain rock.
+/// `None` for a lone outcrop, drawn as plain rock (FUN_00475fd0). The columns at
+/// offsets 9..12, 15..18 and 36..48 turn their face away from the camera: only their
+/// top, their foot and a 1 px outline are drawn, and the raised plateau tops in front
+/// of them hide the outline.
 fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {
     let cliff = terrain::CLIFF | terrain::ROCK;
     let m: [bool; 8] = std::array::from_fn(|i| {
@@ -1035,7 +1102,7 @@ fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {
         7 => {
             for (i, base) in [(1, 12), (7, 15), (5, 18), (3, 21)] {
                 if !m[i] {
-                    return Some(fixed(base + r3, r));
+                    return Some(base + r3);
                 }
             }
         }
@@ -1057,11 +1124,11 @@ fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {
         return Some(30 + r6);
     }
     if all(&[2, 3, 4, 5, 6]) {
-        return Some(fixed(36 + r6, r));
+        return Some(36 + r6);
     }
     if all(&[0, 1]) {
         if all(&[2, 3, 4]) {
-            return Some(fixed(42 + r6, r));
+            return Some(42 + r6);
         }
         if m[2] {
             return Some(r3);
@@ -1074,7 +1141,7 @@ fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {
         return Some(6 + r3);
     }
     if all(&[2, 3, 4]) {
-        return Some(fixed(9 + r3, r));
+        return Some(9 + r3);
     }
     None
 }

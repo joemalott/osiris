@@ -667,6 +667,7 @@ impl Editor {
         let (sprites, icons, numbers) = self.flags(&img);
         let marks = self.highlights();
         let mut city = std::mem::take(&mut self.view.city);
+        city.art = crate::city_view::TerrainArt::new(&self.defs);
         city.draw(r, &self.shown_map(), &marks, &[], self.defs.terrain.empty_land, &sprites, &icons, None);
         self.view.city = city;
         for ((x, y), n) in numbers {
