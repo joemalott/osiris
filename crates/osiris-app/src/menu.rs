@@ -89,8 +89,17 @@ const BRIEF_GO: [f32; 4] = [772.0, 570.0, 27.0, 27.0];
 const BRIEF_BACK: [f32; 4] = [218.0, 572.0, 31.0, 20.0];
 const BRIEF_UP: [f32; 4] = [318.0, 576.0, 17.0, 17.0];
 const BRIEF_DOWN: [f32; 4] = [335.0, 576.0, 17.0, 17.0];
-/// The briefing's text: where it is drawn and the band it is clipped to.
-const BRIEF_TEXT: [f32; 4] = [240.0, 340.0, 528.0, 234.0];
+/// The briefing's text: where it is drawn and the band it is clipped to. The original
+/// wraps it at 544 pixels, which would run it past the right edge of its 33-block box
+/// and under the scroll bar; it wraps here to stay 8 pixels inside the box.
+const BRIEF_TEXT: [f32; 4] = [240.0, 340.0, 504.0, 234.0];
+/// The briefing's scroll arrows (Pharaoh_General group 96, FUN_00418f70) and its stone's
+/// x, top and travel (FUN_004c72b0).
+const BRIEF_ARROW_UP: [f32; 4] = [762.0, 328.0, 39.0, 26.0];
+const BRIEF_ARROW_DOWN: [f32; 4] = [762.0, 542.0, 39.0, 26.0];
+const BRIEF_STONE: [f32; 3] = [768.0, 356.0, 163.0];
+/// A line of the briefing's text, the step its arrows and wheel scroll by.
+const BRIEF_LINE: f32 = 16.0;
 
 /// The family's menu (FUN_004cb4d0) in its 640x480 art: the panel, and the first
 /// button (225x25, one every 48 pixels, table 0x5e0408).
@@ -320,6 +329,8 @@ pub struct Menu {
     explore_confirm: bool,
     /// How far the briefing's text can scroll, found as it is drawn.
     briefing_max: std::cell::Cell<f32>,
+    /// The briefing's stone is being dragged.
+    briefing_drag: bool,
 }
 
 const BUTTON_H: f32 = 25.0;
@@ -446,6 +457,7 @@ impl Menu {
             briefing_scroll: 0.0,
             explore_confirm: false,
             briefing_max: std::cell::Cell::new(0.0),
+            briefing_drag: false,
         };
         m.build();
         m
@@ -735,6 +747,9 @@ impl Menu {
             let f = if matches!(self.page, Page::Load | Page::Family) { Self::main_frame(screen) } else { Frame::new(screen) };
             self.drag_stone(f.to_bg(p)[1]);
         }
+        if self.briefing_drag {
+            self.drag_briefing(Frame::new(screen).to_bg(p)[1]);
+        }
         self.hover = self.item_at(screen, p);
         self.hover_point = self.point_at(screen, p);
         self.family_hover = match self.page {
@@ -749,11 +764,21 @@ impl Menu {
     /// The left button came up: the stone is let go.
     pub fn release(&mut self) {
         self.dragging = false;
+        self.briefing_drag = false;
+    }
+
+    /// Puts the briefing's stone's middle under `y` (in the page's coordinates), in
+    /// whole lines.
+    fn drag_briefing(&mut self, y: f32) {
+        let [_, top, travel] = BRIEF_STONE;
+        let t = ((y - top - 12.0) / travel).clamp(0.0, 1.0);
+        let max = self.briefing_max.get();
+        self.briefing_scroll = ((t * max / BRIEF_LINE).round() * BRIEF_LINE).min(max);
     }
 
     pub fn scroll(&mut self, lines: i32) {
         if self.page == Page::Briefing {
-            self.briefing_scroll = (self.briefing_scroll + 11.0 * lines as f32).clamp(0.0, self.briefing_max.get());
+            self.briefing_scroll = (self.briefing_scroll + BRIEF_LINE * lines as f32).clamp(0.0, self.briefing_max.get());
             return;
         }
         let max = self.items.len().saturating_sub(self.visible_rows()) as i32;
@@ -1058,6 +1083,17 @@ impl Menu {
             self.difficulty = want;
             self.difficulty_changed = true;
         }
+        // The scroll arrows and stone, there only while the text runs past its box.
+        if self.briefing_max.get() > 0.0 {
+            if inside4(b, BRIEF_ARROW_UP) {
+                self.scroll(-1);
+            } else if inside4(b, BRIEF_ARROW_DOWN) {
+                self.scroll(1);
+            } else if inside(b, BRIEF_STONE[0], BRIEF_STONE[1], 25.0, BRIEF_STONE[2] + 25.0) {
+                self.briefing_drag = true;
+                self.drag_briefing(b[1]);
+            }
+        }
         None
     }
 
@@ -1321,29 +1357,41 @@ impl Menu {
             }
         }
         for (line, [x, y]) in goals.iter().zip(GOAL_SLOTS) {
-            panel::label(r, panels, px + x, py + y, 15, 0);
+            panel::label(r, panels, px + x, py + y, 15, 1);
             bg_text(r, Font::NormalYellow, line, px + x + 8.0, py + y + 3.0);
         }
         if let Some(line) = &b.tutorial {
             let [x, y] = GOAL_SLOTS[4];
-            panel::label(r, panels, px + x, py + y, 34, 0);
+            panel::label(r, panels, px + x, py + y, 34, 1);
             bg_text(r, Font::NormalYellow, line, px + x + 8.0, py + y + 3.0);
         }
 
-        panel::inner_panel(r, panels, px + 16.0, py + 168.0, 34, 15);
+        panel::inner_panel(r, panels, px + 16.0, py + 168.0, 33, 15);
         let [tx, ty, tw, th] = BRIEF_TEXT;
         // Drawn as the original draws messages (FUN_004c8070): a paragraph's first
         // line starts 50 pixels in.
         let opts = rich_text::Options { font: Font::NormalWhiteOnDark, width: tw as i32, paragraph_indent: 50 };
         let laid = rich_text::layout(&b.content, &opts, &mut rich_text::RendererMeasure::new(r));
-        let max = (laid.height as f32 - th).max(0.0);
+        // Whole lines are shown, and it scrolls by whole lines until the last is in view.
+        let view_h = th - 6.0;
+        let max = ((laid.height as f32 - view_h) / BRIEF_LINE).ceil().max(0.0) * BRIEF_LINE;
         self.briefing_max.set(max);
         let scroll = self.briefing_scroll.min(max);
         r.set_clip(Some([tx - 16.0, py + 171.0, tw + 32.0, th]));
-        rich_text::draw(r, &laid, [tx, ty - GLYPH_RISE - scroll], laid.height as f32, 0.0, text_color(Font::NormalWhiteOnDark));
+        rich_text::draw(r, &laid, [tx, ty - GLYPH_RISE], view_h, scroll, text_color(Font::NormalWhiteOnDark));
         r.set_clip(None);
+        // Text longer than its box gets the scroll arrows at either end of the track and
+        // the stone between them (FUN_00418f70, FUN_004c72b0); none when it fits.
         if max > 0.0 {
             panel::inner_panel(r, panels, px + 557.0, py + 192.0, 2, 12);
+            if let Ok(arrows) = r.library.group_id("Pharaoh_General", 96, 8) {
+                for (rect, image) in [(BRIEF_ARROW_UP, arrows), (BRIEF_ARROW_DOWN, arrows + 4)] {
+                    bg_image(r, image + inside4(cursor, rect) as u32, rect[0], rect[1]);
+                }
+            }
+            let [sx, top, travel] = BRIEF_STONE;
+            let sy = top + (scroll / max * travel).round();
+            bg_image(r, panels.panel_button + 39, sx, sy);
         }
 
         bg_text(r, Font::NormalBlackOnLight, &format!("{} {}", t(44, 216), t(153, self.difficulty as usize + 1)), px + 150.0, py + 417.0);

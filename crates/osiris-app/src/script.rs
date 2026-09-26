@@ -9,6 +9,13 @@ fn parse_point(s: &str) -> Result<(i32, i32)> {
     Ok((x.trim().parse()?, y.trim().parse()?))
 }
 
+/// A click (at a screen point) or a wheel turn (in lines) for the menu.
+#[derive(Clone, Copy)]
+pub enum MenuInput {
+    Click([f32; 2]),
+    Wheel(i32),
+}
+
 /// What a script asks the screenshot to show.
 #[derive(Default)]
 pub struct ScriptView {
@@ -27,6 +34,8 @@ pub struct ScriptView {
     /// A period picked on the campaign window, and a mission's briefing to show.
     pub menu_period: Option<usize>,
     pub menu_brief: Option<usize>,
+    /// Clicks and wheel turns given to the menu once it has been drawn.
+    pub menu_input: Vec<MenuInput>,
     pub rules: bool,
     /// Opens the Difficulty window.
     pub difficulty: bool,
@@ -189,6 +198,13 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 view.menu = true;
                 view.menu_brief = Some(m.parse()?);
             }
+            // Clicks the menu at a screen point, or turns its wheel N lines, after it has
+            // been drawn once (the briefing's scroll arrows and stone).
+            ["menuclick", p] => {
+                let (x, y) = parse_point(p)?;
+                view.menu_input.push(MenuInput::Click([x as f32, y as f32]));
+            }
+            ["menuwheel", n] => view.menu_input.push(MenuInput::Wheel(n.parse()?)),
             ["rules"] => view.rules = true,
             ["difficultywindow"] => view.difficulty = true,
             ["soundwindow"] => view.sound = true,
