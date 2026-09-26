@@ -125,10 +125,11 @@ pub fn redraw_on_load(map: &mut Map, defs: &Defs) {
 /// floodplain, the water, the marsh and the rubble in the rectangle. The empty-land
 /// pass lays bare land on any floodplain tile left without an image; the floodplain
 /// pass after it gives the soil back.
-pub fn refresh_land(map: &mut Map, defs: &Defs, x0: i32, y0: i32, x1: i32, y1: i32) {
+pub fn refresh_land(map: &mut Map, defs: &Defs, growth: &dyn Fn(i32, i32) -> u32, x0: i32, y0: i32, x1: i32, y1: i32) {
     let rect = (x0, y0, x1, y1);
     let mut pass = Pass::new(map, defs);
     pass.local = true;
+    pass.growth = Some(growth);
     pass.local_banks(map, (x0 - 7, y0 - 7, x1 + 7, y1 + 7));
     pass.empty_land_in(map, rect, false);
     pass.empty_land_in(map, (x0 - 5, y0 - 5, x1 + 5, y1 + 5), true);
@@ -156,9 +157,10 @@ pub fn refresh_grass(map: &mut Map, defs: &Defs, x0: i32, y0: i32, x1: i32, y1: 
 /// whose edges follow their neighbours. The original redraws only the cracks, gardens,
 /// roads and plazas (FUN_0044bd50), leaving the rest as it was until the city is
 /// loaded again; Osiris draws it as the load would.
-pub fn refresh_beside(map: &mut Map, defs: &Defs, x: i32, y: i32) {
+pub fn refresh_beside(map: &mut Map, defs: &Defs, growth: &dyn Fn(i32, i32) -> u32, x: i32, y: i32) {
     let mut pass = Pass::new(map, defs);
     pass.local = true;
+    pass.growth = Some(growth);
     pass.local_banks(map, (x - 7, y - 7, x + 7, y + 7));
     pass.empty_land_in(map, (x - 6, y - 6, x + 6, y + 6), true);
     let rect = (x - 1, y - 1, x + 1, y + 1);
@@ -170,6 +172,18 @@ pub fn refresh_beside(map: &mut Map, defs: &Defs, x: i32, y: i32) {
     pass.clear_outside_in(map, (x - 7, y - 7, x + 7, y + 7));
 }
 
+/// The image of dry floodplain tile `(x, y)` with its crops grown `growth` steps (0-5),
+/// as the original redraws a row's tiles when its crops grow (FUN_004be0d0 ->
+/// FUN_004bd950 -> FUN_00479e70); `None` where the tile shows something else or lies
+/// outside the diamond the view shows.
+pub fn dry_floodplain_image(map: &Map, defs: &Defs, x: i32, y: i32, growth: u32) -> Option<u32> {
+    let t = map.terrain.at_or(x, y, 0);
+    if t & terrain::FLOODPLAIN == 0 || t & (terrain::WATER | terrain::BUILDING | terrain::ROAD | terrain::CANAL) != 0 || !Diamond::new(map.width, map.height).inside(x, y) {
+        return None;
+    }
+    Some(Pass::new(map, defs).floodplain_soil(map, x, y) + growth.min(5))
+}
+
 /// Redraws the floodplain and the water around `(x, y)` after the flood rose onto the
 /// tile or left it, as the original does for each tile the flood crosses (FUN_004bd950):
 /// the floodplain within a tile of it (two once the water leaves), each floodplain tile
@@ -178,9 +192,10 @@ pub fn refresh_beside(map: &mut Map, defs: &Defs, x: i32, y: i32) {
 /// floodplain pass just gave it (a tile at the river's edge, say, once the floodplain
 /// between has dried); Osiris redraws the water as far as the floodplain pass
 /// reached. The roads and ditches around are the world's to redraw.
-pub fn refresh_flood(map: &mut Map, defs: &Defs, x: i32, y: i32, flooding: bool) {
+pub fn refresh_flood(map: &mut Map, defs: &Defs, growth: &dyn Fn(i32, i32) -> u32, x: i32, y: i32, flooding: bool) {
     let r = if flooding { 1 } else { 2 };
     let mut pass = Pass::new(map, defs);
+    pass.growth = Some(growth);
     pass.local_banks(map, (x - r - 3, y - r - 3, x + r + 3, y + r + 3));
     let is = |mask: u32| move |m: &Map, x: i32, y: i32| Pass::t(m, x, y) & mask != 0 && Pass::t(m, x, y) & terrain::BUILDING == 0;
     pass.around_each_in(map, (x - r, y - r, x + r, y + r), is(terrain::FLOODPLAIN), Pass::floodplain);
@@ -306,6 +321,9 @@ struct Pass<'a> {
     edge_margin: i32,
     /// A redraw in play, of part of the map.
     local: bool,
+    /// How far the crops have grown on a dry floodplain tile (0-5); a new city's are
+    /// bare.
+    growth: Option<&'a dyn Fn(i32, i32) -> u32>,
 }
 
 impl<'a> Pass<'a> {
@@ -318,6 +336,7 @@ impl<'a> Pass<'a> {
             choices: Grid::new(map.width, map.height),
             edge_margin: EDGE_MARGIN,
             local: false,
+            growth: None,
         }
     }
 
@@ -809,9 +828,10 @@ impl<'a> Pass<'a> {
             self.put(map, x, y, base);
             return;
         }
+        // The crops' growth (0-5) is the floodplain row's, which a new city starts at 0.
         let first = self.floodplain_soil(map, x, y);
-        // Crops growing on the floodplain (0-5) are not in the map; a new city starts at 0.
-        self.put_choice(map, x, y, first, first, 6);
+        let growth = self.growth.map_or(0, |g| g(x, y).min(5));
+        self.put_choice(map, x, y, first + growth, first, 6);
     }
 
     /// The first image of a dry floodplain tile's soil: by its fertility, and one of two
