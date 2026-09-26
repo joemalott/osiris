@@ -1439,7 +1439,7 @@ impl Menu {
         r.set_clip(Some([LIST_X, top, LIST_W, rows as f32 * 16.0]));
         for (row, i) in (self.scroll..self.items.len()).take(rows).enumerate() {
             let lit = self.hover == Some(i) || (self.hover.is_none() && self.picked == Some(i));
-            let font = if lit { Font::NormalYellow } else { Font::NormalWhiteOnDark };
+            let font = if lit { Font::NormalWhiteOnDark } else { Font::NormalBlackOnDark };
             bg_text(r, font, &self.items[i].label, LIST_X, top + 16.0 * row as f32);
         }
         r.set_clip(None);
@@ -1631,10 +1631,10 @@ impl Menu {
         bg_centred(r, Font::LargeBlackOnLight, &t(43, 1), 160.0, 50.0, 304.0);
         bg_text(r, Font::NormalBlackOnLight, &t(43, 5), 224.0, 342.0);
         if let Some(item) = self.picked.and_then(|i| self.items.get(i)) {
-            bg_text(r, Font::NormalYellow, &item.label, 160.0, 90.0);
+            bg_text(r, Font::NormalWhiteOnDark, &item.label, 160.0, 90.0);
         }
         for (row, i) in (self.scroll..self.items.len()).take(PAGE_ROWS).enumerate() {
-            let font = if self.hover == Some(i) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
+            let font = if self.hover == Some(i) { Font::NormalWhiteOnDark } else { Font::NormalBlackOnDark };
             bg_text(r, font, &self.items[i].label, PAGE_ROW[0], 130.0 + 16.0 * row as f32);
         }
         self.draw_page_scroll(r, panels, cursor, 144.0);
@@ -1651,7 +1651,7 @@ impl Menu {
         panel::inner_panel(r, panels, 144.0, 120.0, 20, 13);
         bg_centred(r, Font::LargeBlackOnLight, &self.family_text.registry_title, px, 58.0, 384.0);
         for (row, i) in (self.scroll..self.items.len()).take(PAGE_ROWS).enumerate() {
-            let font = if self.family_selected == Some(i) || self.hover == Some(i) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
+            let font = if self.family_selected == Some(i) || self.hover == Some(i) { Font::NormalWhiteOnDark } else { Font::NormalBlackOnDark };
             bg_text(r, font, &self.items[i].label, PAGE_ROW[0], PAGE_ROW[1] + PAGE_ROW[3] * row as f32);
         }
         self.draw_page_scroll(r, panels, cursor, 146.0);

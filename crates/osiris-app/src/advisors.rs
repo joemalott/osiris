@@ -334,7 +334,7 @@ fn labor(ui: &mut Ui, lock: u32, world: &mut World, [px, py]: [f32; 2], popup: &
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
     for (x, id) in [(60.0, 21), (170.0, 22), (400.0, 23), (500.0, 24)] {
         let s = ui.t(G, id);
-        ui.label(Font::SmallPlain, &s, px + x, py + 46.0);
+        ui.label(Font::NormalBlackOnLight, &s, px + x, py + 46.0);
     }
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 65.0, 36, 16);
     for (i, &(id, key)) in LABOR_ROWS.iter().enumerate() {
@@ -440,7 +440,7 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
         draw_text(ui.r, Font::NormalWhiteOnDark, &world.yards_stored(r).to_string(), px + 206.0, y, font::WHITE);
         if world.is_stockpiled(r) {
             let s = ui.t(G, 3);
-            draw_text(ui.r, Font::SmallPlain, &s, px + 304.0, y + 2.0, [0.9, 0.85, 0.6, 1.0]);
+            draw_text(ui.r, Font::NormalWhiteOnDark, &s, px + 304.0, y, font::WHITE);
         } else if world.is_mothballed(r) {
             let s = ui.t(18, 5);
             draw_text(ui.r, Font::NormalYellow, &s, px + 304.0, y, font::WHITE);
@@ -981,7 +981,7 @@ fn entertainment(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<A
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
     for (x, y, id) in [(180.0, 42.0, 1), (180.0, 56.0, 55), (280.0, 56.0, 2), (340.0, 56.0, 3), (470.0, 56.0, 4)] {
         let s = ui.t(G, id);
-        ui.label(Font::SmallPlain, &s, px + x, py + y);
+        ui.label(Font::NormalBlackOnLight, &s, px + x, py + y);
     }
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 70.0, 36, 9);
     let c = world.ratings.coverage.clone();
@@ -1024,7 +1024,7 @@ fn education(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Advis
     }
     for (x, id) in [(180.0, 1), (290.0, 2), (478.0, 3)] {
         let s = ui.t(G, id);
-        ui.label(Font::SmallPlain, &s, px + x, py + 86.0);
+        ui.label(Font::NormalBlackOnLight, &s, px + x, py + 86.0);
     }
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 108.0, 36, 8);
     let c = world.ratings.coverage.clone();
@@ -1057,11 +1057,11 @@ fn health(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorA
     ui.wrapped(Font::NormalBlackOnLight, &state, px + 60.0, py + 46.0, 500.0);
     for (x, id) in [(180.0, 3), (290.0, 4)] {
         let s = ui.t(G, id);
-        ui.label(Font::SmallPlain, &s, px + x, py + 94.0);
+        ui.label(Font::NormalBlackOnLight, &s, px + x, py + 94.0);
     }
     // "City coverage" is centred in a 160-wide box (ui_advisor_health.js city_coverage).
     let coverage_head = ui.t(G, 5);
-    ui.centred(Font::SmallPlain, &coverage_head, px + 440.0, py + 94.0, 160.0);
+    ui.centred(Font::NormalBlackOnLight, &coverage_head, px + 440.0, py + 94.0, 160.0);
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 108.0, 36, 6);
     let c = world.ratings.coverage.clone();
     let rows = [(25, osiris_sim::ratings::PHYSICIAN, 1000, c.physician), (27, osiris_sim::ratings::DENTIST, 1000, c.dentist), (29, kind::APOTHECARY, 100, c.apothecary), (31, osiris_sim::ratings::MORTUARY, 1000, c.mortuary)];
@@ -1173,7 +1173,7 @@ fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
         };
         ui.label(Font::NormalWhiteOnDark, &held, rx + 30.0, ry + 25.0);
         let status = ui.t(G, if can { 47 } else { 48 });
-        ui.label(if can { Font::NormalYellow } else { Font::NormalWhiteOnDark }, &status, rx + 310.0, ry + 25.0);
+        ui.label(Font::NormalWhiteOnDark, &status, rx + 310.0, ry + 25.0);
         if ui.hot(rect) {
             panel::button_border(ui.r, ui.panels, rx + 2.0, ry + 2.0, rect[2] as i32 - 4, rect[3] as i32 - 4, false);
         }
