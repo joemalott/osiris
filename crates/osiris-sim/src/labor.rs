@@ -145,7 +145,9 @@ impl World {
             let Some(cat) = self.defs.building(b.kind).and_then(|d| d.labor.as_deref()) else { continue };
             let Some(ci) = CATEGORIES.iter().position(|c| *c == cat) else { continue };
             staffed.push(b.id);
-            if !self.has_labor_access(b.id) {
+            // A building whose goods the overseer has stopped hires no one (the
+            // original's labor allocation skips them via FUN_00459240).
+            if !self.has_labor_access(b.id) || self.output_of(b.kind).is_some_and(|r| self.is_mothballed(r)) {
                 continue;
             }
             by_category[ci].0 += want;
@@ -218,5 +220,29 @@ mod tests {
         let mut p = vec![0; 9];
         p[6] = 1;
         assert_eq!(allot(&needed, &p, 12), vec![2, 0, 0, 0, 0, 0, 10, 0, 0]);
+    }
+
+    /// A weaponsmith whose weapons the overseer has stopped making hires no one, and
+    /// hires again once they are started (FUN_00459240 in the labor allocation).
+    #[test]
+    fn stopped_industries_hire_no_one() {
+        let Some(mut world) = crate::economy::tests::mission(0) else { return };
+        let id = world.buildings.insert(crate::buildings::Building {
+            kind: 112,
+            x: 10,
+            y: 10,
+            size: 2,
+            road: Some((10, 12)),
+            stock: vec![0; crate::economy::resource::COUNT],
+            ..Default::default()
+        });
+        world.update_labor();
+        assert_eq!(world.buildings.get(id).map(|b| b.workers), Some(12));
+        world.toggle_mothballed(10 /* weapons */);
+        world.update_labor();
+        assert_eq!(world.buildings.get(id).map(|b| b.workers), Some(0));
+        world.toggle_mothballed(10);
+        world.update_labor();
+        assert_eq!(world.buildings.get(id).map(|b| b.workers), Some(12));
     }
 }

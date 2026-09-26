@@ -122,12 +122,13 @@ impl World {
             && !matches!(k, kind::HUNTING_LODGE | WOOD_CUTTERS | REED_GATHERERS | FISHING_WHARF)
     }
 
-    /// Progress a load takes: 400 where it is made from inputs, 200 where it is dug up.
+    /// Progress a load takes: 400 where it is made from inputs, 200 where it is dug up
+    /// (FUN_00455900 caps the progress at 400 when the building has an input, else 200).
     pub fn max_progress(&self, k: u16) -> i32 {
         if self.inputs_of(k).is_empty() { RAW_MAX_PROGRESS } else { WORKSHOP_MAX_PROGRESS }
     }
 
-    fn output_of(&self, k: u16) -> Option<u16> {
+    pub(crate) fn output_of(&self, k: u16) -> Option<u16> {
         self.defs.building(k)?.outputs.first().and_then(|o| self.resource_id(o))
     }
 
@@ -142,7 +143,9 @@ impl World {
     }
 
     /// Whether Ptah speeds building type `k` by half: his complex the mines, clay pits,
-    /// shipwrights, jewelers and weavers; Amon's altar the quarries and brickworks.
+    /// shipwrights, jewelers and weavers; Amon's altar the quarries and brickworks
+    /// (FUN_00455900). The original's altar list also names the four guilds, but like
+    /// the shipwright they have no output, so it never speeds them.
     fn ptah_speeds(&self, k: u16) -> bool {
         use crate::temple_complex::{ALTAR, PTAH};
         match k {
@@ -153,12 +156,18 @@ impl World {
     }
 
     /// Tick 20: industries holding their inputs make a day's progress, one point per
-    /// worker, and stop when done.
+    /// worker, and stop when done (the original's FUN_00455900). There is no fixed rate
+    /// per type: a fully staffed chariot maker (30 workers) makes a load in 14 days, a
+    /// weaponsmith (12) in 34, a clay pit (8) in 25. The day is lost while no labor
+    /// recruiter has found houses lately (the building's houses covered is 0).
     pub(crate) fn update_production(&mut self) {
         for id in self.buildings.ids() {
             let Some(b) = self.buildings.get(id) else { continue };
             let k = b.kind;
             if !self.is_industry(k) || b.workers <= 0 || self.output_of(k).is_some_and(|r| self.is_mothballed(r)) {
+                continue;
+            }
+            if !self.rules.global_labor_pool && b.houses_covered <= 0 {
                 continue;
             }
             if !self.inputs_of(k).iter().all(|&r| b.stock[r as usize] >= Self::input_need(k, r)) {
@@ -936,6 +945,44 @@ pub(crate) mod tests {
         let Some(world) = mission(0) else { return };
         assert_eq!(world.inputs_of(205), vec![resource::TIMBER]);
         assert_eq!(world.inputs_of(112), vec![29 /* copper */]);
+    }
+
+    /// FUN_00455900: an industry gains a point a day for each worker, to 400 with an
+    /// input and 200 without, so a fully staffed chariot maker (30) fills in 14 days,
+    /// a weaponsmith (12) in 34 and a clay pit (8) in 25, and none of them works a day
+    /// on which its houses covered is 0.
+    #[test]
+    fn industries_gain_a_point_a_day_for_each_worker() {
+        let Some(mut world) = mission(0) else { return };
+        world.rules.global_labor_pool = false;
+        for (kind, workers, input, days) in [(205, 30, Some(resource::TIMBER), 14), (112, 12, Some(29), 34), (109, 8, None, 25)] {
+            let id = world.buildings.insert(crate::buildings::Building {
+                kind,
+                x: 10,
+                y: 10,
+                size: 2,
+                road: Some((10, 12)),
+                workers,
+                houses_covered: 100,
+                stock: vec![0; resource::COUNT],
+                ..Default::default()
+            });
+            if let Some(r) = input {
+                world.buildings.get_mut(id).expect("present").stock[r as usize] = LOAD;
+            }
+            let max = world.max_progress(kind);
+            assert_eq!(max, if input.is_some() { 400 } else { 200 });
+            for day in 1..=days {
+                world.update_production();
+                let p = world.buildings.get(id).expect("present").progress;
+                assert_eq!(p >= max, day == days, "kind {kind} day {day} progress {p}");
+            }
+            world.buildings.get_mut(id).expect("present").progress = 0;
+            world.buildings.get_mut(id).expect("present").houses_covered = 0;
+            world.update_production();
+            assert_eq!(world.buildings.get(id).expect("present").progress, 0, "kind {kind} worked with no houses covered");
+            world.buildings.remove(id);
+        }
     }
 
     /// A chariot maker with timber but no weapons on hand still turns its timber into
