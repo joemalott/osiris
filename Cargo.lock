@@ -1691,6 +1691,7 @@ dependencies = [
  "env_logger",
  "log",
  "osiris-audio",
+ "osiris-bink",
  "osiris-formats",
  "osiris-render",
  "osiris-sim",

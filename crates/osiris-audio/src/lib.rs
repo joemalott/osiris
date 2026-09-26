@@ -23,11 +23,13 @@
 mod city_sounds;
 pub mod error;
 mod music;
+mod stream;
 #[cfg(test)]
 mod test_support;
 
 pub use error::{Error, Result};
 pub use music::Track;
+pub use stream::{StreamFeed, StreamSound};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -222,6 +224,16 @@ impl Audio {
     pub fn play_speech(&self, path: impl AsRef<Path>) {
         let Some(inner) = &self.inner else { return };
         inner.play_speech(path.as_ref());
+    }
+
+    /// Starts a sound whose samples (interleaved, `channels` of them at `rate`) are
+    /// pushed while it plays, as a movie's are, at `volume` (`0.0` .. `1.0`). Without
+    /// an output device it plays nothing and has no position.
+    pub fn play_stream(&self, rate: u32, channels: u16, volume: f32) -> StreamSound {
+        match &self.inner {
+            Some(inner) => StreamSound::play(&inner.mixer, rate, channels, volume),
+            None => StreamSound::silent(rate, channels),
+        }
     }
 
     /// Reports which building-type looping ambience channels should currently be audible.

@@ -4,7 +4,8 @@
 //! no Cancel: every change is heard and saved at once, and OK (or a click outside,
 //! or a right-click) closes the window. The settings are the player's, kept in the
 //! user folder (`sound.txt`) for every game, and the window also opens from the
-//! family menu (the original only has it in the city).
+//! family menu (the original only has it in the city). A fifth button, not in the
+//! original, turns the movies off (movie.rs).
 
 use crate::widgets::{Ui, UiImages};
 use osiris_audio::Audio;
@@ -26,25 +27,31 @@ pub struct SoundPrefs {
     pub speech: Channel,
     pub effects: Channel,
     pub city: Channel,
+    /// Whether the intro and closing movies play.
+    pub movies: bool,
 }
 
 impl Default for SoundPrefs {
     /// Quiet to start with; music lowest, as it otherwise drowns the rest.
     fn default() -> Self {
         let on = |volume| Channel { on: true, volume };
-        Self { music: on(20), speech: on(60), effects: on(40), city: on(40) }
+        Self { music: on(20), speech: on(60), effects: on(40), city: on(40), movies: true }
     }
 }
 
 const FILE: &str = "sound.txt";
 
 impl SoundPrefs {
-    /// The saved settings (lines `music on 35`), or the defaults.
+    /// The saved settings (lines `music on 35`, and `movies on`), or the defaults.
     pub fn load(user_dir: &Path) -> Self {
         let mut p = Self::default();
         let Ok(text) = std::fs::read_to_string(user_dir.join(FILE)) else { return p };
         for line in text.lines() {
             let mut it = line.split_whitespace();
+            if let (Some("movies"), Some(on)) = (it.clone().next(), it.clone().nth(1)) {
+                p.movies = on == "on";
+                continue;
+            }
             let (Some(name), Some(on), Some(vol)) = (it.next(), it.next(), it.next()) else { continue };
             let Ok(volume) = vol.parse::<i32>() else { continue };
             let c = Channel { on: on == "on", volume: volume.clamp(0, 100) };
@@ -61,8 +68,13 @@ impl SoundPrefs {
 
     pub fn save(&self, user_dir: &Path) {
         let line = |name: &str, c: Channel| format!("{name} {} {}\n", if c.on { "on" } else { "off" }, c.volume);
-        let text = line("music", self.music) + &line("speech", self.speech) + &line("effects", self.effects) + &line("city", self.city);
+        let text = line("music", self.music) + &line("speech", self.speech) + &line("effects", self.effects) + &line("city", self.city) + if self.movies { "movies on\n" } else { "movies off\n" };
         let _ = std::fs::write(user_dir.join(FILE), text);
+    }
+
+    /// The movies' volume: their narration is speech, so the speech setting's.
+    pub fn movie_volume(&self) -> f32 {
+        if self.speech.on { self.speech.volume as f32 / 100.0 } else { 0.0 }
     }
 
     /// Sets the players' volumes; a channel switched off plays silent.
@@ -125,6 +137,11 @@ impl SoundWindow {
             }
             ui.label(Font::SmallPlain, &format!("{}%", c.volume), x + 326.0, ry + 4.0);
         }
+        // The movies have no text of their own in the original's tables.
+        let t = if prefs.movies { "Movies are on" } else { "Movies are off" };
+        if ui.button([x + 16.0, y + 68.0 + 30.0 * 4.0, 224.0, 20.0], t, Font::NormalBlackOnLight) {
+            prefs.movies = !prefs.movies;
+        }
         let ok = [x + (w - 34.0) / 2.0, y + h - 52.0, 34.0, 34.0];
         let close = ui.image_button(img.ok_cancel + ui.hot(ok) as u32, ok[0], ok[1], ok[2], ok[3]);
         let outside = ui.click.is_some_and(|[cx, cy]| cx < x || cy < y || cx >= x + w || cy >= y + h);
@@ -155,6 +172,7 @@ mod tests {
         let mut p = SoundPrefs::default();
         p.music = Channel { on: false, volume: 20 };
         p.city.volume = 55;
+        p.movies = false;
         p.save(&dir);
         assert_eq!(SoundPrefs::load(&dir), p);
         let _ = std::fs::remove_dir_all(&dir);
