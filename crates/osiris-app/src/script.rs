@@ -655,14 +655,44 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 *world = loaded;
             }
+            // Saves and reloads the city, runs both on N ticks, and says whether they
+            // are still the same (what the game keeps outside the save mustn't steer it).
+            ["reloadcheck", n] => {
+                let bytes = world.save().map_err(anyhow::Error::msg)?;
+                let mut loaded = World::load(&bytes, world.defs.clone(), world.balance.clone()).map_err(anyhow::Error::msg)?;
+                if let Some(b) = world.balances.clone() {
+                    loaded.attach_balances(b);
+                }
+                loaded.test_full_staff = world.test_full_staff;
+                let n: u32 = n.parse()?;
+                for i in 0..n {
+                    world.tick();
+                    loaded.tick();
+                    let (a, b) = (world.save().map_err(anyhow::Error::msg)?, loaded.save().map_err(anyhow::Error::msg)?);
+                    if let Some(at) = a.iter().zip(&b).position(|(x, y)| x != y).or((a.len() != b.len()).then(|| a.len().min(b.len()))) {
+                        let show = |b: &[u8]| String::from_utf8_lossy(&b[at.saturating_sub(200)..(at + 40).min(b.len())]).replace(|c: char| c.is_control(), ".");
+                        eprintln!("reloadcheck: differs after {} ticks at byte {at}:\n  kept:     {}\n  reloaded: {}", i + 1, show(&a), show(&b));
+                        break;
+                    }
+                    if i + 1 == n {
+                        eprintln!("reloadcheck: identical after {n} ticks");
+                    }
+                }
+            }
             ["saveload"] => {
                 let bytes = world.save().map_err(anyhow::Error::msg)?;
                 let mut loaded = World::load(&bytes, world.defs.clone(), world.balance.clone()).map_err(anyhow::Error::msg)?;
                 if let Some(b) = world.balances.clone() {
                     loaded.attach_balances(b);
                 }
-                let same = loaded.save().map_err(anyhow::Error::msg)? == bytes;
+                let again = loaded.save().map_err(anyhow::Error::msg)?;
+                let same = again == bytes;
                 eprintln!("saveload: {} bytes, identical after reload: {same}", bytes.len());
+                if let Some(at) = bytes.iter().zip(&again).position(|(a, b)| a != b).or((!same).then(|| bytes.len().min(again.len()))) {
+                    // The field names before the first difference say where it is.
+                    let show = |b: &[u8]| String::from_utf8_lossy(&b[at.saturating_sub(160)..(at + 40).min(b.len())]).replace(|c: char| c.is_control(), ".");
+                    eprintln!("  first difference at {at}:\n  before: {}\n  after:  {}", show(&bytes), show(&again));
+                }
                 *world = loaded;
             }
             ["imagestats"] => {

@@ -276,7 +276,11 @@ fn default_statue_facing() -> u8 {
 
 /// Leading bytes of a saved game, followed by a format version.
 const SAVE_MAGIC: &[u8; 8] = b"OSIRIS\0\0";
-const SAVE_VERSION: u32 = 1;
+/// Version 2 saves are loaded as they are. Version 1 saves came from builds that
+/// kept buildings, monuments, companies and trade in older shapes, which loading
+/// brings up to date.
+const SAVE_VERSION: u32 = 2;
+const OLDEST_SAVE_VERSION: u32 = 1;
 
 impl World {
     /// Serialises the whole simulation.
@@ -288,27 +292,41 @@ impl World {
         Ok(out)
     }
 
-    /// Restores a saved game, reattaching the static definitions.
+    /// Restores a saved game, reattaching the static definitions. A game saved by this
+    /// build comes back exactly as it was saved, so saving it again gives the same
+    /// bytes; one saved by an earlier build is brought up to date.
     pub fn load(data: &[u8], defs: Arc<Defs>, balance: Arc<Balance>) -> Result<Self, String> {
         if data.len() < 12 || &data[..8] != SAVE_MAGIC {
             return Err("not an Osiris saved game".into());
         }
         let version = u32::from_le_bytes(data[8..12].try_into().unwrap());
-        if version != SAVE_VERSION {
+        if !(OLDEST_SAVE_VERSION..=SAVE_VERSION).contains(&version) {
             return Err(format!("saved game version {version} is not supported"));
         }
         let mut world: World = rmp_serde::from_slice(&data[12..]).map_err(|e| e.to_string())?;
         world.defs = defs;
         world.balance = balance;
-        world.upgrade_monuments();
-        world.upgrade_companies();
-        world.upgrade_fort_grounds();
-        world.upgrade_festival_squares();
-        world.upgrade_statues();
-        world.upgrade_traders();
-        world.upgrade_defenses();
-        world.upgrade_palaces();
+        if version < SAVE_VERSION {
+            world.upgrade();
+        }
         Ok(world)
+    }
+
+    /// Brings a game saved by an earlier build up to date: the old types of walls,
+    /// towers, gatehouses and palaces (in the city and in what may be built), pyramids
+    /// from before they rose block by block, parade grounds and festival squares laid
+    /// out the old way, imageless statues, and old companies and traders. Run on this
+    /// build's own saves, it turned any old type a game held (as `allowall` once let
+    /// in) into the new one, so the first save and reload came out different.
+    fn upgrade(&mut self) {
+        self.upgrade_monuments();
+        self.upgrade_companies();
+        self.upgrade_fort_grounds();
+        self.upgrade_festival_squares();
+        self.upgrade_statues();
+        self.upgrade_traders();
+        self.upgrade_defenses();
+        self.upgrade_palaces();
     }
 }
 

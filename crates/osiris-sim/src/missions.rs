@@ -670,6 +670,27 @@ mod tests {
     }
 
     #[test]
+    fn a_saved_game_reloads_byte_for_byte_and_old_saves_are_upgraded() {
+        use crate::defenses::{GATEHOUSE, OLD_GATEHOUSE, OLD_TOWER, OLD_WALL, TOWER, WALL};
+        let Some(mut world) = load(|_| {}) else { return };
+        // Old types in the city and in what may be built, as `allowall` used to let in:
+        // loading turned them into the new ones, so the first save and reload differed.
+        let old = world.create_building(84, 60, 60);
+        world.scenario_allowed = Some([84, 85, OLD_WALL, OLD_TOWER, OLD_GATEHOUSE].into_iter().collect());
+        let reload = |bytes: &[u8]| World::load(bytes, world.defs.clone(), world.balance.clone()).unwrap();
+        let bytes = world.save().unwrap();
+        assert!(reload(&bytes).save().unwrap() == bytes, "the first reload gives the same bytes");
+        // A game saved by an earlier build (format 1) is brought up to date.
+        let mut v1 = bytes.clone();
+        v1[8..12].copy_from_slice(&1u32.to_le_bytes());
+        let upgraded = reload(&v1);
+        assert_eq!(upgraded.buildings.get(old).map(|b| b.kind), Some(kind::VILLAGE_PALACE));
+        assert_eq!(upgraded.scenario_allowed, Some([kind::VILLAGE_PALACE, kind::TOWN_PALACE, WALL, TOWER, GATEHOUSE].into_iter().collect()));
+        let resaved = upgraded.save().unwrap();
+        assert!(reload(&resaved).save().unwrap() == resaved);
+    }
+
+    #[test]
     fn survival_is_judged_when_the_time_is_up() {
         let Some(mut world) = load(|_| {}) else { return };
         world.mission = None;
