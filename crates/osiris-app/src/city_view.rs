@@ -21,11 +21,54 @@ pub const PLACE_BAD: u16 = 0xf863;
 #[derive(Default)]
 pub struct CityView {
     pub last_sprites: usize,
+    /// The terrain images the view draws its own way (see [`TerrainArt`]).
+    pub art: TerrainArt,
+    /// How many steps the water has moved on (see [`TerrainArt::frame`]).
+    pub water_step: u32,
     /// World-pixel bounds of the playable area, found on first use.
     bounds: Option<[f32; 4]>,
     /// How far the map's tile images reach from their draw tiles, for the map's
     /// images and edges at these versions (see [`Reach`]).
     reach: Option<(u64, u64, Reach)>,
+}
+
+/// Terrain images the city view doesn't draw as they stand in the map, as the original's
+/// doesn't: the water, which it animates, and the flat tops of the cliffs, which it
+/// raises to the height of the cliff columns around them.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TerrainArt {
+    cliff: u32,
+    flood_water: u32,
+    deepwater: u32,
+}
+
+impl TerrainArt {
+    pub fn new(defs: &osiris_sim::Defs) -> Self {
+        let t = &defs.terrain;
+        Self { cliff: t.cliff, flood_water: t.flood_water, deepwater: t.deepwater }
+    }
+
+    /// The image water tile `id` shows `step` steps on: the original's view moves each
+    /// water tile it draws on a step whenever 60 ms have gone by since the last,
+    /// open water through its six images, deep water through its six loops of 15
+    /// (`osiris_sim::terrain_images::animated_water`).
+    fn frame(&self, id: u32, step: u32) -> u32 {
+        if self.flood_water != 0 && (self.flood_water..self.flood_water + 6).contains(&id) {
+            self.flood_water + (id - self.flood_water + step) % 6
+        } else if self.deepwater != 0 && (self.deepwater..self.deepwater + 90).contains(&id) {
+            let i = id - self.deepwater;
+            self.deepwater + (i / 15 + step) % 6 * 15 + i % 15
+        } else {
+            id
+        }
+    }
+
+    /// How far above its tile image `id` is drawn: a cliff's flat top stands level with
+    /// the tops of the cliff columns (`osiris_sim::terrain_images::CLIFF_TOPS`).
+    fn rise(&self, id: u32) -> f32 {
+        use osiris_sim::terrain_images::{CLIFF_TOPS, CLIFF_TOP_RISE};
+        if self.cliff != 0 && id >= self.cliff && CLIFF_TOPS.contains(&(id - self.cliff)) { CLIFF_TOP_RISE as f32 } else { 0.0 }
+    }
 }
 
 /// How far any of the map's tile images reaches from the top-left corner of its draw
@@ -191,7 +234,7 @@ impl CityView {
     /// Draws tile `(x, y)`'s image if it belongs to this pass: flat ground (and the
     /// flattened overlay footprints) in the first, anything taller in the second.
     #[allow(clippy::too_many_arguments)]
-    fn draw_tile(&self, r: &mut Renderer, map: &Map, x: i32, y: i32, overlay: Option<&OverlayDraw>, flat_pass: bool, [vx0, vy0, vx1, vy1]: [f32; 4]) {
+    fn draw_tile(&self, r: &mut Renderer, map: &Map, x: i32, y: i32, overlay: Option<&OverlayDraw>, flat_pass: bool, [vx0, vy0, vx1, vy1]: [f32; 4], paint: Paint) {
         if map.edges.at_or(x, y, 0) & edge::DRAW_TILE == 0 {
             return;
         }
@@ -226,20 +269,30 @@ impl CityView {
                 }
             }
         }
+        let id = self.art.frame(id, self.water_step);
         let Some(rec) = r.record(id) else { return };
         let n = if rec.kind == ImageKind::Isometric { rec.isometric_tiles().max(1) } else { 1 };
         let (iw, ih) = (rec.width as f32, rec.height as f32);
-        let flat = ih <= TILE_H * n as f32;
-        if flat != flat_pass {
+        // A raised cliff top goes with the tall images: the columns behind it must not
+        // be painted over it.
+        let rise = self.art.rise(id);
+        let flat = ih <= TILE_H * n as f32 && rise == 0.0;
+        // The spread goes under everything, tall ground (grass, trees, rock) too; the
+        // exact images are all drawn over it in their own passes.
+        let spread = paint == Paint::Spread;
+        if spread && map.building.at_or(x, y, 0) != 0 {
+            return;
+        }
+        if flat != flat_pass && !spread {
             return;
         }
         // Where footprint_pos puts it, from the record already at hand.
         let p = tile_to_world(map, x, y);
-        let pos = [p[0], p[1] + TILE_H / 2.0 * (n + 1) as f32 - ih];
+        let pos = [p[0], p[1] + TILE_H / 2.0 * (n + 1) as f32 - ih - rise];
         if pos[0] > vx1 || pos[1] > vy1 || pos[0] + iw < vx0 || pos[1] + ih < vy0 {
             return;
         }
-        r.image(id, pos, WHITE, Space::World);
+        r.image_painted(id, pos, WHITE, Space::World, paint);
     }
 
     /// The reach of the map's tile images, worked out again when they change.
@@ -256,10 +309,11 @@ impl CityView {
                 if map.edges.at_or(x, y, 0) & edge::DRAW_TILE == 0 {
                     continue;
                 }
-                let Some(rec) = r.record(map.images.at_or(x, y, 0)) else { continue };
+                let id = map.images.at_or(x, y, 0);
+                let Some(rec) = r.record(id) else { continue };
                 let n = if rec.kind == ImageKind::Isometric { rec.isometric_tiles().max(1) } else { 1 };
                 let bottom = TILE_H / 2.0 * (n + 1) as f32;
-                reach.up = reach.up.max(rec.height as f32 - bottom);
+                reach.up = reach.up.max(rec.height as f32 - bottom + self.art.rise(id));
                 reach.down = reach.down.max(bottom);
                 reach.right = reach.right.max(rec.width as f32);
             }
@@ -316,10 +370,21 @@ impl CityView {
         // diagonal, screen x runs the other way from map x, so the tile with the
         // smaller map x sits in front on screen and is drawn last: a tall sprite's
         // west edge (map x - 1, same diagonal) must be painted over it, not under it.
-        for d in 0..(w + h - 1) {
-            let (x_min, x_max) = visible(d);
-            for x in (x_min..=x_max).rev() {
-                self.draw_tile(r, map, x, d - x, overlay, true, [vx0, vy0, vx1, vy1]);
+        // At a zoom that isn't a whole number of device pixels to a texel, the ground
+        // is laid twice: first every terrain image spread a texel or two past its
+        // edges, then as it is, so the pixels along a seam that neither neighbour's
+        // own texels reach take the colour beside them instead of the clear colour.
+        let texel = r.camera.zoom * r.scale;
+        let spread = (texel - texel.round()).abs() > 1e-3;
+        for paint in [Paint::Spread, Paint::Normal] {
+            if paint == Paint::Spread && !spread {
+                continue;
+            }
+            for d in 0..(w + h - 1) {
+                let (x_min, x_max) = visible(d);
+                for x in (x_min..=x_max).rev() {
+                    self.draw_tile(r, map, x, d - x, overlay, true, [vx0, vy0, vx1, vy1], paint);
+                }
             }
         }
         let draw_person = |r: &mut Renderer, s: &Sprite| {
@@ -350,7 +415,7 @@ impl CityView {
                     pending.retain(|s| (s.x, s.y) != at);
                 }
                 if (show_min..=show_max).contains(&x) {
-                    self.draw_tile(r, map, x, d - x, overlay, false, [vx0, vy0, vx1, vy1]);
+                    self.draw_tile(r, map, x, d - x, overlay, false, [vx0, vy0, vx1, vy1], Paint::Normal);
                 }
             }
             while next_column < columns.len() && columns[next_column].x + columns[next_column].y <= d {

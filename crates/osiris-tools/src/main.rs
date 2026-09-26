@@ -12,7 +12,9 @@ const USAGE: &str = "usage:
   osiris-tools dump-sprites <Data dir> <pak> <out>   write each image of <pak> as PNG
   osiris-tools info <Data dir> <pak>                 list groups and records
   osiris-tools check-images <game dir>              check every map's tile images
-  osiris-tools check-terrain-images <game dir> [-v] redraw every map's terrain and compare
+  osiris-tools check-terrain-images <game dir> [-v] [--tiles <map or 'mission1.pak #N' or '*'> <kind>]
+               [--baseline <file>] [--write-baseline <file>]
+                                                     redraw every map's terrain and compare
   osiris-tools check-maps <game dir>                 parse every .map and campaign mission
   osiris-tools text <game dir> <group>               print all strings of a text group
   osiris-tools message <game dir> <id>               print one Pharaoh_MM.eng entry
@@ -36,8 +38,7 @@ fn main() -> Result<()> {
         ["check-maps", dir] => check_maps(Path::new(dir)),
         ["check-images", dir] => check_images(Path::new(dir)),
         ["holes", dir, what] => holes(Path::new(dir), what),
-        ["check-terrain-images", dir] => terrain_check::check_terrain_images(Path::new(dir), false),
-        ["check-terrain-images", dir, "-v"] => terrain_check::check_terrain_images(Path::new(dir), true),
+        ["check-terrain-images", dir, rest @ ..] => terrain_check::command(Path::new(dir), rest),
         ["goals", dir, what] => goals(Path::new(dir), what),
         ["image-histogram", dir, what] => image_histogram(Path::new(dir), what),
         ["dump-grids", dir, what, out] => dump_grids(Path::new(dir), what, Path::new(out)),
@@ -286,7 +287,7 @@ fn check_images(game: &Path) -> Result<()> {
         let (mut drawn, mut unknown, mut wrong) = (0, 0, 0);
         let mut example = None;
         let mut map = osiris_sim::map::Map::from_scenario(s);
-        osiris_sim::terrain_images::redraw_on_load(&mut map, &defs, s.version);
+        osiris_sim::terrain_images::redraw_on_load(&mut map, &defs);
         for y in 0..map.height {
             for x in 0..map.width {
                 let id = map.images.at_or(x, y, 0);

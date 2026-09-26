@@ -17,7 +17,6 @@
 
 use crate::grid::Grid;
 use crate::map::{Map, terrain};
-use crate::tiles::{fill_matches, match_context};
 use crate::world::World;
 use std::collections::VecDeque;
 
@@ -64,8 +63,14 @@ pub struct Floods {
     rows: Grid<i8>,
     /// Tiles bucketed by row, for fast per-row updates as the flood advances or recedes.
     row_tiles: Vec<Vec<(i32, i32)>>,
-    /// Rotating variant counters for the water-edge context table.
-    water_counters: Vec<u32>,
+    /// How far the crops have grown on each row (0-5), which only the floodplain's
+    /// images show. The original keeps it per row too, and starts every loaded city at
+    /// 0 (FUN_004be0f0).
+    #[serde(default)]
+    growth: Vec<u8>,
+    /// The last growth step taken this year (see `grow_floodplain_crops`).
+    #[serde(default)]
+    growth_step: i32,
 }
 
 impl Default for Floods {
@@ -86,7 +91,8 @@ impl Default for Floods {
             floodplain_width: 0,
             rows: Grid::new(0, 0),
             row_tiles: Vec::new(),
-            water_counters: Vec::new(),
+            growth: Vec::new(),
+            growth_step: -1,
         }
     }
 }
@@ -100,6 +106,14 @@ impl Floods {
     /// The cycle the flood finishes contracting.
     fn end_cycle(&self) -> i32 {
         self.start_cycle() + self.duration + self.floodplain_width * 2
+    }
+
+    /// How far the crops have grown on floodplain tile `(x, y)` (0-5).
+    pub(crate) fn growth_at(&self, x: i32, y: i32) -> u32 {
+        match self.rows.get(x, y) {
+            Some(r) if r >= 0 => self.growth.get(r as usize).copied().unwrap_or(0) as u32,
+            _ => 0,
+        }
     }
 
     /// Cycles the rising/contracting edge takes to cross the whole floodplain width, at
@@ -256,7 +270,8 @@ impl World {
             floodplain_width: width,
             rows,
             row_tiles,
-            water_counters: Vec::new(),
+            growth: vec![0; MAX_ROWS as usize],
+            growth_step: -1,
         };
         // Establish the right state/target for wherever in the year the scenario starts,
         // without stepping flood_progress or firing transition hooks off a fake "Farmable"
@@ -335,6 +350,59 @@ impl World {
         let new_progress = self.floods.flood_progress;
         if new_progress != old_progress {
             self.apply_flood_progress(old_progress, new_progress);
+        }
+        self.grow_floodplain_crops(cycle, subcycle);
+    }
+
+    /// The crops on the dry floodplain grow in five steps a row at a time, as the
+    /// original's flood update has them (FUN_004be770): every row's growth goes back
+    /// to 0 when the flood has been in for as many cycles as there are rows, and from
+    /// that many cycles before the flood's end each sixth of a cycle takes one step,
+    /// for the rows in turn from the river outward, until each row has had sixty
+    /// (FUN_004be0d0 raises the row's growth, up to 5, and redraws its dry tiles). The
+    /// original's order of the rows and the length of a step are read from a
+    /// decompile that hides part of the sums; the rest is as it has them.
+    fn grow_floodplain_crops(&mut self, cycle: i32, subcycle: i32) {
+        let f = &mut self.floods;
+        let width = f.floodplain_width;
+        if width <= 0 {
+            return;
+        }
+        f.growth.resize(MAX_ROWS as usize, 0);
+        if cycle == f.start_cycle() + width && subcycle == 0 {
+            f.growth.iter_mut().for_each(|g| *g = 0);
+            f.growth_step = -1;
+            for r in 0..width {
+                self.redraw_crops(r);
+            }
+            return;
+        }
+        let since = cycle - (f.end_cycle() - width);
+        if since < 0 {
+            return;
+        }
+        let step = since * 6 + subcycle * 6 / CYCLE_TICKS;
+        if step >= width * 60 || step == f.growth_step {
+            return;
+        }
+        f.growth_step = step;
+        let row = step % width;
+        // Only dry rows grow: `is_flooded` reaches rows up to 29 - progress.
+        if row <= MAX_ROWS - 1 - f.flood_progress || f.growth[row as usize] >= 5 {
+            return;
+        }
+        f.growth[row as usize] += 1;
+        self.redraw_crops(row);
+    }
+
+    /// Gives the dry tiles of floodplain row `row` their crops' look.
+    fn redraw_crops(&mut self, row: i32) {
+        let growth = self.floods.growth.get(row as usize).copied().unwrap_or(0) as u32;
+        let tiles = self.floods.row_tiles.get(row as usize).cloned().unwrap_or_default();
+        for (x, y) in tiles {
+            if let Some(image) = crate::terrain_images::dry_floodplain_image(&self.map, &self.defs, x, y, growth) {
+                self.map.set_single_image(x, y, image);
+            }
         }
     }
 
@@ -475,7 +543,7 @@ impl World {
                     let t = t | terrain::WATER;
                     if t & terrain::ROAD != 0 { (t & !terrain::ROAD) | terrain::SUBMERGED_ROAD } else { t }
                 });
-                self.set_flood_water_image(x, y);
+                self.redraw_after_flood(x, y, true);
             }
             // The flood restores fertility as it reaches each row; drier rows (further
             // from the river) top out lower, and a poor flood restores less of that.
@@ -486,28 +554,27 @@ impl World {
             }
         } else if !is_building {
             self.map.terrain.update(x, y, |t| {
-                let t = t & !terrain::WATER;
+                let t = t & !(terrain::WATER | terrain::DEEPWATER);
                 if t & terrain::SUBMERGED_ROAD != 0 { (t & !terrain::SUBMERGED_ROAD) | terrain::ROAD } else { t }
             });
-            self.set_flood_land_image(x, y);
+            self.redraw_after_flood(x, y, false);
+        } else {
+            // Ditches come back out of the water, and those beside open into it or not.
+            self.ditch_images_in(x - 1, y - 1, x + 1, y + 1);
         }
-        // Ditches come back out of the water, and those beside open into it or not.
-        self.ditch_images_in(x - 1, y - 1, x + 1, y + 1);
     }
 
-    fn set_flood_water_image(&mut self, x: i32, y: i32) {
-        let neighbours = fill_matches(&self.map, x, y, terrain::WATER, 1, 0);
-        let base = self.defs.terrain.water;
-        let image = match_context(&self.defs.contexts.water, &mut self.floods.water_counters, neighbours)
-            .map(|c| base + c.group_offset + c.item_offset)
-            .unwrap_or(base);
-        self.map.set_single_image(x, y, image);
-    }
-
-    fn set_flood_land_image(&mut self, x: i32, y: i32) {
-        let fertility_index = (self.map.fertility.at_or(x, y, 0) as u32 / 25).min(3);
-        let image = self.defs.terrain.floodplain + fertility_index * 12;
-        self.map.set_single_image(x, y, image);
+    /// Redraws the land, water, roads and ditches around a tile the flood just rose
+    /// onto or left, as the original does (FUN_004bd950): the floodplain and water (see
+    /// `terrain_images::refresh_flood`), then the roads and ditches within 2 tiles, or 3
+    /// as the water leaves.
+    fn redraw_after_flood(&mut self, x: i32, y: i32, flooding: bool) {
+        let floods = &self.floods;
+        crate::terrain_images::refresh_flood(&mut self.map, &self.defs, &|x, y| floods.growth_at(x, y), x, y, flooding);
+        let r = if flooding { 2 } else { 3 };
+        let (mut rules, map) = self.tile_rules();
+        rules.roads_in(map, x - r, y - r, x + r, y + r);
+        self.ditch_images_in(x - r, y - r, x + r, y + r);
     }
 
     // `harvest_floodplain_farms` and `reset_floodplain_farms`, called above on the

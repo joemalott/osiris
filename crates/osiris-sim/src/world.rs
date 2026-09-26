@@ -316,7 +316,7 @@ impl World {
     pub fn new(scenario: &Scenario, defs: Arc<Defs>, balance: Arc<Balance>) -> Self {
         let info = &scenario.info;
         let mut map = Map::from_scenario(scenario);
-        crate::terrain_images::redraw_on_load(&mut map, &defs, scenario.version);
+        crate::terrain_images::redraw_on_load(&mut map, &defs);
         let (w, h) = (map.width, map.height);
         let water = crate::water::Water::from_scenario(scenario, &map);
         let invasions = crate::invasions::Invasions::from_scenario(scenario, &defs);
@@ -640,7 +640,8 @@ impl World {
     /// Redraws land freed in play the way the original does (see
     /// `terrain_images::refresh_land`).
     pub(crate) fn refresh_land(&mut self, x0: i32, y0: i32, x1: i32, y1: i32) {
-        crate::terrain_images::refresh_land(&mut self.map, &self.defs, x0, y0, x1, y1);
+        let floods = &self.floods;
+        crate::terrain_images::refresh_land(&mut self.map, &self.defs, &|x, y| floods.growth_at(x, y), x0, y0, x1, y1);
     }
 
     /// A cleared floodplain tile loses the image of what stood on it, so

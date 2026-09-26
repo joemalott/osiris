@@ -101,6 +101,12 @@ pub enum Paint {
     /// A channel the mask cuts to its low bits is darkened to what those bits hold
     /// on average (a multiply; the original ANDs the screen's pixels).
     Filter(u16),
+    /// Texture colours, with the shape grown by a texel or two into its transparent
+    /// edge. The city view draws the ground this way under the ground at zooms that
+    /// aren't a whole number of device pixels to a texel: there each tile's diamond
+    /// edge is sampled on its own, and the texels either side of the seam can both
+    /// come out transparent, leaving dots of the clear colour along the tile edges.
+    Spread,
 }
 
 impl Paint {
@@ -112,6 +118,10 @@ impl Paint {
 }
 
 pub const WHITE: [f32; 4] = [1.0; 4];
+
+/// How many texels past its edge an image drawn with [`Paint::Spread`] reaches (the
+/// shader's `SPREAD`).
+const SPREAD: f32 = 2.0;
 
 pub struct Renderer {
     device: wgpu::Device,
@@ -381,8 +391,21 @@ impl Renderer {
         if e.flip != flip {
             std::mem::swap(&mut u0, &mut u1);
         }
-        let uv0 = [u0, e.y as f32 * s];
-        let uv1 = [u1, (e.y + e.h) as f32 * s];
+        let mut uv0 = [u0, e.y as f32 * s];
+        let mut uv1 = [u1, (e.y + e.h) as f32 * s];
+        let (mut pos, mut size) = (pos, size);
+        if paint == Paint::Spread {
+            // The quad reaches SPREAD texels past the image on every side, so the
+            // spread can cover pixels just outside it; the shader keeps its sampling
+            // to the image itself.
+            for i in 0..2 {
+                let du = (uv1[i] - uv0[i]) / size[i];
+                uv0[i] -= du * SPREAD;
+                uv1[i] += du * SPREAD;
+                pos[i] -= SPREAD;
+                size[i] += 2.0 * SPREAD;
+            }
+        }
         self.push_raw(PageSource::Atlas(e.page), uv0, uv1, pos, size, color, space, paint);
     }
 
@@ -398,13 +421,14 @@ impl Renderer {
         space: Space,
         paint: Paint,
     ) {
-        // bit 0 screen space, 1 silhouette, 2 masked, 3 filter, 4 smooth; bits 16-31
-        // the mask.
+        // bit 0 screen space, 1 silhouette, 2 masked, 3 filter, 4 smooth, 5 spread;
+        // bits 16-31 the mask.
         let (mode, mask, color) = match paint {
             Paint::Normal => (0, 0, color),
             Paint::Silhouette => (2, 0, color),
             Paint::Masked(m) => (4, m, color),
             Paint::Filter(m) => (8, m, Paint::filter_tint(m)),
+            Paint::Spread => (32, 0, color),
         };
         let (pos, size) = match self.screen_frame {
             Some((o, k)) if space == Space::Screen => {

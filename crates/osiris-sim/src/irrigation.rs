@@ -338,6 +338,7 @@ impl World {
         let (x0, y0, x1, y1) = path.iter().fold((x0, y0, x1, y1), |(a, b, c, d), &(x, y)| (a.min(x), b.min(y), c.max(x), d.max(y)));
         self.ditch_images_in(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
         crate::terrain_images::refresh_grass(&mut self.map, &self.defs, x0 - 5, y0 - 5, x1 + 5, y1 + 5);
+        crate::terrain_images::refresh_water(&mut self.map, &self.defs, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
         Outcome::Done { items, cost }
     }
 

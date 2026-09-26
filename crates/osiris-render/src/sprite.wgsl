@@ -1,3 +1,6 @@
+// Texels a spread image's quad reaches past it (`SPREAD` in lib.rs).
+const SPREAD: f32 = 2.0;
+
 struct Globals {
     screen: vec2<f32>,
     camera: vec2<f32>,
@@ -22,6 +25,7 @@ struct Instance {
     // bit 3: filter (drawn with the multiplying pipeline: the shape multiplies what
     //        is under it by `color`)
     // bit 4: smooth (bilinear filtering)
+    // bit 5: spread (a transparent texel takes the colour of an opaque one beside it)
     @location(5) flags: u32,
 };
 
@@ -82,9 +86,33 @@ fn fs(v: VOut) -> @location(0) vec4<f32> {
     // Nearest sampling, kept half a texel inside the image: at fractional scales an
     // edge pixel could otherwise land in the transparent gap beside it.
     let half = 0.5 / vec2<f32>(textureDimensions(atlas));
-    var t = textureSample(atlas, atlas_sampler, clamp(v.uv, v.lo + half, max(v.hi - half, v.lo + half)));
+    // A spread image's quad reaches SPREAD texels past the image (see `Paint::Spread`).
+    var lo = v.lo;
+    var hi = v.hi;
+    if ((v.flags & 32u) != 0u) {
+        lo = lo + SPREAD * 2.0 * half;
+        hi = hi - SPREAD * 2.0 * half;
+    }
+    var t = textureSample(atlas, atlas_sampler, clamp(v.uv, lo + half, max(hi - half, lo + half)));
+    if ((v.flags & 32u) != 0u && (any(v.uv < lo) || any(v.uv > hi))) {
+        t = vec4<f32>(0.0);
+    }
     if ((v.flags & 16u) != 0u) {
         t = sample_smooth(v);
+    }
+    if ((v.flags & 32u) != 0u && t.a < 0.004) {
+        let dims = vec2<f32>(textureDimensions(atlas));
+        let a = vec2<i32>(floor(lo * dims + 0.5));
+        let b = max(vec2<i32>(ceil(hi * dims - 0.5)) - 1, a);
+        let p = vec2<i32>(floor(v.uv * dims));
+        let steps = array<vec2<i32>, 8>(vec2<i32>(-1, 0), vec2<i32>(1, 0), vec2<i32>(0, -1), vec2<i32>(0, 1), vec2<i32>(-2, 0), vec2<i32>(2, 0), vec2<i32>(-1, -1), vec2<i32>(1, 1));
+        for (var i = 0; i < 8; i++) {
+            let n = texel(p + steps[i], a, b);
+            if (n.a >= 0.004) {
+                t = n;
+                break;
+            }
+        }
     }
     var c = t * v.color;
     if ((v.flags & 2u) != 0u) {

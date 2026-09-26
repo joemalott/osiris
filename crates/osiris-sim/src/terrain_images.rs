@@ -20,18 +20,49 @@ use crate::defs::{ContextRow, Defs};
 use crate::grid::Grid;
 use crate::map::{Map, NEIGHBOURS, terrain};
 
-/// The set a rebuilt tile's image was picked from: its first image and how many images
-/// it holds. The pass picks one of them from state a map doesn't store (a rotating
-/// counter, the floodplain's growth), so a stored map can hold another image of the set.
+/// The set a rebuilt tile's image was picked from: its first image, how many images it
+/// holds and how far apart they lie (0 or 1: side by side). The pass picks one of them
+/// from state a map doesn't store (a rotating counter, the floodplain's growth, how often
+/// the water has been drawn), so a stored map can hold another image of the set.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Choice {
     pub first: u32,
     pub count: u32,
+    pub stride: u32,
 }
 
 impl Choice {
     pub fn contains(&self, image: u32) -> bool {
-        (self.first..self.first + self.count).contains(&image)
+        let step = self.stride.max(1);
+        image >= self.first && (image - self.first) % step == 0 && (image - self.first) / step < self.count
+    }
+}
+
+/// Water the city view animates, as the original's (FUN_00430ef0) does whenever it
+/// draws a tile more than 60 ms after the last step: open water steps through its six
+/// images one at a time, deep water through its six 15-image loops. The step is written
+/// back into the image grid, so a saved game holds whichever frame each tile was on.
+/// Returns the set `image` belongs to, if it animates.
+pub fn animated_water(defs: &Defs, image: u32) -> Option<Choice> {
+    let t = &defs.terrain;
+    if (t.flood_water..t.flood_water + 6).contains(&image) {
+        Some(Choice { first: t.flood_water, count: 6, stride: 1 })
+    } else if (t.deepwater..t.deepwater + 90).contains(&image) {
+        Some(Choice { first: t.deepwater + (image - t.deepwater) % 15, count: 6, stride: 15 })
+    } else {
+        None
+    }
+}
+
+/// The image an animated water tile shows `step` frames after `image` (see
+/// `animated_water`); other images are returned as they are.
+pub fn water_frame(defs: &Defs, image: u32, step: u32) -> u32 {
+    match animated_water(defs, image) {
+        Some(c) => {
+            let frame = (image - c.first) / c.stride.max(1);
+            c.first + (frame + step) % c.count * c.stride.max(1)
+        }
+        None => image,
     }
 }
 
@@ -53,7 +84,19 @@ const NO_GRASS: u32 = terrain::TREE | terrain::ROCK | terrain::MEADOW | terrain:
 /// also marks the floodplain's banks as grassland (groundwater) and clears meadow,
 /// marshland and dunes from them.
 pub fn rebuild(map: &mut Map, defs: &Defs) -> Grid<Choice> {
+    rebuild_with_edge_margin(map, defs, EDGE_MARGIN)
+}
+
+/// How many tiles from the diamond's edge bare land keeps to single tiles: its blocks
+/// may not reach within 3 tiles of the edge (FUN_0047c880 asks FUN_0046f9a0).
+pub const EDGE_MARGIN: i32 = 3;
+
+/// `rebuild`, with bare land blocks kept `edge_margin` tiles from the diamond's edge.
+/// Some campaign missions and Gateway to Atlantis were saved by an earlier build that
+/// laid blocks right up to the edge (margin 0); the checker redraws them that way.
+pub fn rebuild_with_edge_margin(map: &mut Map, defs: &Defs, edge_margin: i32) -> Grid<Choice> {
     let mut pass = Pass::new(map, defs);
+    pass.edge_margin = edge_margin;
     pass.shrubs_to_trees(map);
     pass.clear(map);
     pass.run(map);
@@ -63,87 +106,120 @@ pub fn rebuild(map: &mut Map, defs: &Defs) -> Grid<Choice> {
     pass.choices
 }
 
-/// What a new city does to the map's stored images. Maps the original didn't save
-/// (older than version 147, with ids from an earlier sprite layout, or newer than 160,
-/// from another editor) have all their terrain drawn again. The rest have their rocks,
-/// ore, cliffs and dunes redrawn (the Cleopatra missions store their cliffs with ids
-/// from another layout) and lose any image outside the diamond, as the full pass
-/// leaves them: the Sandbox maps keep thousands of stale tiles there.
-pub fn redraw_on_load(map: &mut Map, defs: &Defs, version: i32) {
-    if !(147..=160).contains(&version) {
-        rebuild(map, defs);
-    } else {
-        redraw_outcrops(map, defs);
-    }
-}
-
-/// Redraws only rocks, ore, cliffs and dunes, as the original does on every start, and
-/// clears the tiles outside the diamond.
-pub fn redraw_outcrops(map: &mut Map, defs: &Defs) {
-    let mut pass = Pass::new(map, defs);
-    pass.rocks(map);
-    pass.dunes(map);
-    pass.clear_outside(map);
+/// What a new city does to the map's stored images: the original redraws the whole
+/// terrain every time it starts a map (FUN_004de600 -> FUN_004d5980 -> FUN_004be160,
+/// then FUN_004dea50) or loads a saved game or campaign mission (FUN_004d52a0:
+/// FUN_004dea50, then FUN_004be160), so the images a file stores are never shown as
+/// they are. That also clears what older layouts and other editors left: ids from an
+/// earlier sprite layout (before version 147), the Cleopatra missions' cliffs, stale
+/// tiles outside the diamond (thousands in the Sandbox maps), land blocks laid up to
+/// the edge by an earlier build, and water frames saved mid-animation.
+pub fn redraw_on_load(map: &mut Map, defs: &Defs) {
+    rebuild(map, defs);
 }
 
 /// Redraws land freed in play (cleared land, a removed road or building), as the
-/// original does after clearing: the rectangle's empty land in full, the grass in a
-/// ring 5 tiles wider (grass borders depend on what stands beside them), then the
-/// meadow in the rectangle, which the empty-land pass leaves alone.
-/// Dry floodplain the change left without an image gets its soil back last: the
-/// empty-land pass fills it with bare land blocks like any open ground.
-pub fn refresh_land(map: &mut Map, defs: &Defs, x0: i32, y0: i32, x1: i32, y1: i32) {
-    let covered = terrain::WATER | terrain::BUILDING | terrain::WALKABLE_BUILDING | terrain::ROAD | terrain::CANAL | terrain::RUBBLE;
-    let mut floodplain = Vec::new();
-    for y in y0.max(0)..=y1.min(map.height - 1) {
-        for x in x0.max(0)..=x1.min(map.width - 1) {
-            let t = map.terrain.at_or(x, y, 0);
-            if t & terrain::FLOODPLAIN != 0 && t & covered == 0 && map.images.at_or(x, y, 1) == 0 {
-                floodplain.push((x, y));
-            }
-        }
-    }
+/// original does after clearing (FUN_00474700) and after a building goes
+/// (FUN_0043fd00): the rectangle's empty land in full, the grass in a ring 5 tiles
+/// wider (grass borders depend on what stands beside them), then the meadow, the
+/// floodplain, the water, the marsh and the rubble in the rectangle. The empty-land
+/// pass lays bare land on any floodplain tile left without an image; the floodplain
+/// pass after it gives the soil back.
+pub fn refresh_land(map: &mut Map, defs: &Defs, growth: &dyn Fn(i32, i32) -> u32, x0: i32, y0: i32, x1: i32, y1: i32) {
+    let rect = (x0, y0, x1, y1);
     let mut pass = Pass::new(map, defs);
-    pass.empty_land_in(map, (x0, y0, x1, y1), false);
+    pass.local = true;
+    pass.growth = Some(growth);
+    pass.local_banks(map, (x0 - 7, y0 - 7, x1 + 7, y1 + 7));
+    pass.empty_land_in(map, rect, false);
     pass.empty_land_in(map, (x0 - 5, y0 - 5, x1 + 5, y1 + 5), true);
-    pass.meadow_in(map, (x0, y0, x1, y1));
-    for &(x, y) in &floodplain {
-        map.set_single_image(x, y, 0);
-    }
-    for &(x, y) in &floodplain {
-        let image = pass.floodplain_soil(map, x, y) + growth_around(map, defs, x, y);
-        map.set_single_image(x, y, image);
-    }
+    pass.meadow_in(map, rect);
+    let is = |mask: u32| move |m: &Map, x: i32, y: i32| Pass::t(m, x, y) & mask != 0 && Pass::t(m, x, y) & terrain::BUILDING == 0;
+    pass.around_each_in(map, rect, is(terrain::FLOODPLAIN), Pass::floodplain);
+    pass.around_each_in(map, (x0 - 1, y0 - 1, x1 + 1, y1 + 1), is(terrain::WATER), Pass::water);
+    pass.around_each_in(map, rect, is(terrain::MARSHLAND), Pass::marshland);
+    pass.each_in(map, rect, Pass::rubble);
+    pass.clear_outside_in(map, (x0 - 6, y0 - 6, x1 + 6, y1 + 6));
 }
 
-/// How far the crops on the dry floodplain around `(x, y)` have grown (0-5), read from
-/// their images: Osiris doesn't track the floodplain's growth, and a cleared tile should
-/// look like the field it sits in. The most common stage wins; 0 with none around.
-fn growth_around(map: &Map, defs: &Defs, x: i32, y: i32) -> u32 {
-    let base = defs.terrain.floodplain;
-    let mut counts = [0u32; 6];
-    for (dx, dy) in NEIGHBOURS {
-        let (nx, ny) = (x + dx, y + dy);
-        let image = map.images.at_or(nx, ny, 0);
-        let dry = map.terrain_is(nx, ny, terrain::FLOODPLAIN) && !map.terrain_is(nx, ny, terrain::WATER | terrain::BUILDING | terrain::WALKABLE_BUILDING | terrain::ROAD | terrain::CANAL);
-        if dry && (base..base + 48).contains(&image) {
-            counts[((image - base) % 6) as usize] += 1;
-        }
-    }
-    (0..6).rev().max_by_key(|&g| counts[g as usize]).filter(|&g| counts[g as usize] > 0).unwrap_or(0)
-}
-
-/// Redraws only the grass in a rectangle, as the original does around a new road or
-/// ditch: grass beside it takes its bordered look.
+/// Redraws only the grass in a rectangle, as the original does around a new road,
+/// ditch or building (FUN_004746d0, from FUN_0047bf50 for every footprint): grass
+/// beside it takes its bordered look.
 pub fn refresh_grass(map: &mut Map, defs: &Defs, x0: i32, y0: i32, x1: i32, y1: i32) {
     let mut pass = Pass::new(map, defs);
+    pass.local = true;
+    pass.local_banks(map, (x0 - 1, y0 - 1, x1 + 1, y1 + 1));
     pass.empty_land_in(map, (x0, y0, x1, y1), true);
+}
+
+/// Redraws the water in a rectangle and round it, as the original's water pass does
+/// round a new ditch (FUN_00475cc0): a ditch meeting the river beside the floodplain
+/// opens into it (see `ditch_mouth`).
+pub fn refresh_water(map: &mut Map, defs: &Defs, x0: i32, y0: i32, x1: i32, y1: i32) {
+    let mut pass = Pass::new(map, defs);
+    pass.local = true;
+    pass.local_banks(map, (x0 - 2, y0 - 2, x1 + 2, y1 + 2));
+    let water = |m: &Map, x: i32, y: i32| Pass::t(m, x, y) & terrain::WATER != 0 && Pass::t(m, x, y) & terrain::BUILDING == 0;
+    pass.around_each_in(map, (x0, y0, x1, y1), water, Pass::water);
+    pass.clear_outside_in(map, (x0 - 1, y0 - 1, x1 + 1, y1 + 1));
+}
+
+/// Redraws what borders a tile whose terrain changed under it (an earthquake's crack):
+/// the grass 6 tiles round, and the meadow, floodplain, marsh and water beside it,
+/// whose edges follow their neighbours. The original redraws only the cracks, gardens,
+/// roads and plazas (FUN_0044bd50), leaving the rest as it was until the city is
+/// loaded again; Osiris draws it as the load would.
+pub fn refresh_beside(map: &mut Map, defs: &Defs, growth: &dyn Fn(i32, i32) -> u32, x: i32, y: i32) {
+    let mut pass = Pass::new(map, defs);
+    pass.local = true;
+    pass.growth = Some(growth);
+    pass.local_banks(map, (x - 7, y - 7, x + 7, y + 7));
+    pass.empty_land_in(map, (x - 6, y - 6, x + 6, y + 6), true);
+    let rect = (x - 1, y - 1, x + 1, y + 1);
+    let is = |mask: u32| move |m: &Map, x: i32, y: i32| Pass::t(m, x, y) & mask != 0 && Pass::t(m, x, y) & terrain::BUILDING == 0;
+    pass.meadow_in(map, rect);
+    pass.around_each_in(map, rect, is(terrain::FLOODPLAIN), Pass::floodplain);
+    pass.around_each_in(map, rect, is(terrain::MARSHLAND), Pass::marshland);
+    pass.around_each_in(map, (x - 2, y - 2, x + 2, y + 2), is(terrain::WATER), Pass::water);
+    pass.clear_outside_in(map, (x - 7, y - 7, x + 7, y + 7));
+}
+
+/// The image of dry floodplain tile `(x, y)` with its crops grown `growth` steps (0-5),
+/// as the original redraws a row's tiles when its crops grow (FUN_004be0d0 ->
+/// FUN_004bd950 -> FUN_00479e70); `None` where the tile shows something else or lies
+/// outside the diamond the view shows.
+pub fn dry_floodplain_image(map: &Map, defs: &Defs, x: i32, y: i32, growth: u32) -> Option<u32> {
+    let t = map.terrain.at_or(x, y, 0);
+    if t & terrain::FLOODPLAIN == 0 || t & (terrain::WATER | terrain::BUILDING | terrain::ROAD | terrain::CANAL) != 0 || !Diamond::new(map.width, map.height).inside(x, y) {
+        return None;
+    }
+    Some(Pass::new(map, defs).floodplain_soil(map, x, y) + growth.min(5))
+}
+
+/// Redraws the floodplain and the water around `(x, y)` after the flood rose onto the
+/// tile or left it, as the original does for each tile the flood crosses (FUN_004bd950):
+/// the floodplain within a tile of it (two once the water leaves), each floodplain tile
+/// redrawing the tiles around it, then the water. The original redraws the water
+/// within two tiles, which can leave a flooded tile three away with the dry look the
+/// floodplain pass just gave it (a tile at the river's edge, say, once the floodplain
+/// between has dried); Osiris redraws the water as far as the floodplain pass
+/// reached. The roads and ditches around are the world's to redraw.
+pub fn refresh_flood(map: &mut Map, defs: &Defs, growth: &dyn Fn(i32, i32) -> u32, x: i32, y: i32, flooding: bool) {
+    let r = if flooding { 1 } else { 2 };
+    let mut pass = Pass::new(map, defs);
+    pass.growth = Some(growth);
+    pass.local_banks(map, (x - r - 3, y - r - 3, x + r + 3, y + r + 3));
+    let is = |mask: u32| move |m: &Map, x: i32, y: i32| Pass::t(m, x, y) & mask != 0 && Pass::t(m, x, y) & terrain::BUILDING == 0;
+    pass.around_each_in(map, (x - r, y - r, x + r, y + r), is(terrain::FLOODPLAIN), Pass::floodplain);
+    pass.around_each_in(map, (x - r - 1, y - r - 1, x + r + 1, y + r + 1), is(terrain::WATER), Pass::water);
+    pass.clear_outside_in(map, (x - r - 2, y - r - 2, x + r + 2, y + r + 2));
 }
 
 #[derive(Default)]
 struct Counters {
     earthquake: Vec<u32>,
     dirt_road: Vec<u32>,
+    paved_road: Vec<u32>,
     shore: Vec<u32>,
 }
 
@@ -254,6 +330,12 @@ struct Pass<'a> {
     banks: Grid<Bank>,
     counters: Counters,
     choices: Grid<Choice>,
+    edge_margin: i32,
+    /// A redraw in play, of part of the map.
+    local: bool,
+    /// How far the crops have grown on a dry floodplain tile (0-5); a new city's are
+    /// bare.
+    growth: Option<&'a dyn Fn(i32, i32) -> u32>,
 }
 
 impl<'a> Pass<'a> {
@@ -264,6 +346,9 @@ impl<'a> Pass<'a> {
             banks: Grid::new(map.width, map.height),
             counters: Counters::default(),
             choices: Grid::new(map.width, map.height),
+            edge_margin: EDGE_MARGIN,
+            local: false,
+            growth: None,
         }
     }
 
@@ -282,14 +367,14 @@ impl<'a> Pass<'a> {
 
     fn put_choice(&mut self, map: &mut Map, x: i32, y: i32, image: u32, first: u32, count: u32) {
         map.set_single_image(x, y, image);
-        self.choices.set(x, y, Choice { first, count });
+        self.choices.set(x, y, Choice { first, count, stride: 1 });
     }
 
     fn put_footprint(&mut self, map: &mut Map, x: i32, y: i32, size: i32, image: u32) {
         map.set_footprint(x, y, size, image);
         for yy in y..y + size {
             for xx in x..x + size {
-                self.choices.set(xx, yy, Choice { first: image, count: 1 });
+                self.choices.set(xx, yy, Choice { first: image, count: 1, stride: 1 });
             }
         }
     }
@@ -342,6 +427,50 @@ impl<'a> Pass<'a> {
         }
     }
 
+    /// Like `around_each`, for the tiles of a rectangle (clipped to the map).
+    fn around_each_in(&mut self, map: &mut Map, (x0, y0, x1, y1): (i32, i32, i32, i32), want: impl Fn(&Map, i32, i32) -> bool, f: fn(&mut Self, &mut Map, i32, i32)) {
+        for y in y0.max(0)..=y1.min(map.height - 1) {
+            for x in x0.max(0)..=x1.min(map.width - 1) {
+                if !want(map, x, y) || !self.diamond.inside(x, y) {
+                    continue;
+                }
+                for yy in (y - 1).max(0)..=(y + 1).min(map.height - 1) {
+                    for xx in (x - 1).max(0)..=(x + 1).min(map.width - 1) {
+                        f(self, map, xx, yy);
+                    }
+                }
+            }
+        }
+    }
+
+    /// What the floodplain's row marking (`mark_banks`) left in a rectangle, for a
+    /// redraw in play: the original keeps its records all game. Every floodplain tile
+    /// has one, and so does every tile beside the floodplain except river water that
+    /// only touches river water and floodplain.
+    fn local_banks(&mut self, map: &Map, (x0, y0, x1, y1): (i32, i32, i32, i32)) {
+        for y in y0.max(0)..=y1.min(map.height - 1) {
+            for x in x0.max(0)..=x1.min(map.width - 1) {
+                let t = Self::t(map, x, y);
+                let beside = Self::count(Self::neighbours(map, x, y, terrain::FLOODPLAIN));
+                let bank = if t & terrain::FLOODPLAIN != 0 {
+                    Bank::Floodplain
+                } else if beside == 0 {
+                    Bank::None
+                } else {
+                    let open_water = NEIGHBOURS
+                        .iter()
+                        .filter(|&&(dx, dy)| {
+                            let n = Self::t(map, x + dx, y + dy);
+                            n & terrain::WATER != 0 && n & (terrain::FLOODPLAIN | terrain::DIKE) == 0
+                        })
+                        .count();
+                    if open_water + beside == 8 && t & terrain::WATER != 0 { Bank::None } else { Bank::Shore }
+                };
+                self.banks.set(x, y, bank);
+            }
+        }
+    }
+
     /// The original turns every shrub inside the diamond into a tree when a map starts.
     fn shrubs_to_trees(&mut self, map: &mut Map) {
         self.each_shown_tile(map, |_, map, x, y| {
@@ -352,8 +481,12 @@ impl<'a> Pass<'a> {
     /// Tiles outside the diamond are never shown and hold no image, except where a
     /// rock or dune drawn inside reaches over the edge.
     fn clear_outside(&mut self, map: &mut Map) {
-        for y in 0..map.height {
-            for x in 0..map.width {
+        self.clear_outside_in(map, (0, 0, map.width - 1, map.height - 1));
+    }
+
+    fn clear_outside_in(&mut self, map: &mut Map, (x0, y0, x1, y1): (i32, i32, i32, i32)) {
+        for y in y0.max(0)..=y1.min(map.height - 1) {
+            for x in x0.max(0)..=x1.min(map.width - 1) {
                 if !self.diamond.inside(x, y) && Self::t(map, x, y) & KEEP == 0 && map.bitfields.at_or(x, y, 0) & 0x0f == 0 {
                     map.images.set(x, y, 0);
                     self.choices.set(x, y, Choice::default());
@@ -590,7 +723,11 @@ impl<'a> Pass<'a> {
         self.each_in(map, rect, |p, map, x, y| {
             let t = Self::t(map, x, y);
             let clear = if p.banks.at_or(x, y, Bank::None) == Bank::Shore { t & terrain::BUILDING == 0 } else { t & !CLEAR_IGNORED == 0 };
-            if !clear {
+            // The whole-map pass draws grass on the banks' roads and river water too,
+            // and the road and water passes after it draw them again. A redraw in play
+            // leaves them be: the original's (FUN_004746d0) paints them over until the
+            // month's redraw of every road and all the water puts them back.
+            if !clear || (p.local && t & (terrain::ROAD | terrain::WATER) != 0) {
                 return;
             }
             if t & terrain::GROUNDWATER == 0 {
@@ -676,7 +813,7 @@ impl<'a> Pass<'a> {
         for yy in y..y + size {
             for xx in x..x + size {
                 let t = Self::t(map, xx, yy);
-                if self.diamond.near_edge(xx, yy, 3) || self.banks.at_or(xx, yy, Bank::None) == Bank::Shore {
+                if self.diamond.near_edge(xx, yy, self.edge_margin) || self.banks.at_or(xx, yy, Bank::None) == Bank::Shore {
                     return false;
                 }
                 let fp = t & terrain::FLOODPLAIN != 0;
@@ -703,9 +840,10 @@ impl<'a> Pass<'a> {
             self.put(map, x, y, base);
             return;
         }
+        // The crops' growth (0-5) is the floodplain row's, which a new city starts at 0.
         let first = self.floodplain_soil(map, x, y);
-        // Crops growing on the floodplain (0-5) are not in the map; a new city starts at 0.
-        self.put_choice(map, x, y, first, first, 6);
+        let growth = self.growth.map_or(0, |g| g(x, y).min(5));
+        self.put_choice(map, x, y, first + growth, first, 6);
     }
 
     /// The first image of a dry floodplain tile's soil: by its fertility, and one of two
@@ -811,30 +949,51 @@ impl<'a> Pass<'a> {
             (offset >= 8).then_some(terrain_images.flood_water + item + offset)
         } else {
             let floodplain = Self::neighbours(map, x, y, terrain::FLOODPLAIN);
-            (Self::count(floodplain) > 0).then(|| self.water_beside_floodplain(x, y, offset, item, floodplain))
+            (Self::count(floodplain) > 0).then(|| self.water_beside_floodplain(map, x, y, offset, item, floodplain))
         };
         // Open water, shores, and deep water: its variant picks one of six 15-frame loops.
-        let image = image.unwrap_or_else(|| {
-            if t & terrain::DEEPWATER == 0 {
+        let image = match image {
+            Some(image) => image,
+            None if t & terrain::DEEPWATER == 0 => {
                 if offset == 0 { terrain_images.flood_water + item } else { terrain_images.water + item + offset }
-            } else {
-                let tiles = Self::neighbours_without(map, x, y, terrain::DEEPWATER);
-                let rows = &self.defs.contexts.shore;
-                let c = rows.iter().rev().find(|row| row_matches(row, tiles));
-                let (offset, item) = c.map_or((0, 0), |row| {
-                    let v = row.variants.max(1);
-                    (row.offsets[0], if r != 0 { r % v } else { 1 % v })
-                });
-                terrain_images.deepwater + item * 15 + offset
             }
-        });
-        self.put(map, x, y, image);
+            None => self.deep_water(map, x, y, r),
+        };
+        match animated_water(self.defs, image) {
+            Some(c) => {
+                map.set_single_image(x, y, image);
+                self.choices.set(x, y, c);
+            }
+            None => self.put(map, x, y, image),
+        }
+    }
+
+    /// Deep water by the deep water around it. The original (FUN_0047a220) searches the
+    /// shore table from its last row and picks the row's variant by the random grid,
+    /// or where that is 0 by the row's rotating counter, and first resets every counter
+    /// of the table (FUN_00484ee0): grass beside the floodplain picks from the same
+    /// table and counters, so each deep water tile restarts their rotation.
+    fn deep_water(&mut self, map: &Map, x: i32, y: i32, r: u32) -> u32 {
+        let base = self.defs.terrain.deepwater;
+        let rows = &self.defs.contexts.shore;
+        self.counters.shore.clear();
+        self.counters.shore.resize(rows.len(), 0);
+        let tiles = Self::neighbours_without(map, x, y, terrain::DEEPWATER);
+        let Some(i) = rows.iter().rposition(|row| row_matches(row, tiles)) else { return base };
+        let v = rows[i].variants.max(1);
+        let item = if r != 0 {
+            r % v
+        } else {
+            self.counters.shore[i] = if 1 >= v { 0 } else { 1 };
+            self.counters.shore[i]
+        };
+        base + item * 15 + rows[i].offsets[0]
     }
 
     /// River water beside the floodplain (`floodplain` marks those neighbours): where a
     /// marked bank lies on the side the water table picked (`offset`), the water meets
     /// the floodplain's edge; elsewhere it takes the flood water set.
-    fn water_beside_floodplain(&self, x: i32, y: i32, offset: u32, item: u32, floodplain: [u8; 8]) -> u32 {
+    fn water_beside_floodplain(&self, map: &Map, x: i32, y: i32, offset: u32, item: u32, floodplain: [u8; 8]) -> u32 {
         let shore: [bool; 8] = std::array::from_fn(|i| {
             let (dx, dy) = NEIGHBOURS[i];
             self.banks.at_or(x + dx, y + dy, Bank::None) == Bank::Shore
@@ -869,7 +1028,7 @@ impl<'a> Pass<'a> {
             _ => None,
         };
         let Some(side) = side else {
-            return self.defs.terrain.flood_water + item + offset;
+            return ditch_mouth(map, x, y, offset).map_or(self.defs.terrain.flood_water + item + offset, |m| self.defs.terrain.ditch_mouth + m);
         };
         if !widen {
             size = 0;
@@ -892,29 +1051,14 @@ impl<'a> Pass<'a> {
         }
     }
 
-    /// Dirt roads (a new map has no desirability, so none are paved), and roads on the
-    /// floodplain's banks.
+    /// Roads, dirt ones in a new city (it has no desirability yet), and roads on the
+    /// floodplain and its banks.
     fn road(&mut self, map: &mut Map, x: i32, y: i32) {
-        let t = Self::t(map, x, y);
-        if t & terrain::ROAD == 0 || t & (terrain::WATER | terrain::BUILDING | terrain::CANAL) != 0 || map.bitfields.at_or(x, y, 0) & 0x80 != 0 {
-            return;
+        let shore = self.banks.at_or(x, y, Bank::None) == Bank::Shore;
+        let counters = RoadCounters { dirt: &mut self.counters.dirt_road, paved: &mut self.counters.paved_road };
+        if let Some(image) = road_image(map, self.defs, counters, None, shore, x, y) {
+            self.put(map, x, y, image);
         }
-        let tiles = Self::neighbours(map, x, y, terrain::ROAD | terrain::SUBMERGED_ROAD);
-        let c = context(&self.defs.contexts.dirt_road, &mut self.counters.dirt_road, tiles, None);
-        let offset = c.map_or(0, |c| c.offset + c.item);
-        let terrain_images = &self.defs.terrain;
-        let image = if t & terrain::FLOODPLAIN == 0 && self.banks.at_or(x, y, Bank::None) != Bank::Shore {
-            terrain_images.dirt_road + offset
-        } else {
-            let current = map.images.at_or(x, y, 0) as i64 - terrain_images.floodplain as i64;
-            let edge = road_beside_floodplain_i(current);
-            if edge == current && !(84..=87).contains(&current) {
-                terrain_images.floodplain_road + offset
-            } else {
-                (terrain_images.floodplain as i64 + edge) as u32
-            }
-        };
-        self.put(map, x, y, image);
     }
 
     fn plazas(&mut self, map: &mut Map) {
@@ -956,6 +1100,110 @@ impl<'a> Pass<'a> {
         });
     }
 
+}
+
+/// The rotating counters of the two road tables, which the original keeps in the
+/// tables themselves between redraws.
+pub(crate) struct RoadCounters<'a> {
+    pub dirt: &'a mut Vec<u32>,
+    pub paved: &'a mut Vec<u32>,
+}
+
+/// A tile beside the floodplain that isn't on it: the original's row marking gives
+/// every such tile a record (FUN_004be160), and its roads and grass follow the bank.
+pub(crate) fn floodplain_shore(map: &Map, x: i32, y: i32) -> bool {
+    !map.terrain_is(x, y, terrain::FLOODPLAIN | terrain::WATER) && NEIGHBOURS.iter().any(|&(dx, dy)| map.terrain_is(x + dx, y + dy, terrain::FLOODPLAIN))
+}
+
+/// The image of road tile `(x, y)` as the original picks it (FUN_0047b670), or `None`
+/// where the road draws nothing of its own: on water, a building, a ditch (irrigation
+/// draws those), a plaza, or under anything standing on it.
+///
+/// Off the floodplain and its banks (`shore`) a road is paved where the desirability
+/// is above 4, or above 0 within a fountain's range (FUN_0047b920), and dirt elsewhere;
+/// both tables pick by rotating counter. On the floodplain or its banks the road reads
+/// the tile's current image: the four straight banks become their road pieces, other
+/// bank pieces (84..87 among them) stay, and anything else is a floodplain dirt road.
+/// Neighbouring roads include submerged ones.
+pub(crate) fn road_image(map: &Map, defs: &Defs, counters: RoadCounters, desirability: Option<&Grid<i8>>, shore: bool, x: i32, y: i32) -> Option<u32> {
+    let t = map.terrain.at_or(x, y, 0);
+    if t & terrain::ROAD == 0 || t & (terrain::WATER | terrain::BUILDING | terrain::CANAL) != 0 || map.building.at_or(x, y, 0) != 0 || map.bitfields.at_or(x, y, 0) & 0x80 != 0 {
+        return None;
+    }
+    let tiles = NEIGHBOURS.map(|(dx, dy)| (map.terrain_around(x + dx, y + dy, OUTSIDE) & (terrain::ROAD | terrain::SUBMERGED_ROAD) != 0) as u8);
+    let images = &defs.terrain;
+    let pick = |rows: &[ContextRow], counters: &mut Vec<u32>| context(rows, counters, tiles, None).map_or(0, |c| c.offset + c.item);
+    if t & terrain::FLOODPLAIN == 0 && !shore {
+        let d = desirability.map_or(0, |g| g.at_or(x, y, 0) as i32);
+        return Some(if d > 4 || (d > 0 && t & terrain::FOUNTAIN_RANGE != 0) {
+            images.road + pick(&defs.contexts.paved_road, counters.paved)
+        } else {
+            images.dirt_road + pick(&defs.contexts.dirt_road, counters.dirt)
+        });
+    }
+    let current = map.images.at_or(x, y, 0) as i64 - images.floodplain as i64;
+    let edge = road_beside_floodplain_i(current);
+    Some(if edge == current && !(84..=87).contains(&current) {
+        images.floodplain_road + pick(&defs.contexts.dirt_road, counters.dirt)
+    } else {
+        (images.floodplain as i64 + edge) as u32
+    })
+}
+
+/// Where a ditch meets water beside the floodplain away from its banks, the water
+/// takes the ditch's mouth (FUN_0047a220, `Pharaoh_Terrain` group 44): 0-3 for the
+/// straight shores, 4-15 for the corners, by which sides a dry ditch lies on (`offset`
+/// is the water table's shape). `None` where no ditch opens into the water.
+fn ditch_mouth(map: &Map, x: i32, y: i32, offset: u32) -> Option<u32> {
+    let d: [bool; 8] = std::array::from_fn(|i| {
+        let (dx, dy) = NEIGHBOURS[i];
+        i % 2 == 0 && map.terrain_is(x + dx, y + dy, terrain::CANAL) && !map.terrain_is(x + dx, y + dy, terrain::WATER)
+    });
+    if !d.iter().any(|&c| c) {
+        return None;
+    }
+    let (n, e, s, w) = (d[0], d[2], d[4], d[6]);
+    match offset {
+        8 => return s.then_some(3),
+        12 => return w.then_some(0),
+        16 => return n.then_some(1),
+        20 => return e.then_some(2),
+        _ => {}
+    }
+    let mut mouth = None;
+    let either = |mouth: &mut Option<u32>| {
+        if e {
+            if !n {
+                if e && s {
+                    *mouth = Some(6);
+                }
+            } else {
+                *mouth = Some(5);
+            }
+        }
+    };
+    if !w {
+        either(&mut mouth);
+    } else if !s {
+        if n {
+            mouth = Some(4);
+        } else {
+            either(&mut mouth);
+        }
+    } else {
+        mouth = Some(7);
+    }
+    match offset {
+        24 if s => Some(11),
+        24 if w => Some(8),
+        28 if w => Some(13),
+        28 if n => Some(10),
+        32 if e => Some(12),
+        32 if n => Some(15),
+        36 if e => Some(9),
+        36 if s => Some(14),
+        _ => mouth,
+    }
 }
 
 fn is_tree(t: u32) -> bool {
@@ -1009,18 +1257,19 @@ pub(crate) fn cliff_image(map: &Map, defs: &Defs, x: i32, y: i32) -> u32 {
     cliff_offset(map, x, y, r).map_or(defs.terrain.rock + (r & 7), |o| defs.terrain.cliff + o)
 }
 
-/// Offsets 9..12, 15..18 and 36..48 name CliffTiles.bmp frames whose "top" pixels are
-/// almost entirely missing (a corrupt or unfinished part of the sheet): the frame
-/// decodes to little more than a hairline down its edges, so a tile drawn from one
-/// shows as a bare vertical line. `fixed` substitutes a full 8-neighbour look, which
-/// every broken frame is close enough to, for any offset landing on one of them.
-fn fixed(offset: u32, r: u32) -> u32 {
-    const BROKEN: [std::ops::Range<u32>; 3] = [9..12, 15..18, 36..48];
-    if BROKEN.iter().any(|b| b.contains(&offset)) { 48 + r % 24 } else { offset }
-}
+/// Cliff images at these offsets from the cliff group are the flat tops of a plateau:
+/// the city view draws them with the tall images, 150 pixels up, level with the tops
+/// of the cliff columns around them (FUN_00439f10), not with the ground.
+pub const CLIFF_TOPS: std::ops::Range<u32> = 48..72;
+
+/// How far above its tile the city view draws a plateau top (`CLIFF_TOPS`).
+pub const CLIFF_TOP_RISE: i32 = 150;
 
 /// Which cliff image a cliff tile takes from the cliffs around it (orientation 0), or
-/// `None` for a lone outcrop, drawn as plain rock.
+/// `None` for a lone outcrop, drawn as plain rock (FUN_00475fd0). The columns at
+/// offsets 9..12, 15..18 and 36..48 turn their face away from the camera: only their
+/// top, their foot and a 1 px outline are drawn, and the raised plateau tops in front
+/// of them hide the outline.
 fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {
     let cliff = terrain::CLIFF | terrain::ROCK;
     let m: [bool; 8] = std::array::from_fn(|i| {
@@ -1035,7 +1284,7 @@ fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {
         7 => {
             for (i, base) in [(1, 12), (7, 15), (5, 18), (3, 21)] {
                 if !m[i] {
-                    return Some(fixed(base + r3, r));
+                    return Some(base + r3);
                 }
             }
         }
@@ -1057,11 +1306,11 @@ fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {
         return Some(30 + r6);
     }
     if all(&[2, 3, 4, 5, 6]) {
-        return Some(fixed(36 + r6, r));
+        return Some(36 + r6);
     }
     if all(&[0, 1]) {
         if all(&[2, 3, 4]) {
-            return Some(fixed(42 + r6, r));
+            return Some(42 + r6);
         }
         if m[2] {
             return Some(r3);
@@ -1074,7 +1323,7 @@ fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {
         return Some(6 + r3);
     }
     if all(&[2, 3, 4]) {
-        return Some(fixed(9 + r3, r));
+        return Some(9 + r3);
     }
     None
 }
@@ -1132,7 +1381,7 @@ mod tests {
         let diamond = Diamond::new(map.width, map.height);
         let outside = |map: &Map| (0..map.height).flat_map(|y| (0..map.width).map(move |x| (x, y))).filter(|&(x, y)| !diamond.inside(x, y) && map.images.at_or(x, y, 0) != 0).count();
         assert!(outside(&map) > 4000);
-        redraw_on_load(&mut map, &defs, scenario.version);
+        redraw_on_load(&mut map, &defs);
         assert_eq!(outside(&map), 0);
     }
 
@@ -1141,7 +1390,7 @@ mod tests {
         let Some(data) = pharaoh_data_dir() else { return };
         let (scenario, mut map, defs, library) = load(&data, "Bridges.map");
         assert!(scenario.version < 147);
-        redraw_on_load(&mut map, &defs, scenario.version);
+        redraw_on_load(&mut map, &defs);
         let (terrain_pack, _) = library.pack_by_name("Pharaoh_Terrain").expect("terrain pack");
         let mut drawn = 0;
         for y in 0..map.height {

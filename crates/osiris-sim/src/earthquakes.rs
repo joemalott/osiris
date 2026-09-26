@@ -174,6 +174,10 @@ impl World {
             }
         }
         rules.roads_in(map, x0, y0, x1, y1);
+        // The grass, marsh, meadow, floodplain and water round the crack border it
+        // (see `terrain_images::refresh_beside`).
+        let floods = &self.floods;
+        crate::terrain_images::refresh_beside(&mut self.map, &self.defs, &|x, y| floods.growth_at(x, y), x, y);
         self.dust(x, y, 1);
         let near: Vec<_> = self.buildings.iter().filter(|b| b.x <= x + 2 && b.y <= y + 2 && b.x + b.size + 2 > x && b.y + b.size + 2 > y).map(|b| b.id).collect();
         for id in near {
