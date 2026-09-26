@@ -512,10 +512,11 @@ impl Planner<'_> {
         }
         let mut cleared = 0;
         for (x, y) in path {
-            if !open(self.world, x, y) && !self.world.map.terrain_is(x, y, terrain::ROAD) {
-                if let Outcome::Done { items, .. } = self.world.apply(&Command::Clear { x0: x, y0: y, x1: x, y1: y }) {
-                    cleared += items;
-                }
+            if !open(self.world, x, y)
+                && !self.world.map.terrain_is(x, y, terrain::ROAD)
+                && let Outcome::Done { items, .. } = self.world.apply(&Command::Clear { x0: x, y0: y, x1: x, y1: y })
+            {
+                cleared += items;
             }
         }
         cleared
