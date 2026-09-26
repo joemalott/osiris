@@ -188,6 +188,10 @@ cargo test --release -p osiris-sim --test saved_buildings -- --ignored
 - `crates/osiris-app`: the game
 - `crates/osiris-tools`: command-line inspection tools
 
+## Author
+
+Osiris is written by [joemalott](https://github.com/joemalott).
+
 ## Credits
 
 Osiris stands on the work of others who kept these games alive.
