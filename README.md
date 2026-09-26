@@ -24,26 +24,36 @@ game data; see [Playing](#playing).
 
 ## Status
 
-Playable but unfinished. Expect bugs, and expect things that differ from the original.
+Osiris plays the whole game: all 53 missions of the *Pharaoh* and *Cleopatra*
+campaigns, custom maps, and maps you make in its Mission Editor. It follows the
+original's rules closely, checked against the original program, but it is young, so
+expect some bugs and some places where it still differs.
 
 What is in:
 
-- the campaign and custom maps, with briefings, goals, winning and losing, and saved games
-- housing and immigration, water, food, farming and the Nile's flood, industry, storage
-  yards, bazaars, trade by land and river, taxes and the treasury
-- religion and festivals, health and plague, crime, entertainment, education, fire and
-  collapse, the four ratings and all the overseers
+- the campaign with its family histories, briefings, goals, winning and losing, the
+  five difficulty levels, saved games and monthly autosaves, and the original movies
+- housing and immigration, water, food, farming, irrigation and the Nile's flood,
+  hunting, fishing, wood cutting and reed gathering, industry, storage yards, bazaars,
+  trade by land and river, taxes and the treasury
+- religion, temple complexes and festivals, health and plague, crime, tomb robbers,
+  entertainment, education, fire and collapse, earthquakes, predators, the four
+  ratings and all the overseers
 - scenario events: Pharaoh's requests, gifts, price and wage changes, floods and
   invasions, with the original messages
 - the army and navy: recruiters, forts and companies with their orders, the military
-  academy, walls, towers, gatehouses, warships and transports, and land and sea invasions
-- monuments: mastabas, every pyramid family, obelisks and the Sphinx, built phase by phase
-  by laborers and guild craftsmen with materials dragged from storage, and burial
-  provisions for tombs
+  academy, walls, towers, gatehouses, warships and transports, land and sea invasions,
+  and companies sent to serve the Kingdom
+- monuments: mastabas, every pyramid family, obelisks, the Sphinx, sun temples,
+  mausoleums and the royal tombs of the Valley of the Kings, built by laborers and guild
+  craftsmen with materials dragged from storage, and burial provisions
+- the Mission Editor: terrain, the scenario's options, the Kingdom map with its cities,
+  routes and prices, and events, saved in the original `.map` format
+- city sounds, music and speech, the original's cheats, and widescreen and 4K displays
+  with an interface size option
 
-What is missing or incomplete: tomb robbers, predators such as crocodiles and hippos,
-and the original's cheats. Some numbers the original never documented are placeholders, and the code
-says so where they are.
+Some numbers the original never documented are placeholders, and the code says so
+where they are.
 
 ### Game rules
 
@@ -191,6 +201,9 @@ program with its own design, written fresh in Rust to try to make everything eff
 [Julius](https://github.com/bvschaik/julius) and
 [Augustus](https://github.com/Keriew/augustus) documented the file formats and
 mechanics of *Caesar III*, which *Pharaoh* shares much with.
+
+The Bink movie decoder in `crates/osiris-bink` is a port of [FFmpeg](https://ffmpeg.org)'s,
+used under the LGPL's terms as part of this GPL program.
 
 *Pharaoh* and *Cleopatra* were made by Impressions Games and published by Sierra.
 They are trademarks of their owners. This project is not affiliated with them and

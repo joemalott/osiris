@@ -7,13 +7,13 @@
 //! cargo test --release -p osiris-bink --test movies -- --ignored
 //! ```
 //!
-//! It looks for the game data at `$OSIRIS_TEST_DATA`, or else the path this project
-//! keeps it at during development.
+//! It looks for the game data at `$OSIRIS_TEST_DATA`, or else `PharaohData` at the top
+//! of the checkout.
 
 use std::path::PathBuf;
 
 fn data_dir() -> PathBuf {
-    std::env::var_os("OSIRIS_TEST_DATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/Users/jmalott/Desktop/Projects/Osiris/PharaohData"))
+    std::env::var_os("OSIRIS_TEST_DATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../PharaohData")))
 }
 
 /// FNV-1a over the visible pixels of a frame's three planes.
