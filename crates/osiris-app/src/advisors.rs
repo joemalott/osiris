@@ -117,6 +117,8 @@ pub enum AdvisorAction {
     OpenEmpire,
     /// Take command of a company and look at it.
     GoToCompany(usize),
+    /// Look at a warship.
+    GoToShip(osiris_sim::figures::FigureId),
 }
 
 /// A popup over an overseer screen.
@@ -157,6 +159,10 @@ impl Advisors {
             ("resource", Some(r)) => Some(Popup::Resource(r as u16)),
             ("priority", Some(c)) => Some(Popup::Priority(c)),
             ("request", Some(i)) => Some(Popup::Request(i, true)),
+            ("navy", _) => {
+                self.navy = true;
+                None
+            }
             _ => None,
         };
     }
@@ -168,11 +174,13 @@ pub struct Advisors {
     click: Option<[f32; 2]>,
     cursor: [f32; 2],
     scroll: usize,
+    /// The military overseer shows the navy's page.
+    navy: bool,
 }
 
 impl Advisors {
     pub fn new(current: Advisor) -> Self {
-        Self { current, popup: None, click: None, cursor: [0.0; 2], scroll: 0 }
+        Self { current, popup: None, click: None, cursor: [0.0; 2], scroll: 0, navy: false }
     }
 
     fn panel_origin(screen: [f32; 2]) -> [f32; 2] {
@@ -264,7 +272,13 @@ impl Advisors {
             Advisor::Health => health(&mut ui, world, [px, py]),
             Advisor::Population => population(&mut ui, world, [px, py], &mut self.scroll),
             Advisor::Political => political(&mut ui, world, [px, py], &mut self.popup),
-            Advisor::Military => military(&mut ui, world, [px, py]),
+            Advisor::Military => {
+                let page = if self.navy { navy(&mut ui, world, [px, py]) } else { military(&mut ui, world, [px, py]) };
+                if army_navy_switch(&mut ui, [px, py], self.navy) {
+                    self.navy = !self.navy;
+                }
+                page
+            }
             Advisor::Monuments => monuments(&mut ui, world, [px, py], &mut self.popup),
         };
         action = action.or(from_screen);
@@ -1437,6 +1451,168 @@ fn request_popup(ui: &mut Ui, world: &mut World, i: usize, can: bool) -> bool {
     }
 }
 
+/// The button in the military overseer's lower right that turns between the army's
+/// page and the navy's (Pharaoh_General group 4: the navy's picture on the army
+/// page, the army's on the navy page; its hit box at 0x5c4ec8 and 0x5c50f8, 80x48
+/// at 532,347). True if clicked.
+fn army_navy_switch(ui: &mut Ui, [px, py]: [f32; 2], navy: bool) -> bool {
+    let rect = [px + 532.0, py + 347.0, 80.0, 48.0];
+    let image = ui.r.library.group_id("Pharaoh_General", 4, 0).unwrap_or(0) + u32::from(!navy);
+    ui.image(image, rect[0], rect[1]);
+    let hot = ui.hot(rect);
+    panel::button_border(ui.r, ui.panels, rect[0], rect[1], 80, 48, hot);
+    ui.clicked(rect)
+}
+
+/// What the scouts report about the Kingdom's calls for troops, army and navy
+/// alike, as the navy page reads it (FUN_00520ea0 case 3, the requests scanned with
+/// FUN_00521a60): troops coming home by land (15) or sea (28), going out by land (14)
+/// or sea (27), a call open by land (13) or sea (26), or none (12).
+fn kingdom_call_line(world: &World) -> usize {
+    use osiris_sim::scenario_events::TROOPS;
+    match &world.military.battle {
+        Some(b) if b.fought => return if b.sea { 28 } else { 15 },
+        Some(b) => return if b.sea { 27 } else { 14 },
+        None => {}
+    }
+    let open: Vec<usize> = world.scenario_events.open_requests().filter(|(_, e)| e.resource == TROOPS).map(|(i, _)| i).collect();
+    if open.iter().any(|&i| !world.request_by_sea(i)) {
+        13
+    } else if open.iter().any(|&i| world.request_by_sea(i)) {
+        26
+    } else {
+        12
+    }
+}
+
+/// The navy's page (FUN_00520ea0 case 3, its buttons FUN_00523bb0): a row for each
+/// warship with its picture, its crew's state and hull (the ship window's words,
+/// FUN_0050fc70 and FUN_0050fc10), and the buttons to go to it (0x40a560), send it
+/// back to its wharf (0x40a5c0) and mark it for Kingdom service (0x40a600), or
+/// "abroad" while it is away. With a warship marked, the Kingdom service heading
+/// becomes "Dispatch now", which sends the marked ships to the city calling by sea
+/// (0x40a450). Under the rows: the warships and transports the city has, the
+/// threat, and the Kingdom's calls.
+fn navy(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
+    use osiris_sim::navy::{ShipOrder, TRANSPORT, WARSHIP};
+    const G: usize = 51;
+    const SHIP: usize = 184;
+    let title = ui.t(G, 19);
+    ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
+    for (id, x, y) in [(1, 423.0, 43.0), (20, 423.0, 58.0), (3, 480.0, 43.0), (21, 480.0, 58.0), (22, 315.0, 43.0), (23, 300.0, 58.0), (24, 170.0, 58.0)] {
+        let s = ui.t(G, id);
+        ui.label(Font::NormalBlackOnLight, &s, px + x, py + y);
+    }
+    let afloat = |k: u16| -> Vec<osiris_sim::figures::FigureId> {
+        let mut ids: Vec<_> = world.figures.iter().filter(|f| f.kind == k && !f.dead && f.action != osiris_sim::military::action::CORPSE && f.ship.is_some()).map(|f| f.id).collect();
+        ids.sort_unstable();
+        ids
+    };
+    let warships = afloat(WARSHIP);
+    let transports = afloat(TRANSPORT).len();
+    let sea_call = world.sea_troops_wanted();
+    let mut action = None;
+    // The Kingdom service column's heading, or the dispatch button when a warship is
+    // marked (FUN_00523bb0).
+    let marked = warships.iter().any(|&s| world.figures.get(s).and_then(|f| f.ship.as_ref()).is_some_and(|st| st.service && st.abroad.is_none()));
+    if marked {
+        let rect = [px + 545.0, py + 35.0, 75.0, 35.0];
+        let hot = ui.hot(rect);
+        panel::button_border(ui.r, ui.panels, rect[0], rect[1], 75, 35, hot);
+        for (id, y) in [(30, 40.0), (31, 54.0)] {
+            let s = ui.t(G, id);
+            ui.label(Font::NormalBlackOnLight, &s, px + 550.0, py + y);
+        }
+        if ui.clicked(rect) {
+            let ready = world.scenario_events.open_requests().map(|(i, _)| i).find(|&i| world.request_by_sea(i) && world.can_send_request(i));
+            if let Some(i) = ready {
+                world.apply(&Command::DispatchRequest(i));
+            }
+        }
+    } else {
+        for (id, y) in [(5, 43.0), (6, 58.0)] {
+            let s = ui.t(G, id);
+            ui.label(Font::NormalBlackOnLight, &s, px + 550.0, py + y);
+        }
+    }
+    panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 70.0, 36, 17);
+    if warships.is_empty() {
+        let none = ui.t(G, 25);
+        ui.wrapped(Font::NormalBlackOnDark, &none, px + 64.0, py + 200.0, 496.0);
+    }
+    let picture = ui.r.library.group_id("Pharaoh_General", 79, 0).unwrap_or(0);
+    let buttons = ui.r.library.group_id("Pharaoh_General", 131, 0).unwrap_or(0);
+    for (row, &s) in warships.iter().take(6).enumerate() {
+        let Some(f) = world.figures.get(s) else { continue };
+        let st = f.ship.as_deref().cloned().unwrap_or_default();
+        let ry = py + 82.0 + 44.0 * row as f32;
+        ui.image(picture, px + 48.0, ry);
+        let name = ui.t(G, 20);
+        ui.label(Font::NormalWhiteOnDark, &name, px + 100.0, ry + 1.0);
+        let crew = ui.t(SHIP, 28 + st.fatigue.min(2) as usize);
+        ui.centred(Font::NormalBlackOnDark, &crew, px + 140.0, ry + 9.0, 150.0);
+        let hull = ui.t(SHIP, match world.hull_percent(s) {
+            p if p >= 91 => 3,
+            p if p >= 71 => 4,
+            p if p >= 51 => 5,
+            p if p >= 31 => 6,
+            p if p >= 16 => 7,
+            _ => 8,
+        });
+        ui.centred(Font::NormalBlackOnDark, &hull, px + 273.0, ry + 9.0, 150.0);
+        if st.abroad.is_some() {
+            let away = ui.t(G, 29);
+            ui.label(Font::NormalBlackOnDark, &away, px + 500.0, ry + 4.0);
+            continue;
+        }
+        let bx = |x: f32| [px + x, ry + 1.0, 30.0, 30.0];
+        let go = bx(440.0);
+        let hot = ui.hot(go);
+        panel::button_border(ui.r, ui.panels, go[0], go[1], 30, 30, hot);
+        ui.image(buttons, go[0] + 3.0, go[1] + 3.0);
+        if ui.clicked(go) {
+            action = Some(AdvisorAction::GoToShip(s));
+        }
+        let back = bx(500.0);
+        let hot = ui.hot(back);
+        let docked = world.ship_docked(s);
+        panel::button_border(ui.r, ui.panels, back[0], back[1], 30, 30, hot);
+        ui.image(buttons + if docked { 2 } else { 1 }, back[0] + 3.0, back[1] + 3.0);
+        if ui.clicked(back) && !docked {
+            world.apply(&Command::ShipOrder { ship: s, order: ShipOrder::Return });
+        }
+        // The mark lights up only while a city by sea is calling for troops.
+        let service = bx(560.0);
+        let hot = sea_call && ui.hot(service);
+        panel::button_border(ui.r, ui.panels, service[0], service[1], 30, 30, hot);
+        ui.image(buttons + if st.service { 3 } else { 4 }, service[0] + 3.0, service[1] + 3.0);
+        if ui.clicked(service) {
+            world.apply(&Command::ShipService(s));
+        }
+    }
+    let bullet = ui.r.library.group_id("Pharaoh_General", 158, 0).unwrap_or(0);
+    let mut lines = Vec::new();
+    if !warships.is_empty() {
+        let n = warships.len();
+        let mut fleet = format!("{n} {}", ui.t(8, if n == 1 { 50 } else { 51 }));
+        if transports > 0 {
+            fleet += &format!("{}{transports} {}", ui.t(G, 32), ui.t(8, if transports == 1 { 58 } else { 59 }));
+        }
+        lines.push((348.0, fleet));
+    }
+    let invaders = world.figures.iter().any(|f| osiris_sim::invasions::is_invader_kind(f.kind));
+    let coming = world.invasions.planned.iter().any(|p| p.announced && !p.done);
+    let threat = ui.t(G, if invaders { 10 } else if coming { 9 } else { 8 });
+    lines.push((if warships.is_empty() { 358.0 } else { 368.0 }, threat));
+    let call = ui.t(G, kingdom_call_line(world));
+    lines.push((388.0, call));
+    for (y, line) in lines {
+        ui.image(bullet, px + 50.0, py + y + 1.0);
+        ui.label(Font::NormalBlackOnLight, &line, px + 70.0, py + y);
+    }
+    action
+}
+
 fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
     const G: usize = 51;
     let title = ui.t(G, 0);
@@ -1454,6 +1630,7 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
         ui.wrapped(Font::NormalBlackOnDark, &none, px + 64.0, py + 200.0, 496.0);
     }
     let buttons = ui.r.library.group_id("Pharaoh_General", 131, 0).unwrap_or(0);
+    let afloat_emblems = ui.r.library.group_id("Pharaoh_General", 3, 0).unwrap_or(ui.img.company_emblems);
     let mut action = None;
     // Each row as the original lays it out: the company's emblem, its name over its
     // strength, its morale, then 30-pixel boxes holding its experience and the icons
@@ -1461,7 +1638,9 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
     // company away fighting shows "abroad" in place of its buttons.
     for (row, (c, co)) in companies.iter().take(6).enumerate() {
         let ry = py + 82.0 + 44.0 * row as f32;
-        ui.image(ui.img.company_emblems + (c % 10) as u32, px + 48.0, ry);
+        // A company aboard a transport shows its emblem on the water (group 3).
+        let emblems = if world.company_ship(*c).is_some() { afloat_emblems } else { ui.img.company_emblems };
+        ui.image(emblems + (c % 10) as u32, px + 48.0, ry);
         let name = ui.t(138, c % 10).trim_matches('"').to_owned();
         ui.label(Font::NormalWhiteOnDark, &name, px + 100.0, ry + 1.0);
         let arm = ui.t(138, match co.kind {
@@ -1517,13 +1696,7 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
     let coming = world.invasions.planned.iter().any(|p| p.announced && !p.done);
     let threat = ui.t(G, if invaders { 10 } else if coming { 9 } else { 8 });
     lines.push((if companies.is_empty() { 358.0 } else { 368.0 }, threat));
-    let troops_wanted = world.scenario_events.open_requests().any(|(_, e)| e.resource == osiris_sim::scenario_events::TROOPS);
-    let abroad = ui.t(G, match &world.military.battle {
-        Some(b) if b.fought => 15,
-        Some(_) => 14,
-        None if troops_wanted => 13,
-        None => 12,
-    });
+    let abroad = ui.t(G, kingdom_call_line(world));
     lines.push((388.0, abroad));
     for (y, line) in lines {
         ui.image(bullet, px + 50.0, py + y + 1.0);

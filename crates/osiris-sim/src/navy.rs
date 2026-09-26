@@ -1795,7 +1795,7 @@ impl World {
     }
 
     /// Whether a call for troops from a city reached by sea is open.
-    fn sea_troops_wanted(&self) -> bool {
+    pub fn sea_troops_wanted(&self) -> bool {
         self.scenario_events.open_requests().any(|(i, e)| e.resource == crate::scenario_events::TROOPS && self.request_by_sea(i))
     }
 

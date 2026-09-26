@@ -1756,6 +1756,13 @@ impl Game {
                     }
                     self.select_company(c);
                 }
+                Some(crate::advisors::AdvisorAction::GoToShip(s)) => {
+                    // The view centred on the ship (the handler at 0x40a560).
+                    self.advisors = None;
+                    if let Some((x, y)) = self.world.figures.get(s).map(|f| (f.x, f.y)) {
+                        self.view.center_on(r, &self.world.map, x, y);
+                    }
+                }
                 None => {}
             }
             return;
