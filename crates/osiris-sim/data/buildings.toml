@@ -1232,7 +1232,7 @@ key = "pomegranates_farm"
 size = 3
 labor = "food_production"
 image = { pack = "Pharaoh_General", group = 37, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 37, offset = 1, frames = 12 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 37, offset = 20 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 24 } }
+anims = { preview = { pack = "Pharaoh_General", group = 37, offset = 0 }, work = { pack = "Pharaoh_General", group = 37, offset = 1, frames = 12 }, farm_house = { pack = "Pharaoh_General", group = 225, offset = 0 }, tiling = { pack = "SprMain", group = 118, offset = 0, frames = 12, duration = 6 }, seeding = { pack = "SprMain", group = 119, offset = 0, frames = 12, duration = 6 }, harvesting = { pack = "SprMain", group = 120, offset = 0, frames = 12, duration = 6 }, farmland = { pack = "Pharaoh_General", group = 37, offset = 0 }, minimap = { pack = "Pharaoh_General", group = 149, offset = 160 }, crops = { pack = "Pharaoh_General", group = 100, offset = 24 } }
 needs = ["meadow"]
 flags = ["is_farm", "is_industry", "is_food"]
 outputs = ["pomegranates"]
