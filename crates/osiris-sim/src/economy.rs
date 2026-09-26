@@ -927,6 +927,42 @@ pub(crate) mod tests {
         assert_eq!(World::input_need(114, 11), LOAD);
     }
 
+    /// The chariot maker (205) takes only timber, like the weaponsmith (112) takes
+    /// only copper: the exe's stock-pile draw (FUN_00436310, case 0xcd) and its
+    /// working-animation gate (FUN_0040f2c0) both treat it as single-input, unlike the
+    /// brickworks (0xcc) and lamp maker (0xe8), which draw and gate on a second good.
+    #[test]
+    fn the_chariot_maker_takes_only_timber() {
+        let Some(world) = mission(0) else { return };
+        assert_eq!(world.inputs_of(205), vec![resource::TIMBER]);
+        assert_eq!(world.inputs_of(112), vec![29 /* copper */]);
+    }
+
+    /// A chariot maker with timber but no weapons on hand still turns its timber into
+    /// chariots and sends a cart, never waiting on a second good.
+    #[test]
+    fn a_chariot_maker_produces_from_timber_alone() {
+        let Some(mut world) = mission(0) else { return };
+        let id = world.buildings.insert(crate::buildings::Building {
+            kind: 205,
+            x: 10,
+            y: 10,
+            size: 2,
+            road: Some((10, 12)),
+            workers: 30,
+            stock: vec![0; resource::COUNT],
+            ..Default::default()
+        });
+        world.buildings.get_mut(id).expect("present").stock[resource::TIMBER as usize] = LOAD;
+        for _ in 0..500 {
+            world.update_production();
+            world.send_carts();
+        }
+        let cart = world.figures.iter().find(|f| f.kind == CART_PUSHER && f.home == id);
+        assert!(cart.is_some(), "no weapons on hand, but the chariot maker still shipped a cart");
+        assert_eq!(cart.unwrap().cargo, 28 /* chariots */);
+    }
+
     /// Campaign mission `n` with everything allowed and staffed, and no fires.
     pub(crate) fn mission(n: usize) -> Option<World> {
         let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");

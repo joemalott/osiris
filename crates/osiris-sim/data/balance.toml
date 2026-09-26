@@ -788,7 +788,13 @@ outputs = ["bricks"]
 [industry.chariots_workshop]
 progress_max = 400
 production_rate = 20
-inputs = ["timber", "weapons"]
+# Akhenaten's chariots_workshop.js consumes weapons as a second input, but the exe
+# disagrees: its stock-pile draw (FUN_00436310, case 0xcd) and its "still working"
+# animation gate (FUN_0040f2c0) both treat the chariot maker as single-input, the same
+# as the weaponsmith (case 0x70) - neither ever touches the second-good array that
+# bricks (0xcc) and the lamp maker (0xe8) use for their real second input. Osiris
+# follows the exe: timber only (crates/osiris-sim/data/buildings.toml).
+inputs = ["timber"]
 outputs = ["chariots"]
 
 [industry.brewery]

@@ -1892,7 +1892,10 @@ key = "chariots_workshop"
 size = 2
 labor = "industry_commerce"
 image = { pack = "Pharaoh_General", group = 124, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 124, offset = 0 }, work = { pack = "Pharaoh_General", group = 124, offset = 0 }, timber = { pack = "Pharaoh_General", group = 206, offset = 0, x = 51, y = 18 }, weapon = { pack = "Pharaoh_General", group = 207, offset = 0, x = 46, y = 25 } }
+anims = { preview = { pack = "Pharaoh_General", group = 124, offset = 0 }, work = { pack = "Pharaoh_General", group = 124, offset = 0 } }
+# Single input (timber): its stock pile is drawn by osiris-app's PILES table (First,
+# group 202, +166,-23), matching the exe's FUN_00436310 case 0xcd, which never touches
+# the second-good array bricks and the lamp maker draw from.
 flags = ["is_workshop", "is_industry"]
 inputs = ["timber"]
 outputs = ["chariots"]
