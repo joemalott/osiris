@@ -423,6 +423,8 @@ pub struct Scenario {
     pub floodplain_settings: Vec<u8>,
     pub empire: crate::Empire,
     pub events: Vec<crate::EventRecord>,
+    /// The buildings standing in a saved game or campaign mission (none in a `.map`).
+    pub buildings: Vec<crate::buildings::BuildingRecord>,
 }
 
 fn u32_grid(bytes: &[u8]) -> Vec<u32> {
@@ -455,6 +457,7 @@ impl Scenario {
             floodplain_settings: file.get("floodplain_settings").map(<[u8]>::to_vec).unwrap_or_default(),
             empire: crate::Empire::from_chunks(file)?,
             events: crate::events::events_from_chunks(file)?,
+            buildings: file.get("buildings").map(crate::buildings::records).unwrap_or_default(),
         };
         debug_assert_eq!(s.images.len(), GRID_TILES);
         Ok(s)

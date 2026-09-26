@@ -3,6 +3,7 @@
 //! Everything here is pure: parsers take byte slices (or paths, for convenience) and
 //! return plain Rust data. Nothing depends on a renderer or the simulation.
 
+pub mod buildings;
 pub mod bytes;
 pub mod campaign;
 pub mod chunks;
