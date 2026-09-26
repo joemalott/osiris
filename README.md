@@ -95,6 +95,20 @@ osiris --mission 3 --script "road 70,76 100,76; build 10 72,77; ticks 5000; repo
 `osiris-tools` inspects the data files: it can dump sprite packs to PNG, print text
 groups and messages, and parse every map and campaign mission.
 
+Games can be recorded and replayed. Every city is recorded while it is played (its
+starting save, each command with its tick, and a hash of the city at the end of each
+month); `--record FILE` keeps the last one, and after a crash the game so far is
+written to `crash.osiris-replay` beside `osiris.log`. A script records with its
+`record FILE` step. `osiris --replay FILE` plays a recording back in the window;
+with `--screenshot` it runs headless and says whether the city came out the same or
+in which month it first differed, as `osiris-tools replay <game dir> FILE...` does.
+The recordings in `crates/osiris-sim/tests/replays` are regression tests; they need
+the game data, so they don't run in CI:
+
+```
+cargo test --release -p osiris-sim --test replays -- --ignored
+```
+
 ## Layout
 
 - `crates/osiris-formats`: readers for the original data files (sprites, maps, saves,
