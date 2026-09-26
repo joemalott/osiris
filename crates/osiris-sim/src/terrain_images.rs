@@ -184,6 +184,19 @@ pub fn refresh_beside(map: &mut Map, defs: &Defs, growth: &dyn Fn(i32, i32) -> u
     pass.clear_outside_in(map, (x - 7, y - 7, x + 7, y + 7));
 }
 
+/// Redraws trees and marsh reeds whose growth changed, cut or grown again, as the
+/// original does for each (FUN_00486600): a cut tree is a young one, cut reeds show
+/// the bare marsh.
+pub fn refresh_vegetation(map: &mut Map, defs: &Defs, tiles: &[(i32, i32)]) {
+    let mut pass = Pass::new(map, defs);
+    pass.local = true;
+    for &(x, y) in tiles {
+        if Pass::t(map, x, y) & terrain::BUILDING == 0 {
+            pass.tree(map, x, y);
+        }
+    }
+}
+
 /// The image of dry floodplain tile `(x, y)` with its crops grown `growth` steps (0-5),
 /// as the original redraws a row's tiles when its crops grow (FUN_004be0d0 ->
 /// FUN_004bd950 -> FUN_00479e70); `None` where the tile shows something else or lies

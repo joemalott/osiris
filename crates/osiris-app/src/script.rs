@@ -775,6 +775,43 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     eprintln!("{y:4} {row}");
                 }
             }
+            // Trees and marsh between two corners: T a grown tree, t a cut one, R grown
+            // reeds a reed gatherer may cut (the middle of a 3x3 marsh), r cut ones, m
+            // other marsh, B building, ~ water, # road, . anything else.
+            ["vegmap", a, b] => {
+                use osiris_sim::map::terrain;
+                let (a, b) = (parse_point(a)?, parse_point(b)?);
+                let marsh = |x: i32, y: i32| world.map.terrain_is(x, y, terrain::MARSHLAND);
+                for y in a.1..=b.1 {
+                    let row: String = (a.0..=b.0)
+                        .map(|x| {
+                            let t = world.map.terrain.at_or(x, y, 0);
+                            let grown = world.map.vegetation.at_or(x, y, 0) == 255;
+                            if t & terrain::BUILDING != 0 {
+                                'B'
+                            } else if t & terrain::WATER != 0 {
+                                '~'
+                            } else if t & terrain::TREE != 0 {
+                                if grown { 'T' } else { 't' }
+                            } else if t & terrain::MARSHLAND != 0 {
+                                if (-1..=1).all(|dy| (-1..=1).all(|dx| marsh(x + dx, y + dy))) {
+                                    if grown { 'R' } else { 'r' }
+                                } else {
+                                    'm'
+                                }
+                            } else if t & terrain::ROAD != 0 {
+                                '#'
+                            } else if t & terrain::WATER != 0 {
+                                '~'
+                            } else {
+                                '.'
+                            }
+                        })
+                        .collect();
+                    eprintln!("{y:4} {row}");
+                }
+                eprintln!("     x from {}", a.0);
+            }
             // The city between two corners: ~ water, # road (= under the flood), F farm,
             // H house, B other building, d ditch, p open floodplain, g open land with
             // groundwater, . other open land, x blocked.

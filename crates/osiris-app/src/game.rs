@@ -1531,6 +1531,28 @@ impl Game {
             out.push(Sprite { behind: false, x: f.x + 1, y: f.y + 1, offset: (0, -52), image: walk.image + f.direction as u32 });
             return Some(at);
         }
+        // Lumberjacks and reed gatherers chop and cut in place, a frame a tick, and walk
+        // home under their load (FUN_004a3070, FUN_004ac9f0).
+        if matches!(f.kind, osiris_sim::economy::LUMBERJACK | osiris_sim::economy::REED_GATHERER) {
+            use osiris_sim::economy::action;
+            let anim = |key| defs.figure(f.kind).and_then(|d| d.anims.get(key));
+            let (a, frame) = match f.action {
+                action::HARVESTING => {
+                    let a = anim("work")?;
+                    (a, f.counter.max(0) as u32 % a.frames.max(1) as u32)
+                }
+                action::RETURNING => {
+                    let a = anim("back")?;
+                    (a, if f.moving { f.frame(a.frames.max(1)) } else { 0 })
+                }
+                _ => {
+                    let a = anim("walk")?;
+                    (a, if f.moving && f.action == action::TO_HARVEST { f.frame(a.frames.max(1)) } else { 0 })
+                }
+            };
+            out.push(Sprite { behind: false, x: f.x, y: f.y, offset: f.pixel_offset(), image: a.image + f.direction as u32 + 8 * frame });
+            return Some(at);
+        }
         // The festival's people walk as the priests, performers, scribes or nobles they
         // are, their steps going on every tick, standing or not (0x4ad0fb).
         if f.kind == osiris_sim::festivals::FESTIVAL_GUY {

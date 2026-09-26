@@ -93,6 +93,8 @@ pub mod action {
     pub const TO_HARVEST: u16 = 6;
     /// A gatherer cutting.
     pub const HARVESTING: u16 = 7;
+    /// A gatherer waiting by the road before he looks for his tree or reeds.
+    pub const LOOKING: u16 = 8;
 }
 
 /// What a building that uses goods keeps on site of each: 300 at a scribal school or
@@ -666,45 +668,107 @@ impl World {
         }
     }
 
-    /// Growth of the tree or reeds at `(x, y)`, 255 when ready to cut.
+    /// Growth of the tree or reeds at `(x, y)`, 255 when ready to cut. The map file
+    /// holds it, as the original's does.
     pub fn vegetation_growth(&self, x: i32, y: i32) -> u8 {
-        self.vegetation.as_ref().map_or(255, |g| g.at_or(x, y, 255))
+        self.map.vegetation.at_or(x, y, 255)
     }
 
-    fn set_vegetation_growth(&mut self, x: i32, y: i32, v: u8) {
-        let (w, h) = (self.map.width, self.map.height);
-        self.vegetation.get_or_insert_with(|| crate::grid::Grid::filled(w, h, 255)).set(x, y, v);
-    }
-
-    /// Daily: cut trees and reeds grow back, reeds quickly and trees slowly.
+    /// Tick 20: cut trees and reeds grow back (FUN_004860d0). Each day a cut tree gains
+    /// 35 to 44 and cut reeds 25 to 34, a quarter more with Min's oracle; the growth is
+    /// a byte that wraps past 255, so a tile is grown again only when it comes to rest
+    /// on 255 exactly, on average after some 256 days. The same pass settles whether
+    /// any staffed wood cutter, and any staffed reed gatherer, can walk to something
+    /// grown: until one can, they send nobody out.
     pub(crate) fn grow_vegetation(&mut self) {
-        let fast = self.complex_blessing(crate::temple_complex::OSIRIS, crate::temple_complex::ORACLE);
-        let Some(grid) = self.vegetation.as_mut() else { return };
+        use crate::map::terrain;
+        let pct = if self.complex_blessing(crate::temple_complex::OSIRIS, crate::temple_complex::ORACLE) { 125 } else { 100 };
+        let mut changed = Vec::new();
+        let (mut trees, mut reeds) = (false, false);
         for y in 0..self.map.height {
             for x in 0..self.map.width {
-                let g = grid.at_or(x, y, 255);
-                if g == 255 {
+                let t = self.map.terrain.at_or(x, y, 0);
+                let tree = t & terrain::TREE != 0;
+                if !tree && t & terrain::MARSHLAND == 0 {
                     continue;
                 }
-                let t = self.map.terrain.at_or(x, y, 0);
-                let (lo, hi) = if t & crate::map::terrain::MARSHLAND != 0 { (5, 14) } else { (1, 2) };
-                let r = lo + (self.rng.byte() % (hi - lo + 1));
-                // Min's oracle speeds the regrowth by a quarter.
-                let r = if fast { r * 125 / 100 } else { r };
-                grid.set(x, y, (g as i32 + r).min(255) as u8);
+                let g = self.map.vegetation.at_or(x, y, 255);
+                if g == 255 {
+                    if tree {
+                        trees = true;
+                    } else {
+                        reeds = true;
+                    }
+                    continue;
+                }
+                let base = if tree { 35 } else { 25 };
+                let gain = (self.rng.below(10) + base) * pct / 100;
+                let g = (g as i32 + gain) as u8;
+                self.map.vegetation.set(x, y, g);
+                if g == 255 {
+                    changed.push((x, y));
+                }
             }
         }
+        if !changed.is_empty() {
+            crate::terrain_images::refresh_vegetation(&mut self.map, &self.defs, &changed);
+        }
+        self.wood_reachable = trees && self.gatherer_can_reach(WOOD_CUTTERS);
+        self.reeds_reachable = reeds && self.gatherer_can_reach(REED_GATHERERS);
     }
 
-    /// Tick 31: wood cutters and reed gatherers send out gatherers by their staffing
-    /// (up to three lumberjacks or five reed gatherers at full staff), no more than
-    /// the room left under 500 stored allows.
+    /// Whether a staffed building of kind `k` can walk from its road to a grown tree
+    /// (wood cutters) or grown marsh (reed gatherers).
+    fn gatherer_can_reach(&self, k: u16) -> bool {
+        use crate::map::terrain;
+        let bit = if k == WOOD_CUTTERS { terrain::TREE } else { terrain::MARSHLAND };
+        let grown = |x: i32, y: i32| {
+            let t = self.map.terrain.at_or(x, y, 0);
+            t & bit != 0 && (bit == terrain::TREE || t & terrain::TREE == 0) && self.vegetation_growth(x, y) == 255
+        };
+        self.buildings.iter().filter(|b| b.kind == k && b.workers > 0).filter_map(|b| b.road).any(|road| self.first_reached(road, &grown).is_some())
+    }
+
+    /// The first tile satisfying `want` that a walker from `from` comes to, searching
+    /// outward over the ground people walk (north, east, south, west), as the original
+    /// does for gatherers (FUN_005190a0). The tile itself must be walkable ground.
+    fn first_reached(&self, from: (i32, i32), want: &dyn Fn(i32, i32) -> bool) -> Option<(i32, i32)> {
+        let map = &self.map;
+        if !map.contains(from.0, from.1) {
+            return None;
+        }
+        let w = map.width;
+        let mut seen = vec![false; (w * map.height) as usize];
+        seen[(from.1 * w + from.0) as usize] = true;
+        let mut queue = std::collections::VecDeque::from([from]);
+        while let Some((x, y)) = queue.pop_front() {
+            for d in [0, 2, 4, 6] {
+                let (nx, ny) = (x + crate::map::NEIGHBOURS[d].0, y + crate::map::NEIGHBOURS[d].1);
+                if !map.contains(nx, ny) || seen[(ny * w + nx) as usize] || !crate::figures::passable(map, Travel::Land, nx, ny) {
+                    continue;
+                }
+                seen[(ny * w + nx) as usize] = true;
+                if want(nx, ny) {
+                    return Some((nx, ny));
+                }
+                queue.push_back((nx, ny));
+            }
+        }
+        None
+    }
+
+    /// Tick 31: wood cutters and reed gatherers send out gatherers by their staffing,
+    /// as the original does (FUN_00462180): a wood cutter three at full staff, two from
+    /// half, else one; a reed gatherer five at full staff, four from three quarters,
+    /// two from half, else one; no more than the room left under 500 stored allows,
+    /// and none while none of their kind can reach anything grown. Each waits a moment
+    /// by the road (0 to 29 ticks) before looking for his tree or reeds.
     fn send_gatherers(&mut self) {
         for id in self.buildings.ids() {
             let Some(b) = self.buildings.get(id) else { continue };
-            let (figure, r, per_trip) = match b.kind {
-                WOOD_CUTTERS => (LUMBERJACK, resource::TIMBER, TIMBER_PER_TRIP),
-                REED_GATHERERS => (REED_GATHERER, resource::REEDS, REEDS_PER_TRIP),
+            let (figure, r, per_trip, reachable) = match b.kind {
+                WOOD_CUTTERS => (LUMBERJACK, resource::TIMBER, TIMBER_PER_TRIP, self.wood_reachable),
+                REED_GATHERERS => (REED_GATHERER, resource::REEDS, REEDS_PER_TRIP, self.reeds_reachable),
                 _ => continue,
             };
             let Some(road) = b.road else { continue };
@@ -720,99 +784,132 @@ impl World {
                 _ => 1,
             };
             let wanted = wanted.min((GATHER_CAP - stock).max(0) / per_trip);
+            if !reachable {
+                continue;
+            }
             let mut out = self.figures.iter().filter(|f| f.kind == figure && f.home == id && !f.dead).count() as i32;
             while out < wanted {
-                let Some(spot) = self.harvest_spot(k, road) else { break };
+                let wait = self.rng.below(30);
                 let fid = self.figures.spawn(figure, road.0, road.1, Travel::PreferRoads);
-                let map = &self.map;
                 if let Some(f) = self.figures.get_mut(fid) {
                     f.home = id;
                     f.cargo = r;
-                    f.action = action::TO_HARVEST;
-                    if !f.go_to(map, spot) {
-                        f.dead = true;
-                        break;
-                    }
+                    f.action = action::LOOKING;
+                    f.counter = wait;
                 }
                 out += 1;
             }
         }
     }
 
-    /// The nearest grown tree (for wood cutters) or the centre of a grown 3x3 marsh (for
-    /// reed gatherers) that nobody else is cutting.
-    fn harvest_spot(&self, k: u16, from: (i32, i32)) -> Option<(i32, i32)> {
+    /// The grown tree (for a lumberjack) or the grown middle of a 3x3 marsh (for a reed
+    /// gatherer) a gatherer at `from` walks to first, passing over any where another of
+    /// his kind stands (FUN_00486810).
+    fn harvest_spot(&self, figure: u16, from: (i32, i32)) -> Option<(i32, i32)> {
         use crate::map::terrain;
-        let taken: Vec<(i32, i32)> = self
-            .figures
-            .iter()
-            .filter(|f| matches!(f.kind, LUMBERJACK | REED_GATHERER) && f.action != action::RETURNING)
-            .filter_map(|f| f.destination)
-            .collect();
+        let standing: Vec<(i32, i32)> = self.figures.iter().filter(|f| f.kind == figure && !f.dead).map(|f| (f.x, f.y)).collect();
         let ok = |x: i32, y: i32| {
-            if taken.contains(&(x, y)) || self.vegetation_growth(x, y) != 255 {
+            let t = self.map.terrain.at_or(x, y, 0);
+            if t & terrain::DIKE != 0 || self.vegetation_growth(x, y) != 255 || standing.contains(&(x, y)) {
                 return false;
             }
-            if k == WOOD_CUTTERS {
-                self.map.terrain_is(x, y, terrain::TREE)
+            if figure == LUMBERJACK {
+                t & terrain::TREE != 0
             } else {
-                (-1..=1).all(|dy| (-1..=1).all(|dx| self.map.terrain_is(x + dx, y + dy, terrain::MARSHLAND)))
+                t & terrain::MARSHLAND != 0 && crate::map::NEIGHBOURS.iter().all(|&(dx, dy)| self.map.terrain_is(x + dx, y + dy, terrain::MARSHLAND))
             }
         };
-        let mut best: Option<((i32, i32), i32)> = None;
-        for y in 0..self.map.height {
-            for x in 0..self.map.width {
-                let d = (x - from.0).abs().max((y - from.1).abs());
-                if best.is_some_and(|(_, bd)| d >= bd) || !ok(x, y) {
-                    continue;
-                }
-                best = Some(((x, y), d));
-            }
-        }
-        best.map(|(p, _)| p)
+        self.first_reached(from, &ok)
     }
 
+    /// A lumberjack (FUN_004a3070) or reed gatherer (FUN_004ac9f0): he waits by the road,
+    /// looks for the nearest grown tree or reeds and walks there, cuts for 300 ticks
+    /// (the tile is then bare and grows back), and carries 25 timber or 50 reeds home.
+    /// Finding nothing, he goes, and his kind stop going out until the next day's
+    /// growth finds something within reach. Reaching a tile another is already
+    /// cutting, or one cut meanwhile, he looks again.
     pub(crate) fn update_gatherer(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
-        let (act, home) = (f.action, f.home);
+        let (act, home, kind) = (f.action, f.home, f.kind);
         if self.buildings.get(home).is_none() {
             self.figures.get_mut(fid).expect("present").dead = true;
             return;
         }
         match act {
+            action::LOOKING => {
+                let f = self.figures.get_mut(fid).expect("present");
+                // A lumberjack counts his wait down, a reed gatherer up past 10.
+                let ready = if kind == LUMBERJACK {
+                    f.counter -= 1;
+                    f.counter <= 0
+                } else {
+                    f.counter += 1;
+                    f.counter > 10
+                };
+                if !ready {
+                    return;
+                }
+                let pos = (f.x, f.y);
+                let spot = self.harvest_spot(kind, pos);
+                let map = &self.map;
+                let f = self.figures.get_mut(fid).expect("present");
+                match spot {
+                    Some(spot) if f.go_to(map, spot) => {
+                        f.action = action::TO_HARVEST;
+                    }
+                    Some(_) => f.dead = true,
+                    None => {
+                        f.dead = true;
+                        if kind == LUMBERJACK {
+                            self.wood_reachable = false;
+                        } else {
+                            self.reeds_reachable = false;
+                        }
+                    }
+                }
+            }
             action::TO_HARVEST => {
                 let map = &self.map;
                 let f = self.figures.get_mut(fid).expect("present");
                 match f.walk(map) {
                     Step::Moving => {}
                     Step::Arrived => {
-                        f.action = action::HARVESTING;
-                        f.counter = GATHER_TICKS;
+                        let (x, y) = (f.x, f.y);
+                        let taken = self.figures.iter().any(|o| o.id != fid && o.kind == kind && o.action == action::HARVESTING && (o.x, o.y) == (x, y) && !o.dead);
+                        let grown = self.vegetation_growth(x, y) == 255;
+                        let f = self.figures.get_mut(fid).expect("present");
+                        f.counter = 0;
+                        f.action = if grown && !taken { action::HARVESTING } else { action::LOOKING };
                     }
                     _ => f.dead = true,
                 }
             }
             action::HARVESTING => {
                 let f = self.figures.get_mut(fid).expect("present");
-                f.counter -= 1;
-                if f.counter > 0 {
+                f.counter += 1;
+                if f.counter <= GATHER_TICKS {
                     return;
                 }
                 let (x, y) = (f.x, f.y);
                 f.amount = if f.kind == REED_GATHERER { REEDS_PER_TRIP } else { TIMBER_PER_TRIP };
-                self.set_vegetation_growth(x, y, 0);
+                self.map.vegetation.set(x, y, 0);
+                crate::terrain_images::refresh_vegetation(&mut self.map, &self.defs, &[(x, y)]);
                 self.head_home(fid, action::RETURNING);
             }
             _ => {
                 let map = &self.map;
                 let f = self.figures.get_mut(fid).expect("present");
-                if f.walk(map) == Step::Moving {
-                    return;
-                }
-                let (r, n) = (f.cargo, f.amount);
-                f.dead = true;
-                if let Some(b) = self.buildings.get_mut(home) {
-                    b.stock[r as usize] += n;
+                match f.walk(map) {
+                    Step::Moving => {}
+                    Step::Arrived => {
+                        let (r, n) = (f.cargo, f.amount);
+                        f.dead = true;
+                        if let Some(b) = self.buildings.get_mut(home) {
+                            b.stock[r as usize] += n;
+                        }
+                    }
+                    // Lost on the way home, he and his load are gone.
+                    _ => f.dead = true,
                 }
             }
         }
@@ -828,5 +925,93 @@ mod tests {
         assert_eq!(World::input_need(BRICKWORKS, resource::STRAW), 25);
         assert_eq!(World::input_need(BRICKWORKS, 11), LOAD);
         assert_eq!(World::input_need(114, 11), LOAD);
+    }
+
+    /// Campaign mission `n` with everything allowed and staffed, and no fires.
+    pub(crate) fn mission(n: usize) -> Option<World> {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.join("mission1.pak").is_file() {
+            return None;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).ok()?;
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).ok()?);
+        let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&std::fs::read(data.join("Pharaoh_Model_Normal.txt")).ok()?)).ok()?;
+        let balance = std::sync::Arc::new(crate::balance::Balance::from_model(&model));
+        let scenario = osiris_formats::MissionPak::open(&data.join("mission1.pak")).ok()?.scenario(n).ok()?;
+        let mut world = World::new(&scenario, defs, balance);
+        world.start(&scenario);
+        world.load_mission(n as i32);
+        world.scenario_allowed = None;
+        if let Some(m) = world.mission.as_mut() {
+            m.allowed.extend(0..300);
+        }
+        world.test_full_staff = true;
+        world.rules.global_labor_pool = true;
+        world.rules.fire = false;
+        world.rules.collapse = false;
+        Some(world)
+    }
+
+    #[test]
+    fn lumberjacks_cut_the_nearest_trees_which_grow_back() {
+        use crate::world::{Command, Outcome};
+        let Some(mut world) = mission(2) else { return };
+        for cmd in [Command::Road { start: (58, 86), end: (68, 86) }, Command::Build { kind: WOOD_CUTTERS, x: 60, y: 87, x1: 60, y1: 87 }] {
+            assert!(matches!(world.apply(&cmd), Outcome::Done { .. }), "{cmd:?}");
+        }
+        let tree = |w: &World, x, y| w.map.terrain_is(x, y, crate::map::terrain::TREE);
+        assert!(tree(&world, 54, 86) && world.vegetation_growth(54, 86) == 255);
+        let grown_image = world.map.images.at_or(54, 86, 0);
+        for _ in 0..900 {
+            world.tick();
+        }
+        // The nearest trees by the way a walker goes from the road are down, drawn as
+        // stumps, and 25 timber came home for each.
+        assert!(world.vegetation_growth(54, 86) < 100, "cut, and a day or so grown");
+        assert_ne!(world.map.images.at_or(54, 86, 0), grown_image);
+        let young = world.defs.terrain.young_tree;
+        assert!((young..young + 24).contains(&world.map.images.at_or(54, 86, 0)));
+        let b = world.buildings.iter().find(|b| b.kind == WOOD_CUTTERS).expect("wood cutter");
+        assert!(b.stock[resource::TIMBER as usize] >= 50 && b.stock[resource::TIMBER as usize] % 25 == 0);
+        // A cut tree gains 35 to 44 a day, wrapping past 255, so it stands again only
+        // when it comes to rest on 255 exactly.
+        world.map.vegetation.set(54, 86, 250);
+        let mut seen = vec![];
+        for _ in 0..400 {
+            world.grow_vegetation();
+            let g = world.vegetation_growth(54, 86);
+            seen.push(g);
+            if g == 255 {
+                break;
+            }
+        }
+        assert!(seen[0] < 40, "250 + 35..44 wraps: {}", seen[0]);
+        assert_eq!(*seen.last().unwrap(), 255, "grown within 400 days");
+        assert_eq!(world.map.images.at_or(54, 86, 0), grown_image);
+    }
+
+    #[test]
+    fn reed_gatherers_cut_the_middle_of_the_marsh() {
+        use crate::world::{Command, Outcome};
+        let Some(mut world) = mission(4) else { return };
+        for cmd in [Command::Road { start: (94, 78), end: (94, 95) }, Command::Build { kind: REED_GATHERERS, x: 95, y: 80, x1: 95, y1: 80 }] {
+            assert!(matches!(world.apply(&cmd), Outcome::Done { .. }), "{cmd:?}");
+        }
+        for _ in 0..1300 {
+            world.tick();
+        }
+        // Five went out at full staff; what they cut is the middle of the marsh, drawn
+        // bare, and each brought 50 reeds.
+        let marsh = |x: i32, y: i32| world.map.terrain_is(x, y, crate::map::terrain::MARSHLAND);
+        let cut: Vec<(i32, i32)> = (60..130).flat_map(|x| (60..100).map(move |y| (x, y))).filter(|&(x, y)| marsh(x, y) && world.vegetation_growth(x, y) != 255).collect();
+        assert!(cut.len() >= 3, "{cut:?}");
+        for &(x, y) in &cut {
+            assert!(crate::map::NEIGHBOURS.iter().all(|&(dx, dy)| marsh(x + dx, y + dy)));
+            let reeds = world.defs.terrain.reeds;
+            assert!((reeds..reeds + 8).contains(&world.map.images.at_or(x, y, 0)));
+        }
+        let b = world.buildings.iter().find(|b| b.kind == REED_GATHERERS).expect("reed gatherer");
+        let carted: i32 = world.figures.iter().filter(|f| f.kind == CART_PUSHER && f.home == b.id).map(|f| f.amount).sum();
+        assert_eq!(b.stock[resource::REEDS as usize] + carted, cut.len() as i32 * REEDS_PER_TRIP);
     }
 }

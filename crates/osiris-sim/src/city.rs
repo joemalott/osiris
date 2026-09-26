@@ -39,10 +39,11 @@ impl World {
                 }
             }
             10 => self.update_desirability(),
-            18 => self.grow_vegetation(),
             12 => self.decay_houses_covered(),
+            // Industry, then the trees and reeds (FUN_00455900, FUN_004860d0).
             20 => {
                 self.update_production();
+                self.grow_vegetation();
                 self.grow_crops();
                 self.build_up_carpenters();
             }

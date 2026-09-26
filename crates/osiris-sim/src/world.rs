@@ -150,9 +150,13 @@ pub struct World {
     /// The message log shown in the messages window.
     #[serde(default)]
     pub notices: crate::notices::Notices,
-    /// Regrowth of cut trees and reeds (255 = grown); absent until something is cut.
+    /// Whether a staffed wood cutter could walk to a grown tree when the trees last
+    /// grew (or since, until a lumberjack found none): wood cutters send nobody out
+    /// otherwise. The same for reed gatherers and grown marsh.
     #[serde(default)]
-    pub vegetation: Option<crate::grid::Grid<u8>>,
+    pub wood_reachable: bool,
+    #[serde(default)]
+    pub reeds_reachable: bool,
     /// The empire's cities and trade routes.
     #[serde(default)]
     pub trade: crate::trade::Trade,
@@ -369,7 +373,8 @@ impl World {
             messages: VecDeque::new(),
             warnings: VecDeque::new(),
             notices: Default::default(),
-            vegetation: None,
+            wood_reachable: false,
+            reeds_reachable: false,
             trade,
             sentiment_state: Default::default(),
             religion: crate::religion::Religion::new(info.gods),
