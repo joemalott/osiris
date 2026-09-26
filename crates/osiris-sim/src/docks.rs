@@ -7,12 +7,13 @@
 //! them all taken waits off the nearest one, and gives up after 25 days.
 //!
 //! While a ship is moored the dock sends out dockers, one while under half staffed,
-//! two from half and three from three quarters. A docker either carts a load of the
-//! ship's goods to the nearest storage yard with room for it, where the city pays for
-//! them, or fetches a load of a good we export from the nearest yard holding one and
-//! sells it to the ship. Unloading comes first. The ship leaves by the river exit once
-//! its dockers are back and there is nothing left to trade, or its hold is full both
-//! ways.
+//! two from half and three from three quarters. A docker either carts up to four
+//! loads of the ship's goods to a storage yard that will take them, where the city
+//! pays for each load that goes in, or fetches up to four loads of a good we export
+//! from a yard holding it, where the ship pays for them. Unloading comes first, and
+//! each way the goods are taken in turn. A ship carries twelve loads each way. It
+//! leaves by the river exit once its dockers are back and there is nothing left to
+//! trade, or its hold is full both ways.
 
 use crate::buildings::{BuildingId, kind};
 use crate::economy::LOAD;
@@ -30,6 +31,8 @@ const DEAL_TICKS: i32 = 10;
 const QUEUE_TICKS: i32 = 50;
 /// A ship with no dock to go to gives up after this many ticks (25 days).
 const IDLE_MAX: i32 = 25 * 50;
+/// Loads a docker carries at once.
+const DOCKER_LOADS: i32 = 4;
 
 pub mod ship_action {
     pub const TO_DOCK: u16 = 1;
@@ -221,34 +224,137 @@ impl World {
         }
     }
 
-    /// Sends a docker on the next job for ship `ship` at dock `dock`: unloading a good
-    /// we import, else fetching one we export. False if there is no job to do.
+    /// Moves a docker rotation (`export` or import) on a good, then on to the first
+    /// good from there that `ok` allows; None (the rotation left where it stopped) if
+    /// none does.
+    fn step_docker_turn(&mut self, export: bool, ok: impl Fn(&World, u16) -> bool) -> Option<u16> {
+        let step = |t: u16| if t as usize + 1 >= RESOURCES { 1 } else { t + 1 };
+        let mut r = step(if export { self.trade.docker_export } else { self.trade.docker_import }.max(1));
+        let mut found = ok(self, r);
+        for _ in 2..RESOURCES {
+            if found {
+                break;
+            }
+            r = step(r);
+            found = ok(self, r);
+        }
+        *(if export { &mut self.trade.docker_export } else { &mut self.trade.docker_import }) = r;
+        found.then_some(r)
+    }
+
+    /// How many loads (of `amount` units offered) of `r` storage yard `yard` would take
+    /// from a ship: none if its orders' limit for `r` is reached or wouldn't hold all
+    /// of `amount`; otherwise what fits in its free room, whole loads, and no more
+    /// than brings the city's stock up to the level it imports to.
+    fn yard_import_loads(&self, yard: BuildingId, r: u16, amount: i32) -> i32 {
+        use crate::trade::status;
+        let Some(b) = self.buildings.get(yard).filter(|b| b.kind == kind::STORAGE_YARD) else { return 0 };
+        let full = |more: i32| b.order_cap(r) < self.stored(yard, r) + more;
+        if full(0) || full(amount) {
+            return 0;
+        }
+        let free = crate::storage::CAPACITY - self.total_stored(yard);
+        let amount = if free <= amount { if free < LOAD { return 0 } else { free } } else { amount };
+        let loads = amount / LOAD;
+        let target = match self.trade.status[r as usize] {
+            status::IMPORT => self.trade.amount[r as usize],
+            _ => self.trade_level(r),
+        };
+        let have = self.yards_stored(r);
+        if target <= have + loads * LOAD { ((target - have) / LOAD).max(0) } else { loads }
+    }
+
+    /// Where a docker from the dock with road tile `road` takes an import of `r`: of
+    /// the staffed yards reached from the entry point and by road from the dock whose
+    /// orders take `r` and that would take some of 400 units, the nearest (counting the
+    /// difference of the two walks from the entry point) after a penalty of 32, less 8
+    /// for each empty space and 4 for each space holding under 400 of `r`.
+    fn import_yard(&self, road: (i32, i32), r: u16) -> Option<BuildingId> {
+        use crate::storage::order;
+        let (network, dock_entry) = self.dock_reach(road);
+        let mut best: Option<(i32, BuildingId)> = None;
+        for (id, entry) in self.yards_from_entry(None) {
+            let Some(b) = self.buildings.get(id) else { continue };
+            if !b.road.is_some_and(|rd| network(rd)) || !matches!(b.order(r), order::ACCEPT | order::GET) || self.stored(id, r) >= b.order_cap(r) || self.yard_import_loads(id, r, 4 * LOAD) == 0 {
+                continue;
+            }
+            let penalty = 32 - b.spaces.iter().map(|&(sr, n)| if n == 0 { 8 } else if sr == r && n < crate::storage::SPACE_UNITS { 4 } else { 0 }).sum::<i32>();
+            if penalty < 32 {
+                let d = (b.x - road.0).abs().max((b.y - road.1).abs()) + (entry - dock_entry).abs() + penalty;
+                if best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, id));
+                }
+            }
+        }
+        best.map(|(_, id)| id)
+    }
+
+    /// Where a docker fetches an export of `r` from: of the yards reached from the
+    /// entry point and by road from the dock holding a load of `r`, the nearest
+    /// (counted as for imports) after a penalty of 32, less 1 for each space holding
+    /// `r`.
+    fn export_yard(&self, road: (i32, i32), r: u16) -> Option<BuildingId> {
+        let (network, dock_entry) = self.dock_reach(road);
+        let entry = crate::figures::route_distances(&self.map, Travel::Land, self.entry_point);
+        let w = self.map.width;
+        let mut best: Option<(i32, BuildingId)> = None;
+        for b in self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD) {
+            let Some(rd) = b.road.filter(|&rd| network(rd)) else { continue };
+            let e = if self.map.contains(rd.0, rd.1) { entry[(rd.1 * w + rd.0) as usize] } else { 0 };
+            if e <= 0 || self.stored(b.id, r) < LOAD {
+                continue;
+            }
+            let penalty = 32 - b.spaces.iter().filter(|&&(sr, n)| sr == r && n > 0).count() as i32;
+            if penalty < 32 {
+                let d = (b.x - road.0).abs().max((b.y - road.1).abs()) + (e - dock_entry).abs() + penalty;
+                if best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, b.id));
+                }
+            }
+        }
+        best.map(|(_, id)| id)
+    }
+
+    /// For a dock with road tile `road`: whether a tile is on its road network, and the
+    /// dock's walk from the entry point.
+    fn dock_reach(&self, road: (i32, i32)) -> (impl Fn((i32, i32)) -> bool + use<>, i32) {
+        let roads = crate::figures::route_distances(&self.map, Travel::Roads, road);
+        let entry = crate::figures::route_distances(&self.map, Travel::Land, self.entry_point);
+        let w = self.map.width;
+        let (mw, mh) = (self.map.width, self.map.height);
+        let inside = move |(x, y): (i32, i32)| x >= 0 && y >= 0 && x < mw && y < mh;
+        let dock_entry = if inside(road) { entry[(road.1 * w + road.0) as usize] } else { 0 };
+        (move |p: (i32, i32)| inside(p) && roads[(p.1 * w + p.0) as usize] > 0, dock_entry)
+    }
+
+    /// Sends a docker on the next job for ship `ship` at dock `dock`: unloading up to
+    /// four loads of a good we import, else fetching up to four of one we export (the
+    /// goods taken in turn, a turn each way). False if there is no job to do.
     fn send_docker(&mut self, dock: BuildingId, ship: FigureId) -> bool {
         let Some(city) = self.ship_city(ship) else { return false };
         let Some(road) = self.buildings.get(dock).and_then(|b| b.road) else { return false };
         let out = self.figures.iter().filter(|d| d.kind == DOCKER && d.home == dock).count();
         let Some(s) = self.figures.get(ship) else { return false };
-        let (capacity, bought, sold) = (s.roam_left, s.amount, s.cargo as i32 * LOAD);
-        let yards: Vec<BuildingId> = self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD && b.road.is_some()).map(|b| b.id).collect();
-        let nearest = |ok: &dyn Fn(BuildingId) -> bool| {
-            yards.iter().copied().filter(|&y| ok(y)).min_by_key(|&y| (self.buildings.get(y).map_or(i32::MAX, |b| (b.x - road.0).abs().max((b.y - road.1).abs())), y))
-        };
-        let mut job = None;
-        if sold + LOAD <= capacity {
-            job = (1..RESOURCES as u16)
-                .filter(|&r| self.can_import(city, r))
-                .find_map(|r| nearest(&|y| self.storage_room(y, r) >= LOAD).map(|y| (r, y, docker_action::IMPORTING)));
-        }
-        if job.is_none() && bought + LOAD <= capacity {
-            job = (1..RESOURCES as u16)
-                .filter(|&r| self.can_export(city, r))
-                .find_map(|r| nearest(&|y| self.stored(y, r) >= LOAD).map(|y| (r, y, docker_action::FETCHING)));
-        }
-        let Some((r, yard, act)) = job else { return false };
+        let (capacity, bought, sold) = (s.roam_left / LOAD, s.amount / LOAD, s.cargo as i32);
         if out >= self.dockers_allowed(dock) {
             // A job waits for a docker to come back.
             return true;
         }
+        let mut job = None;
+        if sold < capacity
+            && let Some(r) = self.step_docker_turn(false, |w, r| w.can_import(city, r))
+            && let Some(yard) = self.import_yard(road, r)
+        {
+            job = Some((r, yard, docker_action::IMPORTING, (capacity - sold).min(DOCKER_LOADS)));
+        }
+        if job.is_none()
+            && bought < capacity
+            && let Some(r) = self.step_docker_turn(true, |w, r| w.can_export(city, r))
+            && let Some(yard) = self.export_yard(road, r)
+        {
+            job = Some((r, yard, docker_action::FETCHING, 0));
+        }
+        let Some((r, yard, act, loads)) = job else { return false };
         let Some(yard_road) = self.buildings.get(yard).and_then(|b| b.road) else { return false };
         let fid = self.figures.spawn(DOCKER, road.0, road.1, Travel::Roads);
         let map = &self.map;
@@ -258,17 +364,14 @@ impl World {
         f.cargo = r;
         f.roam_left = city as i32;
         f.action = act;
-        f.amount = if act == docker_action::IMPORTING { LOAD } else { 0 };
+        f.amount = loads * LOAD;
         if !f.go_to(map, yard_road) {
             f.dead = true;
             return false;
         }
-        let s = self.figures.get_mut(ship).expect("present");
-        if act == docker_action::IMPORTING {
-            s.cargo += 1;
-        } else {
-            s.amount += LOAD;
-        }
+        // The loads a docker carries off the ship count as sold until he finds the
+        // yard won't take them all.
+        self.figures.get_mut(ship).expect("present").cargo += loads as u16;
         true
     }
 
@@ -289,45 +392,78 @@ impl World {
         let ship = self.moored_ship(dock);
         match act {
             docker_action::IMPORTING => {
-                let added = if self.buildings.get(yard).is_some() { self.add_stored(yard, r, amount) } else { 0 };
-                let price = self.buy_price(r) * added / LOAD;
-                self.treasury -= price;
-                self.finance.this_year.imports += price;
-                if let Some(rt) = route.and_then(|i| self.trade.routes.get_mut(i)) {
-                    rt.traded[r as usize] += added;
+                // The yard takes what it will of 400 units, or of what the route still
+                // allows this year, and the city pays for each load.
+                let allowed = route.and_then(|i| self.trade.routes.get(i)).map_or(0, |rt| self.trade_limit(city, r) - rt.traded[r as usize]);
+                let loads = self.yard_import_loads(yard, r, allowed.clamp(0, DOCKER_LOADS * LOAD)).min(amount / LOAD);
+                let mut added = 0;
+                for _ in 0..loads {
+                    if self.add_stored(yard, r, LOAD) < LOAD {
+                        break;
+                    }
+                    added += 1;
+                    let price = self.buy_price(r);
+                    self.treasury -= price;
+                    self.finance.this_year.imports += price;
+                    if let Some(rt) = route.and_then(|i| self.trade.routes.get_mut(i)) {
+                        rt.traded[r as usize] += LOAD;
+                    }
                 }
-                if added == 0
-                    && let Some(s) = ship.and_then(|s| self.figures.get_mut(s))
-                {
-                    // Nothing went in: the load goes back aboard.
-                    s.cargo = s.cargo.saturating_sub(1);
+                if let Some(s) = ship.and_then(|s| self.figures.get_mut(s)) {
+                    // What didn't go in goes back aboard.
+                    s.cargo = s.cargo.saturating_sub((amount / LOAD - added) as u16);
                 }
                 self.figures.get_mut(fid).expect("present").amount = 0;
                 self.docker_home(fid);
             }
             docker_action::FETCHING => {
-                let took = self.take_stored(yard, r, LOAD);
-                if let Some(s) = ship.and_then(|s| self.figures.get_mut(s)) {
-                    s.amount -= LOAD - took;
+                let loads = self.yard_export_loads(yard, r);
+                let mut took = 0;
+                for _ in 0..loads {
+                    let bought = ship.and_then(|s| self.figures.get(s)).map_or(0, |s| s.amount);
+                    let capacity = ship.and_then(|s| self.figures.get(s)).map_or(0, |s| s.roam_left);
+                    if bought + LOAD > capacity || self.take_stored(yard, r, LOAD) < LOAD {
+                        break;
+                    }
+                    took += LOAD;
+                    if let Some(s) = ship.and_then(|s| self.figures.get_mut(s)) {
+                        s.amount += LOAD;
+                    }
+                    let price = self.sell_price(r);
+                    self.treasury += price;
+                    self.finance.this_year.exports += price;
+                    if r == crate::economy::resource::LUXURY_GOODS {
+                        self.ratings.luxury_exported += LOAD;
+                    }
+                    if let Some(rt) = route.and_then(|i| self.trade.routes.get_mut(i)) {
+                        rt.traded[r as usize] += LOAD;
+                    }
                 }
                 self.figures.get_mut(fid).expect("present").amount = took;
                 self.docker_home(fid);
             }
-            _ => {
-                if amount > 0 {
-                    let price = self.sell_price(r) * amount / LOAD;
-                    self.treasury += price;
-                    self.finance.this_year.exports += price;
-                    if r == crate::economy::resource::LUXURY_GOODS {
-                        self.ratings.luxury_exported += amount;
-                    }
-                    if let Some(rt) = route.and_then(|i| self.trade.routes.get_mut(i)) {
-                        rt.traded[r as usize] += amount;
-                    }
-                }
-                self.figures.get_mut(fid).expect("present").dead = true;
-            }
+            _ => self.figures.get_mut(fid).expect("present").dead = true,
         }
+    }
+
+    /// Loads of `r` a docker takes from yard `yard` for a ship: what it holds, up to
+    /// four, but none that would take the city's stock below the level kept back.
+    fn yard_export_loads(&self, yard: BuildingId, r: u16) -> i32 {
+        use crate::trade::status;
+        if self.buildings.get(yard).is_none_or(|b| b.kind != kind::STORAGE_YARD) {
+            return 0;
+        }
+        let stored = self.stored(yard, r);
+        if stored < LOAD {
+            return 0;
+        }
+        let loads = (stored / LOAD).min(DOCKER_LOADS);
+        let keep = match self.trade.status[r as usize] {
+            status::EXPORT => self.trade.amount[r as usize],
+            _ => self.trade_level(r),
+        };
+        let have = self.yards_stored(r);
+        if have - loads * LOAD < keep { ((have - keep) / LOAD).max(0) } else { loads }
     }
 
     fn docker_home(&mut self, fid: FigureId) {

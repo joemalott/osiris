@@ -32,5 +32,7 @@ run 6 invasion "record $OUT/invasion.osiris-replay; town 60 3; ticks 3000; cheat
 # work camps and stone in the yards.
 run 12 monument "safe; globallabor; fullstaff; noinvasions; treasury 100000; monuments 13,0,0; allow 253; build 253 58,40; road 36,52 55,52; road 55,52 74,52; road 36,56 55,56; road 36,52 36,56; build 179 37,57; build 179 39,57; build 177 41,57; build 72 37,53; build 72 40,53; build 72 43,53; build 72 46,53; build 72 49,53; build 72 52,53; build 72 55,53; build 72 58,53; stock 37,53 24 3200; stock 40,53 24 3200; stock 43,53 25 3200; stock 46,53 25 3200; stock 49,53 25 3200; stock 52,53 25 3200; stock 41,57 20 600; record $OUT/monument.osiris-replay; build 199 43,57; build 199 46,57; ticks 10000; taxrate 8; ticks 10000"
 
-# Two land trade routes opened, exports set, and caravans coming and going.
-run 12 trade "treasury 20000; globallabor; fullstaff; road 111,141 111,118; build 72 112,125; build 72 112,130; build 72 108,125; stock 112,125 11 800; stock 112,130 12 800; stock 108,125 13 800; record $OUT/trade.osiris-replay; town 50 3; route 8; route 10; export 11; export 11; export 12; export 12; export 13; export 13; import 19; ticks 16000"
+# Two land trade routes opened, exports set and luxury goods imported, with more to
+# sell than a year's allowances take, so caravans buy and sell in both years (fire and
+# collapse off, so the yards outlast the town).
+run 12 trade "safe; treasury 20000; globallabor; fullstaff; road 111,141 111,118; build 72 112,125; build 72 112,130; build 72 108,125; stock 112,125 11 2400; stock 112,130 12 3200; stock 108,125 13 3200; trade 19 import 1600; record $OUT/trade.osiris-replay; town 50 3; route 8; route 10; export 11; export 11; export 12; export 12; export 13; export 13; ticks 16000"

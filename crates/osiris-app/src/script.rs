@@ -480,11 +480,19 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 for (i, c) in world.trade.cities.iter().enumerate() {
                     let route = &world.trade.routes[c.route as usize];
                     let traded: Vec<(usize, i32)> = route.traded.iter().copied().enumerate().filter(|t| t.1 > 0).collect();
-                    eprintln!("  city {i} name {} type {} open {} sea {} traded {:?} next {} route {} points {} limits {:?} traders {:?}", c.name_id, c.city_type, c.open, c.sea, traded, c.entry_delay, c.route, route.points.len(), route.limit.iter().enumerate().filter(|l| *l.1 > 0).collect::<Vec<_>>(), c.traders);
+                    let goods = |l: &[bool]| l.iter().enumerate().filter(|g| *g.1).map(|g| g.0).collect::<Vec<_>>();
+                    eprintln!("  city {i} name {} type {} open {} sea {} sells {:?} buys {:?} traded {:?} next {} route {} points {} limits {:?} traders {:?}", c.name_id, c.city_type, c.open, c.sea, goods(&c.sells), goods(&c.buys), traded, c.entry_delay, c.route, route.points.len(), route.limit.iter().enumerate().filter(|l| *l.1 > 0).collect::<Vec<_>>(), c.traders);
                 }
                 eprintln!("  finance {:?} entry {:?} exit {:?}", world.finance.this_year, world.entry_point, world.exit_point);
             }
-            ["fireevent", i] => world.fire_event_now(i.parse()?),
+            // Caravans and trade ships in the city: where they are, what they're doing,
+            // the yard or dock they deal with, and loads bought and sold.
+            ["traders"] => {
+                for f in world.figures.iter().filter(|f| matches!(f.kind, osiris_sim::trade::TRADE_CARAVAN | osiris_sim::docks::TRADE_SHIP)) {
+                    eprintln!("  #{} kind {} city {} at {},{} action {} home {} dest {:?} moving {} bought {} sold {} dead {}", f.id, f.kind, f.target, f.x, f.y, f.action, f.home, f.destination, f.moving, f.amount, f.cargo, f.dead);
+                }
+            }
+            ["fireevent", i] =>world.fire_event_now(i.parse()?),
             ["events"] => {
                 for (i, e) in world.scenario_events.list.iter().enumerate() {
                     eprintln!(

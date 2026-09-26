@@ -575,9 +575,16 @@ mod tests {
         let city = world.trade.cities.iter().position(|c| c.sea && c.sells[13]).expect("a sea city selling pottery");
         world.trade.cities[city].open = true;
         world.set_trade(13, crate::trade::status::IMPORT, 1000);
+        // It buys barley (14): the yard's 400 go in one docker's trip.
+        world.set_trade(14, crate::trade::status::EXPORT, 0);
+        let mut most = 0;
         for _ in 0..9000 {
             world.tick();
+            most = world.figures.iter().filter(|f| f.kind == crate::docks::DOCKER).map(|f| f.amount).max().unwrap_or(0).max(most);
         }
+        assert_eq!(world.stored(yard, 14), 0, "barley sold to a ship");
+        assert!(world.finance.this_year.exports > 0, "exports {:?}", world.finance.this_year);
+        assert_eq!(most, 400, "a docker carries four loads");
         let granary = world.map.building.at_or(152, 127, 0);
         assert!(world.stored(granary, crate::economy::resource::FISH) > 0, "fish delivered");
         assert!(world.stored(yard, 13) > 0, "pottery unloaded from a ship");

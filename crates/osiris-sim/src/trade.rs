@@ -3,8 +3,9 @@
 //! Each trading city lies at the end of a land or sea route. Once the player opens a
 //! route, the city sends a trader every few days (up to three at a time). There is no
 //! journey along the route: the trader appears at once at the city's entry point as a
-//! caravan with two donkeys (or at the river entry as a ship). The caravan visits
-//! storage yards, each eleven ticks buying one load of a good the player exports and
+//! caravan with two donkeys (or at the river entry as a ship). The caravan stands 20
+//! ticks at the entry point, then visits staffed storage yards that can be walked to
+//! from there, each eleven ticks buying one load of a good the player exports and
 //! selling one load of a good the player imports, up to eight loads each way, until
 //! it has nothing left to do or no yard will deal with it, then leaves by the exit.
 //! It sells the goods in turn, a load of each (the rotation is shared by every
@@ -29,6 +30,8 @@ const SEA_ENTRY_DELAY: i32 = 30;
 pub const MAX_TRADERS: usize = 3;
 /// City-days between reminders that ships cannot come without a dock.
 const NO_DOCK_REMINDER: i32 = 384;
+/// Ticks a new caravan stands at the entry point before it chooses a yard.
+const CREATED_WAIT: i32 = 20;
 /// Ticks between a caravan's deals at a storage yard.
 const DEAL_TICKS: i32 = 11;
 /// Loads a caravan buys at most, and sells at most.
@@ -99,6 +102,8 @@ mod action {
     pub const TRADING: u16 = 2;
     pub const LEAVING: u16 = 3;
     pub const FOLLOWING: u16 = 4;
+    /// Standing at the entry point before choosing a yard.
+    pub const CREATED: u16 = 5;
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -194,6 +199,11 @@ pub struct Trade {
     /// The good caravans sell us next, round the resources in turn.
     #[serde(default)]
     pub next_import: u16,
+    /// The goods dockers unload from ships, and fetch for them, in turn.
+    #[serde(default)]
+    pub docker_import: u16,
+    #[serde(default)]
+    pub docker_export: u16,
     /// Map decorations for the empire window: (kind, x, y, image id).
     pub objects: Vec<(u8, i32, i32, u16)>,
 }
@@ -576,7 +586,8 @@ impl World {
         }
     }
 
-    /// A caravan from `city` appears at the entry point with its two donkeys.
+    /// A caravan from `city` appears at the entry point with its two donkeys, and
+    /// stands there 20 ticks before it picks a storage yard.
     fn caravan_arrives(&mut self, city: usize) -> FigureId {
         let (x, y) = self.entry_point;
         let fid = self.figures.spawn(TRADE_CARAVAN, x, y, Travel::PreferRoads);
@@ -586,7 +597,7 @@ impl World {
             f.roam_left = capacity;
             f.amount = 0;
             f.counter = 0;
-            f.action = action::TO_YARD;
+            f.action = action::CREATED;
         }
         let mut lead = fid;
         for _ in 0..2 {
@@ -597,7 +608,6 @@ impl World {
             }
             lead = d;
         }
-        self.caravan_next_yard(fid, None);
         fid
     }
 
@@ -608,41 +618,106 @@ impl World {
         (city < self.trade.cities.len()).then_some(city)
     }
 
-    /// Picks the storage yard a caravan deals with next: of the yards it could buy from
-    /// or sell to, the one nearest after a penalty of 32, less 4 for each space holding
-    /// a good it buys and, when it has goods to sell, 16 for each empty space and 8 for
-    /// each space holding under 400 of the good it sells next. Yards left at 32 or
-    /// more are passed over.
-    fn caravan_next_yard(&mut self, fid: FigureId, not: Option<BuildingId>) {
+    /// Steps the rotation of goods caravans sell us on to the next one, 35 after 1.
+    fn step_import_turn(&mut self) -> u16 {
+        let next = self.trade.next_import.max(1) + 1;
+        self.trade.next_import = if next as usize >= RESOURCES { 1 } else { next };
+        self.trade.next_import
+    }
+
+    /// Whether storage yard `yard` would take a load a caravan from `city`, having
+    /// sold us `sold` loads, has to sell: it has one of the goods we import from the
+    /// city on its accept or get orders and short of their limits, the good the
+    /// rotation stands at (moved on to the next such good the yard doesn't refuse, if
+    /// need be) is one of them, and one of its spaces has room for a load, empty or
+    /// holding a good we import from the city.
+    fn yard_takes_sale(&mut self, yard: BuildingId, city: usize, sold: i32) -> bool {
+        use crate::storage::order;
+        let Some(b) = self.buildings.get(yard).filter(|b| b.kind == kind::STORAGE_YARD) else { return false };
+        if sold >= CARAVAN_LOADS {
+            return false;
+        }
+        let full = |r: u16, more: i32| b.order_cap(r) < self.stored(yard, r) + more;
+        let wanted = (1..RESOURCES as u16).any(|r| !matches!(b.order(r), order::REFUSE | order::EMPTY) && !full(r, 0) && !full(r, LOAD) && self.can_import(city, r));
+        if !wanted {
+            return false;
+        }
+        let takes = |w: &World, r: u16| w.buildings.get(yard).is_some_and(|b| b.order(r) != order::REFUSE) && w.can_import(city, r);
+        if !takes(self, self.trade.next_import.max(1)) && !(1..RESOURCES).any(|_| {
+            let r = self.step_import_turn();
+            takes(self, r)
+        }) {
+            return false;
+        }
+        let Some(b) = self.buildings.get(yard) else { return false };
+        b.spaces.iter().any(|&(r, n)| n < crate::storage::SPACE_UNITS && (n == 0 || self.can_import(city, r)))
+    }
+
+    /// Whether a caravan from `city`, having bought `bought` units, could buy a load at
+    /// yard `yard`: a space holds a good we export to the city and the yard holds a
+    /// load of it.
+    fn yard_has_sale(&self, yard: BuildingId, city: usize, bought: i32) -> bool {
+        let Some(b) = self.buildings.get(yard).filter(|b| b.kind == kind::STORAGE_YARD) else { return false };
+        bought < CARAVAN_LOADS * LOAD && b.spaces.iter().any(|&(r, n)| n > 0 && self.can_export(city, r) && self.stored(yard, r) >= LOAD)
+    }
+
+    /// Picks the storage yard a caravan deals with next. A yard qualifies when it is
+    /// staffed, reached from the entry point, and has something to buy from the
+    /// caravan or sell it. Of those, the caravan takes the one nearest after a penalty
+    /// of 32, less 4 for each space holding a good it would buy and, while it has
+    /// goods to sell that the yard would take, 16 for each empty space and 8 for each
+    /// space under 400 of the good the rotation stands at (which each space moves on
+    /// to the next good the yard doesn't refuse). Yards left at 32 or more are passed
+    /// over, and ties go to the older yard. A caravan choosing at the entry point
+    /// (`from_entry`) adds each yard's walking distance from there.
+    fn caravan_next_yard(&mut self, fid: FigureId, not: Option<BuildingId>, from_entry: bool) {
+        use crate::storage::order;
         let Some(city) = self.trader_city(fid) else { return };
         let Some(f) = self.figures.get(fid) else { return };
-        let from = (f.x, f.y);
-        let exports: Vec<u16> = (1..RESOURCES as u16).filter(|&r| self.can_export(city, r)).collect();
-        let imports: Vec<u16> = (1..RESOURCES as u16).filter(|&r| self.can_import(city, r)).collect();
-        let next = self.next_import_for(city);
-        let best = self
-            .buildings
-            .iter()
-            .filter(|b| b.kind == kind::STORAGE_YARD && b.road.is_some() && Some(b.id) != not)
-            .filter(|b| exports.iter().any(|&r| self.stored(b.id, r) >= LOAD) || imports.iter().any(|&r| self.storage_room(b.id, r) >= LOAD))
-            .filter_map(|b| {
-                let mut penalty = 32;
-                for &(r, n) in &b.spaces {
-                    if n > 0 && exports.contains(&r) {
-                        penalty -= 4;
+        let (from, bought, sold) = ((f.x, f.y), f.amount, f.cargo as i32);
+        let exportable: Vec<bool> = (0..RESOURCES as u16).map(|r| r > 0 && bought < CARAVAN_LOADS * LOAD && self.can_export(city, r)).collect();
+        let importable: Vec<bool> = (0..RESOURCES as u16).map(|r| r > 0 && sold < CARAVAN_LOADS && self.can_import(city, r)).collect();
+        let any_import = importable.iter().any(|&i| i);
+        let yards = self.yards_from_entry(not);
+        let mut best: Option<(i32, BuildingId)> = None;
+        for (id, entry_distance) in yards {
+            if !self.yard_takes_sale(id, city, sold) && !self.yard_has_sale(id, city, bought) {
+                continue;
+            }
+            let b = self.buildings.get(id).expect("yard");
+            let (x, y, empty_all, spaces) = (b.x, b.y, b.empty_all, b.spaces.clone());
+            let accepts_import = (1..RESOURCES as u16).any(|r| !matches!(b.order(r), order::REFUSE | order::EMPTY) && self.can_import(city, r));
+            let refuses = |w: &World, r: u16| w.buildings.get(id).is_some_and(|b| b.order(r) == order::REFUSE);
+            let mut penalty = 32;
+            for &(r, n) in &spaces {
+                if n > 0 && exportable[r as usize] {
+                    penalty -= 4;
+                }
+                if any_import && accepts_import && !empty_all {
+                    let mut turn = self.step_import_turn();
+                    for _ in 2..RESOURCES {
+                        if !refuses(self, turn) {
+                            break;
+                        }
+                        turn = self.step_import_turn();
                     }
-                    if !imports.is_empty() {
+                    if !refuses(self, turn) {
                         if n == 0 {
                             penalty -= 16;
-                        } else if Some(r) == next && n < crate::storage::SPACE_UNITS {
+                        } else if r == turn && importable[r as usize] && n < crate::storage::SPACE_UNITS {
                             penalty -= 8;
                         }
                     }
                 }
-                (penalty < 32).then(|| ((b.x - from.0).abs().max((b.y - from.1).abs()) + penalty, b.id))
-            })
-            .min()
-            .map(|(_, id)| id);
+            }
+            if penalty < 32 {
+                let d = (x - from.0).abs().max((y - from.1).abs()) + if from_entry { entry_distance } else { 0 } + penalty;
+                if best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, id));
+                }
+            }
+        }
+        let best = best.map(|(_, id)| id);
         let road = best.and_then(|id| self.buildings.get(id)).and_then(|b| b.road);
         let exit = self.exit_point;
         let map = &self.map;
@@ -661,18 +736,43 @@ impl World {
         }
     }
 
+    /// Staffed storage yards (but `not`) whose road tile can be walked to from the
+    /// entry point, with that walking distance, oldest first.
+    pub(crate) fn yards_from_entry(&self, not: Option<BuildingId>) -> Vec<(BuildingId, i32)> {
+        let entry = crate::figures::route_distances(&self.map, Travel::Land, self.entry_point);
+        let w = self.map.width;
+        let at = |(x, y): (i32, i32)| if self.map.contains(x, y) { entry[(y * w + x) as usize] } else { 0 };
+        self.buildings
+            .iter()
+            .filter(|b| b.kind == kind::STORAGE_YARD && b.workers > 0 && Some(b.id) != not)
+            .filter_map(|b| b.road.map(|r| (b.id, at(r))))
+            .filter(|&(_, d)| d > 0)
+            .collect()
+    }
+
     pub(crate) fn update_caravan(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
         let (act, yard) = (f.action, f.home);
         match act {
+            action::CREATED => {
+                let f = self.figures.get_mut(fid).expect("present");
+                f.counter += 1;
+                if f.counter > CREATED_WAIT {
+                    f.counter = 0;
+                    self.caravan_next_yard(fid, None, true);
+                }
+            }
             action::TO_YARD | action::LEAVING => {
                 let map = &self.map;
                 let f = self.figures.get_mut(fid).expect("present");
                 match f.walk(map) {
                     Step::Moving => {}
                     Step::Arrived if act == action::TO_YARD => {
-                        f.action = action::TRADING;
-                        f.counter = DEAL_TICKS;
+                        // A yard pulled down or left without staff on the way sends the
+                        // caravan choosing again, at once.
+                        let gone = self.buildings.get(yard).is_none_or(|b| b.kind != kind::STORAGE_YARD || b.workers <= 0);
+                        let f = self.figures.get_mut(fid).expect("present");
+                        (f.action, f.counter) = if gone { (action::CREATED, CREATED_WAIT) } else { (action::TRADING, DEAL_TICKS) };
                     }
                     _ => self.caravan_gone(fid),
                 }
@@ -685,24 +785,18 @@ impl World {
                 }
                 f.counter = DEAL_TICKS;
                 if self.buildings.get(yard).is_none() || !self.caravan_deal(fid, yard) {
-                    self.caravan_next_yard(fid, Some(yard));
+                    self.caravan_next_yard(fid, Some(yard), false);
                 }
             }
             _ => {}
         }
     }
 
-    /// The good caravans from `city` would sell us next: the first importable one from
-    /// the rotation onward.
-    fn next_import_for(&self, city: usize) -> Option<u16> {
-        let start = self.trade.next_import.max(1) as usize;
-        (0..RESOURCES - 1).map(|i| (1 + (start - 1 + i) % (RESOURCES - 1)) as u16).find(|&r| self.can_import(city, r))
-    }
-
     /// One round of dealing at a yard: buy a load, then sell a load. False if neither
     /// was possible. The caravan buys the good in the last of the yard's spaces holding
     /// one it wants (nothing if any of them is down to its last part load), and sells
-    /// the goods it has in turn, a load of each, the rotation moving on each sale.
+    /// (when the yard would take a sale at all) the goods it has in turn, a load of
+    /// each, the rotation moving on each sale.
     fn caravan_deal(&mut self, fid: FigureId, yard: BuildingId) -> bool {
         let Some(city) = self.trader_city(fid) else { return false };
         let Some(f) = self.figures.get(fid) else { return false };
@@ -738,9 +832,10 @@ impl World {
             self.figures.get_mut(fid).expect("present").amount += LOAD;
             dealt = true;
         }
+        let sells = sold + LOAD <= capacity && self.yard_takes_sale(yard, city, sold / LOAD);
         let start = self.trade.next_import.max(1) as usize;
         let mut turn = (0..RESOURCES - 1).map(|i| (1 + (start - 1 + i) % (RESOURCES - 1)) as u16);
-        if sold + LOAD <= capacity
+        if sells
             && let Some(r) = turn.find(|&r| self.can_import(city, r) && self.storage_room(yard, r) >= LOAD)
         {
             self.trade.next_import = 1 + r % (RESOURCES as u16 - 1);
@@ -901,6 +996,78 @@ mod tests {
         w.trade.cities[0].open = false;
         assert!(w.open_trade_route(0).is_err(), "5000 or more in debt");
         assert_eq!(w.treasury, -5999);
+    }
+
+    /// Mission 12 with a road up from the entry point and three storage yards beside
+    /// it, and the route to city 8 (which buys bricks, 12) open.
+    fn yards_town() -> Option<(World, [BuildingId; 3])> {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.join("mission1.pak").is_file() {
+            return None;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).ok()?;
+        let scenario = osiris_formats::MissionPak::open(&data.join("mission1.pak")).ok()?.scenario(12).ok()?;
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).ok()?);
+        let balances = crate::balance::Balance::load_all(&data).ok()?;
+        let mut world = World::new(&scenario, defs, balances[2].clone());
+        world.start(&scenario);
+        world.load_mission(12);
+        world.treasury = 20000;
+        let road = world.apply(&crate::world::Command::Road { start: (111, 141), end: (111, 118) });
+        assert!(matches!(road, crate::world::Outcome::Done { items: 1.., .. }), "{road:?}");
+        let yards = [(112, 125), (112, 130), (108, 125)].map(|(x, y)| world.create_building(kind::STORAGE_YARD, x, y));
+        world.trade.cities[8].open = true;
+        world.set_trade(12, status::EXPORT, 0);
+        Some((world, yards))
+    }
+
+    #[test]
+    fn caravans_wait_then_choose_a_staffed_yard_with_goods_to_sell() {
+        let Some((mut w, [a, b, c])) = yards_town() else { return };
+        // A holds a load of bricks, B three spaces of them; C holds a yard full but has
+        // no staff.
+        w.add_stored(a, 12, 100);
+        w.add_stored(b, 12, 1200);
+        w.add_stored(c, 12, 3200);
+        for (id, staff) in [(a, 6), (b, 6), (c, 0)] {
+            w.buildings.get_mut(id).unwrap().workers = staff;
+        }
+        let fid = w.caravan_arrives(8);
+        for _ in 0..CREATED_WAIT {
+            w.update_caravan(fid);
+        }
+        assert_eq!(w.figures.get(fid).unwrap().action, action::CREATED, "it stands 20 ticks at the entry point");
+        w.update_caravan(fid);
+        let f = w.figures.get(fid).unwrap();
+        assert_eq!((f.action, f.home), (action::TO_YARD, b), "B: more bricks than A");
+        // Staff gone on the way, it chooses again: A.
+        w.buildings.get_mut(b).unwrap().workers = 0;
+        w.figures.get_mut(fid).unwrap().action = action::CREATED;
+        w.figures.get_mut(fid).unwrap().counter = CREATED_WAIT;
+        w.update_caravan(fid);
+        assert_eq!(w.figures.get(fid).unwrap().home, a);
+        // With no staffed yard holding bricks, it leaves.
+        w.buildings.get_mut(a).unwrap().workers = 0;
+        w.caravan_next_yard(fid, None, true);
+        assert_eq!(w.figures.get(fid).unwrap().action, action::LEAVING);
+    }
+
+    #[test]
+    fn a_caravan_buys_a_load_every_eleven_ticks_up_to_eight() {
+        let Some((mut w, [a, _, _])) = yards_town() else { return };
+        w.add_stored(a, 12, 1200);
+        w.buildings.get_mut(a).unwrap().workers = 6;
+        let fid = w.caravan_arrives(8);
+        let f = w.figures.get_mut(fid).unwrap();
+        (f.action, f.home, f.counter) = (action::TRADING, a, DEAL_TICKS);
+        let treasury = w.treasury;
+        for _ in 0..DEAL_TICKS * 10 {
+            w.update_caravan(fid);
+        }
+        assert_eq!(w.figures.get(fid).unwrap().amount, 8 * LOAD);
+        assert_eq!(w.stored(a, 12), 400);
+        assert_eq!(w.treasury - treasury, 8 * w.sell_price(12));
+        assert_eq!(w.figures.get(fid).unwrap().action, action::LEAVING, "full up, it goes");
     }
 
     #[test]
