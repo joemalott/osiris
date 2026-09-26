@@ -134,6 +134,7 @@ pub fn building_animations(cx: &AnimContext, out: &mut Vec<Overlay>) {
             continue;
         }
         if osiris_sim::water::is_shore_building(b.kind) {
+            stock_piles(cx, b, out);
             shore(cx, b, out);
             continue;
         }
@@ -141,10 +142,131 @@ pub fn building_animations(cx: &AnimContext, out: &mut Vec<Overlay>) {
             water_lift(cx, b, out);
             continue;
         }
-        let active = if b.kind == kind::BURNING_RUIN { b.progress > 0 } else { b.kind == kind::WELL || b.workers > 0 };
+        stock_piles(cx, b, out);
+        let active = if b.kind == kind::BURNING_RUIN { b.progress > 0 } else { b.kind == kind::WELL || (b.workers > 0 && has_materials(cx.world, b)) };
         if active {
             working(cx, b, out);
         }
+    }
+}
+
+/// Buildings the original animates only while they hold their raw material, as well
+/// as staff (FUN_0040f2c0): the workshops, the guilds of carpenters, bricklayers and
+/// artisans, the shipwright, the cattle ranch, the zoo, the senet house, the
+/// mortuary, the scribal school and the library.
+const NEEDS_MATERIAL: [u16; 20] = [32, 47, 51, 53, 74, 110, 111, 112, 113, 114, 177, 178, 194, 203, 204, 205, 226, 231, 232, 233];
+/// Of those, the ones that need their second material on hand too: the brickworks,
+/// the zoo and the lamp maker.
+const NEEDS_BOTH: [u16; 3] = [204, 226, 232];
+
+/// Whether `b` holds the materials its working animation needs: some of its first
+/// input, and of its second for the few in `NEEDS_BOTH`. A shipwright laying down a
+/// fishing boat needs no timber. A building with no input of its own (the
+/// bricklayers, whose bricks go to the site by sled) never has any, as in the
+/// original, where their stock stays empty.
+fn has_materials(world: &World, b: &Building) -> bool {
+    if !NEEDS_MATERIAL.contains(&b.kind) || (b.kind == kind::SHIPWRIGHT && b.boat_kind == 0) {
+        return true;
+    }
+    let Some(def) = world.defs.building(b.kind) else { return true };
+    let held = |i: usize| def.inputs.get(i).and_then(|r| world.resource_id(r)).is_some_and(|r| b.stock.get(r as usize).is_some_and(|&n| n > 0));
+    held(0) && (!NEEDS_BOTH.contains(&b.kind) || held(1))
+}
+
+/// Which of a building's stores a pile shows.
+#[derive(Clone, Copy)]
+enum Store {
+    /// Its first input.
+    First,
+    /// Its second input.
+    Second,
+    /// What it gathers (wood cutters, reed gatherers, the hunting lodge).
+    Output,
+}
+
+/// A pile of goods drawn on a building (FUN_00436310): the store it shows, the
+/// images (pack and group), the last image, and the spot from the draw tile.
+struct Pile {
+    store: Store,
+    pack: &'static str,
+    group: usize,
+    most: i32,
+    at: (i32, i32),
+}
+
+const fn pile(store: Store, pack: &'static str, group: usize, most: i32, x: i32, y: i32) -> Pile {
+    Pile { store, pack, group, most, at: (x, y) }
+}
+
+const GENERAL: &str = "Pharaoh_General";
+const EXPANSION: &str = "Expansion";
+/// Where a shipwright's timber lies, by facing.
+const SHIPWRIGHT_TIMBER: [(i32, i32); 4] = [(70, 25), (120, -25), (90, 10), (40, -5)];
+
+/// The piles each building type shows. The shipwright's spot follows its facing
+/// (`SHIPWRIGHT_TIMBER`); its entry's spot is unused.
+const PILES: [(u16, Pile); 28] = {
+    use Store::*;
+    [
+        (32, pile(First, GENERAL, 198, 2, 107, 5)),
+        (47, pile(First, GENERAL, 199, 4, 49, 16)),
+        (51, pile(First, GENERAL, 60, 2, 28, 15)),
+        (53, pile(First, GENERAL, 60, 2, 61, -13)),
+        (74, pile(First, GENERAL, 202, 4, 0, 0)),
+        (95, pile(First, GENERAL, 201, 1, 131, 2)),
+        (95, pile(Second, GENERAL, 209, 1, 74, 10)),
+        (108, pile(Output, GENERAL, 202, 4, 65, 3)),
+        (110, pile(First, GENERAL, 208, 2, 43, -1)),
+        (111, pile(First, GENERAL, 210, 1, 41, 1)),
+        (112, pile(First, GENERAL, 203, 1, 69, 19)),
+        (113, pile(First, GENERAL, 200, 1, 63, -1)),
+        (114, pile(First, GENERAL, 207, 1, 65, 20)),
+        (115, pile(Output, GENERAL, 205, 4, 61, 13)),
+        (177, pile(First, GENERAL, 202, 4, 41, 8)),
+        (194, pile(First, GENERAL, 204, 1, 38, 7)),
+        (195, pile(Output, GENERAL, 206, 4, 34, 17)),
+        (203, pile(First, GENERAL, 206, 4, 35, 4)),
+        (204, pile(Second, GENERAL, 204, 1, 91, 2)),
+        (204, pile(First, GENERAL, 207, 1, 52, -17)),
+        (205, pile(First, GENERAL, 202, 4, 166, -23)),
+        (226, pile(First, GENERAL, 205, 2, 200, -10)),
+        (226, pile(Second, GENERAL, 204, 2, 220, 10)),
+        (231, pile(Second, GENERAL, 207, 4, 1, 7)),
+        (231, pile(First, EXPANSION, 34, 4, 46, 12)),
+        (232, pile(Second, EXPANSION, 28, 1, 50, 20)),
+        (232, pile(First, EXPANSION, 29, 1, 15, 8)),
+        (233, pile(First, EXPANSION, 30, 1, 45, 25)),
+    ]
+};
+
+/// The goods a building holds, piled beside it: one image more per hundred units past
+/// the first hundred (any at all shows the first), up to each pile's last. As in the
+/// original the count runs on from the group's first image, so where a pile's last
+/// goes past its group (the artisans' clay and paint) the next group's images show.
+fn stock_piles(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
+    let mut list = PILES.iter().filter(|(k, _)| *k == b.kind).map(|(_, p)| p).peekable();
+    if list.peek().is_none() {
+        return;
+    }
+    let Some(def) = cx.world.defs.building(b.kind) else { return };
+    let (dx, dy) = (b.x, b.y + b.size - 1);
+    for p in list {
+        let key = match p.store {
+            Store::First => def.inputs.first(),
+            Store::Second => def.inputs.get(1),
+            Store::Output => def.outputs.first(),
+        };
+        let Some(r) = key.and_then(|k| cx.world.resource_id(k)) else { continue };
+        let held = b.stock.get(r as usize).copied().unwrap_or(0);
+        // The original's (held - 100) / 100 rounds toward zero, so nothing shows only
+        // for an empty store.
+        if held <= 0 {
+            continue;
+        }
+        let n = ((held - 100) / 100).min(p.most);
+        let Ok(first) = cx.r.library.group_id(p.pack, p.group, 0) else { continue };
+        let at = if b.kind == kind::SHIPWRIGHT { SHIPWRIGHT_TIMBER[(b.orientation & 3) as usize] } else { p.at };
+        cx.sprite(out, dx, dy, at, first + n as u32);
     }
 }
 
@@ -198,7 +320,7 @@ fn shore(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
                 cx.sprite(out, dx, dy, DOCK_SPOTS[unloading as usize][facing], a.image + 4 * (frame - 1) + variant);
             }
         }
-        SHIPWRIGHT if b.progress > 0 => {
+        SHIPWRIGHT if b.progress > 0 && has_materials(cx.world, b) => {
             let key = match b.boat_kind {
                 0 => "work_fishing_boat",
                 osiris_sim::navy::WARSHIP => "work_warship",

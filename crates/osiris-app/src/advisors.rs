@@ -663,70 +663,108 @@ fn financial(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Advis
     None
 }
 
-/// One line of the chief overseer's report: a heading and the finding, in yellow
-/// when it needs attention.
+/// How a line of the chief overseer's report reads, and the font it is set in
+/// (FUN_00520ea0, the overseers' case 13): all is well in the dark font, a warning in the light one
+/// the headings share, and trouble in yellow.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Tier {
+    Good,
+    Warning,
+    Bad,
+}
+
+impl Tier {
+    fn font(self) -> Font {
+        match self {
+            Tier::Good => Font::NormalBlackOnDark,
+            Tier::Warning => Font::NormalWhiteOnDark,
+            Tier::Bad => Font::NormalYellow,
+        }
+    }
+}
+
+/// The sentiment line (group 61) and its tier: loathed at nothing, idolized at a
+/// hundred, one line per ten points between, in yellow below 30 and light below 50.
+fn sentiment_line(s: i32) -> (usize, Tier) {
+    match s {
+        s if s < 1 => (20, Tier::Bad),
+        s if s >= 100 => (31, Tier::Good),
+        s => ((21 + s / 10) as usize, if s < 30 { Tier::Bad } else if s < 50 { Tier::Warning } else { Tier::Good }),
+    }
+}
+
+/// The employment line (group 61) and its tier, from the unemployment percentage and
+/// the workers short. Both under 6 is no problem; otherwise unemployment speaks first:
+/// URGENT from 18%, SERIOUS from 11%, IMPORTANT from 6%; then the shortage: URGENT
+/// from 21, SERIOUS from 11, IMPORTANT from 6.
+fn employment_line(unemployed: i32, short: i32) -> (usize, Tier) {
+    if unemployed < 6 && short < 6 {
+        return (84, Tier::Good);
+    }
+    match (unemployed, short) {
+        (u, _) if u >= 18 => (76, Tier::Bad),
+        (u, _) if u >= 11 => (77, Tier::Warning),
+        (u, _) if u >= 6 => (78, Tier::Good),
+        (u, _) if u >= 1 => (79, Tier::Good),
+        (_, n) if n >= 21 => (80, Tier::Bad),
+        (_, n) if n >= 11 => (81, Tier::Warning),
+        (_, n) if n >= 6 => (82, Tier::Good),
+        _ => (83, Tier::Good),
+    }
+}
+
+/// One line of the chief overseer's report: a heading and the finding, in the font of
+/// its tier.
 fn chief(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
     const G: usize = 61;
     let title = ui.t(4, 12);
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 17.0);
     panel::inner_panel(ui.r, ui.panels, px + 26.0, py + 66.0, 35, 21);
-    let mut lines: Vec<(String, String, bool)> = Vec::new();
-    let s = world.sentiment.clamp(0, 100);
-    lines.push((ui.t(G, 1), ui.t(G, (20 + s * 11 / 100) as usize), s < 40));
+    let mut lines: Vec<(String, String, Tier)> = Vec::new();
+    let (id, tier) = sentiment_line(world.sentiment.clamp(0, 100));
+    lines.push((ui.t(G, 1), ui.t(G, id), tier));
     let migration = if world.migration.newcomers_this_month >= 5 {
-        (44, false)
+        (44, Tier::Good)
     } else if world.housing_room() <= 0 {
-        (45, true)
+        (45, Tier::Bad)
     } else {
-        (59, false)
+        (59, Tier::Good)
     };
     lines.push((ui.t(G, 2), ui.t(G, migration.0), migration.1));
     let l = &world.labor;
     let pct = if l.available > 0 { l.unemployed * 100 / l.available } else { 0 };
     let short = (l.needed - l.employed).max(0);
-    let employment = if pct > 0 {
-        let id = match pct {
-            p if p > 10 => 76,
-            p if p > 5 => 77,
-            p if p > 2 => 78,
-            _ => 79,
-        };
-        (format!("{} {}%", ui.t(G, id), pct), id != 79)
-    } else if short > 0 {
-        let id = match short {
-            n if n > 75 => 80,
-            n if n > 50 => 81,
-            n if n > 25 => 82,
-            _ => 83,
-        };
-        (format!("{} {}", ui.t(G, id), short), id != 83)
-    } else {
-        (ui.t(G, 84), false)
+    let (id, tier) = employment_line(pct, short);
+    let employment = match id {
+        84 => ui.t(G, id),
+        _ if pct < 1 => format!("{} {} {}", ui.t(G, id), short, ui.t(8, 13)),
+        _ => format!("{} {}%", ui.t(G, id), pct),
     };
-    lines.push((ui.t(G, 3), employment.0, employment.1));
+    lines.push((ui.t(G, 3), employment, tier));
     let months = world.food_supply_months();
-    let food = if months > 0 { (format!("{} {} months", ui.t(G, 98).trim(), months), false) } else { (ui.t(G, 95), true) };
+    let food = if months > 0 { (format!("{} {} {}", ui.t(G, 98).trim(), months, ui.t(8, 5)), Tier::Good) } else { (ui.t(G, 95), Tier::Bad) };
     lines.push((ui.t(G, 4), food.0, food.1));
+    // Most of the taxes owed going uncollected comes first, then the year's change.
     let finance = {
         let (last, now) = (world.finance.last_year_balance, world.treasury);
-        if now > last {
-            (format!("{}{}", ui.t(G, 152), now - last), false)
+        if world.percentage_taxed() < 50 {
+            (ui.t(G, 151), Tier::Warning)
+        } else if now > last {
+            (format!("{}{}", ui.t(G, 152), now - last), Tier::Good)
         } else if now < last {
-            (format!("{}{}", ui.t(G, 154), last - now), true)
-        } else if world.percentage_taxed() < 75 {
-            (ui.t(G, 151), false)
+            (format!("{}{}", ui.t(G, 154), last - now), Tier::Warning)
         } else {
-            (ui.t(G, 153), false)
+            (ui.t(G, 153), Tier::Good)
         }
     };
     lines.push((ui.t(G, 8), finance.0, finance.1));
     // Section title and body both sit at the list's own x + 35 (ui_advisor_chief.js
     // chief_report_list at [26, 66], advisor_chief_report_on_render_item).
-    for (i, (head, body, warn)) in lines.iter().enumerate() {
+    for (i, (head, body, tier)) in lines.iter().enumerate() {
         let y = py + 76.0 + 40.0 * i as f32;
         draw_text(ui.r, Font::NormalWhiteOnDark, head, px + 61.0, y, font::WHITE);
-        let f = if *warn { Font::NormalYellow } else { Font::NormalWhiteOnDark };
-        draw_text(ui.r, f, body, px + 61.0, y + 18.0, font::WHITE);
+        let colour = if *tier == Tier::Good { font::BLACK } else { font::WHITE };
+        draw_text(ui.r, tier.font(), body, px + 61.0, y + 18.0, colour);
     }
     None
 }
@@ -1587,4 +1625,25 @@ fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chief_overseer_tiers_follow_the_original() {
+        assert_eq!(sentiment_line(0), (20, Tier::Bad));
+        assert_eq!(sentiment_line(29), (23, Tier::Bad));
+        assert_eq!(sentiment_line(30), (24, Tier::Warning));
+        assert_eq!(sentiment_line(50), (26, Tier::Good));
+        assert_eq!(sentiment_line(100), (31, Tier::Good));
+        assert_eq!(employment_line(5, 5), (84, Tier::Good));
+        assert_eq!(employment_line(18, 0), (76, Tier::Bad));
+        assert_eq!(employment_line(11, 0), (77, Tier::Warning));
+        assert_eq!(employment_line(3, 40), (79, Tier::Good));
+        assert_eq!(employment_line(0, 21), (80, Tier::Bad));
+        assert_eq!(employment_line(0, 15), (81, Tier::Warning));
+        assert_eq!(employment_line(0, 6), (82, Tier::Good));
+    }
 }
