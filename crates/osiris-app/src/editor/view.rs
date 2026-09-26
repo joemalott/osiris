@@ -198,7 +198,7 @@ pub struct View {
     pub free_scroll: bool,
     /// H: cliffs are drawn as plain rock.
     pub hide_cliffs: bool,
-    clock: f32,
+    pub clock: f32,
     status: Option<(String, f32)>,
     /// The camera was placed where the map's editor left it.
     placed: bool,

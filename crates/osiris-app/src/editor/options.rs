@@ -308,7 +308,12 @@ fn set_number(s: &mut Scenario, f: Field, v: i32) {
         Field::Milestone(n) => i.win.milestone_years[n] = v,
         Field::Interest => i.debt_interest_rate = v.max(0) as u32,
         Field::Year => i.start_year = if i.start_year < 0 { -(v.min(9999) as i16) } else { v.min(9999) as i16 },
-        Field::HousingCount => i.win.housing_count.value = v,
+        Field::HousingCount => {
+            i.win.housing_count.value = v;
+            // Like the monuments goal, "on" follows from the value itself: a count
+            // of zero means no housing requirement.
+            i.win.housing_count.enabled = v != 0;
+        }
         Field::Culture => i.win.culture.value = v,
         Field::Prosperity => i.win.prosperity.value = v,
         Field::Kingdom => i.win.kingdom.value = v,
@@ -354,6 +359,17 @@ fn pick(s: &mut Scenario, f: Field, id: usize) {
 /// The start year as the original writes it: "2500 BC", "AD 30".
 fn year(ui: &Ui, y: i32) -> String {
     if y < 0 { format!("{} {}", -y, ui.t(20, 0).trim()) } else { format!("{} {y}", ui.t(20, 1).trim()) }
+}
+
+/// A value button greyed like the Options screen's unavailable Events button: the
+/// border, but the text tinted rather than plain black, for a value that means
+/// nothing while its switch is off.
+fn grey_button(ui: &mut Ui, rect: [f32; 4], s: &str) -> bool {
+    let hot = ui.hot(rect);
+    panel::button_border(ui.r, ui.panels, rect[0], rect[1], rect[2] as i32, rect[3] as i32, hot);
+    let tw = ui.width(Font::NormalWhiteOnDark, s);
+    osiris_ui::draw_text_tinted(ui.r, Font::NormalWhiteOnDark, s, rect[0] + ((rect[2] - tw) / 2.0).max(0.0).floor(), rect[1] + ((rect[3] - 12.0) / 2.0).floor(), [0.6, 0.55, 0.5, 1.0]);
+    ui.clicked(rect)
 }
 
 /// The 640x480 window's corner, centred on the screen.
@@ -403,12 +419,19 @@ impl Editor {
     /// The Options screen itself (FUN_004138d0).
     fn options_main(&mut self, ui: &mut Ui, o: &mut Options, x: f32, y: f32) -> bool {
         panel::outer_panel(ui.r, ui.panels, x, y + 28.0, 30, 25);
-        // The brief description, typed into its box.
-        panel::inner_panel(ui.r, ui.panels, x + 109.0, y + 40.0, 18, 2);
-        let caret = if o.typing { "_" } else { "" };
+        // The brief description, typed into its box: a hover tint and, while it's
+        // empty and not being typed into, a blinking caret, so an empty box still
+        // reads as a text field to click into.
+        let desc = [x + 109.0, y + 40.0, 288.0, 32.0];
+        panel::inner_panel(ui.r, ui.panels, desc[0], desc[1], 18, 2);
+        if ui.hot(desc) {
+            ui.r.rect([desc[0], desc[1]], [desc[2], desc[3]], [1.0, 1.0, 1.0, 0.12], Space::Screen);
+        }
+        let blink = (self.view.clock * 2.0) as i32 % 2 == 0;
+        let caret = if o.typing || (self.scenario.info.subtitle.is_empty() && blink) { "_" } else { "" };
         let d = format!("{}{caret}", self.scenario.info.subtitle);
         ui.label(Font::NormalWhiteOnDark, &d, x + 112.0, y + 50.0);
-        if ui.clicked([x + 109.0, y + 40.0, 288.0, 32.0]) {
+        if ui.clicked(desc) {
             o.typing = true;
         }
         let b = |row: f32| [x + 212.0, y + row, 250.0, 30.0];
@@ -472,9 +495,9 @@ impl Editor {
             (92.0, 89, Field::Year, year(ui, info.start_year as i32)),
             (132.0, 39, Field::Funds, info.initial_funds.to_string()),
             (172.0, 68, Field::Gift, info.rescue_loan.to_string()),
-            (212.0, 91, Field::Milestone(0), format!("+{}  {}", info.win.milestone_years[0], year(ui, info.start_year as i32 + info.win.milestone_years[0]))),
-            (252.0, 92, Field::Milestone(1), format!("+{}  {}", info.win.milestone_years[1], year(ui, info.start_year as i32 + info.win.milestone_years[1]))),
-            (292.0, 93, Field::Milestone(2), format!("+{}  {}", info.win.milestone_years[2], year(ui, info.start_year as i32 + info.win.milestone_years[2]))),
+            (212.0, 91, Field::Milestone(0), format!("+{} {}", info.win.milestone_years[0], year(ui, info.start_year as i32 + info.win.milestone_years[0]))),
+            (252.0, 92, Field::Milestone(1), format!("+{} {}", info.win.milestone_years[1], year(ui, info.start_year as i32 + info.win.milestone_years[1]))),
+            (292.0, 93, Field::Milestone(2), format!("+{} {}", info.win.milestone_years[2], year(ui, info.start_year as i32 + info.win.milestone_years[2]))),
             (332.0, 177, Field::Interest, format!("{}%", info.debt_interest_rate)),
             (372.0, 202, Field::Pharaoh, ui.t(151, info.current_pharaoh as usize)),
             (412.0, 203, Field::Incarnation, ui.t(152, info.player_incarnation as usize)),
@@ -530,14 +553,20 @@ impl Editor {
         };
         let a = |r: f32| [x + 316.0, y + r, 80.0, 30.0];
         let b = |r: f32| [x + 416.0, y + r, 180.0, 30.0];
-        // Open play, and its number that does nothing.
+        // Open play, and its number that does nothing (the guide: "just there for
+        // show"): shown as N/A rather than the raw byte.
         row(ui, 92.0, 107);
         if ui.button(a(92.0), &yes_no(ui, open), Font::NormalBlackOnLight) {
             s.is_open_play = !open;
         }
-        ui.button(b(92.0), &self.open_play_number.to_string(), Font::NormalBlackOnLight);
+        grey_button(ui, b(92.0), &ui.t(18, 6));
+        // Housing needs both a count and a level; under open play (or with no count
+        // set) it shows "No" like the other goals instead of a count that means
+        // nothing.
         row(ui, 132.0, 210);
-        if ui.button(a(132.0), &w.housing_count.value.to_string(), Font::NormalBlackOnLight) {
+        let housing_on = w.housing_count.enabled && !open;
+        let count_label = if housing_on { w.housing_count.value.to_string() } else { yes_no(ui, false) };
+        if ui.button(a(132.0), &count_label, Font::NormalBlackOnLight) {
             o.keypad = Some(Keypad::new(Field::HousingCount, w.housing_count.value));
         }
         let level = w.housing_level.value.clamp(0, 19) as usize + if w.housing_count.value > 1 { 20 } else { 0 };
@@ -570,11 +599,14 @@ impl Editor {
         for (r, label, field) in timed {
             row(ui, r, label);
             let g = if field == Field::TimeLimit { &mut s.win.time_limit } else { &mut s.win.survival_time };
-            if ui.button(a(r), &yes_no(ui, g.enabled && !open), Font::NormalBlackOnLight) {
+            let on = g.enabled && !open;
+            if ui.button(a(r), &yes_no(ui, on), Font::NormalBlackOnLight) {
                 g.enabled = !g.enabled;
             }
             let v = g.value;
-            if ui.button(b(r), &format!("+{v}  {}", year(ui, start + v)), Font::NormalBlackOnLight) {
+            let text = format!("+{v} {}", year(ui, start + v));
+            let clicked = if on { ui.button(b(r), &text, Font::NormalBlackOnLight) } else { grey_button(ui, b(r), &text) };
+            if clicked {
                 o.keypad = Some(Keypad::new(field, v));
             }
         }
@@ -595,7 +627,9 @@ impl Editor {
         let foot = ui.t(13, 3);
         ui.centred(Font::NormalBlackOnLight, &foot, x, y + 422.0, 608.0);
         let era = self.era;
-        let era_label = ui.t(311, era as usize);
+        // Pharaoh's own maps hold 255 here (from before eras), which text group 311
+        // has no entry for; show its own "Select Monument Era" line instead of nothing.
+        let era_label = ui.t(311, if (1..=4).contains(&era) { era as usize } else { 0 });
         if ui.button([x + 10.0, y + 22.0, 270.0, 20.0], &era_label, Font::NormalBlackOnLight) {
             self.era = era % 4 + 1;
             // Monuments the new era doesn't allow go.
@@ -623,6 +657,9 @@ impl Editor {
         if !self.scenario.info.monuments.iter().any(|&m| is_tomb(m as usize)) {
             let p = &mut self.scenario.info.burial_provisions_required;
             p.iter_mut().for_each(|v| *v = 0);
+            // The right half is otherwise blank while no tomb is chosen: say why.
+            let hint = "Burial provisions appear here once one of the three monuments above is a tomb.";
+            ui.wrapped(Font::NormalBlackOnLight, hint, x + 300.0, y + 70.0, 260.0);
             return;
         }
         let head = ui.t(44, 213);
