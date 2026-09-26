@@ -309,47 +309,203 @@ pub fn find_route(map: &Map, travel: Travel, from: (i32, i32), to: (i32, i32)) -
     if travel == Travel::PreferRoads {
         return find_route(map, Travel::Roads, from, to).or_else(|| find_route(map, Travel::Land, from, to));
     }
-    let (w, h) = (map.width, map.height);
+    let w = map.width;
     let idx = |x: i32, y: i32| (y * w + x) as usize;
-    let mut came = vec![u8::MAX; (w * h) as usize];
-    let mut queue = VecDeque::from([from]);
-    came[idx(from.0, from.1)] = 8;
     let dirs: &[u8] = match travel {
         Travel::Roads => &[0, 2, 4, 6],
         Travel::Land | Travel::PreferRoads | Travel::Water | Travel::Hostile | Travel::Any | Travel::Amphibious | Travel::Air | Travel::Wading => &[0, 2, 4, 6, 1, 3, 5, 7],
     };
-    // The destination may be a building entrance off the road network; allow it.
-    let ok = |x: i32, y: i32| (x, y) == to || passable(map, travel, x, y);
-    while let Some((x, y)) = queue.pop_front() {
-        if (x, y) == to {
-            break;
-        }
-        for &d in dirs {
-            let (dx, dy) = NEIGHBOURS[d as usize];
-            let (nx, ny) = (x + dx, y + dy);
-            if !map.contains(nx, ny) || came[idx(nx, ny)] != u8::MAX || !ok(nx, ny) {
-                continue;
-            }
-            if d % 2 == 1 && !(ok(x + dx, y) && ok(x, y + dy)) {
-                continue;
-            }
-            came[idx(nx, ny)] = d;
-            queue.push_back((nx, ny));
-        }
-    }
-    if came[idx(to.0, to.1)] == u8::MAX {
+    if known_unreachable(map, travel, from, to) {
         return None;
     }
-    let mut route = VecDeque::new();
-    let (mut x, mut y) = to;
-    while (x, y) != from {
-        let d = came[idx(x, y)];
-        route.push_front(d);
-        let (dx, dy) = NEIGHBOURS[d as usize];
-        x -= dx;
-        y -= dy;
+    with_scratch(map, |s| {
+        let to_i = idx(to.0, to.1);
+        s.came[idx(from.0, from.1)] = 8;
+        s.seen[idx(from.0, from.1)] = s.stamp;
+        s.queue.push(from);
+        let mut head = 0;
+        while let Some(&(x, y)) = s.queue.get(head) {
+            head += 1;
+            if (x, y) == to {
+                break;
+            }
+            for &d in dirs {
+                let (dx, dy) = NEIGHBOURS[d as usize];
+                let (nx, ny) = (x + dx, y + dy);
+                if !map.contains(nx, ny) {
+                    continue;
+                }
+                let n = idx(nx, ny);
+                // The destination may be a building entrance off the road network;
+                // allow it.
+                if s.seen[n] == s.stamp || !(n == to_i || s.passable(map, travel, nx, ny)) {
+                    continue;
+                }
+                // Both tiles a diagonal step passes between are inside the map, as
+                // the step's ends are.
+                if d % 2 == 1 {
+                    let (a, b) = (idx(nx, y), idx(x, ny));
+                    if !(a == to_i || s.passable(map, travel, nx, y)) || !(b == to_i || s.passable(map, travel, x, ny)) {
+                        continue;
+                    }
+                }
+                s.seen[n] = s.stamp;
+                s.came[n] = d;
+                s.queue.push((nx, ny));
+            }
+        }
+        if s.seen[to_i] != s.stamp {
+            // Everything reached is passable but `from`: whole regions nothing else
+            // reaches out of, remembered so the next search from inside them for a
+            // tile they don't touch fails at once.
+            let start = if passable(map, travel, from.0, from.1) { 0 } else { 1 };
+            remember_unreachable(map, travel, &s.queue[start..]);
+            return None;
+        }
+        let mut route = VecDeque::new();
+        let (mut x, mut y) = to;
+        while (x, y) != from {
+            let d = s.came[idx(x, y)];
+            route.push_front(d);
+            let (dx, dy) = NEIGHBOURS[d as usize];
+            x -= dx;
+            y -= dy;
+        }
+        Some(route)
+    })
+}
+
+/// Reusable buffers for searches over the map, so a search neither allocates nor
+/// clears a map-sized array: a tile's entries count only when stamped with the
+/// current search's number.
+pub(crate) struct Scratch {
+    pub stamp: u32,
+    /// The search that last reached each tile.
+    pub seen: Vec<u32>,
+    /// The step that reached each tile (valid where `seen` is current).
+    pub came: Vec<u8>,
+    /// Whether each tile is passable: `stamp * 2 + 1` yes, `stamp * 2` no, anything
+    /// else not yet asked in this search.
+    pass: Vec<u32>,
+    pub queue: Vec<(i32, i32)>,
+}
+
+impl Scratch {
+    /// `passable`, asked once per tile per search. Only for tiles inside the map, and
+    /// only while the map doesn't change during the search.
+    #[inline]
+    pub fn passable(&mut self, map: &Map, travel: Travel, x: i32, y: i32) -> bool {
+        let i = (y * map.width + x) as usize;
+        let v = self.pass[i];
+        if v >> 1 == self.stamp {
+            return v & 1 != 0;
+        }
+        let ok = passable(map, travel, x, y);
+        self.pass[i] = self.stamp << 1 | ok as u32;
+        ok
     }
-    Some(route)
+}
+
+thread_local! {
+    static SCRATCH: std::cell::RefCell<Scratch> = const { std::cell::RefCell::new(Scratch { stamp: 0, seen: Vec::new(), came: Vec::new(), pass: Vec::new(), queue: Vec::new() }) };
+}
+
+/// Runs a search with the scratch buffers sized for `map` and a fresh stamp. Searches
+/// must not nest.
+pub(crate) fn with_scratch<R>(map: &Map, f: impl FnOnce(&mut Scratch) -> R) -> R {
+    SCRATCH.with_borrow_mut(|s| {
+        let n = (map.width * map.height).max(0) as usize;
+        // Stamps fit in 31 bits (the passable cache keeps one bit beside them).
+        if s.seen.len() != n || s.stamp >= u32::MAX >> 2 {
+            s.seen = vec![0; n];
+            s.came = vec![0; n];
+            s.pass = vec![0; n];
+            s.stamp = 0;
+        }
+        s.stamp += 1;
+        s.queue.clear();
+        f(s)
+    })
+}
+
+/// Regions of the map that failed route searches filled without finding their way
+/// out, for one kind of travel and one state of the terrain. Each is whole: every
+/// passable tile next to one of its tiles is in it, so a search starting in one can
+/// only reach its tiles and the tiles beside them.
+struct DeadEnds {
+    travel: Travel,
+    version: u64,
+    width: i32,
+    /// The region each tile is in; marks below `first` are from older terrain.
+    marks: Vec<u32>,
+    first: u32,
+    next: u32,
+}
+
+thread_local! {
+    static DEAD_ENDS: std::cell::RefCell<Vec<DeadEnds>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The tiles a route search from `from` starts into: `from` itself if passable, and
+/// its passable neighbours north, east, south and west. Everything it reaches is in
+/// their regions.
+fn start_tiles(map: &Map, travel: Travel, from: (i32, i32)) -> impl Iterator<Item = (i32, i32)> + '_ {
+    std::iter::once((0, 0)).chain([0, 2, 4, 6].map(|d| NEIGHBOURS[d])).map(move |(dx, dy)| (from.0 + dx, from.1 + dy)).filter(move |&(x, y)| passable(map, travel, x, y))
+}
+
+/// Whether an earlier failed search proves there is no route from `from` to `to`: the
+/// search from `from` would stay inside one remembered region, and `to` is not beside
+/// any tile of it, nor next to `from`.
+fn known_unreachable(map: &Map, travel: Travel, from: (i32, i32), to: (i32, i32)) -> bool {
+    DEAD_ENDS.with_borrow(|all| {
+        let Some(d) = all.iter().find(|d| d.travel == travel && d.version == map.terrain.version() && d.width == map.width) else { return false };
+        let mark = |(x, y): (i32, i32)| if map.contains(x, y) { d.marks[(y * map.width + x) as usize] } else { 0 };
+        let mut starts = start_tiles(map, travel, from);
+        let Some(first) = starts.next() else { return false };
+        let region = mark(first);
+        if region < d.first || !starts.all(|t| mark(t) == region) {
+            return false;
+        }
+        if (to.0 - from.0).abs() + (to.1 - from.1).abs() <= 1 || mark(to) == region {
+            return false;
+        }
+        [0, 2, 4, 6].iter().all(|&i| mark((to.0 + NEIGHBOURS[i].0, to.1 + NEIGHBOURS[i].1)) != region)
+    })
+}
+
+/// Records `tiles`, every passable tile a failed search reached, as a region.
+fn remember_unreachable(map: &Map, travel: Travel, tiles: &[(i32, i32)]) {
+    if tiles.is_empty() {
+        return;
+    }
+    DEAD_ENDS.with_borrow_mut(|all| {
+        let n = (map.width * map.height).max(0) as usize;
+        let i = match all.iter().position(|d| d.travel == travel) {
+            Some(i) => i,
+            None => {
+                all.push(DeadEnds { travel, version: 0, width: 0, marks: Vec::new(), first: 1, next: 1 });
+                all.len() - 1
+            }
+        };
+        let d = &mut all[i];
+        if d.width != map.width || d.marks.len() != n || d.next >= u32::MAX - 1 {
+            *d = DeadEnds { travel, version: map.terrain.version(), width: map.width, marks: vec![0; n], first: 1, next: 1 };
+        } else if d.version != map.terrain.version() {
+            d.version = map.terrain.version();
+            d.first = d.next;
+        }
+        let at = |(x, y): (i32, i32)| (y * map.width + x) as usize;
+        // Regions that meet share their tiles; keep only the first, so that a tile's
+        // mark always names a whole region.
+        if tiles.iter().any(|&t| d.marks[at(t)] >= d.first) {
+            return;
+        }
+        let region = d.next;
+        d.next += 1;
+        for &t in tiles {
+            d.marks[at(t)] = region;
+        }
+    })
 }
 
 /// Walking distances from `from` over tiles a figure travelling by `travel` may stand

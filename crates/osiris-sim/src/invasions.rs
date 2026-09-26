@@ -421,28 +421,54 @@ impl World {
     /// he would stand on: what he batters when his way to the target is shut.
     fn nearest_reachable_building(&self, from: (i32, i32)) -> Option<(BuildingId, (i32, i32))> {
         let map = &self.map;
-        let (w, h) = (map.width, map.height);
+        let w = map.width;
         if !map.contains(from.0, from.1) {
             return None;
         }
-        let mut seen = vec![false; (w * h) as usize];
-        let mut queue = std::collections::VecDeque::from([from]);
-        seen[(from.1 * w + from.0) as usize] = true;
-        while let Some((x, y)) = queue.pop_front() {
-            for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1)] {
-                let id = map.building.at_or(x + dx, y + dy, 0);
-                if self.buildings.get(id).is_some_and(|b| !matches!(b.kind, crate::military::FORT_GROUND | kind::ROAD | kind::BURNING_RUIN)) {
-                    return Some((id, (x, y)));
-                }
-            }
-            for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
-                let (nx, ny) = (x + dx, y + dy);
-                if crate::figures::passable(map, Travel::Hostile, nx, ny) && !std::mem::replace(&mut seen[(ny * w + nx) as usize], true) {
-                    queue.push_back((nx, ny));
-                }
-            }
+        // Invaders hemmed in together ask the same question, often in the same tick:
+        // the answer holds while the terrain and buildings stay as they are.
+        type Key = (u64, u64, u64, (i32, i32));
+        type Found = Option<(BuildingId, (i32, i32))>;
+        thread_local! {
+            static RECENT: std::cell::RefCell<std::collections::VecDeque<(Key, Found)>> = const { std::cell::RefCell::new(std::collections::VecDeque::new()) };
         }
-        None
+        let key = (map.terrain.version(), map.building.version(), self.buildings.generation(), from);
+        if let Some(found) = RECENT.with_borrow(|r| r.iter().find(|e| e.0 == key).map(|e| e.1)) {
+            return found;
+        }
+        let found = crate::figures::with_scratch(map, |s| {
+            s.seen[(from.1 * w + from.0) as usize] = s.stamp;
+            s.queue.push(from);
+            let mut head = 0;
+            while let Some(&(x, y)) = s.queue.get(head) {
+                head += 1;
+                for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1)] {
+                    let id = map.building.at_or(x + dx, y + dy, 0);
+                    if id != 0 && self.buildings.get(id).is_some_and(|b| !matches!(b.kind, crate::military::FORT_GROUND | kind::ROAD | kind::BURNING_RUIN)) {
+                        return Some((id, (x, y)));
+                    }
+                }
+                for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if !map.contains(nx, ny) {
+                        continue;
+                    }
+                    let n = (ny * w + nx) as usize;
+                    if s.seen[n] != s.stamp && s.passable(map, Travel::Hostile, nx, ny) {
+                        s.seen[n] = s.stamp;
+                        s.queue.push((nx, ny));
+                    }
+                }
+            }
+            None
+        });
+        RECENT.with_borrow_mut(|r| {
+            if r.len() >= 16 {
+                r.pop_front();
+            }
+            r.push_back((key, found));
+        });
+        found
     }
 
     /// What an army goes for: the buildings its orders name, nearest first.

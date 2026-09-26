@@ -85,9 +85,11 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["fuzz", n, s] => fuzz(world, n.parse()?, s.parse()?, None),
             // A town near the entry: a road grid, then N random buildings (half houses) on it.
             ["town", n, s] => {
-                let c = town_roads(world);
-                fuzz(world, n.parse()?, s.parse()?, Some(c));
+                let c = town_roads(world, 15);
+                fuzz(world, n.parse()?, s.parse()?, Some((c, 17)));
             }
+            // A planned city R tiles each way from its centre, for benchmarks.
+            ["benchcity", r, s] => bench_city(world, r.parse()?, s.parse()?),
             // Lets every building type be built.
             ["allowall"] => {
                 let all: Vec<u16> = (0..world.defs.buildings.len() as u16).filter(|&k| world.defs.building(k).is_some()).collect();
@@ -551,6 +553,24 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 world.rules.fire = false;
                 world.rules.collapse = false;
             }
+            // Sets every house to level L and fills it, for benchmarks of a big city.
+            ["populate", l] => {
+                let l: u8 = l.parse()?;
+                let ids: Vec<_> = world.buildings.iter().filter(|b| b.is_house()).map(|b| b.id).collect();
+                for &id in &ids {
+                    world.set_house_level(id, l);
+                    world.add_people(id, i32::MAX);
+                }
+                eprintln!("{step}: {} houses, pop {}", ids.len(), world.population);
+            }
+            // A hash of the saved game, to check the simulation stays deterministic.
+            ["hash"] => {
+                use std::hash::{Hash, Hasher};
+                let bytes = world.save().map_err(anyhow::Error::msg)?;
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                bytes.hash(&mut h);
+                eprintln!("hash {:016x}: {:?} map {}x{} pop {} figures {} buildings {} save {} bytes", h.finish(), world.time, world.map.width, world.map.height, world.population, world.figures.len(), world.buildings.iter().count(), bytes.len());
+            }
             ["saveload"] => {
                 let bytes = world.save().map_err(anyhow::Error::msg)?;
                 let mut loaded = World::load(&bytes, world.defs.clone(), world.balance.clone()).map_err(anyhow::Error::msg)?;
@@ -912,30 +932,82 @@ fn menu_kinds(world: &World) -> Vec<u16> {
 /// The `fuzz` step: random buildings at valid spots, roads beside them, some clearing.
 /// Lays a road grid over the most open ground near the entry, joined to the entry,
 /// and returns its centre.
-fn town_roads(world: &mut World) -> (i32, i32) {
+fn town_roads(world: &mut World, r: i32) -> (i32, i32) {
     use osiris_sim::map::mask;
     let (ex, ey) = world.entry_point;
     let open = |w: &World, x: i32, y: i32| w.map.contains(x, y) && !w.map.terrain_is(x, y, mask::NOT_CLEAR) && w.map.building.at_or(x, y, 0) == 0;
     let mut best = ((ex, ey), -1);
     for cy in (ey - 40..=ey + 40).step_by(4) {
         for cx in (ex - 40..=ex + 40).step_by(4) {
-            let n = (-15..=15).step_by(3).flat_map(|dy| (-15..=15).step_by(3).map(move |dx| (dx, dy))).filter(|&(dx, dy)| open(world, cx + dx, cy + dy)).count() as i32;
+            let n = (-r..=r).step_by(3).flat_map(|dy| (-r..=r).step_by(3).map(move |dx| (dx, dy))).filter(|&(dx, dy)| open(world, cx + dx, cy + dy)).count() as i32;
             if n > best.1 {
                 best = ((cx, cy), n);
             }
         }
     }
     let (cx, cy) = best.0;
-    for d in (-15..=15).step_by(5) {
-        world.apply(&Command::Road { start: (cx - 15, cy + d), end: (cx + 15, cy + d) });
-        world.apply(&Command::Road { start: (cx + d, cy - 15), end: (cx + d, cy + 15) });
+    for d in (-r..=r).step_by(5) {
+        world.apply(&Command::Road { start: (cx - r, cy + d), end: (cx + r, cy + d) });
+        world.apply(&Command::Road { start: (cx + d, cy - r), end: (cx + d, cy + r) });
     }
     world.apply(&Command::Road { start: (ex, ey), end: (cx, cy) });
     eprintln!("town at {cx},{cy} (open {})", best.1);
     (cx, cy)
 }
 
-fn fuzz(world: &mut World, n: u32, seed: u64, town: Option<(i32, i32)>) {
+/// The `benchcity` step: a road grid R tiles each way with 4x4 blocks between the
+/// roads, most of them filled with houses and the rest with services, workshops and
+/// storage, every building touching a road.
+fn bench_city(world: &mut World, r: i32, seed: u64) {
+    let mut state = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+    let mut next = move |m: i32| -> i32 {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state % m.max(1) as u64) as i32
+    };
+    let (cx, cy) = town_roads(world, r);
+    // Services: (kind, size); two-tile ones go four to a block, one-tile ones in the
+    // corners, three- and four-tile ones one to a block.
+    const SMALL: &[u16] = &[92, 92, 46, 49, 55, 167, 81, 140, 141, 142, 143, 144, 41, 39, 38];
+    const PAIRS: &[u16] = &[180, 180, 70, 70, 206, 47, 36, 51, 86, 110, 111, 114, 203, 204, 177, 178, 179, 231, 199, 199, 108, 109];
+    const LARGE: &[u16] = &[71, 72, 72, 60, 61, 62, 63, 64, 53, 184, 30, 34];
+    let (mut houses, mut built, mut failed) = (0, 0, 0);
+    let mut build = |world: &mut World, k: u16, x: i32, y: i32, x1: i32, y1: i32| {
+        let ok = matches!(world.apply(&Command::Build { kind: k, x, y, x1, y1 }), osiris_sim::Outcome::Done { .. });
+        if ok { built += 1 } else { failed += 1 }
+    };
+    for by in (cy - r + 1..cy + r).step_by(5) {
+        for bx in (cx - r + 1..cx + r).step_by(5) {
+            match next(10) {
+                0..=6 => {
+                    build(world, osiris_sim::buildings::kind::VACANT_LOT, bx, by, bx + 3, by + 3);
+                    houses += 1;
+                }
+                7 | 8 => {
+                    for (dx, dy) in [(0, 0), (2, 0), (0, 2), (2, 2)] {
+                        if next(2) == 0 {
+                            let k = PAIRS[next(PAIRS.len() as i32) as usize];
+                            build(world, k, bx + dx, by + dy, bx + dx, by + dy);
+                        } else {
+                            for (ex, ey) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                                let k = if next(3) == 0 { SMALL[next(SMALL.len() as i32) as usize] } else { osiris_sim::buildings::kind::VACANT_LOT };
+                                build(world, k, bx + dx + ex, by + dy + ey, bx + dx + ex, by + dy + ey);
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    let k = LARGE[next(LARGE.len() as i32) as usize];
+                    build(world, k, bx, by, bx, by);
+                }
+            }
+        }
+    }
+    eprintln!("benchcity {r} {seed}: at {cx},{cy}, {houses} house blocks, built {built}, failed {failed}, treasury {}", world.treasury);
+}
+
+fn fuzz(world: &mut World, n: u32, seed: u64, town: Option<((i32, i32), i32)>) {
     let mut state = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
     let mut next = move |m: i32| -> i32 {
         state ^= state << 13;
@@ -960,7 +1032,7 @@ fn fuzz(world: &mut World, n: u32, seed: u64, town: Option<(i32, i32)>) {
         let mut site = None;
         for _ in 0..400 {
             let (x, y) = match town {
-                Some((cx, cy)) => (cx - 17 + next(35), cy - 17 + next(35)),
+                Some(((cx, cy), r)) => (cx - r + next(2 * r + 1), cy - r + next(2 * r + 1)),
                 None => (next(w), next(h)),
             };
             if world.can_place(k, x, y).is_ok() {

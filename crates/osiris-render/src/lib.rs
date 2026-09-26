@@ -143,7 +143,14 @@ pub struct Renderer {
     /// and columns and not others.
     pub smooth: bool,
     pub library: ImageLibrary,
+    /// The pack image of every core image id (below `EXTRA_BASE`), worked out once:
+    /// `pack << 16 | index`, or `NO_IMAGE`.
+    resolved: Vec<u32>,
+    /// Atlas entries by core image id, once looked up (the outer `None`: not yet).
+    by_id: Vec<Option<Option<AtlasEntry>>>,
 }
+
+const NO_IMAGE: u32 = u32::MAX;
 
 impl Renderer {
     pub fn new(
@@ -260,6 +267,7 @@ impl Renderer {
         let instance_buffer = Self::make_instance_buffer(&device, 1 << 16);
         let mut atlas = Atlas::new();
         let white = atlas.reserve_white(&device, &queue, &page_layout, &sampler);
+        let resolved = (0..osiris_formats::images::EXTRA_BASE).map(|id| library.resolve(id).map_or(NO_IMAGE, |p| (p.pack as u32) << 16 | p.index as u32)).collect();
         Self {
             device,
             queue,
@@ -282,6 +290,8 @@ impl Renderer {
             screen_frame: None,
             smooth: false,
             library,
+            resolved,
+            by_id: Vec::new(),
         }
     }
 
@@ -302,9 +312,33 @@ impl Renderer {
         &self.queue
     }
 
+    /// The pack image global image `id` names.
+    fn resolve(&self, id: u32) -> Option<osiris_formats::PackImage> {
+        match self.resolved.get(id as usize) {
+            Some(&NO_IMAGE) => None,
+            Some(&v) => Some(osiris_formats::PackImage { pack: (v >> 16) as u16, index: v as u16 }),
+            None => self.library.resolve(id),
+        }
+    }
+
     /// Atlas entry for global image `id`, uploading it on first use.
     pub fn entry(&mut self, id: u32) -> Option<AtlasEntry> {
-        let img = self.library.resolve(id)?;
+        let i = id as usize;
+        if let Some(Some(e)) = self.by_id.get(i) {
+            return *e;
+        }
+        let e = self.lookup(id);
+        if i < self.resolved.len() {
+            if self.by_id.len() <= i {
+                self.by_id.resize(self.resolved.len(), None);
+            }
+            self.by_id[i] = Some(e);
+        }
+        e
+    }
+
+    fn lookup(&mut self, id: u32) -> Option<AtlasEntry> {
+        let img = self.resolve(id)?;
         self.atlas.get(
             &self.library,
             img,
@@ -316,7 +350,7 @@ impl Renderer {
     }
 
     pub fn record(&self, id: u32) -> Option<&ImageRecord> {
-        Some(self.library.record(self.library.resolve(id)?))
+        Some(self.library.record(self.resolve(id)?))
     }
 
     fn push(

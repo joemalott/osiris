@@ -168,13 +168,28 @@ impl Building {
 }
 
 /// Storage for all buildings, with stable ids (0 is never used).
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Buildings {
     slots: Vec<Option<Building>>,
     free: Vec<BuildingId>,
+    /// Changes whenever a building is added or removed, to a number no other set of
+    /// buildings has had (see `Grid::version`).
+    #[serde(skip, default = "crate::grid::fresh_version")]
+    generation: u64,
+}
+
+impl Default for Buildings {
+    fn default() -> Self {
+        Self { slots: Vec::new(), free: Vec::new(), generation: crate::grid::fresh_version() }
+    }
 }
 
 impl Buildings {
+    /// Identifies which buildings exist: equal generations, the same buildings.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
     pub fn insert(&mut self, mut b: Building) -> BuildingId {
         let id = self.free.pop().unwrap_or_else(|| {
             self.slots.push(None);
@@ -182,6 +197,7 @@ impl Buildings {
         });
         b.id = id;
         self.slots[id as usize - 1] = Some(b);
+        self.generation = crate::grid::fresh_version();
         id
     }
 
@@ -197,6 +213,7 @@ impl Buildings {
         let b = self.slots.get_mut((id as usize).wrapping_sub(1))?.take();
         if b.is_some() {
             self.free.push(id);
+            self.generation = crate::grid::fresh_version();
         }
         b
     }

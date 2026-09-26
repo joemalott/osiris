@@ -21,13 +21,16 @@ const RUBBLE: Influence = Influence { value: -2, step: 1, step_size: 1, range: 2
 
 fn add_ring(grid: &mut Grid<i8>, x: i32, y: i32, size: i32, distance: i32, value: i32) {
     let (x0, y0, x1, y1) = (x - distance, y - distance, x + size - 1 + distance, y + size - 1 + distance);
-    for yy in y0..=y1 {
-        for xx in x0..=x1 {
-            if xx != x0 && xx != x1 && yy != y0 && yy != y1 {
-                continue;
-            }
-            grid.update(xx, yy, |d| (d as i32 + value).clamp(-100, 100) as i8);
-        }
+    let add = |grid: &mut Grid<i8>, xx: i32, yy: i32| grid.update(xx, yy, |d| (d as i32 + value).clamp(-100, 100) as i8);
+    // The ring's tiles are all different, so the order they are visited in doesn't
+    // matter: the top and bottom rows, then the two sides between them.
+    for xx in x0..=x1 {
+        add(grid, xx, y0);
+        add(grid, xx, y1);
+    }
+    for yy in y0 + 1..y1 {
+        add(grid, x0, yy);
+        add(grid, x1, yy);
     }
 }
 
