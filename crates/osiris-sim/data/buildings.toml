@@ -723,8 +723,8 @@ key = "temple_ra"
 size = 3
 labor = "religion"
 figure = "priest"
-image = { pack = "Pharaoh_General", group = 21, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 21, offset = 0 }, work = { pack = "Pharaoh_General", group = 21, offset = 1, frames = 11, x = 80, y = -123 } }
+image = { pack = "Pharaoh_General", group = 19, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 19, offset = 0 }, work = { pack = "Pharaoh_General", group = 19, offset = 1, frames = 11, x = 70, y = -133 } }
 flags = ["is_temple", "is_religion", "keeps_visitor_paths"]
 text_id = 93
 help = "message_building_shrine_and_temple"
@@ -751,8 +751,8 @@ key = "temple_seth"
 size = 3
 labor = "religion"
 figure = "priest"
-image = { pack = "Pharaoh_General", group = 19, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 19, offset = 0 }, work = { pack = "Pharaoh_General", group = 19, offset = 1, frames = 11, x = 70, y = -133 } }
+image = { pack = "Pharaoh_General", group = 21, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 21, offset = 0 }, work = { pack = "Pharaoh_General", group = 21, offset = 1, frames = 11, x = 80, y = -123 } }
 flags = ["is_temple", "is_religion", "keeps_visitor_paths"]
 text_id = 95
 help = "message_building_shrine_and_temple"
@@ -1489,8 +1489,8 @@ id = 141
 key = "shrine_ra"
 size = 1
 labor = "religion"
-image = { pack = "Pharaoh_General", group = 74, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 74, offset = 0 } }
+image = { pack = "Pharaoh_General", group = 72, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 72, offset = 0 } }
 flags = ["is_shrine", "is_religion", "no_road_access"]
 text_id = 161
 help = "message_building_shrine_and_temple"
@@ -1515,8 +1515,8 @@ id = 143
 key = "shrine_seth"
 size = 1
 labor = "religion"
-image = { pack = "Pharaoh_General", group = 72, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 72, offset = 0 } }
+image = { pack = "Pharaoh_General", group = 74, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 74, offset = 0 } }
 flags = ["is_shrine", "is_religion", "no_road_access"]
 text_id = 161
 help = "message_building_shrine_and_temple"
