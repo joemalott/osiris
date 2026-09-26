@@ -659,6 +659,35 @@ impl Planner<'_> {
         false
     }
 
+    /// Lays a road from any open or dry floodplain tile beside the water lift at (x, y),
+    /// other than those behind it (`behind`, where its ditch starts), to the nearest
+    /// joined road within 16 tiles.
+    fn road_to_lift(&mut self, x: i32, y: i32, behind: &[(i32, i32)]) -> bool {
+        let mut best: Option<((i32, i32), i32)> = None;
+        for yy in y - 16..=y + 16 {
+            for xx in x - 16..=x + 16 {
+                let d = (xx - x).abs() + (yy - y).abs();
+                if self.is_joined((xx, yy)) && best.is_none_or(|b| d < b.1) {
+                    best = Some(((xx, yy), d));
+                }
+            }
+        }
+        let Some((target, _)) = best else { return false };
+        let sides = [(x, y - 1), (x + 1, y - 1), (x + 2, y), (x + 2, y + 1), (x + 1, y + 2), (x, y + 2), (x - 1, y + 1), (x - 1, y)];
+        for s in sides {
+            if behind.contains(&s) || !(open(self.world, s.0, s.1) || floodplain(self.world, s.0, s.1)) {
+                continue;
+            }
+            if self.road(s, target) {
+                self.mark_joined();
+                if self.has_road(x, y, 2, 2) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// The blocks between the roads: those mostly of fertile meadow take meadow farms;
     /// the whole blocks nearest the floodplain take the farms' granaries, work camps,
     /// storage and workshops; the rest follow the city's pattern; then the venues go
@@ -901,6 +930,14 @@ impl Planner<'_> {
                 let start = (lx + outlet.0, ly + outlet.1);
                 let Some(end) = ends.iter().copied().find(|&e| self.world.ditch_path(start, e).is_some_and(|p| p.len() < 60)) else { continue };
                 if self.build(WATER_LIFT, lx, ly) {
+                    // A lift hires through a road beside it like any building; one
+                    // that can't be given one would stand idle.
+                    let behind = osiris_sim::irrigation::INTAKE[(facing as usize + 2) % 4].map(|(dx, dy)| (lx + dx, ly + dy));
+                    if !self.has_road(lx, ly, 2, 2) && !self.road_to_lift(lx, ly, &behind) {
+                        self.world.apply(&Command::Clear { x0: lx, y0: ly, x1: lx + 1, y1: ly + 1 });
+                        *self.tally.built.entry(WATER_LIFT).or_default() -= 1;
+                        continue;
+                    }
                     lifts += 1;
                     if matches!(self.world.apply(&Command::Build { kind: DITCH, x: start.0, y: start.1, x1: end.0, y1: end.1 }), Outcome::Done { .. }) {
                         *self.tally.built.entry(DITCH).or_default() += 1;

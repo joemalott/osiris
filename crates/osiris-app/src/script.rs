@@ -638,6 +638,23 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 bytes.hash(&mut h);
                 eprintln!("hash {:016x}: {:?} map {}x{} pop {} figures {} buildings {} save {} bytes", h.finish(), world.time, world.map.width, world.map.height, world.population, world.figures.len(), world.buildings.iter().count(), bytes.len());
             }
+            // Where the buildings of kind K stand, with their road tile and staff.
+            ["where", k] => {
+                let k: u16 = k.parse()?;
+                for b in world.buildings.iter().filter(|b| b.kind == k) {
+                    eprintln!("  {} {k} at ({},{}) size {} road {:?} workers {} houses {}", b.id, b.x, b.y, b.size, b.road, b.workers, b.houses_covered);
+                }
+            }
+            // Replaces the city with the saved game at PATH (spaces allowed), to look
+            // into a player's save.
+            ["loadfile", path @ ..] => {
+                let bytes = std::fs::read(path.join(" "))?;
+                let mut loaded = World::load(&bytes, world.defs.clone(), world.balance.clone()).map_err(anyhow::Error::msg)?;
+                if let Some(b) = world.balances.clone() {
+                    loaded.attach_balances(b);
+                }
+                *world = loaded;
+            }
             ["saveload"] => {
                 let bytes = world.save().map_err(anyhow::Error::msg)?;
                 let mut loaded = World::load(&bytes, world.defs.clone(), world.balance.clone()).map_err(anyhow::Error::msg)?;
@@ -806,7 +823,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["irrigation"] => {
                 use osiris_sim::map::terrain;
                 for b in world.buildings.iter().filter(|b| b.kind == osiris_sim::irrigation::WATER_LIFT) {
-                    eprintln!("lift {} at ({},{}) facing {} water {} workers {}", b.id, b.x, b.y, b.orientation, b.water, b.workers);
+                    eprintln!("lift {} at ({},{}) facing {} water {} workers {} road {:?} houses {}", b.id, b.x, b.y, b.orientation, b.water, b.workers, b.road, b.houses_covered);
                 }
                 let ditches: Vec<(i32, i32)> = (0..world.map.height).flat_map(|y| (0..world.map.width).map(move |x| (x, y))).filter(|&(x, y)| world.map.terrain_is(x, y, terrain::CANAL)).collect();
                 let wet = ditches.iter().filter(|&&(x, y)| world.ditch_wet(x, y)).count();
@@ -1016,10 +1033,11 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
             }
             // Whether someone on foot can walk from a to b, and how many steps it takes.
-            ["route", a, b] => {
+            ["route", a, b] | ["roadroute", a, b] => {
+                let travel = if parts[0] == "roadroute" { osiris_sim::figures::Travel::Roads } else { osiris_sim::figures::Travel::Land };
                 let (a, b) = (parse_point(a)?, parse_point(b)?);
-                let r = osiris_sim::figures::find_route(&world.map, osiris_sim::figures::Travel::Land, a, b);
-                let reach = osiris_sim::figures::route_distances(&world.map, osiris_sim::figures::Travel::Land, a);
+                let r = osiris_sim::figures::find_route(&world.map, travel, a, b);
+                let reach = osiris_sim::figures::route_distances(&world.map, travel, a);
                 let reached = reach.iter().filter(|&&d| d > 0).count();
                 eprintln!("route {a:?} -> {b:?}: {:?} steps; {reached} tiles reachable from {a:?}", r.map(|r| r.len()));
             }
