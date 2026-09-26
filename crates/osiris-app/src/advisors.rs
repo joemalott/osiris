@@ -39,14 +39,14 @@ const STRIP: [(Advisor, f32, f32); 13] = [
     (Advisor::Trade, 178.0, 46.0),
     (Advisor::Population, 229.0, 48.0),
     (Advisor::Health, 282.0, 35.0),
-    (Advisor::Education, 322.0, 38.0),
+    (Advisor::Education, 321.0, 38.0),
     (Advisor::Entertainment, 363.0, 39.0),
     (Advisor::Religion, 406.0, 35.0),
     (Advisor::Financial, 445.0, 40.0),
     (Advisor::Chief, 490.0, 46.0),
     (Advisor::Monuments, 542.0, 40.0),
 ];
-const BACK: (f32, f32) = (588.0, 40.0);
+const BACK: (f32, f32) = (588.0, 42.0);
 
 /// Every overseer, in the strip's order.
 pub const ALL: [Advisor; 13] = [
