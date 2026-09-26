@@ -683,4 +683,76 @@ mod tests {
         assert!(m.terrain.at_or(40, 42, 0) & bits::WATER != 0);
         assert_eq!(m.images.at_or(40, 42, 0), e.map.images.at_or(40, 42, 0));
     }
+
+    /// Every field the Options screens show, set away from its default, comes back
+    /// unchanged from a save and reopen: description, starting conditions, climate,
+    /// enemy and its toggle, gods and temple complexes, buildings allowed, every win
+    /// criterion, era, monuments, burial provisions, flood plain settings and the
+    /// picture.
+    #[test]
+    fn options_round_trip() {
+        use osiris_formats::scenario::Goal;
+
+        let Some(data) = data() else { return };
+        let mut e = editor(&data, DEFAULT_MAP);
+        e.era = 1; // Pyramids: monuments 1-3 below (kind 1) fit any era, but 1 in particular.
+        let i = &mut e.scenario.info;
+        i.subtitle = "Round-trip test map".to_owned();
+        i.player_rank = 5;
+        i.start_year = -1234;
+        i.initial_funds = 54321;
+        i.rescue_loan = 999;
+        i.win.milestone_years = [11, 22, 33];
+        i.debt_interest_rate = 12;
+        i.current_pharaoh = 7;
+        i.player_incarnation = 3;
+        i.climate = 2;
+        i.enemy_id = 5;
+        i.player_faction = 1;
+        i.gods = [1, 2, 0, 2, 1];
+        i.gods_known = [true, true, false, true, true];
+        if i.reserved.len() < 114 {
+            i.reserved.resize(114, 0);
+        }
+        for (g, &known) in i.gods_known.iter().enumerate() {
+            i.reserved[104 + g] = known as i16;
+        }
+        for id in [2, 10, 20, 30, 40] {
+            i.reserved[id] = 1;
+        }
+        i.is_open_play = false;
+        i.win.culture = Goal { enabled: true, value: 111 };
+        i.win.prosperity = Goal { enabled: true, value: 222 };
+        i.win.kingdom = Goal { enabled: true, value: 333 };
+        i.win.housing_count = Goal { enabled: true, value: 5 };
+        i.win.housing_level = Goal { enabled: true, value: 9 };
+        i.win.time_limit = Goal { enabled: true, value: 44 };
+        i.win.survival_time = Goal { enabled: true, value: 55 };
+        i.win.population = Goal { enabled: true, value: 6000 };
+        i.monuments = [1, 2, 3];
+        if i.burial_provisions_required.len() < 36 {
+            i.burial_provisions_required.resize(36, 0);
+        }
+        for (n, &r) in [1, 8, 10, 13, 15, 17, 18, 19, 20, 23, 24, 25, 26, 28, 30].iter().enumerate() {
+            i.burial_provisions_required[r] = 100 + n as u32;
+        }
+        i.image_id = 5;
+        let f = &mut e.scenario.floodplain_settings;
+        if f.len() < 12 {
+            f.resize(12, 0);
+        }
+        f[0..4].copy_from_slice(&210i32.to_le_bytes());
+        f[4..8].copy_from_slice(&90i32.to_le_bytes());
+        f[8..12].copy_from_slice(&60i32.to_le_bytes());
+
+        let bytes = e.to_bytes().unwrap();
+        let path = std::env::temp_dir().join(format!("osiris-options-roundtrip-{}.map", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+        let reopened = Editor::open(&path, e.defs.clone(), e.text.clone(), e.maps_dir.clone()).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(reopened.era, e.era);
+        assert_eq!(format!("{:?}", reopened.scenario.info), format!("{:?}", e.scenario.info));
+        assert_eq!(reopened.scenario.floodplain_settings, e.scenario.floodplain_settings);
+    }
 }
