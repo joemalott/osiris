@@ -12,3 +12,7 @@ opt-level = 3
 
 [profile.release]
 debug = "line-tables-only"
+
+# Movies decode in real time even in debug builds.
+[profile.dev.package.osiris-bink]
+opt-level = 3

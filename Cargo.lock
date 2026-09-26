@@ -1715,6 +1715,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "osiris-bink"
+version = "0.1.6"
+
+[[package]]
 name = "osiris-formats"
 version = "0.1.6"
 dependencies = [

@@ -1,0 +1,8 @@
+[package]
+name = "osiris-bink"
+description = "Bink 1 video and Bink audio decoder for the original Pharaoh (1999) movies"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
