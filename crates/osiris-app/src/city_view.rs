@@ -234,7 +234,7 @@ impl CityView {
     /// Draws tile `(x, y)`'s image if it belongs to this pass: flat ground (and the
     /// flattened overlay footprints) in the first, anything taller in the second.
     #[allow(clippy::too_many_arguments)]
-    fn draw_tile(&self, r: &mut Renderer, map: &Map, x: i32, y: i32, overlay: Option<&OverlayDraw>, flat_pass: bool, [vx0, vy0, vx1, vy1]: [f32; 4]) {
+    fn draw_tile(&self, r: &mut Renderer, map: &Map, x: i32, y: i32, overlay: Option<&OverlayDraw>, flat_pass: bool, [vx0, vy0, vx1, vy1]: [f32; 4], paint: Paint) {
         if map.edges.at_or(x, y, 0) & edge::DRAW_TILE == 0 {
             return;
         }
@@ -277,7 +277,13 @@ impl CityView {
         // be painted over it.
         let rise = self.art.rise(id);
         let flat = ih <= TILE_H * n as f32 && rise == 0.0;
-        if flat != flat_pass {
+        // The spread goes under everything, tall ground (grass, trees, rock) too; the
+        // exact images are all drawn over it in their own passes.
+        let spread = paint == Paint::Spread;
+        if spread && map.building.at_or(x, y, 0) != 0 {
+            return;
+        }
+        if flat != flat_pass && !spread {
             return;
         }
         // Where footprint_pos puts it, from the record already at hand.
@@ -286,7 +292,7 @@ impl CityView {
         if pos[0] > vx1 || pos[1] > vy1 || pos[0] + iw < vx0 || pos[1] + ih < vy0 {
             return;
         }
-        r.image(id, pos, WHITE, Space::World);
+        r.image_painted(id, pos, WHITE, Space::World, paint);
     }
 
     /// The reach of the map's tile images, worked out again when they change.
@@ -364,10 +370,21 @@ impl CityView {
         // diagonal, screen x runs the other way from map x, so the tile with the
         // smaller map x sits in front on screen and is drawn last: a tall sprite's
         // west edge (map x - 1, same diagonal) must be painted over it, not under it.
-        for d in 0..(w + h - 1) {
-            let (x_min, x_max) = visible(d);
-            for x in (x_min..=x_max).rev() {
-                self.draw_tile(r, map, x, d - x, overlay, true, [vx0, vy0, vx1, vy1]);
+        // At a zoom that isn't a whole number of device pixels to a texel, the ground
+        // is laid twice: first every terrain image spread a texel or two past its
+        // edges, then as it is, so the pixels along a seam that neither neighbour's
+        // own texels reach take the colour beside them instead of the clear colour.
+        let texel = r.camera.zoom * r.scale;
+        let spread = (texel - texel.round()).abs() > 1e-3;
+        for paint in [Paint::Spread, Paint::Normal] {
+            if paint == Paint::Spread && !spread {
+                continue;
+            }
+            for d in 0..(w + h - 1) {
+                let (x_min, x_max) = visible(d);
+                for x in (x_min..=x_max).rev() {
+                    self.draw_tile(r, map, x, d - x, overlay, true, [vx0, vy0, vx1, vy1], paint);
+                }
             }
         }
         let draw_person = |r: &mut Renderer, s: &Sprite| {
@@ -398,7 +415,7 @@ impl CityView {
                     pending.retain(|s| (s.x, s.y) != at);
                 }
                 if (show_min..=show_max).contains(&x) {
-                    self.draw_tile(r, map, x, d - x, overlay, false, [vx0, vy0, vx1, vy1]);
+                    self.draw_tile(r, map, x, d - x, overlay, false, [vx0, vy0, vx1, vy1], Paint::Normal);
                 }
             }
             while next_column < columns.len() && columns[next_column].x + columns[next_column].y <= d {
