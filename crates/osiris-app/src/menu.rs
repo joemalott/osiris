@@ -1263,7 +1263,7 @@ impl Menu {
         bg_centred(r, Font::LargeBlackOnLight, &title, 212.0, 161.0, 600.0);
         bg_centred(r, Font::LargeBlackOnDark, &t(294, 4 * k), 531.0, 204.0, 283.0);
         let line = if explore || k == current { 2 } else if k < current { 1 } else { 3 };
-        bg_wrapped(r, Font::NormalWhiteOnDark, &t(294, 4 * k + line), 539.0, 260.0, 269.0);
+        bg_wrapped(r, Font::NormalBlackOnDark, &t(294, 4 * k + line), 539.0, 260.0, 269.0);
 
         bg_text(r, Font::NormalBlackOnLight, &t(294, 41), 222.0, 410.0);
         bg_text(r, Font::NormalBlackOnLight, &t(294, 42), 222.0, 510.0);
@@ -1271,7 +1271,8 @@ impl Menu {
             let enabled = explore || i == current;
             let lit = enabled && inside(cursor, x, y, PERIOD_W, BUTTON_H);
             panel::large_label(r, panels, x, y, (PERIOD_W / 16.0) as i32, lit as u32);
-            let font = if enabled { Font::NormalBlackOnLight } else { Font::NormalBlue };
+            // A period that can't be begun is named in yellow.
+            let font = if enabled { Font::NormalBlackOnLight } else { Font::NormalYellow };
             bg_centred(r, font, &t(27, i), x, y + 6.0, PERIOD_W);
         }
         if explore {
@@ -1450,11 +1451,13 @@ impl Menu {
         if let Ok(id) = image {
             bg_image(r, id, 270.0, if history { 200.0 } else { 180.0 });
         }
-        let white = Font::NormalWhiteOnDark;
-        bg_centred(r, white, &b.name, 527.0, 209.0, 260.0);
-        bg_centred(r, Font::NormalYellow, &b.subtitle, 527.0, 229.0, 260.0);
+        // The details are in the dark font; the subtitle, "Win conditions" and the
+        // score are light (FUN_0041e5c0).
+        let dark = Font::NormalBlackOnDark;
+        bg_centred(r, dark, &b.name, 527.0, 209.0, 260.0);
+        bg_centred(r, Font::NormalWhiteOnDark, &b.subtitle, 527.0, 229.0, 260.0);
         let year = if b.start_year < 0 { format!("{} {}", -b.start_year, t(20, 0)) } else { format!("{} {}", t(20, 1), b.start_year) };
-        bg_text(r, white, &year, 602.0, 249.0);
+        bg_text(r, dark, &year, 602.0, 249.0);
 
         if history && self.show_results {
             let m = match self.picked.and_then(|i| self.items.get(i)).map(|i| &i.action) {
@@ -1462,10 +1465,10 @@ impl Menu {
                 _ => return,
             };
             let Some(res) = self.campaign.results.get(&m) else {
-                bg_wrapped(r, white, &t(305, 0), 537.0, 269.0, 260.0);
+                bg_wrapped(r, dark, &t(305, 0), 537.0, 269.0, 260.0);
                 return;
             };
-            bg_wrapped(r, white, &t(297, m), 537.0, 269.0, 270.0);
+            bg_wrapped(r, dark, &t(297, m), 537.0, 269.0, 270.0);
             let w = &b.win;
             let lines = [
                 (w.culture.enabled, 0, res.culture, 429.0),
@@ -1476,27 +1479,27 @@ impl Menu {
             ];
             for (shown, id, value, y) in lines {
                 if shown {
-                    bg_centred(r, white, &format!("{} {value}", t(298, id)), 537.0, y, 270.0);
+                    bg_centred(r, dark, &format!("{} {value}", t(298, id)), 537.0, y, 270.0);
                 }
             }
-            bg_centred(r, white, &format!("{} {}", t(298, 7), t(153, res.difficulty as usize + 1)), 527.0, 509.0, 270.0);
-            bg_centred(r, white, &format!("{} {} {}", t(298, 6), res.months / 12, t(298, 9)), 537.0, 525.0, 270.0);
-            bg_centred(r, Font::NormalYellow, &format!("{} {}", t(298, 8), res.score), 537.0, 541.0, 270.0);
+            bg_centred(r, dark, &format!("{} {}", t(298, 7), t(153, res.difficulty as usize + 1)), 527.0, 509.0, 270.0);
+            bg_centred(r, dark, &format!("{} {} {}", t(298, 6), res.months / 12, t(298, 9)), 537.0, 525.0, 270.0);
+            bg_centred(r, Font::NormalWhiteOnDark, &format!("{} {}", t(298, 8), res.score), 537.0, 541.0, 270.0);
             return;
         }
 
-        bg_centred(r, white, &t(44, 77 + b.climate as usize), 527.0, 269.0, 260.0);
-        bg_centred(r, white, &t(44, b.size_text()), 527.0, 289.0, 260.0);
-        bg_centred(r, white, &t(44, b.military_text()), 527.0, 309.0, 260.0);
-        bg_centred(r, white, &t(32, b.challenge_text()), 527.0, 329.0, 260.0);
+        bg_centred(r, dark, &t(44, 77 + b.climate as usize), 527.0, 269.0, 260.0);
+        bg_centred(r, dark, &t(44, b.size_text()), 527.0, 289.0, 260.0);
+        bg_centred(r, dark, &t(44, b.military_text()), 527.0, 309.0, 260.0);
+        bg_centred(r, dark, &t(32, b.challenge_text()), 527.0, 329.0, 260.0);
         if b.open_play {
-            bg_wrapped(r, white, &t(145, 0), 537.0, 369.0, 260.0);
+            bg_wrapped(r, dark, &t(145, 0), 537.0, 369.0, 260.0);
             if self.page != Page::Editor {
                 self.draw_difficulty(r, f);
             }
             return;
         }
-        bg_centred(r, Font::NormalYellow, &t(44, 127), 527.0, 361.0, 260.0);
+        bg_centred(r, Font::NormalWhiteOnDark, &t(44, 127), 527.0, 361.0, 260.0);
         let w = &b.win;
         let goals = [
             (w.culture.enabled, w.culture.value, 129, 389.0),
@@ -1508,18 +1511,18 @@ impl Menu {
         ];
         for (on, value, id, y) in goals {
             if on {
-                bg_text(r, white, &format!("{value} {}", t(44, id)), 602.0, y);
+                bg_text(r, dark, &format!("{value} {}", t(44, id)), 602.0, y);
             }
         }
         let count = w.housing_count.value;
         if count != 0 {
             let level = w.housing_level.value.max(0) as usize + if count >= 2 { 20 } else { 0 };
-            bg_text(r, white, &format!("{count} {}", t(29, level)), 602.0, 453.0);
+            bg_text(r, dark, &format!("{count} {}", t(29, level)), 602.0, 453.0);
         }
         // The monuments to build, by name; the monument goal's own number is never shown.
         for (i, &m) in b.monuments.iter().enumerate() {
             if m != 0 {
-                bg_centred(r, white, &t(198, m as usize), 542.0, 485.0 + 16.0 * i as f32, 260.0);
+                bg_centred(r, dark, &t(198, m as usize), 542.0, 485.0 + 16.0 * i as f32, 260.0);
             }
         }
         // The editor shows no difficulty (FUN_0041a180 draws it only in the game).
@@ -1533,7 +1536,7 @@ impl Menu {
     fn draw_difficulty(&self, r: &mut Renderer, f: &Frame) {
         let t = |g: usize, i: usize| self.text.get(g, i).unwrap_or("").trim().to_string();
         let line = format!("{} {}", t(44, 216), t(153, self.difficulty as usize + 1));
-        bg_text(r, Font::NormalWhiteOnDark, &line, 602.0, 536.0);
+        bg_text(r, Font::NormalBlackOnDark, &line, 602.0, 536.0);
         let cursor = f.to_bg(self.cursor);
         for (group, rect) in [(212, DIFFICULTY_UP), (16, DIFFICULTY_DOWN)] {
             if let Ok(id) = r.library.group_id("Pharaoh_General", group, 0) {
