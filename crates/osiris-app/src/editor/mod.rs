@@ -5,9 +5,10 @@
 //! original-format `.map`. The facts it follows are in notes/editor.md.
 //!
 //! The editor keeps the file it opened as its template: saving writes the grids, the
-//! scenario's info and the Kingdom map (kingdom.rs) into a copy of it, so the chunks
-//! it doesn't edit yet (the events) are kept as they were.
+//! scenario's info, the Kingdom map (kingdom.rs) and the events (events.rs) into a
+//! copy of it, so the chunks it doesn't edit are kept as they were.
 
+pub mod events;
 pub mod kingdom;
 pub mod options;
 pub mod script;
@@ -759,5 +760,76 @@ mod tests {
         assert_eq!(reopened.era, e.era);
         assert_eq!(format!("{:?}", reopened.scenario.info), format!("{:?}", e.scenario.info));
         assert_eq!(reopened.scenario.floodplain_settings, e.scenario.floodplain_settings);
+    }
+
+    /// The Event Summary's lines read as the original writes them, and events added,
+    /// set through the planning window's buttons, linked and deleted come back from a
+    /// saved map as they were left.
+    #[test]
+    fn events_edit_and_save() {
+        use events::{EvField, pick, set_number, summary};
+        let Some(data) = data() else { return };
+        let mut e = editor(&data, "Warfare.map");
+        let lines: Vec<String> = (0..3).map(|i| summary(&e.text, &e.scenario.events, i)).collect();
+        assert_eq!(lines[0], " 0 Request Jan +7-14 500 Oil");
+        assert_eq!(lines[1], " 1 Kingdom Increase *0 +1 5-10");
+        let n = e.scenario.events.len();
+
+        // A festival for Ptah from Pharaoh, of beer or linen, 3 to 5 years in, in
+        // May, from cities 2 to 4, and a triggered gift of wood that follows it.
+        let a = e.add_event().unwrap();
+        assert_eq!(a, n);
+        let s = &mut e.scenario;
+        pick(s, a, EvField::Subtype, 3);
+        pick(s, a, EvField::God, 2);
+        pick(s, a, EvField::Item(0), 15);
+        pick(s, a, EvField::Item(1), 17);
+        pick(s, a, EvField::Month, 4);
+        set_number(s, a, EvField::Year(true), 5);
+        set_number(s, a, EvField::Year(false), 3);
+        set_number(s, a, EvField::Amount(false), 6);
+        set_number(s, a, EvField::Amount(true), 9);
+        set_number(s, a, EvField::Location(false), 2);
+        set_number(s, a, EvField::Location(true), 4);
+        set_number(s, a, EvField::Months, 18);
+        pick(s, a, EvField::LinkReason(0), 1);
+        e.toggle_sender(a);
+        let g = e.add_event().unwrap();
+        let s = &mut e.scenario;
+        pick(s, g, EvField::Kind, 23);
+        pick(s, g, EvField::Item(0), 20);
+        set_number(s, g, EvField::Year(false), 2);
+        set_number(s, a, EvField::Link(0), g as i32);
+        e.cycle_trigger(g);
+        e.cycle_trigger(g);
+        assert_eq!(e.scenario.events[g].trigger, events::trigger::TRIGGERED);
+        assert!(events::valid_link(&e.scenario.events, a, g as i16));
+        // Choosing a famine turns the beer and linen into the first food.
+        pick(&mut e.scenario, a, EvField::Subtype, 5);
+        assert_eq!((e.scenario.events[a].item.fixed, e.scenario.events[a].item.min), (1, -1));
+        pick(&mut e.scenario, a, EvField::Subtype, 3);
+        pick(&mut e.scenario, a, EvField::Item(0), 15);
+        pick(&mut e.scenario, a, EvField::Item(1), 17);
+        assert_eq!(summary(&e.text, &e.scenario.events, a), format!("{a:2} Request May +3-5 6-9 Beer/Linen"));
+        assert_eq!(summary(&e.text, &e.scenario.events, g), format!("{g:2} Gift *{a} +2 8 Wood"));
+
+        // Deleting event 2 moves both up a place, and the link with them.
+        assert!(e.delete_event(2));
+        let (a, g) = (a - 1, g - 1);
+        assert_eq!(e.scenario.events[a].on_completed, g as i16);
+
+        let path = std::env::temp_dir().join(format!("osiris-events-edit-{}.map", std::process::id()));
+        std::fs::write(&path, e.to_bytes().unwrap()).unwrap();
+        let back = Editor::open(&path, e.defs.clone(), e.text.clone(), e.maps_dir.clone()).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(back.scenario.events.len(), n + 1);
+        for i in 0..back.scenario.events.len() {
+            assert_eq!(summary(&back.text, &back.scenario.events, i), summary(&e.text, &e.scenario.events, i));
+        }
+        let r = &back.scenario.events[a];
+        assert_eq!((r.kind, r.subtype, r.sender, r.god, r.months, r.link_reasons[0]), (1, 3, 1, 2, 18, 1));
+        assert_eq!((r.location[1], r.location[2], r.location[3]), (-1, 2, 4));
+        // The year the game reads is one the event allows.
+        assert!((3..5).contains(&r.year), "year {}", r.year);
     }
 }

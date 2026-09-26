@@ -29,8 +29,17 @@
 //!   the screen, `editkat x,y` and `editkrightat x,y` a pixel of the empire map,
 //!   `editkdrag x,y` drags what is held to one; `editktype DIGITS` types on its
 //!   keypad and accepts; `editkscroll x,y` scrolls it; `editkstate` prints its
-//!   cities and routes.
+//!   cities and routes;
+//! - `editevents` opens the Event Summary, `editevent N` event N's planning window;
+//!   `editeventadd` and `editeventdel N` add and delete events; `editevpick N FIELD
+//!   ID` picks from a list and `editevnum N FIELD V` types a number for event N
+//!   (fields: kind, month, subtype, god, item0-2, reason0-3, yearlo, yearhi,
+//!   amountlo, amounthi, loclo, lochi, routelo, routehi, months, warships, link0-3);
+//!   `editevtrigger N`, `editevsender N` and `editevtarget N` press those buttons;
+//!   `editevlist N FIELD` and `editevpad N FIELD` open a list or the keypad over the
+//!   window; `editevstate` prints the summary's lines.
 
+use super::events::EvField;
 use super::kingdom::Scripted;
 use super::options::{Options, Page};
 use super::terrain::Paint;
@@ -67,6 +76,30 @@ pub fn map_path(data: &Path, name: &str) -> PathBuf {
     }
     let file = if name.to_ascii_lowercase().ends_with(".map") { name.to_owned() } else { format!("{name}.map") };
     data.join("Maps").join(file)
+}
+
+fn ev_field(name: &str) -> Result<EvField> {
+    let n = |s: &str| s.chars().last().and_then(|c| c.to_digit(10)).unwrap_or(0) as usize;
+    Ok(match name {
+        "kind" => EvField::Kind,
+        "month" => EvField::Month,
+        "subtype" => EvField::Subtype,
+        "god" => EvField::God,
+        "yearlo" => EvField::Year(false),
+        "yearhi" => EvField::Year(true),
+        "amountlo" => EvField::Amount(false),
+        "amounthi" => EvField::Amount(true),
+        "loclo" => EvField::Location(false),
+        "lochi" => EvField::Location(true),
+        "routelo" => EvField::Route(false),
+        "routehi" => EvField::Route(true),
+        "months" => EvField::Months,
+        "warships" => EvField::Warships,
+        s if s.starts_with("item") => EvField::Item(n(s).min(2)),
+        s if s.starts_with("reason") => EvField::LinkReason(n(s).min(3)),
+        s if s.starts_with("link") => EvField::Link(n(s).min(3)),
+        _ => bail!("unknown event field {name}"),
+    })
 }
 
 fn tool(name: &str, n: u8) -> Result<Tool> {
@@ -188,6 +221,37 @@ impl Editor {
                         _ => Page::Main,
                     };
                     self.view.options = Some(Options::with_chooser(page, what, &self.scenario));
+                }
+                ["editevents"] => self.view.options = Some(Options::at(Page::Events)),
+                ["editevent", n] => {
+                    let mut o = Options::at(Page::Event);
+                    o.event = Some(n.parse()?);
+                    self.view.options = Some(o);
+                }
+                ["editeventadd"] => eprintln!("{step}: {:?}", self.add_event()),
+                ["editeventdel", n] => eprintln!("{step}: {}", self.delete_event(n.parse()?)),
+                ["editevpick", n, f, id] => {
+                    super::events::pick(&mut self.scenario, n.parse()?, ev_field(f)?, id.parse()?);
+                    self.dirty = true;
+                }
+                ["editevnum", n, f, v] => {
+                    super::events::set_number(&mut self.scenario, n.parse()?, ev_field(f)?, v.parse()?);
+                    self.dirty = true;
+                }
+                ["editevtrigger", n] => self.cycle_trigger(n.parse()?),
+                ["editevsender", n] => self.toggle_sender(n.parse()?),
+                ["editevtarget", n] => self.cycle_target(n.parse()?),
+                ["editevlist", n, f] | ["editevpad", n, f] => {
+                    let i: usize = n.parse()?;
+                    let mut o = Options::at(Page::Event);
+                    o.event = Some(i);
+                    o.open_event_chooser(&self.scenario, i, ev_field(f)?, parts[0] == "editevpad");
+                    self.view.options = Some(o);
+                }
+                ["editevstate"] => {
+                    for i in 0..self.scenario.events.len() {
+                        eprintln!("  {}", super::events::summary(&self.text, &self.scenario.events, i));
+                    }
                 }
                 ["editview", p] => out.view = Some(point(p)?),
                 ["editfree"] => self.view.free_scroll = true,
