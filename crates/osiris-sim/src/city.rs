@@ -28,8 +28,11 @@ impl World {
                 self.check_siege();
             }
             4 => self.check_bankruptcy(),
-            // The herds, like the original's formations, twice a day.
-            5 | 29 => self.update_herds(),
+            // The herds and invading armies, like the original's formations, twice a day.
+            5 | 29 => {
+                self.update_herds();
+                self.update_armies();
+            }
             7 => {
                 for id in self.buildings.ids() {
                     self.refresh_road_access(id);

@@ -200,7 +200,8 @@ impl World {
         let landing = self.landing_place(spot);
         let mut left = men;
         let mut n = 0;
-        while left > 0 {
+        // Each shipload is a formation afloat: none sails without a free slot.
+        while left > 0 && self.enemy_formations() < crate::invasions::ENEMY_FORMATION_SLOTS {
             let fid = self.figures.spawn(ENEMY_TRANSPORT, spot.0, spot.1, Travel::Water);
             let map = &self.map;
             if let Some(f) = self.figures.get_mut(fid) {

@@ -135,6 +135,10 @@ pub struct Figure {
     /// A sled laborer's storage yard.
     #[serde(default)]
     pub yard: u32,
+    /// Invaders: which of their army's formations they march in (numbered as the
+    /// army raised them).
+    #[serde(default)]
+    pub band: u8,
 }
 
 impl Figure {
@@ -178,6 +182,7 @@ impl Figure {
             perch: None,
             link: 0,
             yard: 0,
+            band: 0,
         }
     }
 

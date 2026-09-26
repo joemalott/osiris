@@ -6,8 +6,10 @@
 //! is upon the city.
 //!
 //! Invaders fight any soldier or constable who comes near and otherwise march on
-//! their target, wrecking each building they reach. A city with few people left and
-//! more invaders than soldiers is lost.
+//! their target, wrecking each building they reach. An army that can find nothing
+//! to attack for about 25 days, not even by battering through walls, goes home a
+//! formation at a time. A city with few people left and more invaders than soldiers
+//! is lost.
 
 use crate::balance::UnitStats;
 use crate::buildings::{BuildingId, kind};
@@ -51,6 +53,44 @@ fn stuck_backoff(consecutive_failures: u8) -> i32 {
 
 /// Action of a routed invader.
 const FLEEING: u16 = action::FLEEING;
+
+/// The formation slots the original keeps for invaders and herds (10 to 49 of its
+/// 50; the first nine are the city's companies). An army that finds none free when
+/// it arrives doesn't bring the formations that don't fit (FUN_004b6ff0 returns 0,
+/// and FUN_00446a30 spawns no one for them).
+pub(crate) const ENEMY_FORMATION_SLOTS: usize = 40;
+/// Consecutive failed target searches (two a day) after which a formation gives up
+/// and goes home: the 49th (FUN_004b8cf0, its counter at formation +0x68).
+const GIVE_UP_AFTER: u8 = 48;
+/// Tiles within which soldiers of the city hold an army's attention, so it doesn't
+/// look for a building to attack (FUN_004ba290 with 16).
+const SOLDIERS_NEAR: i32 = 16;
+
+/// How the original splits an arm of an invading army into formations
+/// (FUN_00446a30): one up to 16 men, two up to 32, else three, the first taking
+/// what doesn't divide evenly.
+fn formation_sizes(men: i32) -> Vec<i32> {
+    match men {
+        ..=0 => Vec::new(),
+        1..=16 => vec![men],
+        17..=32 => vec![men - men / 2, men / 2],
+        _ => vec![men - 2 * (men / 3), men / 3, men / 3],
+    }
+}
+
+/// Whether an invader looking for a building to attack counts `(x, y)` as ground he
+/// can cross on the way, walls and buildings included (he batters through them): the
+/// original's "through everything" search over its non-citizen route grid
+/// (FUN_0051b040, which FUN_004ba3b0 runs before choosing), where only water, dikes
+/// and ground nothing crosses (rock, cliffs, ore, raised ground) stop him.
+fn crossable(map: &crate::map::Map, x: i32, y: i32) -> bool {
+    use crate::map::terrain;
+    if crate::figures::passable(map, Travel::Hostile, x, y) {
+        return true;
+    }
+    let t = map.terrain.at_or(x, y, 0);
+    t & (terrain::BUILDING | terrain::WALL | terrain::GATEHOUSE) != 0 && t & (terrain::WATER | terrain::DIKE) == 0
+}
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Invasion {
@@ -97,6 +137,15 @@ pub struct Army {
     /// Where it came in, and leaves.
     #[serde(default)]
     pub entry: (i32, i32),
+    /// Formations raised so far (the next one's number).
+    #[serde(default)]
+    pub bands: u8,
+    /// Searches in a row that found no building the army can get at.
+    #[serde(default)]
+    pub failed_searches: u8,
+    /// Formations that have given up and are marching home.
+    #[serde(default)]
+    pub withdrawn: Vec<u8>,
 }
 
 fn full_morale() -> i32 {
@@ -302,7 +351,7 @@ impl World {
         }
         .map_or(self.invasions.nation, |n| n as u16);
         let army = self.invasions.armies.len();
-        self.invasions.armies.push(Army { figures: Vec::new(), invader: inv.invader, nation, target: 0, priority: inv.target, morale: 100, fleeing: false, entry: spot });
+        self.invasions.armies.push(Army { invader: inv.invader, nation, priority: inv.target, morale: 100, entry: spot, ..Default::default() });
         if by_sea {
             self.launch_sea_invasion(army, nation, amount, spot);
         } else {
@@ -322,10 +371,11 @@ impl World {
     }
 
     /// Puts `men` of army `army` on the field at `spot`: its arms in proportion to their
-    /// frequency in the figure model, among the arms its nation has art for.
+    /// frequency in the figure model, among the arms its nation has art for, each arm
+    /// in formations as the original raises them, as many as there are free slots for.
     pub(crate) fn put_ashore(&mut self, army: usize, nation: u16, men: i32, spot: (i32, i32)) {
         let invader = self.invasions.armies.get(army).map_or(invader::ENEMY, |a| a.invader);
-        let arms: Vec<(u16, i32)> = if invader == invader::BEDOUIN {
+        let mut arms: Vec<(u16, i32)> = if invader == invader::BEDOUIN {
             vec![(BEDOUIN, 1)]
         } else {
             [ENEMY_INFANTRY, ENEMY_ARCHER, ENEMY_CHARIOT]
@@ -339,26 +389,69 @@ impl World {
                 .filter(|a| a.1 > 0)
                 .collect()
         };
+        if arms.is_empty() {
+            arms.push((ENEMY_INFANTRY, 1));
+        }
         let total: i32 = arms.iter().map(|a| a.1).sum::<i32>().max(1);
         let first = self.invasions.armies.get(army).map_or(0, |a| a.figures.len() as i32);
+        // How many men of each arm.
+        let mut counts = vec![0; arms.len()];
         for n in first..first + men {
             let mut pick = (n * 37 + self.rng.below(total)) % total;
-            let k = arms.iter().find(|a| {
+            let i = arms.iter().position(|a| {
                 pick -= a.1;
                 pick < 0
             });
-            let k = k.map_or(ENEMY_INFANTRY, |a| a.0);
-            let fid = self.figures.spawn(k, spot.0, spot.1, Travel::Hostile);
-            if let Some(f) = self.figures.get_mut(fid) {
-                f.cargo = nation;
-                f.formation = 1000 + army as u16;
-                f.slot = (n % 16) as u8;
-                f.action = 1;
-            }
-            if let Some(a) = self.invasions.armies.get_mut(army) {
-                a.figures.push(fid);
+            counts[i.unwrap_or(0)] += 1;
+        }
+        let mut n = first;
+        for (i, &(k, _)) in arms.iter().enumerate() {
+            for size in formation_sizes(counts[i]) {
+                if self.enemy_formations() >= ENEMY_FORMATION_SLOTS {
+                    return;
+                }
+                let Some(band) = self.invasions.armies.get_mut(army).map(|a| {
+                    a.bands = a.bands.saturating_add(1);
+                    a.bands - 1
+                }) else {
+                    return;
+                };
+                for _ in 0..size {
+                    let fid = self.figures.spawn(k, spot.0, spot.1, Travel::Hostile);
+                    if let Some(f) = self.figures.get_mut(fid) {
+                        f.cargo = nation;
+                        f.formation = 1000 + army as u16;
+                        f.slot = (n % 16) as u8;
+                        f.band = band;
+                        f.action = 1;
+                    }
+                    if let Some(a) = self.invasions.armies.get_mut(army) {
+                        a.figures.push(fid);
+                    }
+                    n += 1;
+                }
             }
         }
+    }
+
+    /// The formation slots in use by invaders and herds: each herd, each loaded
+    /// transport (its men are a formation afloat), and each formation of an army with
+    /// anyone left standing in it.
+    pub(crate) fn enemy_formations(&self) -> usize {
+        let mut bands: Vec<(usize, u8)> = Vec::new();
+        for (i, a) in self.invasions.armies.iter().enumerate() {
+            for &fid in &a.figures {
+                if let Some(f) = self.figures.get(fid)
+                    && !f.dead
+                    && f.action != action::CORPSE
+                    && !bands.contains(&(i, f.band))
+                {
+                    bands.push((i, f.band));
+                }
+            }
+        }
+        let afloat = self.figures.iter().filter(|f| f.kind == crate::navy::ENEMY_TRANSPORT && !f.dead && f.amount > 0).count();
+        bands.len() + afloat + self.herds.len()
     }
 
     /// Another event has led to the invasion planned from scenario event `event`: it
@@ -471,7 +564,64 @@ impl World {
         found
     }
 
-    /// What an army goes for: the buildings its orders name, nearest first.
+    /// The tiles an invader at `from` could get to were he to batter through every
+    /// wall and building in his way (see `crossable`), as a map-sized mask. Invaders
+    /// in one stretch of land share the answer while the map stays as it is.
+    fn land_reach(&self, from: (i32, i32)) -> std::rc::Rc<Vec<bool>> {
+        let map = &self.map;
+        let w = map.width;
+        type Key = (u64, u64, u64);
+        thread_local! {
+            static RECENT: std::cell::RefCell<std::collections::VecDeque<(Key, std::rc::Rc<Vec<bool>>)>> = const { std::cell::RefCell::new(std::collections::VecDeque::new()) };
+        }
+        let key = (map.terrain.version(), map.building.version(), self.buildings.generation());
+        let at = (from.1 * w + from.0) as usize;
+        let size = (w * map.height).max(0) as usize;
+        if let Some(r) = RECENT.with_borrow(|r| r.iter().find(|l| l.0 == key && l.1.len() == size && l.1.get(at).copied().unwrap_or(false)).map(|l| l.1.clone())) {
+            return r;
+        }
+        let mut seen = vec![false; size];
+        if map.contains(from.0, from.1) {
+            seen[at] = true;
+            let mut queue = vec![from];
+            let mut head = 0;
+            while let Some(&(x, y)) = queue.get(head) {
+                head += 1;
+                for (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if !map.contains(nx, ny) {
+                        continue;
+                    }
+                    let n = (ny * w + nx) as usize;
+                    if !seen[n] && crossable(map, nx, ny) {
+                        seen[n] = true;
+                        queue.push((nx, ny));
+                    }
+                }
+            }
+        }
+        let r = std::rc::Rc::new(seen);
+        RECENT.with_borrow_mut(|l| {
+            l.retain(|e| e.0 == key);
+            if l.len() >= 4 {
+                l.pop_front();
+            }
+            l.push_back((key, r.clone()));
+        });
+        r
+    }
+
+    /// Whether any tile of building `id` is in `reach`.
+    fn within_reach(&self, id: BuildingId, reach: &[bool]) -> bool {
+        let Some(b) = self.buildings.get(id) else { return false };
+        let (w, h) = b.footprint();
+        let mw = self.map.width;
+        (b.y..b.y + h).any(|y| (b.x..b.x + w).any(|x| self.map.contains(x, y) && reach[(y * mw + x) as usize]))
+    }
+
+    /// What an army goes for: the buildings its orders name, nearest first, among
+    /// those it can get at over land from `from` (FUN_004ba3b0 only looks at
+    /// buildings its "through everything" search from the army reached).
     fn choose_target(&self, army: usize, from: (i32, i32)) -> Option<BuildingId> {
         let priority = self.invasions.armies.get(army)?.priority;
         let weight = |k: u16, level: u8| -> i32 {
@@ -483,9 +633,11 @@ impl World {
                 _ => 1,
             }
         };
+        let reach = self.land_reach(from);
         self.buildings
             .iter()
             .filter(|b| !matches!(b.kind, crate::military::FORT_GROUND | kind::ROAD | kind::BURNING_RUIN) && !crate::defenses::is_defense(b.kind))
+            .filter(|b| self.within_reach(b.id, &reach))
             .map(|b| {
                 let level = b.house.as_ref().map_or(0, |h| h.level + 1);
                 let d = (b.x - from.0).abs() + (b.y - from.1).abs();
@@ -493,6 +645,75 @@ impl World {
             })
             .max_by_key(|&(score, id)| (score, std::cmp::Reverse(id)))
             .map(|(_, id)| id)
+    }
+
+    /// Twice a day, as the original updates its formations (FUN_004b8cf0, at ticks 5
+    /// and 29): each army looks again for something to attack from where its leading
+    /// formation stands, unless the city's soldiers are near. When a search finds no
+    /// building it can get at, even by battering through walls (a city across water,
+    /// or none left), the leading formation counts it, and at the 49th search in a
+    /// row it gives up: its men march back to where they came in and leave the map
+    /// (figure action 3 in FUN_004991a0, which removes them when they arrive or find
+    /// no way there). The next formation then takes the lead and counts afresh.
+    pub(crate) fn update_armies(&mut self) {
+        for a in 0..self.invasions.armies.len() {
+            if self.invasions.armies[a].fleeing {
+                continue;
+            }
+            let members: Vec<(FigureId, u8, u16, i32, i32)> = self.invasions.armies[a]
+                .figures
+                .iter()
+                .filter_map(|&fid| self.figures.get(fid))
+                .filter(|f| !f.dead && f.action != action::CORPSE)
+                .map(|f| (f.id, f.band, f.action, f.x, f.y))
+                .collect();
+            // Formations that gave up keep leaving, once their fights are over.
+            let entry = self.invasions.armies[a].entry;
+            let withdrawn = self.invasions.armies[a].withdrawn.clone();
+            for &(fid, band, act, _, _) in &members {
+                if withdrawn.contains(&band) && !matches!(act, action::ATTACK | FLEEING) {
+                    self.withdraw(fid, entry);
+                }
+            }
+            let Some(&(_, band, _, x, y)) = members.iter().filter(|m| !withdrawn.contains(&m.1) && m.2 != FLEEING).min_by_key(|m| m.1) else { continue };
+            let soldiers_near = self.figures.iter().any(|f| crate::military::is_soldier(f.kind) && !f.dead && f.action != action::CORPSE && (f.x - x).abs() <= SOLDIERS_NEAR && (f.y - y).abs() <= SOLDIERS_NEAR);
+            if soldiers_near {
+                continue;
+            }
+            let target = self.invasions.armies[a].target;
+            let found = if self.buildings.get(target).is_some() && self.within_reach(target, &self.land_reach((x, y))) {
+                true
+            } else {
+                let t = self.choose_target(a, (x, y));
+                self.invasions.armies[a].target = t.unwrap_or(0);
+                t.is_some()
+            };
+            let army = &mut self.invasions.armies[a];
+            if found {
+                army.failed_searches = 0;
+                continue;
+            }
+            army.failed_searches = army.failed_searches.saturating_add(1);
+            if army.failed_searches > GIVE_UP_AFTER {
+                army.failed_searches = 0;
+                army.withdrawn.push(band);
+                for &(fid, b, act, _, _) in &members {
+                    if b == band && !matches!(act, action::ATTACK | FLEEING) {
+                        self.withdraw(fid, entry);
+                    }
+                }
+            }
+        }
+    }
+
+    /// An invader whose formation has given up heads for `entry`, and leaves.
+    fn withdraw(&mut self, fid: FigureId, entry: (i32, i32)) {
+        let map = &self.map;
+        if let Some(f) = self.figures.get_mut(fid) {
+            f.action = FLEEING;
+            f.foe = 0;
+            f.go_to(map, entry);
+        }
     }
 
     /// An army loses a man: its morale drops, and when it breaks the army flees.
@@ -773,5 +994,97 @@ mod tests {
         }
         let found = world.nearest_reachable_building((x - 5, y));
         assert_eq!(found, Some((well, (x - 1, y))));
+    }
+
+    #[test]
+    fn arms_split_into_formations_as_the_original_does() {
+        assert_eq!(formation_sizes(0), Vec::<i32>::new());
+        assert_eq!(formation_sizes(16), vec![16]);
+        assert_eq!(formation_sizes(17), vec![9, 8]);
+        assert_eq!(formation_sizes(32), vec![16, 16]);
+        assert_eq!(formation_sizes(50), vec![18, 16, 16]);
+    }
+
+    /// A well, and open ground far from it to strand an army on.
+    fn well_and_open_ground(world: &mut World) -> (i32, i32) {
+        let (w, h) = (world.map.width, world.map.height);
+        let (x, y) = (6..h - 1).flat_map(|y| (6..w - 1).map(move |x| (x, y))).find(|&(x, y)| world.can_place(kind::WELL, x, y).is_ok()).expect("open ground");
+        assert!(matches!(world.apply(&crate::world::Command::Build { kind: kind::WELL, x, y, x1: x, y1: y }), crate::world::Outcome::Done { .. }));
+        let open = |world: &World, px: i32, py: i32| (px - 3..=px + 3).all(|xx| (py - 3..=py + 3).all(|yy| crate::figures::passable(&world.map, Travel::Hostile, xx, yy)));
+        (6..h - 6).flat_map(|y| (6..w - 6).map(move |x| (x, y))).filter(|&(px, py)| (px - x).abs() + (py - y).abs() > 20).find(|&(px, py)| open(world, px, py)).expect("room for an island")
+    }
+
+    #[test]
+    fn stranded_invaders_give_up_and_go_home() {
+        use crate::map::terrain;
+        let Some(mut world) = mission(1) else { return };
+        let p = well_and_open_ground(&mut world);
+        // An island of one tile's radius: nothing the army could batter its way to.
+        for dy in -3..=3i32 {
+            for dx in -3..=3i32 {
+                if dx.abs().max(dy.abs()) >= 2 {
+                    world.map.terrain.set(p.0 + dx, p.1 + dy, terrain::WATER);
+                }
+            }
+        }
+        world.invasions.land_points = vec![p];
+        world.invasions.sea_points.clear();
+        world.invade_now(invader::ENEMY, 40, 1);
+        let men = world.invasions.armies[0].figures.len();
+        let bands = world.invasions.armies[0].bands;
+        assert!(men > 16 && bands >= 2, "men {men}, formations {bands}");
+        let standing = |world: &World| world.figures.iter().filter(|f| is_invader_kind(f.kind) && !f.dead).count();
+        // Before 49 searches (twice a day) the army still waits.
+        for _ in 0..20 * 51 {
+            world.tick();
+        }
+        assert_eq!(standing(&world), men, "gave up too soon");
+        // Then the formations give up one after another and go.
+        for _ in 0..(bands as usize * 26 + 5) * 51 {
+            world.tick();
+        }
+        assert_eq!(standing(&world), 0, "invaders still stranded");
+        assert!(world.invasions.armies[0].figures.is_empty());
+    }
+
+    #[test]
+    fn walled_off_invaders_keep_attacking() {
+        use crate::map::terrain;
+        let Some(mut world) = mission(1) else { return };
+        let p = well_and_open_ground(&mut world);
+        // Walled in rather than cut off by water: walls can be battered down.
+        for dy in -3..=3i32 {
+            for dx in -3..=3i32 {
+                if dx.abs().max(dy.abs()) == 2 {
+                    world.map.terrain.set(p.0 + dx, p.1 + dy, terrain::WALL);
+                }
+            }
+        }
+        world.invasions.land_points = vec![p];
+        world.invasions.sea_points.clear();
+        world.invade_now(invader::ENEMY, 10, 1);
+        for _ in 0..60 * 51 {
+            world.tick();
+        }
+        let a = &world.invasions.armies[0];
+        assert!(a.withdrawn.is_empty() && a.failed_searches == 0, "withdrawn {:?}, failed {}", a.withdrawn, a.failed_searches);
+    }
+
+    #[test]
+    fn armies_raise_no_more_formations_than_there_are_slots() {
+        let Some(mut world) = mission(1) else { return };
+        let p = well_and_open_ground(&mut world);
+        world.invasions.land_points = vec![p];
+        world.invasions.sea_points.clear();
+        // At most nine formations each (three arms of three), so twenty armies can't
+        // all fit.
+        for _ in 0..20 {
+            world.invade_now(invader::ENEMY, 150, 1);
+        }
+        assert!(world.enemy_formations() <= ENEMY_FORMATION_SLOTS, "{}", world.enemy_formations());
+        // The later armies find no room.
+        assert!(world.invasions.armies.last().is_some_and(|a| a.figures.is_empty()));
+        let men = world.figures.iter().filter(|f| is_invader_kind(f.kind)).count();
+        assert!(!world.invasions.armies[0].figures.is_empty() && men < 20 * 150, "{men}");
     }
 }
