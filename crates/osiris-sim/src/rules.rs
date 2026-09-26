@@ -14,6 +14,9 @@ pub struct Rules {
     pub fire: bool,
     pub disease: bool,
     pub collapse: bool,
+    /// New storage yards and granaries start refusing every good, rather than
+    /// accepting what they normally take.
+    pub storage_accepts_none: bool,
 }
 
 impl Default for Rules {
@@ -26,6 +29,7 @@ impl Default for Rules {
             fire: true,
             disease: true,
             collapse: true,
+            storage_accepts_none: false,
         }
     }
 }

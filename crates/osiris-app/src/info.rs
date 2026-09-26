@@ -645,18 +645,21 @@ impl InfoPanel {
         } else {
             scenario_resources(world)
         };
-        let rows = if bazaar { 10 } else { 8 };
-        // Fixed window and list sizes, as the original's granary, storage yard and
-        // bazaar orders windows use (notes/building_info.md 5.3, 6.1: granary and
-        // storage yard orders are both 29x17, with an 11-block list for the yard and a
-        // 10-block list for the granary; bazaar orders is 29x24 with a 14-block list).
-        let (hb, list_blocks) = if bazaar { (24, 14) } else if granary { (17, 10) } else { (17, 11) };
+        // The list grows to show every row it can (up to 16, or 10 for a bazaar, then it
+        // scrolls), and the window grows round it with the buttons below the list, so
+        // nothing overlaps. The original's fixed 29x17 window let the empty and accept-none
+        // buttons cover the last rows of a long storage yard list.
+        let rows = list.len().clamp(4, if bazaar { 10 } else { 16 });
+        let list_blocks = ((rows as f32 * 25.0 + 12.0) / 16.0).ceil() as i32;
+        let list_bottom = 42.0 + list_blocks as f32 * 16.0;
+        let buttons = if bazaar { 1.0 } else { 2.0 };
+        let hb = ((list_bottom + 14.0 + buttons * 30.0 + 18.0) / 16.0).ceil() as i32;
         let (w, h) = (29.0 * 16.0, hb as f32 * 16.0);
         // The orders window keeps the parent building window's left edge, and its
         // bottom edge lines up with the parent's, rather than recentring on its own,
-        // different, height.
+        // different, height; it moves down when that would put it under the menu bar.
         let [px, py, _, ph] = self.rect;
-        let (x, y) = (px, py + ph - h);
+        let (x, y) = (px, (py + ph - h).min(ui.r.screen[1] - h).max(24.0).floor());
         panel::outer_panel(ui.r, ui.panels, x, y, 29, hb);
         let title = if bazaar { ui.t(TEXT_BAZAAR, 7) } else if granary { ui.t(TEXT_GRANARY, 6) } else { ui.t(TEXT_YARD, 3) };
         ui.centred(Font::LargeBlackOnLight, &title, x, y + 12.0, w);
@@ -665,6 +668,10 @@ impl InfoPanel {
         for (i, &r) in list.iter().skip(self.scroll).take(rows).enumerate() {
             let ry = y + 50.0 + 25.0 * i as f32;
             let row = [x + 20.0, ry - 2.0, w - 136.0, 22.0];
+            // Hover draws a border round the row, as in the original.
+            if ui.hot(row) {
+                panel::button_border(ui.r, ui.panels, row[0], row[1], row[2] as i32, row[3] as i32, true);
+            }
             ui.icon(r, x + 36.0, ry);
             let name = ui.t(TEXT_RESOURCES, r as usize);
             ui.label(Font::NormalWhiteOnDark, &name, x + 76.0, ry + 2.0);
@@ -706,12 +713,12 @@ impl InfoPanel {
             } else {
                 ui.t(TEXT_YARD, if b.empty_all { 5 } else { 4 })
             };
-            if ui.button([x + 80.0, y + h - 64.0, 300.0, 24.0], &empty, Font::NormalBlackOnLight) {
+            if ui.button([x + 64.0, y + list_bottom + 14.0, w - 128.0, 24.0], &empty, Font::NormalBlackOnLight) {
                 world.apply(&Command::EmptyAll(id));
             }
         }
         let none = ui.t(TEXT_YARD, 7);
-        if ui.button([x + 80.0, y + h - 38.0, 300.0, 24.0], &none, Font::NormalBlackOnLight) {
+        if ui.button([x + 64.0, y + list_bottom + 14.0 + (buttons - 1.0) * 30.0, w - 128.0, 24.0], &none, Font::NormalBlackOnLight) {
             world.apply(&Command::AcceptNone(id));
         }
         if list.len() > rows {

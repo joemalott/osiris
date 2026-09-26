@@ -629,6 +629,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["fullstaff"] => world.test_full_staff = true,
             ["nodisease"] => world.rules.disease = false,
             ["nodisasters"] => world.rules.disasters = false,
+            ["storagenone"] => world.rules.storage_accepts_none = true,
             ["safe"] => {
                 world.rules.fire = false;
                 world.rules.collapse = false;

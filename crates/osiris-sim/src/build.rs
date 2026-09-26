@@ -265,6 +265,9 @@ impl World {
             let level = (k - kind::HOUSE_FIRST) as u8;
             b.house = Some(crate::houses::House { level, crime: self.balance.house(level).crime_base, ..Default::default() });
         }
+        if self.rules.storage_accepts_none && matches!(k, kind::GRANARY | kind::STORAGE_YARD) {
+            b.accept_none();
+        }
         let id = self.buildings.insert(b);
         for yy in y..y + fh {
             for xx in x..x + fw {

@@ -12,7 +12,7 @@ const TOP: f32 = 56.0;
 type Field = fn(&mut Rules) -> &mut bool;
 
 /// Each switch: its name, what it does, and the rule it sets.
-const SWITCHES: [(&str, &str, Field); 7] = [
+const SWITCHES: [(&str, &str, Field); 8] = [
     ("Global labor pool", "Buildings hire from the whole city; no walker needs to find workers.", |r| &mut r.global_labor_pool),
     ("Gods", "When off, gods have no moods and houses never need religion.", |r| &mut r.gods_enabled),
     ("Nile floods", "When off, the river stays in its banks. Farms still harvest yearly.", |r| &mut r.floods),
@@ -20,6 +20,7 @@ const SWITCHES: [(&str, &str, Field); 7] = [
     ("Fire", "Buildings can catch fire.", |r| &mut r.fire),
     ("Disease", "Plague in unhealthy neighbourhoods. (Not in Osiris yet.)", |r| &mut r.disease),
     ("Collapse", "Neglected buildings can fall down.", |r| &mut r.collapse),
+    ("New storage accepts nothing", "New storage yards and granaries start at Accept None.", |r| &mut r.storage_accepts_none),
 ];
 
 #[derive(Default)]
