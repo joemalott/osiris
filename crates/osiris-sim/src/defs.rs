@@ -61,6 +61,8 @@ pub struct TerrainImages {
     pub young_tree: u32,
     /// Water beside the floodplain and open water (`Pharaoh_Terrain` group 19).
     pub flood_water: u32,
+    /// Where a ditch opens into the river beside the floodplain (group 44).
+    pub ditch_mouth: u32,
     /// Dirt roads (`Pharaoh_Terrain` group 43).
     pub dirt_road: u32,
     /// Dirt road on the floodplain (`Pharaoh_Terrain` group 51).
@@ -391,6 +393,7 @@ impl Defs {
             dune: t(13)?,
             young_tree: t(12)?,
             flood_water: t(19)?,
+            ditch_mouth: t(44)?,
             dirt_road: t(43)?,
             floodplain_road: t(51)?,
             cliff: lib.group_id("Expansion", 33, 0).map_err(|e| e.to_string())?,

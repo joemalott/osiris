@@ -152,6 +152,18 @@ pub fn refresh_grass(map: &mut Map, defs: &Defs, x0: i32, y0: i32, x1: i32, y1: 
     pass.empty_land_in(map, (x0, y0, x1, y1), true);
 }
 
+/// Redraws the water in a rectangle and round it, as the original's water pass does
+/// round a new ditch (FUN_00475cc0): a ditch meeting the river beside the floodplain
+/// opens into it (see `ditch_mouth`).
+pub fn refresh_water(map: &mut Map, defs: &Defs, x0: i32, y0: i32, x1: i32, y1: i32) {
+    let mut pass = Pass::new(map, defs);
+    pass.local = true;
+    pass.local_banks(map, (x0 - 2, y0 - 2, x1 + 2, y1 + 2));
+    let water = |m: &Map, x: i32, y: i32| Pass::t(m, x, y) & terrain::WATER != 0 && Pass::t(m, x, y) & terrain::BUILDING == 0;
+    pass.around_each_in(map, (x0, y0, x1, y1), water, Pass::water);
+    pass.clear_outside_in(map, (x0 - 1, y0 - 1, x1 + 1, y1 + 1));
+}
+
 /// Redraws what borders a tile whose terrain changed under it (an earthquake's crack):
 /// the grass 6 tiles round, and the meadow, floodplain, marsh and water beside it,
 /// whose edges follow their neighbours. The original redraws only the cracks, gardens,
@@ -937,7 +949,7 @@ impl<'a> Pass<'a> {
             (offset >= 8).then_some(terrain_images.flood_water + item + offset)
         } else {
             let floodplain = Self::neighbours(map, x, y, terrain::FLOODPLAIN);
-            (Self::count(floodplain) > 0).then(|| self.water_beside_floodplain(x, y, offset, item, floodplain))
+            (Self::count(floodplain) > 0).then(|| self.water_beside_floodplain(map, x, y, offset, item, floodplain))
         };
         // Open water, shores, and deep water: its variant picks one of six 15-frame loops.
         let image = match image {
@@ -981,7 +993,7 @@ impl<'a> Pass<'a> {
     /// River water beside the floodplain (`floodplain` marks those neighbours): where a
     /// marked bank lies on the side the water table picked (`offset`), the water meets
     /// the floodplain's edge; elsewhere it takes the flood water set.
-    fn water_beside_floodplain(&self, x: i32, y: i32, offset: u32, item: u32, floodplain: [u8; 8]) -> u32 {
+    fn water_beside_floodplain(&self, map: &Map, x: i32, y: i32, offset: u32, item: u32, floodplain: [u8; 8]) -> u32 {
         let shore: [bool; 8] = std::array::from_fn(|i| {
             let (dx, dy) = NEIGHBOURS[i];
             self.banks.at_or(x + dx, y + dy, Bank::None) == Bank::Shore
@@ -1016,7 +1028,7 @@ impl<'a> Pass<'a> {
             _ => None,
         };
         let Some(side) = side else {
-            return self.defs.terrain.flood_water + item + offset;
+            return ditch_mouth(map, x, y, offset).map_or(self.defs.terrain.flood_water + item + offset, |m| self.defs.terrain.ditch_mouth + m);
         };
         if !widen {
             size = 0;
@@ -1136,6 +1148,62 @@ pub(crate) fn road_image(map: &Map, defs: &Defs, counters: RoadCounters, desirab
     } else {
         (images.floodplain as i64 + edge) as u32
     })
+}
+
+/// Where a ditch meets water beside the floodplain away from its banks, the water
+/// takes the ditch's mouth (FUN_0047a220, `Pharaoh_Terrain` group 44): 0-3 for the
+/// straight shores, 4-15 for the corners, by which sides a dry ditch lies on (`offset`
+/// is the water table's shape). `None` where no ditch opens into the water.
+fn ditch_mouth(map: &Map, x: i32, y: i32, offset: u32) -> Option<u32> {
+    let d: [bool; 8] = std::array::from_fn(|i| {
+        let (dx, dy) = NEIGHBOURS[i];
+        i % 2 == 0 && map.terrain_is(x + dx, y + dy, terrain::CANAL) && !map.terrain_is(x + dx, y + dy, terrain::WATER)
+    });
+    if !d.iter().any(|&c| c) {
+        return None;
+    }
+    let (n, e, s, w) = (d[0], d[2], d[4], d[6]);
+    match offset {
+        8 => return s.then_some(3),
+        12 => return w.then_some(0),
+        16 => return n.then_some(1),
+        20 => return e.then_some(2),
+        _ => {}
+    }
+    let mut mouth = None;
+    let either = |mouth: &mut Option<u32>| {
+        if e {
+            if !n {
+                if e && s {
+                    *mouth = Some(6);
+                }
+            } else {
+                *mouth = Some(5);
+            }
+        }
+    };
+    if !w {
+        either(&mut mouth);
+    } else if !s {
+        if n {
+            mouth = Some(4);
+        } else {
+            either(&mut mouth);
+        }
+    } else {
+        mouth = Some(7);
+    }
+    match offset {
+        24 if s => Some(11),
+        24 if w => Some(8),
+        28 if w => Some(13),
+        28 if n => Some(10),
+        32 if e => Some(12),
+        32 if n => Some(15),
+        36 if e => Some(9),
+        36 if s => Some(14),
+        _ => mouth,
+    }
 }
 
 fn is_tree(t: u32) -> bool {

@@ -258,3 +258,33 @@ fn earthquake_cracks_join_the_land_around() {
         assert!(cracked > 10, "mission {n}: the quake cracked {cracked} tiles");
     }
 }
+
+/// A ditch dug to the river where it runs beside the floodplain, away from the
+/// floodplain's banks, opens into it: the water beside the ditch takes a ditch mouth,
+/// as it would in a redraw of the map. No shipped map has the spot, so the test makes
+/// one: a pool on open land with a flooded floodplain tile in it and a spit of land
+/// reaching in.
+#[test]
+fn a_ditch_opens_into_the_river_beside_the_floodplain() {
+    let Some(data) = data_dir() else { return };
+    let mut world = mission(&data, 3);
+    let (w, h) = (world.map.width, world.map.height);
+    let open = |m: &Map, x: i32, y: i32| (-5..=5).all(|dy| (-5..=5).all(|dx| m.terrain.at_or(x + dx, y + dy, 1) & !(terrain::GROUNDWATER | terrain::MEADOW) == 0));
+    let (c, r) = (0..w / 3).flat_map(|d| (-d..=d).flat_map(move |dy| (-d..=d).map(move |dx| (w / 2 + dx, h / 2 + dy)))).find(|&(x, y)| open(&world.map, x, y)).expect("open land");
+    for y in r - 3..=r + 3 {
+        for x in c - 3..=c + 3 {
+            let dry = x == c && y > r;
+            world.map.terrain.set(x, y, if dry { terrain::GROUNDWATER } else { terrain::WATER });
+        }
+    }
+    world.map.terrain.set(c + 1, r - 1, terrain::FLOODPLAIN | terrain::WATER);
+    let defs = world.defs.clone();
+    rebuild(&mut world.map, &defs);
+    let outcome = world.apply(&Command::Build { kind: kind::IRRIGATION_DITCH, x: c, y: r + 1, x1: c, y1: r + 2 });
+    assert!(matches!(outcome, Outcome::Done { .. }), "the ditch was dug: {outcome:?}");
+    let image = world.map.images.at_or(c, r, 0);
+    let mouth = world.defs.terrain.ditch_mouth;
+    assert!((mouth..mouth + 16).contains(&image), "the water at {c},{r} opens to the ditch: {}", describe(&world, &[Disagreement { x: c, y: r, shown: image, redrawn: image }]));
+    let d = disagreements(&world);
+    assert!(d.is_empty(), "after the ditch: {}", describe(&world, &d));
+}
