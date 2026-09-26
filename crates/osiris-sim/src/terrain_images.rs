@@ -119,57 +119,73 @@ pub fn redraw_on_load(map: &mut Map, defs: &Defs) {
 }
 
 /// Redraws land freed in play (cleared land, a removed road or building), as the
-/// original does after clearing: the rectangle's empty land in full, the grass in a
-/// ring 5 tiles wider (grass borders depend on what stands beside them), then the
-/// meadow in the rectangle, which the empty-land pass leaves alone.
-/// Dry floodplain the change left without an image gets its soil back last: the
-/// empty-land pass fills it with bare land blocks like any open ground.
+/// original does after clearing (FUN_00474700) and after a building goes
+/// (FUN_0043fd00): the rectangle's empty land in full, the grass in a ring 5 tiles
+/// wider (grass borders depend on what stands beside them), then the meadow, the
+/// floodplain, the water, the marsh and the rubble in the rectangle. The empty-land
+/// pass lays bare land on any floodplain tile left without an image; the floodplain
+/// pass after it gives the soil back.
 pub fn refresh_land(map: &mut Map, defs: &Defs, x0: i32, y0: i32, x1: i32, y1: i32) {
-    let covered = terrain::WATER | terrain::BUILDING | terrain::WALKABLE_BUILDING | terrain::ROAD | terrain::CANAL | terrain::RUBBLE;
-    let mut floodplain = Vec::new();
-    for y in y0.max(0)..=y1.min(map.height - 1) {
-        for x in x0.max(0)..=x1.min(map.width - 1) {
-            let t = map.terrain.at_or(x, y, 0);
-            if t & terrain::FLOODPLAIN != 0 && t & covered == 0 && map.images.at_or(x, y, 1) == 0 {
-                floodplain.push((x, y));
-            }
-        }
-    }
+    let rect = (x0, y0, x1, y1);
     let mut pass = Pass::new(map, defs);
-    pass.empty_land_in(map, (x0, y0, x1, y1), false);
+    pass.local = true;
+    pass.local_banks(map, (x0 - 7, y0 - 7, x1 + 7, y1 + 7));
+    pass.empty_land_in(map, rect, false);
     pass.empty_land_in(map, (x0 - 5, y0 - 5, x1 + 5, y1 + 5), true);
-    pass.meadow_in(map, (x0, y0, x1, y1));
-    for &(x, y) in &floodplain {
-        map.set_single_image(x, y, 0);
-    }
-    for &(x, y) in &floodplain {
-        let image = pass.floodplain_soil(map, x, y) + growth_around(map, defs, x, y);
-        map.set_single_image(x, y, image);
-    }
+    pass.meadow_in(map, rect);
+    let is = |mask: u32| move |m: &Map, x: i32, y: i32| Pass::t(m, x, y) & mask != 0 && Pass::t(m, x, y) & terrain::BUILDING == 0;
+    pass.around_each_in(map, rect, is(terrain::FLOODPLAIN), Pass::floodplain);
+    pass.around_each_in(map, (x0 - 1, y0 - 1, x1 + 1, y1 + 1), is(terrain::WATER), Pass::water);
+    pass.around_each_in(map, rect, is(terrain::MARSHLAND), Pass::marshland);
+    pass.each_in(map, rect, Pass::rubble);
+    pass.clear_outside_in(map, (x0 - 6, y0 - 6, x1 + 6, y1 + 6));
 }
 
-/// How far the crops on the dry floodplain around `(x, y)` have grown (0-5), read from
-/// their images: Osiris doesn't track the floodplain's growth, and a cleared tile should
-/// look like the field it sits in. The most common stage wins; 0 with none around.
-fn growth_around(map: &Map, defs: &Defs, x: i32, y: i32) -> u32 {
-    let base = defs.terrain.floodplain;
-    let mut counts = [0u32; 6];
-    for (dx, dy) in NEIGHBOURS {
-        let (nx, ny) = (x + dx, y + dy);
-        let image = map.images.at_or(nx, ny, 0);
-        let dry = map.terrain_is(nx, ny, terrain::FLOODPLAIN) && !map.terrain_is(nx, ny, terrain::WATER | terrain::BUILDING | terrain::WALKABLE_BUILDING | terrain::ROAD | terrain::CANAL);
-        if dry && (base..base + 48).contains(&image) {
-            counts[((image - base) % 6) as usize] += 1;
-        }
-    }
-    (0..6).rev().max_by_key(|&g| counts[g as usize]).filter(|&g| counts[g as usize] > 0).unwrap_or(0)
-}
-
-/// Redraws only the grass in a rectangle, as the original does around a new road or
-/// ditch: grass beside it takes its bordered look.
+/// Redraws only the grass in a rectangle, as the original does around a new road,
+/// ditch or building (FUN_004746d0, from FUN_0047bf50 for every footprint): grass
+/// beside it takes its bordered look.
 pub fn refresh_grass(map: &mut Map, defs: &Defs, x0: i32, y0: i32, x1: i32, y1: i32) {
     let mut pass = Pass::new(map, defs);
+    pass.local = true;
+    pass.local_banks(map, (x0 - 1, y0 - 1, x1 + 1, y1 + 1));
     pass.empty_land_in(map, (x0, y0, x1, y1), true);
+}
+
+/// Redraws what borders a tile whose terrain changed under it (an earthquake's crack):
+/// the grass 6 tiles round, and the meadow, floodplain, marsh and water beside it,
+/// whose edges follow their neighbours. The original redraws only the cracks, gardens,
+/// roads and plazas (FUN_0044bd50), leaving the rest as it was until the city is
+/// loaded again; Osiris draws it as the load would.
+pub fn refresh_beside(map: &mut Map, defs: &Defs, x: i32, y: i32) {
+    let mut pass = Pass::new(map, defs);
+    pass.local = true;
+    pass.local_banks(map, (x - 7, y - 7, x + 7, y + 7));
+    pass.empty_land_in(map, (x - 6, y - 6, x + 6, y + 6), true);
+    let rect = (x - 1, y - 1, x + 1, y + 1);
+    let is = |mask: u32| move |m: &Map, x: i32, y: i32| Pass::t(m, x, y) & mask != 0 && Pass::t(m, x, y) & terrain::BUILDING == 0;
+    pass.meadow_in(map, rect);
+    pass.around_each_in(map, rect, is(terrain::FLOODPLAIN), Pass::floodplain);
+    pass.around_each_in(map, rect, is(terrain::MARSHLAND), Pass::marshland);
+    pass.around_each_in(map, (x - 2, y - 2, x + 2, y + 2), is(terrain::WATER), Pass::water);
+    pass.clear_outside_in(map, (x - 7, y - 7, x + 7, y + 7));
+}
+
+/// Redraws the floodplain and the water around `(x, y)` after the flood rose onto the
+/// tile or left it, as the original does for each tile the flood crosses (FUN_004bd950):
+/// the floodplain within a tile of it (two once the water leaves), each floodplain tile
+/// redrawing the tiles around it, then the water. The original redraws the water
+/// within two tiles, which can leave a flooded tile three away with the dry look the
+/// floodplain pass just gave it (a tile at the river's edge, say, once the floodplain
+/// between has dried); Osiris redraws the water as far as the floodplain pass
+/// reached. The roads and ditches around are the world's to redraw.
+pub fn refresh_flood(map: &mut Map, defs: &Defs, x: i32, y: i32, flooding: bool) {
+    let r = if flooding { 1 } else { 2 };
+    let mut pass = Pass::new(map, defs);
+    pass.local_banks(map, (x - r - 3, y - r - 3, x + r + 3, y + r + 3));
+    let is = |mask: u32| move |m: &Map, x: i32, y: i32| Pass::t(m, x, y) & mask != 0 && Pass::t(m, x, y) & terrain::BUILDING == 0;
+    pass.around_each_in(map, (x - r, y - r, x + r, y + r), is(terrain::FLOODPLAIN), Pass::floodplain);
+    pass.around_each_in(map, (x - r - 1, y - r - 1, x + r + 1, y + r + 1), is(terrain::WATER), Pass::water);
+    pass.clear_outside_in(map, (x - r - 2, y - r - 2, x + r + 2, y + r + 2));
 }
 
 #[derive(Default)]
@@ -288,6 +304,8 @@ struct Pass<'a> {
     counters: Counters,
     choices: Grid<Choice>,
     edge_margin: i32,
+    /// A redraw in play, of part of the map.
+    local: bool,
 }
 
 impl<'a> Pass<'a> {
@@ -299,6 +317,7 @@ impl<'a> Pass<'a> {
             counters: Counters::default(),
             choices: Grid::new(map.width, map.height),
             edge_margin: EDGE_MARGIN,
+            local: false,
         }
     }
 
@@ -377,6 +396,50 @@ impl<'a> Pass<'a> {
         }
     }
 
+    /// Like `around_each`, for the tiles of a rectangle (clipped to the map).
+    fn around_each_in(&mut self, map: &mut Map, (x0, y0, x1, y1): (i32, i32, i32, i32), want: impl Fn(&Map, i32, i32) -> bool, f: fn(&mut Self, &mut Map, i32, i32)) {
+        for y in y0.max(0)..=y1.min(map.height - 1) {
+            for x in x0.max(0)..=x1.min(map.width - 1) {
+                if !want(map, x, y) || !self.diamond.inside(x, y) {
+                    continue;
+                }
+                for yy in (y - 1).max(0)..=(y + 1).min(map.height - 1) {
+                    for xx in (x - 1).max(0)..=(x + 1).min(map.width - 1) {
+                        f(self, map, xx, yy);
+                    }
+                }
+            }
+        }
+    }
+
+    /// What the floodplain's row marking (`mark_banks`) left in a rectangle, for a
+    /// redraw in play: the original keeps its records all game. Every floodplain tile
+    /// has one, and so does every tile beside the floodplain except river water that
+    /// only touches river water and floodplain.
+    fn local_banks(&mut self, map: &Map, (x0, y0, x1, y1): (i32, i32, i32, i32)) {
+        for y in y0.max(0)..=y1.min(map.height - 1) {
+            for x in x0.max(0)..=x1.min(map.width - 1) {
+                let t = Self::t(map, x, y);
+                let beside = Self::count(Self::neighbours(map, x, y, terrain::FLOODPLAIN));
+                let bank = if t & terrain::FLOODPLAIN != 0 {
+                    Bank::Floodplain
+                } else if beside == 0 {
+                    Bank::None
+                } else {
+                    let open_water = NEIGHBOURS
+                        .iter()
+                        .filter(|&&(dx, dy)| {
+                            let n = Self::t(map, x + dx, y + dy);
+                            n & terrain::WATER != 0 && n & (terrain::FLOODPLAIN | terrain::DIKE) == 0
+                        })
+                        .count();
+                    if open_water + beside == 8 && t & terrain::WATER != 0 { Bank::None } else { Bank::Shore }
+                };
+                self.banks.set(x, y, bank);
+            }
+        }
+    }
+
     /// The original turns every shrub inside the diamond into a tree when a map starts.
     fn shrubs_to_trees(&mut self, map: &mut Map) {
         self.each_shown_tile(map, |_, map, x, y| {
@@ -387,8 +450,12 @@ impl<'a> Pass<'a> {
     /// Tiles outside the diamond are never shown and hold no image, except where a
     /// rock or dune drawn inside reaches over the edge.
     fn clear_outside(&mut self, map: &mut Map) {
-        for y in 0..map.height {
-            for x in 0..map.width {
+        self.clear_outside_in(map, (0, 0, map.width - 1, map.height - 1));
+    }
+
+    fn clear_outside_in(&mut self, map: &mut Map, (x0, y0, x1, y1): (i32, i32, i32, i32)) {
+        for y in y0.max(0)..=y1.min(map.height - 1) {
+            for x in x0.max(0)..=x1.min(map.width - 1) {
                 if !self.diamond.inside(x, y) && Self::t(map, x, y) & KEEP == 0 && map.bitfields.at_or(x, y, 0) & 0x0f == 0 {
                     map.images.set(x, y, 0);
                     self.choices.set(x, y, Choice::default());
@@ -625,7 +692,11 @@ impl<'a> Pass<'a> {
         self.each_in(map, rect, |p, map, x, y| {
             let t = Self::t(map, x, y);
             let clear = if p.banks.at_or(x, y, Bank::None) == Bank::Shore { t & terrain::BUILDING == 0 } else { t & !CLEAR_IGNORED == 0 };
-            if !clear {
+            // The whole-map pass draws grass on the banks' roads and river water too,
+            // and the road and water passes after it draw them again. A redraw in play
+            // leaves them be: the original's (FUN_004746d0) paints them over until the
+            // month's redraw of every road and all the water puts them back.
+            if !clear || (p.local && t & (terrain::ROAD | terrain::WATER) != 0) {
                 return;
             }
             if t & terrain::GROUNDWATER == 0 {

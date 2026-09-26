@@ -44,10 +44,6 @@ pub(crate) fn match_context(rows: &[ContextRow], counters: &mut Vec<u32>, tiles:
     None
 }
 
-pub(crate) fn fill_matches(map: &Map, x: i32, y: i32, mask: u32, hit: u8, miss: u8) -> [u8; 8] {
-    NEIGHBOURS.map(|(dx, dy)| if map.terrain_is(x + dx, y + dy, mask) { hit } else { miss })
-}
-
 fn random(map: &Map, x: i32, y: i32) -> u32 {
     map.random.at_or(x, y, 0) as u32
 }

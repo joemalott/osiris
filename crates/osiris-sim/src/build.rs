@@ -300,6 +300,9 @@ impl World {
         if let Some(farm) = self.farm_image(id) {
             self.set_building_image(id, farm);
         }
+        // The grass around takes its border with the building (FUN_0047bf50 ends with
+        // FUN_004746d0: the grass 5 tiles round the footprint, and one more).
+        crate::terrain_images::refresh_grass(&mut self.map, &self.defs, x - 6, y - 6, x + fw + 5, y + fh + 5);
         self.refresh_road_access(id);
         id
     }

@@ -17,7 +17,6 @@
 
 use crate::grid::Grid;
 use crate::map::{Map, terrain};
-use crate::tiles::{fill_matches, match_context};
 use crate::world::World;
 use std::collections::VecDeque;
 
@@ -475,7 +474,7 @@ impl World {
                     let t = t | terrain::WATER;
                     if t & terrain::ROAD != 0 { (t & !terrain::ROAD) | terrain::SUBMERGED_ROAD } else { t }
                 });
-                self.set_flood_water_image(x, y);
+                self.redraw_after_flood(x, y, true);
             }
             // The flood restores fertility as it reaches each row; drier rows (further
             // from the river) top out lower, and a poor flood restores less of that.
@@ -486,28 +485,26 @@ impl World {
             }
         } else if !is_building {
             self.map.terrain.update(x, y, |t| {
-                let t = t & !terrain::WATER;
+                let t = t & !(terrain::WATER | terrain::DEEPWATER);
                 if t & terrain::SUBMERGED_ROAD != 0 { (t & !terrain::SUBMERGED_ROAD) | terrain::ROAD } else { t }
             });
-            self.set_flood_land_image(x, y);
+            self.redraw_after_flood(x, y, false);
+        } else {
+            // Ditches come back out of the water, and those beside open into it or not.
+            self.ditch_images_in(x - 1, y - 1, x + 1, y + 1);
         }
-        // Ditches come back out of the water, and those beside open into it or not.
-        self.ditch_images_in(x - 1, y - 1, x + 1, y + 1);
     }
 
-    fn set_flood_water_image(&mut self, x: i32, y: i32) {
-        let neighbours = fill_matches(&self.map, x, y, terrain::WATER, 1, 0);
-        let base = self.defs.terrain.water;
-        let image = match_context(&self.defs.contexts.water, &mut self.floods.water_counters, neighbours)
-            .map(|c| base + c.group_offset + c.item_offset)
-            .unwrap_or(base);
-        self.map.set_single_image(x, y, image);
-    }
-
-    fn set_flood_land_image(&mut self, x: i32, y: i32) {
-        let fertility_index = (self.map.fertility.at_or(x, y, 0) as u32 / 25).min(3);
-        let image = self.defs.terrain.floodplain + fertility_index * 12;
-        self.map.set_single_image(x, y, image);
+    /// Redraws the land, water, roads and ditches around a tile the flood just rose
+    /// onto or left, as the original does (FUN_004bd950): the floodplain and water (see
+    /// `terrain_images::refresh_flood`), then the roads and ditches within 2 tiles, or 3
+    /// as the water leaves.
+    fn redraw_after_flood(&mut self, x: i32, y: i32, flooding: bool) {
+        crate::terrain_images::refresh_flood(&mut self.map, &self.defs, x, y, flooding);
+        let r = if flooding { 2 } else { 3 };
+        let (mut rules, map) = self.tile_rules();
+        rules.roads_in(map, x - r, y - r, x + r, y + r);
+        self.ditch_images_in(x - r, y - r, x + r, y + r);
     }
 
     // `harvest_floodplain_farms` and `reset_floodplain_farms`, called above on the
