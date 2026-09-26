@@ -984,6 +984,9 @@ impl ApplicationHandler for App {
                         }
                         Some(Screen::Editor(e)) => {
                             let alt = [KeyCode::AltLeft, KeyCode::AltRight].iter().any(|k| self.keys.contains(k));
+                            let ctrl = [KeyCode::ControlLeft, KeyCode::ControlRight, KeyCode::SuperLeft, KeyCode::SuperRight]
+                                .iter()
+                                .any(|k| self.keys.contains(k));
                             let key = match code {
                                 KeyCode::KeyH => "h",
                                 KeyCode::KeyZ => "z",
@@ -991,7 +994,7 @@ impl ApplicationHandler for App {
                                 KeyCode::Escape => "escape",
                                 _ => "",
                             };
-                            e.key(key, alt);
+                            e.key(key, alt, ctrl);
                         }
                         // The original's cheat box (Ctrl+Alt+C): typed keys go to it
                         // while it's open, as the family name box does in the menu.
