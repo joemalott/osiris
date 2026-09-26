@@ -176,6 +176,7 @@ pub fn refresh_grass(map: &mut Map, defs: &Defs, x0: i32, y0: i32, x1: i32, y1: 
 struct Counters {
     earthquake: Vec<u32>,
     dirt_road: Vec<u32>,
+    paved_road: Vec<u32>,
     shore: Vec<u32>,
 }
 
@@ -947,29 +948,14 @@ impl<'a> Pass<'a> {
         }
     }
 
-    /// Dirt roads (a new map has no desirability, so none are paved), and roads on the
-    /// floodplain's banks.
+    /// Roads, dirt ones in a new city (it has no desirability yet), and roads on the
+    /// floodplain and its banks.
     fn road(&mut self, map: &mut Map, x: i32, y: i32) {
-        let t = Self::t(map, x, y);
-        if t & terrain::ROAD == 0 || t & (terrain::WATER | terrain::BUILDING | terrain::CANAL) != 0 || map.bitfields.at_or(x, y, 0) & 0x80 != 0 {
-            return;
+        let shore = self.banks.at_or(x, y, Bank::None) == Bank::Shore;
+        let counters = RoadCounters { dirt: &mut self.counters.dirt_road, paved: &mut self.counters.paved_road };
+        if let Some(image) = road_image(map, self.defs, counters, None, shore, x, y) {
+            self.put(map, x, y, image);
         }
-        let tiles = Self::neighbours(map, x, y, terrain::ROAD | terrain::SUBMERGED_ROAD);
-        let c = context(&self.defs.contexts.dirt_road, &mut self.counters.dirt_road, tiles, None);
-        let offset = c.map_or(0, |c| c.offset + c.item);
-        let terrain_images = &self.defs.terrain;
-        let image = if t & terrain::FLOODPLAIN == 0 && self.banks.at_or(x, y, Bank::None) != Bank::Shore {
-            terrain_images.dirt_road + offset
-        } else {
-            let current = map.images.at_or(x, y, 0) as i64 - terrain_images.floodplain as i64;
-            let edge = road_beside_floodplain_i(current);
-            if edge == current && !(84..=87).contains(&current) {
-                terrain_images.floodplain_road + offset
-            } else {
-                (terrain_images.floodplain as i64 + edge) as u32
-            }
-        };
-        self.put(map, x, y, image);
     }
 
     fn plazas(&mut self, map: &mut Map) {
@@ -1011,6 +997,54 @@ impl<'a> Pass<'a> {
         });
     }
 
+}
+
+/// The rotating counters of the two road tables, which the original keeps in the
+/// tables themselves between redraws.
+pub(crate) struct RoadCounters<'a> {
+    pub dirt: &'a mut Vec<u32>,
+    pub paved: &'a mut Vec<u32>,
+}
+
+/// A tile beside the floodplain that isn't on it: the original's row marking gives
+/// every such tile a record (FUN_004be160), and its roads and grass follow the bank.
+pub(crate) fn floodplain_shore(map: &Map, x: i32, y: i32) -> bool {
+    !map.terrain_is(x, y, terrain::FLOODPLAIN | terrain::WATER) && NEIGHBOURS.iter().any(|&(dx, dy)| map.terrain_is(x + dx, y + dy, terrain::FLOODPLAIN))
+}
+
+/// The image of road tile `(x, y)` as the original picks it (FUN_0047b670), or `None`
+/// where the road draws nothing of its own: on water, a building, a ditch (irrigation
+/// draws those), a plaza, or under anything standing on it.
+///
+/// Off the floodplain and its banks (`shore`) a road is paved where the desirability
+/// is above 4, or above 0 within a fountain's range (FUN_0047b920), and dirt elsewhere;
+/// both tables pick by rotating counter. On the floodplain or its banks the road reads
+/// the tile's current image: the four straight banks become their road pieces, other
+/// bank pieces (84..87 among them) stay, and anything else is a floodplain dirt road.
+/// Neighbouring roads include submerged ones.
+pub(crate) fn road_image(map: &Map, defs: &Defs, counters: RoadCounters, desirability: Option<&Grid<i8>>, shore: bool, x: i32, y: i32) -> Option<u32> {
+    let t = map.terrain.at_or(x, y, 0);
+    if t & terrain::ROAD == 0 || t & (terrain::WATER | terrain::BUILDING | terrain::CANAL) != 0 || map.building.at_or(x, y, 0) != 0 || map.bitfields.at_or(x, y, 0) & 0x80 != 0 {
+        return None;
+    }
+    let tiles = NEIGHBOURS.map(|(dx, dy)| (map.terrain_around(x + dx, y + dy, OUTSIDE) & (terrain::ROAD | terrain::SUBMERGED_ROAD) != 0) as u8);
+    let images = &defs.terrain;
+    let pick = |rows: &[ContextRow], counters: &mut Vec<u32>| context(rows, counters, tiles, None).map_or(0, |c| c.offset + c.item);
+    if t & terrain::FLOODPLAIN == 0 && !shore {
+        let d = desirability.map_or(0, |g| g.at_or(x, y, 0) as i32);
+        return Some(if d > 4 || (d > 0 && t & terrain::FOUNTAIN_RANGE != 0) {
+            images.road + pick(&defs.contexts.paved_road, counters.paved)
+        } else {
+            images.dirt_road + pick(&defs.contexts.dirt_road, counters.dirt)
+        });
+    }
+    let current = map.images.at_or(x, y, 0) as i64 - images.floodplain as i64;
+    let edge = road_beside_floodplain_i(current);
+    Some(if edge == current && !(84..=87).contains(&current) {
+        images.floodplain_road + pick(&defs.contexts.dirt_road, counters.dirt)
+    } else {
+        (images.floodplain as i64 + edge) as u32
+    })
 }
 
 fn is_tree(t: u32) -> bool {

@@ -48,17 +48,6 @@ pub(crate) fn fill_matches(map: &Map, x: i32, y: i32, mask: u32, hit: u8, miss: 
     NEIGHBOURS.map(|(dx, dy)| if map.terrain_is(x + dx, y + dy, mask) { hit } else { miss })
 }
 
-fn road_tiles(map: &Map, x: i32, y: i32) -> [u8; 8] {
-    let mut tiles = fill_matches(map, x, y, terrain::ROAD, 1, 0);
-    for i in (0..8).step_by(2) {
-        let (dx, dy) = NEIGHBOURS[i];
-        if map.terrain_is(x + dx, y + dy, terrain::ACCESS_RAMP) {
-            tiles[i] = 1;
-        }
-    }
-    tiles
-}
-
 fn random(map: &Map, x: i32, y: i32) -> u32 {
     map.random.at_or(x, y, 0) as u32
 }
@@ -71,44 +60,11 @@ pub struct TileRules<'a> {
 }
 
 impl TileRules<'_> {
+    /// Redraws road tile `(x, y)` (see `terrain_images::road_image`).
     pub fn road_image(&mut self, map: &mut Map, x: i32, y: i32) {
-        let t = map.terrain.at_or(x, y, 0);
-        if t & terrain::ROAD == 0 || t & (terrain::WATER | terrain::BUILDING | terrain::CANAL | terrain::GATEHOUSE) != 0 {
-            return;
-        }
-        // A roadblock (or anything else standing on the road) keeps its own image.
-        if map.building.at_or(x, y, 0) != 0 {
-            return;
-        }
-        if map.bitfields.at_or(x, y, 0) & 0x80 != 0 {
-            return; // plaza
-        }
-        let base = self.defs.terrain.road;
-        let tiles = road_tiles(map, x, y);
-        let d = self.desirability.at_or(x, y, 0) as i32;
-        let paved = d > 4 || (d > 0 && t & terrain::FOUNTAIN_RANGE != 0);
-        let image = if paved {
-            let c = match_context(&self.defs.contexts.paved_road, &mut self.counters.paved_road, tiles);
-            c.map(|c| base + c.group_offset + c.item_offset)
-        } else if t & terrain::FLOODPLAIN == 0 {
-            let fp = self.defs.terrain.floodplain;
-            if map.terrain_is(x, y - 1, terrain::FLOODPLAIN) {
-                Some(fp + 84)
-            } else if map.terrain_is(x + 1, y, terrain::FLOODPLAIN) {
-                Some(fp + 85)
-            } else if map.terrain_is(x, y + 1, terrain::FLOODPLAIN) {
-                Some(fp + 86)
-            } else if map.terrain_is(x - 1, y, terrain::FLOODPLAIN) {
-                Some(fp + 87)
-            } else {
-                match_context(&self.defs.contexts.dirt_road, &mut self.counters.dirt_road, tiles)
-                    .map(|c| base + c.group_offset + c.item_offset + 49)
-            }
-        } else {
-            match_context(&self.defs.contexts.dirt_road, &mut self.counters.dirt_road, tiles)
-                .map(|c| base + c.group_offset + c.item_offset + 49 + 344)
-        };
-        if let Some(image) = image {
+        let shore = crate::terrain_images::floodplain_shore(map, x, y);
+        let counters = crate::terrain_images::RoadCounters { dirt: &mut self.counters.dirt_road, paved: &mut self.counters.paved_road };
+        if let Some(image) = crate::terrain_images::road_image(map, self.defs, counters, Some(self.desirability), shore, x, y) {
             map.set_single_image(x, y, image);
         }
     }
