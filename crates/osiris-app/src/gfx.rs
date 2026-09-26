@@ -208,6 +208,19 @@ impl Gfx {
 }
 
 /// Renders one frame offscreen and writes it to `out` as PNG.
+/// The interface scale a screenshot `h` pixels high is drawn at (OSIRIS_SCALE=2
+/// renders as a Retina display would: the same pixels, laid out at half the size).
+fn screenshot_scale(h: u32) -> f32 {
+    let system = std::env::var("OSIRIS_SCALE").ok().and_then(|s| s.parse::<f64>().ok()).unwrap_or(1.0).max(1.0);
+    ui_scale(system, h as f64) as f32
+}
+
+/// The screen a screenshot of `size` pixels lays its interface out on.
+pub fn screenshot_screen((w, h): (u32, u32)) -> [f32; 2] {
+    let scale = screenshot_scale(h);
+    [w as f32 / scale, h as f32 / scale]
+}
+
 pub fn screenshot(
     library: ImageLibrary,
     size: (u32, u32),
@@ -237,8 +250,7 @@ pub fn screenshot(
     // OSIRIS_SCALE=2 renders as a Retina display would: the same pixels, laid out at
     // half the size. Any factor goes, which stands in for the interface size that
     // screenshots don't read: 1.5 is 150% on a plain display, 3 is 150% on Retina.
-    let system = std::env::var("OSIRIS_SCALE").ok().and_then(|s| s.parse::<f64>().ok()).unwrap_or(1.0).max(1.0);
-    let scale = ui_scale(system, h as f64) as f32;
+    let scale = screenshot_scale(h);
     renderer.scale = scale;
     renderer.screen = [w as f32 / scale, h as f32 / scale];
     let first = std::time::Instant::now();

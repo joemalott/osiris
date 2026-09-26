@@ -112,6 +112,65 @@ fn edits_survive_a_save() {
     assert_eq!(format!("{:?}", back.empire), format!("{:?}", s.empire));
 }
 
+/// The Kingdom map's edits come back from a saved map: a city's kind, name, goods,
+/// demand, route and cost, an object moved, one deleted and one added, a new sea
+/// route, and prices.
+#[test]
+fn empire_edits_survive_a_save() {
+    use osiris_formats::empire::{EmpireObject, EmpireRoute, city, object};
+    let Some(data) = data_dir() else { return };
+    let path = data.join("Maps").join("Default.map");
+    let Ok(file) = ChunkFile::open(&path, Layout::Map) else { return };
+    let mut s = Scenario::from_chunks(&file).unwrap();
+    let e = &mut s.empire;
+    let c = e.objects.iter().position(|o| o.in_use && o.kind == object::CITY).unwrap();
+    {
+        let o = &mut e.objects[c];
+        o.city_type = city::FOREIGN_TRADING;
+        o.city_name_id = 36;
+        o.text_align = 3;
+        o.sells = vec![20, 26, 29, 32];
+        o.buys = vec![1, 13];
+        o.demand = vec![0; 36];
+        for (r, t) in [(20, 3), (26, 1), (29, 2), (32, 2), (1, 2), (13, 3)] {
+            o.demand[r] = t;
+        }
+        o.trade_route_id = 1;
+        o.trade_route_cost = 1500;
+        o.x += 17;
+        o.y -= 9;
+    }
+    // Delete the next object, closing the gap, and add a region at the end.
+    e.objects.remove(c + 1);
+    let last = e.objects.iter().position(|o| !o.in_use).unwrap();
+    e.objects.insert(last, EmpireObject { kind: object::REGION, in_use: true, x: 300, y: 400, width: 90, height: 20, city_name_id: 4, ..Default::default() });
+    e.objects.truncate(200);
+    e.routes[1] = EmpireRoute { in_use: true, route_type: 2, step: 5, points: vec![(100, 100), (200, 180), (320, 190)], from_object: c as i16, to_object: -1, raw: Vec::new() };
+    e.prices[20] = (999, 888);
+
+    let out = std::env::temp_dir().join(format!("osiris-empire-roundtrip-{}.map", std::process::id()));
+    s.save_map(&path, &out).unwrap();
+    let back = Scenario::from_chunks(&ChunkFile::open(&out, Layout::Map).unwrap()).unwrap();
+    std::fs::remove_file(&out).ok();
+    let (a, b) = (&s.empire, &back.empire);
+    let o = &b.objects[c];
+    assert_eq!((o.city_type, o.city_name_id, o.text_align, o.trade_route_id, o.trade_route_cost), (city::FOREIGN_TRADING, 36, 3, 1, 1500));
+    assert_eq!((o.x, o.y), (a.objects[c].x, a.objects[c].y));
+    assert_eq!((&o.sells, &o.buys), (&vec![20, 26, 29, 32], &vec![1, 13]));
+    for r in [20, 26, 29, 1, 13] {
+        assert_eq!(o.demand[r], a.objects[c].demand[r], "demand for {r}");
+    }
+    // Resources past the file's masks come back at the middle tier, as the game reads them.
+    assert_eq!(o.demand[32], 2);
+    for i in 0..200 {
+        assert_eq!((b.objects[i].kind, b.objects[i].in_use, b.objects[i].city_name_id, b.objects[i].x), (a.objects[i].kind, a.objects[i].in_use, a.objects[i].city_name_id, a.objects[i].x), "object {i}");
+    }
+    let r = &b.routes[1];
+    assert_eq!((r.in_use, r.route_type, r.step, &r.points, r.from_object, r.to_object), (true, 2, 5, &a.routes[1].points, c as i16, -1));
+    assert_eq!(b.prices[20], (999, 888));
+    assert_eq!(b.prices[1], a.prices[1]);
+}
+
 /// The invasion points are one list of sixteen, the x's before the y's: land points
 /// first, then sea points, each on the map's edge.
 #[test]

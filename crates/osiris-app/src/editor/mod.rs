@@ -4,10 +4,11 @@
 //! animals come in, edits the scenario's options, and writes the result back as an
 //! original-format `.map`. The facts it follows are in notes/editor.md.
 //!
-//! The editor keeps the file it opened as its template: saving writes the grids and
-//! the scenario's info into a copy of it, so the chunks it doesn't edit yet (the
-//! Kingdom map, the events) are kept as they were.
+//! The editor keeps the file it opened as its template: saving writes the grids, the
+//! scenario's info and the Kingdom map (kingdom.rs) into a copy of it, so the chunks
+//! it doesn't edit yet (the events) are kept as they were.
 
+pub mod kingdom;
 pub mod options;
 pub mod script;
 pub mod terrain;
@@ -179,6 +180,8 @@ pub struct Editor {
     pub name: String,
     /// Where the player's own maps go (the user folder's `maps`).
     pub maps_dir: PathBuf,
+    /// The game's folder (for Pharaoh2.emp, which the Kingdom map's Reset reads).
+    pub data: PathBuf,
     pub tool: Tool,
     /// The brush, 0 (one tile) to 4.
     pub brush: u8,
@@ -221,6 +224,8 @@ impl Editor {
             path: own.then(|| path.to_owned()),
             name,
             maps_dir,
+            // A shipped map's folder is the game's Maps; the app sets it for others.
+            data: path.parent().and_then(Path::parent).map(Path::to_path_buf).unwrap_or_default(),
             tool: Tool::None,
             brush: 2,
             dirty: false,

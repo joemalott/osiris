@@ -149,6 +149,16 @@ pub fn draw_text_tinted(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32
     draw(r, font, text, x, y - RISE, tint, tint)
 }
 
+/// Draws `text` with every glyph pixel in `color`, as the original draws text given
+/// a colour of its own (red for the chosen mode in the editor's Kingdom map, say),
+/// whatever colours the font's art holds.
+pub fn draw_text_in(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: [f32; 4]) -> i32 {
+    let sharp = std::mem::replace(&mut r.sharp, true);
+    let w = draw_glyphs_as(r, font, text, x, y - RISE, color, WHITE, true);
+    r.sharp = sharp;
+    w
+}
+
 /// Draws `text` with its glyph tops at `y`, as the original draws message bodies.
 pub fn draw_text_unrisen(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: [f32; 4]) -> i32 {
     draw(r, font, text, x, y, color, WHITE)
@@ -173,6 +183,11 @@ fn draw(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: [f32; 4
 }
 
 fn draw_glyphs(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: [f32; 4], tint: [f32; 4]) -> i32 {
+    draw_glyphs_as(r, font, text, x, y, color, tint, false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_glyphs_as(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: [f32; 4], tint: [f32; 4], recolour: bool) -> i32 {
     let d = font.def();
     let mut cx = x;
     for c in text.chars() {
@@ -195,7 +210,7 @@ fn draw_glyphs(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: 
                 r.image_painted(id, [cx + 1.0, gy + 1.0], color, Space::Screen, Paint::Silhouette);
                 cx += 2.0;
             }
-            _ if font.silhouette() => {
+            _ if recolour || font.silhouette() => {
                 r.image_painted(id, [cx, gy], color, Space::Screen, Paint::Silhouette);
             }
             _ => {
