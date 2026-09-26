@@ -209,7 +209,9 @@ pub fn screenshot(
     let scale = ui_scale(system, h as f64) as f32;
     renderer.scale = scale;
     renderer.screen = [w as f32 / scale, h as f32 / scale];
+    let first = std::time::Instant::now();
     draw(&mut renderer);
+    let first_build = first.elapsed();
     let sprites = renderer.instance_count();
     let t0 = std::time::Instant::now();
     renderer.flush(&texture.create_view(&Default::default()), Some(CLEAR));
@@ -227,7 +229,7 @@ pub fn screenshot(
             renderer.device().poll(wgpu::PollType::wait_indefinitely())?;
             gpu += t.elapsed();
         }
-        eprintln!("frames {n}: build {:?} draw {:?} per frame", build / n.max(1), gpu / n.max(1));
+        eprintln!("frames {n}: build {:?} draw {:?} per frame; the first frame built in {first_build:?}", build / n.max(1), gpu / n.max(1));
         draw(&mut renderer);
         renderer.flush(&view, Some(CLEAR));
     }

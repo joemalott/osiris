@@ -23,6 +23,18 @@ pub struct CityView {
     pub last_sprites: usize,
     /// World-pixel bounds of the playable area, found on first use.
     bounds: Option<[f32; 4]>,
+    /// How far the map's tile images reach from their draw tiles, for the map's
+    /// images and edges at these versions (see [`Reach`]).
+    reach: Option<(u64, u64, Reach)>,
+}
+
+/// How far any of the map's tile images reaches from the top-left corner of its draw
+/// tile's box, in world pixels: up above it, down below it and right of it.
+#[derive(Debug, Clone, Copy, Default)]
+struct Reach {
+    up: f32,
+    down: f32,
+    right: f32,
 }
 
 /// World-pixel bounding box of the tiles that are part of the map (tiles outside the
@@ -228,6 +240,32 @@ impl CityView {
         r.image(id, pos, WHITE, Space::World);
     }
 
+    /// The reach of the map's tile images, worked out again when they change.
+    fn reach(&mut self, r: &Renderer, map: &Map) -> Reach {
+        let key = (map.images.version(), map.edges.version());
+        if let Some((i, e, reach)) = self.reach
+            && (i, e) == key
+        {
+            return reach;
+        }
+        let mut reach = Reach::default();
+        for y in 0..map.height {
+            for x in 0..map.width {
+                if map.edges.at_or(x, y, 0) & edge::DRAW_TILE == 0 {
+                    continue;
+                }
+                let Some(rec) = r.record(map.images.at_or(x, y, 0)) else { continue };
+                let n = if rec.kind == ImageKind::Isometric { rec.isometric_tiles().max(1) } else { 1 };
+                let bottom = TILE_H / 2.0 * (n + 1) as f32;
+                reach.up = reach.up.max(rec.height as f32 - bottom);
+                reach.down = reach.down.max(bottom);
+                reach.right = reach.right.max(rec.width as f32);
+            }
+        }
+        self.reach = Some((key.0, key.1, reach));
+        reach
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
@@ -243,6 +281,23 @@ impl CityView {
         let before = r.instance_count();
         let [vx0, vy0, vx1, vy1] = r.world_view();
         let (w, h) = (map.width, map.height);
+        // The tiles of diagonal `d` whose images can show on screen: none if the
+        // diagonal lies too far above or below the view, else those not too far to
+        // its sides. An overlay draws other images, so it looks at every tile.
+        let reach = if overlay.is_none() { Some(self.reach(r, map)) } else { None };
+        let origin = (h - 1) as f32 * TILE_W / 2.0;
+        let visible = |d: i32| -> (i32, i32) {
+            let (x_min, x_max) = ((d - (h - 1)).max(0), d.min(w - 1));
+            let Some(reach) = reach else { return (x_min, x_max) };
+            let top = d as f32 * TILE_H / 2.0;
+            if top - reach.up > vy1 || top + reach.down < vy0 {
+                return (x_min, x_min - 1);
+            }
+            // A tile's box starts at (2x - d) * 30 + origin across.
+            let lo = (((vx0 - reach.right - origin) / (TILE_W / 2.0) + d as f32) / 2.0).floor() as i32;
+            let hi = (((vx1 - origin) / (TILE_W / 2.0) + d as f32) / 2.0).ceil() as i32;
+            (x_min.max(lo), x_max.min(hi))
+        };
         let (mut hidden, mut people): (Vec<Sprite>, Vec<Sprite>) = sprites.iter().partition(|s| s.behind);
         people.sort_by_key(|s| (s.x + s.y, s.x));
         hidden.sort_by_key(|s| (s.x + s.y, s.x));
@@ -260,8 +315,7 @@ impl CityView {
         // smaller map x sits in front on screen and is drawn last: a tall sprite's
         // west edge (map x - 1, same diagonal) must be painted over it, not under it.
         for d in 0..(w + h - 1) {
-            let x_min = (d - (h - 1)).max(0);
-            let x_max = d.min(w - 1);
+            let (x_min, x_max) = visible(d);
             for x in (x_min..=x_max).rev() {
                 self.draw_tile(r, map, x, d - x, overlay, true, [vx0, vy0, vx1, vy1]);
             }
@@ -271,8 +325,8 @@ impl CityView {
             draw_sprite(r, s.image, [p[0] + s.offset.0 as f32 + 29.0, p[1] + s.offset.1 as f32 + 23.0]);
         };
         for d in 0..(w + h - 1) {
-            let x_min = (d - (h - 1)).max(0);
-            let x_max = d.min(w - 1);
+            let (x_min, x_max) = (((d - (h - 1)).max(0)), d.min(w - 1));
+            let (show_min, show_max) = visible(d);
             // A sprite drawn before its tile's building goes just before that
             // building's image, the extra drawn from its tile if there is one, else the
             // tile's own (as the original draws a figure over a pyramid's back face
@@ -283,15 +337,19 @@ impl CityView {
             }
             let mut pending: Vec<Sprite> = hidden[first..next_hidden].to_vec();
             let raised: Vec<(i32, i32)> = extras[next_extra..].iter().take_while(|o| o.x + o.y <= d).map(|o| (o.x, o.y)).collect();
-            for x in (x_min..=x_max).rev() {
+            // Only tiles on screen draw anything, unless a sprite is filed before one.
+            let (from, to) = if pending.is_empty() { (show_min, show_max) } else { (x_min, x_max) };
+            for x in (from..=to).rev() {
                 let at = (x, d - x);
-                if !raised.contains(&at) {
+                if !pending.is_empty() && !raised.contains(&at) {
                     for s in pending.iter().filter(|s| (s.x, s.y) == at) {
                         draw_person(r, s);
                     }
                     pending.retain(|s| (s.x, s.y) != at);
                 }
-                self.draw_tile(r, map, x, d - x, overlay, false, [vx0, vy0, vx1, vy1]);
+                if (show_min..=show_max).contains(&x) {
+                    self.draw_tile(r, map, x, d - x, overlay, false, [vx0, vy0, vx1, vy1]);
+                }
             }
             while next_column < columns.len() && columns[next_column].x + columns[next_column].y <= d {
                 let c = columns[next_column];
