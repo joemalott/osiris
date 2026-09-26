@@ -11,6 +11,8 @@ pub const MARKET_BUYER: u16 = 39;
 
 /// How far a bazaar sends its buyers, in tiles.
 const MAX_SEARCH: i32 = 40;
+/// A bazaar looks for no source of a good it holds this much of.
+const STOCK_CAP: i32 = 20000;
 /// A bazaar buys a food it has less than this of, and a good below 100.
 const BUY_FOOD_BELOW: i32 = 600;
 const BUY_GOOD_BELOW: i32 = 100;
@@ -47,14 +49,15 @@ impl World {
     /// Where a bazaar looks for each good, by resource: of the storage buildings within
     /// 40 tiles holding some, the one its buyer reaches in the fewest steps along the
     /// roads from the bazaar's road tile (the first built on a tie); none where the good
-    /// is stockpiled or the bazaar doesn't buy it. Food comes from granaries (unless the
-    /// Kingdom supplies the grain), and from storage yards only while it is imported.
+    /// is stockpiled, the bazaar doesn't buy it, or the bazaar already holds 20000 of it.
+    /// Food comes from granaries (unless the Kingdom supplies the grain), and from
+    /// storage yards only while it is imported.
     fn bazaar_sources(&self, bazaar: BuildingId) -> Vec<Option<BuildingId>> {
         use crate::trade::status;
         let mut out = vec![None; resource::COUNT];
         let Some(b) = self.buildings.get(bazaar) else { return out };
         let Some(road) = b.road else { return out };
-        let wanted: Vec<u16> = (resource::GRAIN..=resource::GAMEMEAT).chain(BAZAAR_GOODS).filter(|&r| !self.is_stockpiled(r) && b.bazaar_buys(r)).collect();
+        let wanted: Vec<u16> = (resource::GRAIN..=resource::GAMEMEAT).chain(BAZAAR_GOODS).filter(|&r| !self.is_stockpiled(r) && b.bazaar_buys(r) && b.stock[r as usize] < STOCK_CAP).collect();
         if wanted.is_empty() {
             return out;
         }
@@ -559,6 +562,11 @@ mod tests {
         assert_eq!(world.bazaar_sources(bazaar)[GRAIN as usize], Some(far), "the near granary can't be reached");
         // Joined up, the near granary is the shorter walk.
         road(&mut world, (x + 12, y + 4), (x + 12, y + 7));
+        assert_eq!(world.bazaar_sources(bazaar)[GRAIN as usize], Some(near));
+        // A bazaar holding 20000 of a food looks for no more of it.
+        world.buildings.get_mut(bazaar).unwrap().stock[GRAIN as usize] = STOCK_CAP;
+        assert_eq!(world.bazaar_sources(bazaar)[GRAIN as usize], None);
+        world.buildings.get_mut(bazaar).unwrap().stock[GRAIN as usize] = STOCK_CAP - 1;
         assert_eq!(world.bazaar_sources(bazaar)[GRAIN as usize], Some(near));
         // Where the Kingdom supplies the grain, bazaars don't buy it from granaries.
         world.kingdom_grain = true;
