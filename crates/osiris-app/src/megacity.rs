@@ -789,7 +789,8 @@ impl Planner<'_> {
                 MEADOW_FARM => {
                     // A food crop, where the meadow is fertile enough to be worth it.
                     let fertility: i32 = (0..3).flat_map(|d| (0..3).map(move |e| (d, e))).map(|(d, e)| self.world.map.fertility.at_or(bx + dx + d, by + dy + e, 0) as i32).sum::<i32>() / 9;
-                    if fertility < MEADOW_FERTILITY {
+                    let floodplain = (0..3).any(|d| (0..3).any(|e| self.world.map.terrain_is(bx + dx + d, by + dy + e, terrain::FLOODPLAIN)));
+                    if fertility < MEADOW_FERTILITY || floodplain {
                         continue;
                     }
                     meadow += 1;
