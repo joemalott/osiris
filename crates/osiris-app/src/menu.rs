@@ -1630,7 +1630,7 @@ impl Menu {
         panel::outer_panel(r, panels, px, py, 24, 8);
         bg_centred(r, Font::LargeBlackOnLight, &self.family_text.enter_name, px, py + 12.0, 384.0);
         panel::inner_panel(r, panels, 160.0, 208.0, 20, 2);
-        bg_text(r, Font::NormalYellow, &format!("{}_", self.new_family), 176.0, 216.0);
+        bg_text(r, Font::NormalWhiteOnDark, &format!("{}_", self.new_family), 176.0, 216.0);
         bg_text(r, Font::NormalBlackOnLight, &self.family_text.continue_button, 395.0, 255.0);
         if let Ok(go) = r.library.group_id("Pharaoh_General", 192, 0) {
             bg_image(r, go + inside4(cursor, NEW_FAMILY_GO) as u32, NEW_FAMILY_GO[0], NEW_FAMILY_GO[1]);
