@@ -1,10 +1,10 @@
 //! Window surface and offscreen targets around the renderer.
 
 use anyhow::{Context, Result};
-use osiris_formats::ImageLibrary;
+use osiris_formats::{ImageLibrary, TextTable};
 use osiris_render::Renderer;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use winit::window::Window;
 
 /// The player's interface size (Options menu): 0 is automatic, then 100%, 150% and
@@ -34,14 +34,46 @@ pub fn save_ui_size() {
     let _ = std::fs::write(crate::user_dir().join("ui_size.txt"), format!("{}\n", UI_SIZES[ui_size() as usize].0));
 }
 
+/// Whether the window is (or is about to be) shown full screen. The window itself
+/// lives with `Gfx`, which the Options menu's Fullscreen entry doesn't have; this
+/// mirrors its state so the entry's label and `main.rs`'s Alt+Enter/F11 handling
+/// agree on it, the same way `UI_SIZE` stands in for the window's scale.
+static FULLSCREEN: AtomicBool = AtomicBool::new(false);
+
+pub fn fullscreen() -> bool {
+    FULLSCREEN.load(Ordering::Relaxed)
+}
+
+pub fn set_fullscreen(on: bool) {
+    FULLSCREEN.store(on, Ordering::Relaxed);
+}
+
+/// The Options menu's label for the fullscreen toggle: the original's own display
+/// settings strings (group 42: "Full screen" and "Windowed screen"), showing the
+/// window's current mode.
+pub fn fullscreen_label(text: &TextTable) -> String {
+    let (i, fallback) = if fullscreen() { (1, "Full screen") } else { (2, "Windowed screen") };
+    text.get(42, i).map_or_else(|| fallback.to_owned(), |s| s.trim().to_owned())
+}
+
 /// Device pixels per interface pixel, for a screen `height` device pixels tall whose
-/// system scaling is `system`. Automatic doubles the art on screens that would
-/// still be at least 900 pixels tall doubled (4K without display scaling), so the
-/// interface isn't a sliver in a corner; 1080p and 1440p stay as the system sets them.
+/// system scaling is `system`. Automatic scales the art up on a screen tall enough
+/// (in its own logical pixels, so the system's own scaling isn't double-counted)
+/// that it would otherwise be a sliver in a corner: a step at 1440p and up (a bare
+/// 1440p or an ultrawide of that height, run without the system's own scaling) and
+/// a full doubling at 4K and up (2160 logical and up, i.e. 4K without display
+/// scaling); 1080p stays as the system sets it.
 pub fn ui_scale(system: f64, height: f64) -> f64 {
+    let logical = height / system;
+    let auto = if logical >= 1800.0 {
+        2.0
+    } else if logical >= 1300.0 {
+        1.5
+    } else {
+        1.0
+    };
     match UI_SIZES[ui_size() as usize].1 {
-        0.0 if height / system >= 1800.0 => system * 2.0,
-        0.0 => system,
+        0.0 => system * auto,
         f => system * f,
     }
 }

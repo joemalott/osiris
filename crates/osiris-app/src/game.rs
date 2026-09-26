@@ -170,6 +170,9 @@ pub struct Game {
     pub autosave: bool,
     /// Set when the player switches autosave, so the caller can store it.
     pub autosave_changed: bool,
+    /// Set when the player switches the Options menu's Fullscreen entry, so the
+    /// caller (which owns the window) can actually apply it.
+    pub fullscreen_changed: bool,
     top_menu: TopMenu,
     /// The overlay being shown, if any.
     pub view_overlay: Option<View>,
@@ -259,6 +262,7 @@ impl Game {
             difficulty_changed: false,
             autosave: true,
             autosave_changed: false,
+            fullscreen_changed: false,
             rules_changed: false,
             top_menu,
             view_overlay: None,
@@ -893,6 +897,11 @@ impl Game {
                 crate::gfx::save_ui_size();
                 self.top_menu.relabel(MenuAction::InterfaceSize, &crate::gfx::ui_size_label());
             }
+            MenuAction::Fullscreen => {
+                crate::gfx::set_fullscreen(!crate::gfx::fullscreen());
+                self.fullscreen_changed = true;
+                self.sync_fullscreen_label();
+            }
             MenuAction::Sound => self.sound_window = Some(crate::sound_options::SoundWindow),
             MenuAction::Difficulty => {
                 self.difficulty_panel = true;
@@ -922,6 +931,12 @@ impl Game {
         self.autosave = on;
         let label = self.text.get(2, if on { 9 } else { 10 }).unwrap_or(if on { "Autosave - ON" } else { "Autosave - OFF" }).trim().to_owned();
         self.top_menu.relabel(MenuAction::Autosave, &label);
+    }
+
+    /// Keeps the Options menu's Fullscreen entry in step with the window, after a
+    /// change made outside the menu (Alt+Enter, F11, or Ctrl+Cmd+F on macOS).
+    pub fn sync_fullscreen_label(&mut self) {
+        self.top_menu.relabel(MenuAction::Fullscreen, &crate::gfx::fullscreen_label(&self.text));
     }
 
     /// Asks the original's "Leave the Kingdom?" before `then` (back to the main
