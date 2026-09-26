@@ -21,6 +21,7 @@ pub mod economy;
 pub mod effects;
 pub mod entertainment;
 pub mod farms;
+pub mod festivals;
 pub mod figures;
 pub mod finance;
 pub mod fishing;

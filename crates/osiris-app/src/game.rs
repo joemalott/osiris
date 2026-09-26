@@ -1531,6 +1531,14 @@ impl Game {
             out.push(Sprite { behind: false, x: f.x + 1, y: f.y + 1, offset: (0, -52), image: walk.image + f.direction as u32 });
             return Some(at);
         }
+        // The festival's people walk as the priests, performers, scribes or nobles they
+        // are, their steps going on every tick, standing or not (0x4ad0fb).
+        if f.kind == osiris_sim::festivals::FESTIVAL_GUY {
+            let (_, key) = osiris_sim::festivals::festival_look(&self.world, f);
+            let walk = defs.figure(f.kind).and_then(|d| d.anims.get(key))?;
+            out.push(Sprite { behind: false, x: f.x, y: f.y, offset: f.pixel_offset(), image: walk.image + f.direction as u32 + 8 * f.frame(walk.frames.max(1)) });
+            return Some(at);
+        }
         let walk = defs.figure(f.kind).and_then(|d| d.anims.get("walk"))?;
         let frame = if f.moving { f.frame(walk.frames.max(1)) } else { 0 };
         let offset = f.pixel_offset();
