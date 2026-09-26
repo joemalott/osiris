@@ -21,7 +21,7 @@ impl TilePoint {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Goal {
     pub enabled: bool,
     pub value: i32,

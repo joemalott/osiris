@@ -29,7 +29,7 @@
 //!   the screen, `editkat x,y` and `editkrightat x,y` a pixel of the empire map,
 //!   `editkdrag x,y` drags what is held to one; `editktype DIGITS` types on its
 //!   keypad and accepts; `editkscroll x,y` scrolls it; `editkstate` prints its
-//!   cities and routes;
+//!   cities and routes; `editkwarn N` shows warning N of text group 19 over it;
 //! - `editevents` opens the Event Summary, `editevent N` event N's planning window;
 //!   `editeventadd` and `editeventdel N` add and delete events; `editevpick N FIELD
 //!   ID` picks from a list and `editevnum N FIELD V` types a number for event N
@@ -297,6 +297,7 @@ impl Editor {
                     kingdom(self, Scripted::Scroll(x, y))?;
                 }
                 ["editkstate"] => kingdom(self, Scripted::State)?,
+                ["editkwarn", n] => self.kingdom_warning(n.parse()?),
                 ["editinfo", p] => {
                     let (x, y) = point(p)?;
                     let m = &self.map;

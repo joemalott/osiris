@@ -97,7 +97,7 @@ pub mod city {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct EmpireObject {
     pub kind: u8,
     pub in_use: bool,
@@ -130,7 +130,7 @@ pub struct EmpireObject {
     pub raw: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct EmpireRoute {
     pub in_use: bool,
     /// 1 land, 2 sea (anything else is the editor's "General route").
@@ -181,7 +181,7 @@ impl EmpireRoute {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Empire {
     pub objects: Vec<EmpireObject>,
     pub routes: Vec<EmpireRoute>,

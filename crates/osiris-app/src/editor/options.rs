@@ -121,6 +121,55 @@ pub struct Options {
 /// one point of the monument rating: 32 or 16 (FUN_004f78a0).
 const PROVISIONS: [(usize, i32); 15] = [(1, 32), (8, 32), (10, 16), (13, 16), (15, 16), (17, 16), (18, 32), (19, 16), (20, 32), (23, 16), (24, 32), (25, 32), (26, 32), (28, 16), (30, 32)];
 
+/// The three resources each monument is built of (the same table's fourth to sixth
+/// fields; 0 for none), by monument id.
+const MONUMENT_GOODS: [[u8; 3]; 38] = [
+    [0, 0, 0],
+    [24, 25, 20],
+    [24, 25, 20],
+    [12, 25, 20],
+    [12, 25, 20],
+    [12, 25, 20],
+    [12, 25, 20],
+    [12, 25, 20],
+    [24, 0, 20],
+    [24, 0, 20],
+    [24, 0, 20],
+    [24, 0, 20],
+    [24, 0, 20],
+    [24, 25, 20],
+    [24, 25, 20],
+    [24, 25, 20],
+    [24, 25, 20],
+    [24, 25, 20],
+    [12, 0, 0],
+    [12, 0, 0],
+    [12, 0, 0],
+    [24, 20, 0],
+    [26, 20, 0],
+    [26, 20, 0],
+    [30, 20, 0],
+    [30, 20, 0],
+    [30, 20, 0],
+    [30, 20, 0],
+    [35, 20, 0],
+    [35, 29, 20],
+    [35, 26, 20],
+    [30, 25, 20],
+    [30, 25, 20],
+    [33, 34, 11],
+    [33, 34, 11],
+    [33, 34, 11],
+    [33, 34, 11],
+    [20, 30, 0],
+];
+
+/// Whether monument `m` can be built with what the city can get (FUN_0040c8b0):
+/// every resource it takes obtainable.
+pub fn monument_obtainable(s: &Scenario, m: usize) -> bool {
+    MONUMENT_GOODS.get(m).is_some_and(|g| g.iter().all(|&r| r == 0 || super::kingdom::obtainable(s, r)))
+}
+
 /// Each monument's kind (1 tomb, 2 other), family and rating points (the table at
 /// 0x5d19c8), by monument id (text group 198).
 const MONUMENTS: [(u8, u8, i32); 38] = [
@@ -226,7 +275,7 @@ impl Options {
             "incarnation" => list(Field::Incarnation, 152, (0..=30).collect()),
             "enemy" => list(Field::Enemy, 37, (0..14).collect()),
             "housing" => list(Field::HousingLevel, 29, (0..20).collect()),
-            "monument" => list(Field::Monument(0), 198, std::iter::once(0).chain((1..MONUMENTS.len()).filter(|&m| fits_era(m, 1))).collect()),
+            "monument" => list(Field::Monument(0), 198, std::iter::once(0).chain((1..MONUMENTS.len()).filter(|&m| fits_era(m, 1) && monument_obtainable(s, m))).collect()),
             _ => None,
         };
         if what == "funds" {
@@ -686,7 +735,8 @@ impl Editor {
         for n in 0..3 {
             let m = self.scenario.info.monuments[n] as usize;
             if ui.button([x + 10.0, y + 70.0 + 24.0 * n as f32, 270.0, 20.0], &ui.t(198, m), Font::NormalBlackOnLight) {
-                let ids = std::iter::once(0).chain((1..MONUMENTS.len()).filter(|&m| fits_era(m, self.era))).collect();
+                // Those of the era the city can get the stone and wood for.
+                let ids = std::iter::once(0).chain((1..MONUMENTS.len()).filter(|&m| fits_era(m, self.era) && monument_obtainable(&self.scenario, m))).collect();
                 o.picker = Some(Picker { field: Field::Monument(n), group: 198, ids, page: 0 });
             }
         }
@@ -713,11 +763,14 @@ impl Editor {
             }
             ui.icon(res as u16, x + 350.0, ry);
             ui.icon(res as u16, x + 600.0, ry);
+            // A good the city can't get shows N/A and asks for none.
+            let can = super::kingdom::obtainable(&self.scenario, res as u8);
             let v = self.scenario.info.burial_provisions_required.get(res).copied().unwrap_or(0);
-            ui.label(Font::NormalBlackOnLight, &v.to_string(), x + 385.0, ry + 4.0);
+            let shown = if can { v.to_string() } else { ui.t(18, 6) };
+            ui.label(Font::NormalBlackOnLight, &shown, x + 385.0, ry + 4.0);
             let name = ui.t(23, res);
             ui.label(Font::NormalBlackOnLight, &name, x + 450.0, ry + 4.0);
-            if ui.clicked(rect) {
+            if ui.clicked(rect) && can {
                 o.keypad = Some(Keypad::new(Field::Provision(res), v as i32));
             }
         }
