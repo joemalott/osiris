@@ -36,6 +36,82 @@ const MAX_ROUTE_ID: usize = 19;
 /// How near (in pixels) a click must be to a waypoint or the route to take it.
 const NEAR: i32 = 8;
 
+/// What a building needs to work, for the checks after a city's goods change.
+#[derive(Clone, Copy)]
+enum Need {
+    Good(u8),
+    Building(usize),
+    /// The building allowed, or else the good obtainable.
+    Either(usize, u8),
+}
+
+/// Whether any city (ours included) lists resource `r` among what it sells
+/// (FUN_00443a80).
+fn listed(s: &osiris_formats::Scenario, r: u8) -> bool {
+    s.empire.objects.iter().any(|o| o.in_use && o.kind == object::CITY && o.sells.contains(&r))
+}
+
+/// The raw good a good is made from (FUN_00442870's table): meat from straw, straw
+/// from grain, weapons from copper, pottery from clay, beer from barley, linen from
+/// flax, luxury goods from gems, papyrus from reeds, chariots from wood, paint from
+/// henna.
+fn raw_of(r: u8) -> u8 {
+    match r {
+        2 => 9,
+        9 => 1,
+        10 => 29,
+        13 => 11,
+        15 => 14,
+        17 => 16,
+        19 => 18,
+        23 => 22,
+        28 => 20,
+        33 => 32,
+        _ => r,
+    }
+}
+
+/// Whether our city can make `r` (FUN_00443820): it produces it, or for a made good,
+/// a trading city sells what it is made from.
+fn makes(s: &osiris_formats::Scenario, r: u8) -> bool {
+    let ours = s.empire.objects.iter().filter(|o| o.in_use && o.kind == object::CITY && o.city_type == city::OURS);
+    let made = matches!(r, 10 | 13 | 15 | 17 | 19 | 23 | 28 | 33);
+    let raw = if made { raw_of(r) } else { r };
+    for o in ours {
+        if made && s.empire.objects.iter().any(|c| c.in_use && c.kind == object::CITY && city::trades(c.city_type) && c.sells.contains(&raw)) {
+            return true;
+        }
+        if o.sells.contains(&raw) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether the city can have resource `r`, made or bought (FUN_00442870): some city
+/// lists it, or it can be made from what the city produces or buys; bricks from
+/// straw and clay, lamps from oil and pottery; weapons and chariots only where the
+/// weaponsmith and chariot maker are allowed.
+pub fn obtainable(s: &osiris_formats::Scenario, r: u8) -> bool {
+    let allowed = |id: usize| s.info.reserved.get(id).is_some_and(|&v| v != 0);
+    match r {
+        12 => listed(s, 12) || (obtainable(s, 9) && obtainable(s, 11)),
+        34 => listed(s, 34) || (obtainable(s, 31) && obtainable(s, 13)),
+        _ if listed(s, r) => true,
+        10 | 28 => {
+            let (raw, maker) = if r == 10 { (29, 41) } else { (20, 42) };
+            if listed(s, raw) && allowed(maker) {
+                return true;
+            }
+            makes(s, raw) && allowed(maker)
+        }
+        _ => {
+            let raw = raw_of(r);
+            (r != 9 && listed(s, raw)) || makes(s, raw)
+        }
+    }
+}
+
 /// A 16-bit colour as the original gives them (5-6-5).
 fn rgb(c: u16) -> [f32; 4] {
     [((c >> 11) & 31) as f32 / 31.0, ((c >> 5) & 63) as f32 / 63.0, (c & 31) as f32 / 31.0, 1.0]
@@ -156,6 +232,9 @@ pub struct Kingdom {
     keypad: Option<Keypad>,
     /// A message of text group 5 (its title; the text follows it).
     notice: Option<usize>,
+    /// A warning of text group 19 (the original's window 0x47, FUN_005344c0), for a
+    /// good, monument or building an edit has taken away.
+    warning: Option<usize>,
     grab: Option<Grab>,
     pub cursor: [f32; 2],
     clock: f32,
@@ -369,7 +448,7 @@ impl Kingdom {
     /// Closes the keypad, list, message or window open; false when none was.
     pub fn close_popups(&mut self) -> bool {
         self.grab = None;
-        self.notice.take().is_some() || self.keypad.take().is_some() || self.list.take().is_some() || self.window.take().is_some()
+        self.notice.take().is_some() || self.warning.take().is_some() || self.keypad.take().is_some() || self.list.take().is_some() || self.window.take().is_some()
     }
 
     pub fn tick(&mut self, dt: f32) {
@@ -673,9 +752,15 @@ impl Editor {
 
     /// A left click on the Kingdom map's screen.
     pub fn kingdom_press(&mut self, lib: &ImageLibrary, screen: [f32; 2], p: [f32; 2]) {
+        if self.view.kingdom.is_none() {
+            return;
+        }
+        // Kept as an undo step when the click (and any drag after it) changes the
+        // Kingdom; kingdom_release closes it.
+        self.kingdom_mark();
         let Some(k) = &mut self.view.kingdom else { return };
         k.cursor = p;
-        if k.notice.take().is_some() {
+        if k.notice.take().is_some() || k.warning.take().is_some() {
             return;
         }
         if k.keypad.is_some() {
@@ -784,6 +869,12 @@ impl Editor {
     /// selects the object under the mouse (Edit objects), finishes the route being
     /// drawn (Add route) or deletes the waypoint under the mouse (Edit route).
     pub fn kingdom_right(&mut self, screen: [f32; 2], p: [f32; 2]) {
+        self.kingdom_mark();
+        self.kingdom_right_click(screen, p);
+        self.kingdom_commit();
+    }
+
+    fn kingdom_right_click(&mut self, screen: [f32; 2], p: [f32; 2]) {
         let Some(k) = &mut self.view.kingdom else { return };
         if k.close_popups() {
             return;
@@ -848,6 +939,7 @@ impl Editor {
         if let Some(k) = &mut self.view.kingdom {
             k.grab = None;
         }
+        self.kingdom_commit();
     }
 
     /// A click in the panel's right-hand box.
@@ -1005,6 +1097,12 @@ impl Editor {
                     }
                 }
                 self.refresh_city_image(lib, sel);
+                if list.pick == Pick::CityType {
+                    self.check_city(sel);
+                    for i in 0..live(&self.scenario.empire.objects) {
+                        self.refresh_city_image(lib, i);
+                    }
+                }
             }
             Pick::Region => {
                 if let Some(o) = self.selected_mut() {
@@ -1037,9 +1135,109 @@ impl Editor {
                         o.demand[id] = 2;
                     }
                 }
+                self.touched();
+                self.check_city(sel);
+                return;
             }
         }
         self.touched();
+    }
+
+    /// What follows an edit of city `i`'s kind or goods (FUN_00442a40, FUN_00442ef0,
+    /// FUN_00442f80, run by the original after each input on a city's panel): our city
+    /// loses meat it can't raise without straw; the goods lists are sorted; monuments
+    /// and buildings the city can no longer get what they need for are taken out of
+    /// the scenario, the first with a warning; and the city edited stays the only
+    /// "our city" and the only Pharaoh's city, the others becoming Egyptian ones.
+    /// Shows warning `n` of text group 19 over the Kingdom map (for scripts).
+    pub(super) fn kingdom_warning(&mut self, n: usize) {
+        if let Some(k) = &mut self.view.kingdom {
+            k.warning = Some(n);
+        }
+    }
+
+    pub(super) fn check_city(&mut self, i: usize) {
+        let mut warning = None;
+        let s = &mut self.scenario;
+        let Some(o) = s.empire.objects.get(i).filter(|o| o.in_use && o.kind == object::CITY) else { return };
+        if o.city_type == city::OURS && o.sells.contains(&2) && !obtainable(s, 9) {
+            let o = &mut s.empire.objects[i];
+            if let Some(at) = o.sells.iter().position(|&r| r == 2) {
+                o.sells.remove(at);
+            }
+            warning = Some(69);
+        }
+        let o = &mut s.empire.objects[i];
+        for list in [&mut o.sells, &mut o.buys] {
+            list.sort_unstable();
+            list.dedup();
+            list.retain(|&r| r != 0);
+        }
+        let mut gone = false;
+        for n in 0..3 {
+            if !super::options::monument_obtainable(s, s.info.monuments[n] as usize) {
+                s.info.monuments[n] = 0;
+                gone = true;
+            }
+        }
+        if gone {
+            let rating = super::options::monument_rating(&s.info);
+            s.info.win.monuments.value = rating;
+            s.info.win.monuments.enabled = rating != 0;
+            warning = warning.or(Some(85));
+        }
+        if s.info.reserved.len() < 114 {
+            s.info.reserved.resize(114, 0);
+        }
+        // Each building and the good (or building) it can't work without, and the
+        // warning when it goes.
+        let needs: [(usize, Need, usize); 14] = [
+            (22, Need::Good(17), 176),
+            (14, Need::Good(15), 177),
+            (45, Need::Good(8), 234),
+            (45, Need::Good(9), 234),
+            (16, Need::Good(23), 178),
+            (17, Need::Good(23), 179),
+            (41, Need::Good(29), 180),
+            (42, Need::Good(20), 181),
+            (37, Need::Building(36), 182),
+            (37, Need::Either(41, 10), 186),
+            (38, Need::Building(36), 183),
+            (39, Need::Building(36), 184),
+            (39, Need::Either(42, 28), 187),
+            (40, Need::Building(36), 185),
+        ];
+        for (b, need, text) in needs {
+            if warning.is_some() || s.info.reserved[b] == 0 {
+                continue;
+            }
+            let ok = match need {
+                Need::Good(r) => obtainable(s, r),
+                Need::Building(n) => s.info.reserved[n] != 0,
+                Need::Either(n, r) => s.info.reserved[n] != 0 || obtainable(s, r),
+            };
+            if !ok {
+                s.info.reserved[b] = 0;
+                warning = Some(text);
+            }
+        }
+        // One city of ours, one of Pharaoh's: the one just edited.
+        let kind = s.empire.objects[i].city_type;
+        let n = live(&s.empire.objects);
+        for (j, o) in s.empire.objects[..n].iter_mut().enumerate() {
+            if j == i || !o.in_use || o.kind != object::CITY {
+                continue;
+            }
+            if kind == city::OURS && o.city_type == city::OURS {
+                o.city_type = city::EGYPTIAN;
+            }
+            if matches!(kind, city::PHARAOH_TRADING | city::PHARAOH) && matches!(o.city_type, city::PHARAOH_TRADING | city::PHARAOH) {
+                o.city_type = if o.city_type == city::PHARAOH_TRADING { city::EGYPTIAN_TRADING } else { city::EGYPTIAN };
+            }
+        }
+        if let (Some(w), Some(k)) = (warning, &mut self.view.kingdom) {
+            k.warning = Some(w);
+        }
     }
 
     fn keypad_press(&mut self, screen: [f32; 2], p: [f32; 2]) {
@@ -1067,6 +1265,12 @@ impl Editor {
 
     /// Typed digits, Backspace (`\u{8}`) and Enter on the Kingdom map's keypad.
     pub fn type_kingdom(&mut self, s: &str) {
+        self.kingdom_mark();
+        self.type_kingdom_keys(s);
+        self.kingdom_commit();
+    }
+
+    fn type_kingdom_keys(&mut self, s: &str) {
         let Some(k) = &mut self.view.kingdom else { return };
         let Some(pad) = &mut k.keypad else { return };
         for c in s.chars() {
@@ -1340,6 +1544,27 @@ impl Editor {
         {
             let c = crate::popup::Confirm::from_text(&self.text, 5, n);
             c.draw(r, panels, img, &self.text, k.cursor, None);
+        }
+        if let Some(n) = k.warning {
+            // FUN_005344c0: a strip of panel, the warning, and "click to continue".
+            // A warning too wide for the strip goes on two lines, the strip a block
+            // taller.
+            let (x, y) = origin(r.screen);
+            let t = self.text.get(19, n).unwrap_or("").trim().to_owned();
+            let lines: Vec<String> = if text_width(r, Font::SmallPlain, &t) as f32 <= 554.0 {
+                vec![t]
+            } else {
+                let words: Vec<&str> = t.split(' ').collect();
+                let half = words.len().div_ceil(2);
+                vec![words[..half].join(" "), words[half..].join(" ")]
+            };
+            let extra = 16.0 * (lines.len() as f32 - 1.0);
+            panel::outer_panel(r, panels, x + 16.0, y + 32.0, 35, 4 + lines.len() as i32 - 1);
+            for (i, l) in lines.iter().enumerate() {
+                centred_in(r, Font::SmallPlain, l, x + 19.0, y + 48.0 + 16.0 * i as f32, 554.0, None);
+            }
+            let foot = self.text.get(13, 1).unwrap_or("").trim().to_owned();
+            centred_in(r, Font::NormalBlackOnLight, &foot, x + 16.0, y + 68.0 + extra, 560.0, None);
         }
     }
 
@@ -1835,5 +2060,57 @@ mod tests {
         assert_eq!((r.in_use, r.route_type, r.points.clone()), (true, 2, vec![(560, 500), (600, 600), (590, 700)]));
         assert_eq!(r.from_object, men as i16);
         assert_eq!(s.empire.prices[1].0, 77);
+
+        // Ctrl+Z steps back through the Kingdom edits: the price first, then (all
+        // the way back) the city added.
+        e.undo();
+        assert_ne!(e.scenario.empire.prices[1].0, 77);
+        while !e.history.is_empty() {
+            e.undo();
+        }
+        assert!(!e.scenario.empire.objects[new].in_use || e.scenario.empire.objects[new].city_type != city::OURS);
+    }
+
+    /// What the city can get decides what the scenario keeps (FUN_00442870,
+    /// FUN_00442a40): with no grain grown and no straw sold anywhere, our city can't
+    /// raise meat; with no limestone anywhere a pyramid can't be built; with no copper
+    /// the weaponsmith can't work. Ctrl+Z puts it all back.
+    #[test]
+    fn goods_decide_monuments_and_buildings() {
+        let Some(data) = data() else { return };
+        let lib = ImageLibrary::open(&data.join("Data")).unwrap();
+        let defs = Arc::new(osiris_sim::Defs::load(&lib).unwrap());
+        let text = Arc::new(TextTable::parse(&std::fs::read(data.join("Pharaoh_Text.eng")).unwrap()).unwrap());
+        let mut e = Editor::open(&data.join("Maps/Warfare.map"), defs, text, std::env::temp_dir().join("osiris-kingdom-test")).unwrap();
+        e.open_kingdom();
+        let ours = e.scenario.empire.objects.iter().position(|o| o.in_use && o.kind == object::CITY && o.city_type == city::OURS).unwrap();
+        let before = e.scenario.empire.clone();
+        let monuments = e.scenario.info.monuments;
+        e.kingdom_mark();
+        for o in &mut e.scenario.empire.objects {
+            o.sells.retain(|&r| !matches!(r, 1 | 9 | 25 | 29 | 20 | 24 | 12));
+        }
+        e.scenario.empire.objects[ours].sells = vec![2, 11];
+        e.scenario.info.monuments = [1, 0, 0];
+        e.scenario.info.reserved.resize(114, 0);
+        e.scenario.info.reserved[41] = 1;
+        assert!(!obtainable(&e.scenario, 9) && !obtainable(&e.scenario, 25) && !obtainable(&e.scenario, 29));
+        assert!(obtainable(&e.scenario, 13), "pottery from the clay our city digs");
+        e.check_city(ours);
+        e.kingdom_commit();
+        assert_eq!(e.scenario.empire.objects[ours].sells, vec![11]);
+        assert_eq!(e.view.kingdom.as_ref().unwrap().warning, Some(69), "meat's warning comes first");
+        assert_eq!(e.scenario.info.monuments[0], 0);
+        // One warning at a time: the buildings are checked on the next edit.
+        assert_eq!(e.scenario.info.reserved[41], 1);
+        e.kingdom_mark();
+        e.check_city(ours);
+        e.kingdom_commit();
+        assert_eq!(e.scenario.info.reserved[41], 0, "no copper, no weaponsmith");
+        assert_eq!(e.view.kingdom.as_ref().unwrap().warning, Some(180));
+        e.undo();
+        e.undo();
+        assert!(e.scenario.empire == before);
+        assert_eq!(e.scenario.info.monuments, monuments);
     }
 }

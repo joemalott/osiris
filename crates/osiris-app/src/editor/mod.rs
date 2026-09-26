@@ -5,9 +5,10 @@
 //! original-format `.map`. The facts it follows are in notes/editor.md.
 //!
 //! The editor keeps the file it opened as its template: saving writes the grids, the
-//! scenario's info and the Kingdom map (kingdom.rs) into a copy of it, so the chunks
-//! it doesn't edit yet (the events) are kept as they were.
+//! scenario's info, the Kingdom map (kingdom.rs) and the events (events.rs) into a
+//! copy of it, so the chunks it doesn't edit are kept as they were.
 
+pub mod events;
 pub mod kingdom;
 pub mod options;
 pub mod script;
@@ -41,6 +42,39 @@ const OSIRIS_BITS: u32 = bits::BRIDGE | bits::WALKABLE_BUILDING;
 
 /// How many strokes Ctrl+Z (Cmd+Z on macOS) can step back through.
 const UNDO_LIMIT: usize = 20;
+
+/// One undo step: a change to the map, or one to the Kingdom map.
+enum Step {
+    Map(Snapshot),
+    Kingdom(KingdomState),
+}
+
+/// The Kingdom as it stood before an edit on the Kingdom map: its objects, routes and
+/// prices, and what an edit there can take out of the scenario's options (the
+/// monuments and the buildings allowed, FUN_00442a40).
+#[derive(Clone, PartialEq)]
+struct KingdomState {
+    empire: osiris_formats::Empire,
+    monuments: [u16; 3],
+    monument_goal: osiris_formats::scenario::Goal,
+    reserved: Vec<i16>,
+}
+
+impl KingdomState {
+    fn capture(e: &Editor) -> Self {
+        let i = &e.scenario.info;
+        Self { empire: e.scenario.empire.clone(), monuments: i.monuments, monument_goal: i.win.monuments, reserved: i.reserved.clone() }
+    }
+
+    fn restore(self, e: &mut Editor) {
+        e.scenario.empire = self.empire;
+        let i = &mut e.scenario.info;
+        i.monuments = self.monuments;
+        i.win.monuments = self.monument_goal;
+        i.reserved = self.reserved;
+        e.dirty = true;
+    }
+}
 
 /// One undo step: the map and the point lists as they stood before a stroke, a
 /// road, a point placed, or an explicit Refresh Map (not before an Options change,
@@ -191,8 +225,12 @@ pub struct Editor {
     /// Kings, 3 Alexandria, 4 Abu Simbel): byte 996 of the scenario's info, which
     /// `ScenarioInfo` doesn't keep.
     pub era: u8,
-    /// Ctrl+Z history: the state before each of the last `UNDO_LIMIT` strokes.
-    history: Vec<Snapshot>,
+    /// Ctrl+Z history: the state before each of the last `UNDO_LIMIT` strokes or
+    /// Kingdom map edits.
+    history: Vec<Step>,
+    /// The Kingdom as it stood when a click on the Kingdom map began, kept as an undo
+    /// step once the click is over if it changed anything.
+    kingdom_before: Option<KingdomState>,
     pub view: view::View,
     pub request: Option<Request>,
 }
@@ -231,6 +269,7 @@ impl Editor {
             dirty: false,
             era,
             history: Vec::new(),
+            kingdom_before: None,
             view: view::View::default(),
             request: None,
         };
@@ -304,16 +343,40 @@ impl Editor {
     /// explicit Refresh Map, never for an Options change. Oldest steps past
     /// `UNDO_LIMIT` are dropped.
     fn push_undo(&mut self) {
-        self.history.push(Snapshot::capture(self));
+        self.push_step(Step::Map(Snapshot::capture(self)));
+    }
+
+    fn push_step(&mut self, step: Step) {
+        self.history.push(step);
         if self.history.len() > UNDO_LIMIT {
             self.history.remove(0);
         }
     }
 
-    /// Ctrl+Z (Cmd+Z on macOS): undoes the last stroke, road, point or Refresh Map.
+    /// A click, key or drag on the Kingdom map begins: the Kingdom as it stands is
+    /// kept, to become an undo step if the click changes it.
+    pub(super) fn kingdom_mark(&mut self) {
+        self.kingdom_commit();
+        self.kingdom_before = Some(KingdomState::capture(self));
+    }
+
+    /// The click on the Kingdom map is over: an undo step if it changed the Kingdom.
+    pub(super) fn kingdom_commit(&mut self) {
+        if let Some(before) = self.kingdom_before.take()
+            && before != KingdomState::capture(self)
+        {
+            self.push_step(Step::Kingdom(before));
+        }
+    }
+
+    /// Ctrl+Z (Cmd+Z on macOS): undoes the last stroke, road, point, Refresh Map or
+    /// edit on the Kingdom map.
     pub fn undo(&mut self) {
-        if let Some(s) = self.history.pop() {
-            s.restore(self);
+        self.kingdom_commit();
+        match self.history.pop() {
+            Some(Step::Map(s)) => s.restore(self),
+            Some(Step::Kingdom(k)) => k.restore(self),
+            None => {}
         }
     }
 
@@ -759,5 +822,76 @@ mod tests {
         assert_eq!(reopened.era, e.era);
         assert_eq!(format!("{:?}", reopened.scenario.info), format!("{:?}", e.scenario.info));
         assert_eq!(reopened.scenario.floodplain_settings, e.scenario.floodplain_settings);
+    }
+
+    /// The Event Summary's lines read as the original writes them, and events added,
+    /// set through the planning window's buttons, linked and deleted come back from a
+    /// saved map as they were left.
+    #[test]
+    fn events_edit_and_save() {
+        use events::{EvField, pick, set_number, summary};
+        let Some(data) = data() else { return };
+        let mut e = editor(&data, "Warfare.map");
+        let lines: Vec<String> = (0..3).map(|i| summary(&e.text, &e.scenario.events, i)).collect();
+        assert_eq!(lines[0], " 0 Request Jan +7-14 500 Oil");
+        assert_eq!(lines[1], " 1 Kingdom Increase *0 +1 5-10");
+        let n = e.scenario.events.len();
+
+        // A festival for Ptah from Pharaoh, of beer or linen, 3 to 5 years in, in
+        // May, from cities 2 to 4, and a triggered gift of wood that follows it.
+        let a = e.add_event().unwrap();
+        assert_eq!(a, n);
+        let s = &mut e.scenario;
+        pick(s, a, EvField::Subtype, 3);
+        pick(s, a, EvField::God, 2);
+        pick(s, a, EvField::Item(0), 15);
+        pick(s, a, EvField::Item(1), 17);
+        pick(s, a, EvField::Month, 4);
+        set_number(s, a, EvField::Year(true), 5);
+        set_number(s, a, EvField::Year(false), 3);
+        set_number(s, a, EvField::Amount(false), 6);
+        set_number(s, a, EvField::Amount(true), 9);
+        set_number(s, a, EvField::Location(false), 2);
+        set_number(s, a, EvField::Location(true), 4);
+        set_number(s, a, EvField::Months, 18);
+        pick(s, a, EvField::LinkReason(0), 1);
+        e.toggle_sender(a);
+        let g = e.add_event().unwrap();
+        let s = &mut e.scenario;
+        pick(s, g, EvField::Kind, 23);
+        pick(s, g, EvField::Item(0), 20);
+        set_number(s, g, EvField::Year(false), 2);
+        set_number(s, a, EvField::Link(0), g as i32);
+        e.cycle_trigger(g);
+        e.cycle_trigger(g);
+        assert_eq!(e.scenario.events[g].trigger, events::trigger::TRIGGERED);
+        assert!(events::valid_link(&e.scenario.events, a, g as i16));
+        // Choosing a famine turns the beer and linen into the first food.
+        pick(&mut e.scenario, a, EvField::Subtype, 5);
+        assert_eq!((e.scenario.events[a].item.fixed, e.scenario.events[a].item.min), (1, -1));
+        pick(&mut e.scenario, a, EvField::Subtype, 3);
+        pick(&mut e.scenario, a, EvField::Item(0), 15);
+        pick(&mut e.scenario, a, EvField::Item(1), 17);
+        assert_eq!(summary(&e.text, &e.scenario.events, a), format!("{a:2} Request May +3-5 6-9 Beer/Linen"));
+        assert_eq!(summary(&e.text, &e.scenario.events, g), format!("{g:2} Gift *{a} +2 8 Wood"));
+
+        // Deleting event 2 moves both up a place, and the link with them.
+        assert!(e.delete_event(2));
+        let (a, g) = (a - 1, g - 1);
+        assert_eq!(e.scenario.events[a].on_completed, g as i16);
+
+        let path = std::env::temp_dir().join(format!("osiris-events-edit-{}.map", std::process::id()));
+        std::fs::write(&path, e.to_bytes().unwrap()).unwrap();
+        let back = Editor::open(&path, e.defs.clone(), e.text.clone(), e.maps_dir.clone()).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(back.scenario.events.len(), n + 1);
+        for i in 0..back.scenario.events.len() {
+            assert_eq!(summary(&back.text, &back.scenario.events, i), summary(&e.text, &e.scenario.events, i));
+        }
+        let r = &back.scenario.events[a];
+        assert_eq!((r.kind, r.subtype, r.sender, r.god, r.months, r.link_reasons[0]), (1, 3, 1, 2, 18, 1));
+        assert_eq!((r.location[1], r.location[2], r.location[3]), (-1, 2, 4));
+        // The year the game reads is one the event allows.
+        assert!((3..5).contains(&r.year), "year {}", r.year);
     }
 }

@@ -183,7 +183,7 @@ impl Invasions {
                 month: e.month as i32,
                 warning: e.months as i32,
                 target: e.attack_target,
-                interval: (e.time.min, e.time.max),
+                interval: crate::scenario_events::repeat_interval(e),
                 recurring: e.trigger == crate::scenario_events::trigger::RECURRING,
                 by_favour: e.trigger == TRIGGER_BY_FAVOUR,
                 via_event: e.trigger == crate::scenario_events::trigger::ONLY_VIA_EVENT,

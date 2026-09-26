@@ -4,7 +4,7 @@
 //! flood plain's settings. Layouts are the original's (FUN_004138d0, FUN_00532920,
 //! FUN_00533470, FUN_005374a0, FUN_00532fe0, FUN_00537260, FUN_00530780), in the
 //! 640x480 window centred on the screen; values are picked from lists or typed on a
-//! keypad. The Events button waits for the events editor.
+//! keypad. The Events button opens the event summary and planning windows (events.rs).
 
 use super::Editor;
 use crate::widgets::{Ui, UiImages, inside};
@@ -23,6 +23,10 @@ pub enum Page {
     Allowed,
     Gods,
     Flood,
+    /// The Event Summary.
+    Events,
+    /// The planning window of the event `Options::event`.
+    Event,
 }
 
 impl Page {
@@ -31,6 +35,7 @@ impl Page {
             Page::Main => None,
             Page::StartDate => Some(Page::Starting),
             Page::Monuments => Some(Page::Win),
+            Page::Event => Some(Page::Events),
             _ => Some(Page::Main),
         }
     }
@@ -58,6 +63,8 @@ pub enum Field {
     Population,
     Monument(usize),
     Provision(usize),
+    /// A field of event n.
+    Event(usize, super::events::EvField),
 }
 
 /// A list to pick a value from: its text group and entries.
@@ -68,6 +75,12 @@ pub struct Picker {
     page: usize,
 }
 
+impl Picker {
+    pub(super) fn new(field: Field, group: usize, ids: Vec<usize>) -> Self {
+        Self { field, group, ids, page: 0 }
+    }
+}
+
 /// The keypad: the value typed so far, which the first digit typed replaces.
 pub struct Keypad {
     field: Field,
@@ -76,7 +89,7 @@ pub struct Keypad {
 }
 
 impl Keypad {
-    fn new(field: Field, value: i32) -> Self {
+    pub(super) fn new(field: Field, value: i32) -> Self {
         Self { field, typed: value.to_string(), fresh: true }
     }
 
@@ -93,15 +106,69 @@ impl Keypad {
 #[derive(Default)]
 pub struct Options {
     pub page: Page,
-    picker: Option<Picker>,
-    keypad: Option<Keypad>,
+    pub(super) picker: Option<Picker>,
+    pub(super) keypad: Option<Keypad>,
     /// The brief description's box has the keyboard.
     typing: bool,
+    /// The event last opened from the Event Summary (shown there in white, and what
+    /// Delete event deletes).
+    pub event: Option<usize>,
+    /// The first event the summary shows.
+    pub event_top: usize,
 }
 
 /// The resources a tomb can be sent (FUN_005374a0), and how many of each count for
 /// one point of the monument rating: 32 or 16 (FUN_004f78a0).
 const PROVISIONS: [(usize, i32); 15] = [(1, 32), (8, 32), (10, 16), (13, 16), (15, 16), (17, 16), (18, 32), (19, 16), (20, 32), (23, 16), (24, 32), (25, 32), (26, 32), (28, 16), (30, 32)];
+
+/// The three resources each monument is built of (the same table's fourth to sixth
+/// fields; 0 for none), by monument id.
+const MONUMENT_GOODS: [[u8; 3]; 38] = [
+    [0, 0, 0],
+    [24, 25, 20],
+    [24, 25, 20],
+    [12, 25, 20],
+    [12, 25, 20],
+    [12, 25, 20],
+    [12, 25, 20],
+    [12, 25, 20],
+    [24, 0, 20],
+    [24, 0, 20],
+    [24, 0, 20],
+    [24, 0, 20],
+    [24, 0, 20],
+    [24, 25, 20],
+    [24, 25, 20],
+    [24, 25, 20],
+    [24, 25, 20],
+    [24, 25, 20],
+    [12, 0, 0],
+    [12, 0, 0],
+    [12, 0, 0],
+    [24, 20, 0],
+    [26, 20, 0],
+    [26, 20, 0],
+    [30, 20, 0],
+    [30, 20, 0],
+    [30, 20, 0],
+    [30, 20, 0],
+    [35, 20, 0],
+    [35, 29, 20],
+    [35, 26, 20],
+    [30, 25, 20],
+    [30, 25, 20],
+    [33, 34, 11],
+    [33, 34, 11],
+    [33, 34, 11],
+    [33, 34, 11],
+    [20, 30, 0],
+];
+
+/// Whether monument `m` can be built with what the city can get (FUN_0040c8b0):
+/// every resource it takes obtainable.
+pub fn monument_obtainable(s: &Scenario, m: usize) -> bool {
+    MONUMENT_GOODS.get(m).is_some_and(|g| g.iter().all(|&r| r == 0 || super::kingdom::obtainable(s, r)))
+}
 
 /// Each monument's kind (1 tomb, 2 other), family and rating points (the table at
 /// 0x5d19c8), by monument id (text group 198).
@@ -208,13 +275,22 @@ impl Options {
             "incarnation" => list(Field::Incarnation, 152, (0..=30).collect()),
             "enemy" => list(Field::Enemy, 37, (0..14).collect()),
             "housing" => list(Field::HousingLevel, 29, (0..20).collect()),
-            "monument" => list(Field::Monument(0), 198, std::iter::once(0).chain((1..MONUMENTS.len()).filter(|&m| fits_era(m, 1))).collect()),
+            "monument" => list(Field::Monument(0), 198, std::iter::once(0).chain((1..MONUMENTS.len()).filter(|&m| fits_era(m, 1) && monument_obtainable(s, m))).collect()),
             _ => None,
         };
         if what == "funds" {
             o.keypad = Some(Keypad::new(Field::Funds, number(s, Field::Funds)));
         }
         o
+    }
+
+    /// The list or keypad of event `i`'s field `f` opened, for scripted screenshots.
+    pub fn open_event_chooser(&mut self, s: &Scenario, i: usize, f: super::events::EvField, keypad: bool) {
+        if keypad {
+            self.keypad = Some(Keypad::new(Field::Event(i, f), super::events::number(s, i, f)));
+        } else if let Some((group, ids)) = super::events::list(s, i, f) {
+            self.picker = Some(Picker::new(Field::Event(i, f), group, ids));
+        }
     }
 
     pub fn wants_text(&self) -> bool {
@@ -296,11 +372,16 @@ fn number(s: &Scenario, f: Field) -> i32 {
         Field::Survival => i.win.survival_time.value,
         Field::Population => i.win.population.value,
         Field::Provision(r) => i.burial_provisions_required.get(r).copied().unwrap_or(0) as i32,
+        Field::Event(n, f) => super::events::number(s, n, f),
         _ => 0,
     }
 }
 
 fn set_number(s: &mut Scenario, f: Field, v: i32) {
+    if let Field::Event(n, f) = f {
+        super::events::set_number(s, n, f, v);
+        return;
+    }
     let i = &mut s.info;
     match f {
         Field::Funds => i.initial_funds = v,
@@ -335,6 +416,10 @@ fn set_number(s: &mut Scenario, f: Field, v: i32) {
 }
 
 fn pick(s: &mut Scenario, f: Field, id: usize) {
+    if let Field::Event(n, f) = f {
+        super::events::pick(s, n, f, id);
+        return;
+    }
     let i = &mut s.info;
     match f {
         Field::Rank => i.player_rank = id as i16,
@@ -357,6 +442,10 @@ fn pick(s: &mut Scenario, f: Field, id: usize) {
 }
 
 /// The start year as the original writes it: "2500 BC", "AD 30".
+pub(super) fn year_text(ui: &Ui, y: i32) -> String {
+    year(ui, y)
+}
+
 fn year(ui: &Ui, y: i32) -> String {
     if y < 0 { format!("{} {}", -y, ui.t(20, 0).trim()) } else { format!("{} {y}", ui.t(20, 1).trim()) }
 }
@@ -391,6 +480,7 @@ impl Editor {
         let mut ui = Ui { r, panels, img, text: &text, cursor, click: if o.picker.is_some() || o.keypad.is_some() { None } else { click } };
         let mut close = false;
         let before = format!("{:?}{:?}", self.scenario.info, self.era);
+        let events_before = self.scenario.events.clone();
         match o.page {
             Page::Main => close = self.options_main(&mut ui, &mut o, x, y),
             Page::Starting => self.options_starting(&mut ui, &mut o, x, y),
@@ -400,6 +490,8 @@ impl Editor {
             Page::Allowed => self.options_allowed(&mut ui, x, y),
             Page::Gods => self.options_gods(&mut ui, x, y),
             Page::Flood => self.options_flood(&mut ui, x, y),
+            Page::Events => self.options_events(&mut ui, &mut o, x, y),
+            Page::Event => self.options_event(&mut ui, &mut o, x, y),
         }
         if o.picker.is_some() {
             ui.click = click;
@@ -408,7 +500,7 @@ impl Editor {
             ui.click = click;
             self.draw_keypad(&mut ui, &mut o);
         }
-        if format!("{:?}{:?}", self.scenario.info, self.era) != before {
+        if format!("{:?}{:?}", self.scenario.info, self.era) != before || self.scenario.events != events_before {
             self.dirty = true;
         }
         if !close {
@@ -445,11 +537,9 @@ impl Editor {
             self.scenario.info.climate = (climate + 1) % 3;
             self.refresh_map();
         }
-        // Events wait for the events editor.
-        panel::button_border(ui.r, ui.panels, x + 212.0, y + 156.0, 250, 30, false);
-        let events = ui.t(44, 95);
-        let ew = ui.width(Font::NormalWhiteOnDark, &events);
-        osiris_ui::draw_text_tinted(ui.r, Font::NormalWhiteOnDark, &events, x + 212.0 + ((250.0 - ew) / 2.0).floor(), y + 165.0, [0.6, 0.55, 0.5, 1.0]);
+        if ui.button(b(156.0), &ui.t(44, 95), Font::NormalBlackOnLight) {
+            o.page = Page::Events;
+        }
         let faction = self.scenario.info.player_faction == 1;
         if ui.button([x + 17.0, y + 196.0, 175.0, 30.0], &ui.t(44, if faction { 227 } else { 41 }), Font::NormalBlackOnLight) {
             self.scenario.info.player_faction = !faction as u8;
@@ -645,7 +735,8 @@ impl Editor {
         for n in 0..3 {
             let m = self.scenario.info.monuments[n] as usize;
             if ui.button([x + 10.0, y + 70.0 + 24.0 * n as f32, 270.0, 20.0], &ui.t(198, m), Font::NormalBlackOnLight) {
-                let ids = std::iter::once(0).chain((1..MONUMENTS.len()).filter(|&m| fits_era(m, self.era))).collect();
+                // Those of the era the city can get the stone and wood for.
+                let ids = std::iter::once(0).chain((1..MONUMENTS.len()).filter(|&m| fits_era(m, self.era) && monument_obtainable(&self.scenario, m))).collect();
                 o.picker = Some(Picker { field: Field::Monument(n), group: 198, ids, page: 0 });
             }
         }
@@ -672,11 +763,14 @@ impl Editor {
             }
             ui.icon(res as u16, x + 350.0, ry);
             ui.icon(res as u16, x + 600.0, ry);
+            // A good the city can't get shows N/A and asks for none.
+            let can = super::kingdom::obtainable(&self.scenario, res as u8);
             let v = self.scenario.info.burial_provisions_required.get(res).copied().unwrap_or(0);
-            ui.label(Font::NormalBlackOnLight, &v.to_string(), x + 385.0, ry + 4.0);
+            let shown = if can { v.to_string() } else { ui.t(18, 6) };
+            ui.label(Font::NormalBlackOnLight, &shown, x + 385.0, ry + 4.0);
             let name = ui.t(23, res);
             ui.label(Font::NormalBlackOnLight, &name, x + 450.0, ry + 4.0);
-            if ui.clicked(rect) {
+            if ui.clicked(rect) && can {
                 o.keypad = Some(Keypad::new(Field::Provision(res), v as i32));
             }
         }

@@ -186,8 +186,10 @@ impl ScenarioEvents {
                 pharaoh: e.sender == 1,
                 month: e.month as i32,
                 year: e.year as i32,
-                delay: (e.month, e.time.min, e.time.max),
-                interval: (e.time.min, e.time.max),
+                // The year's pick (bytes 26-30): for a follow-up the months it waits,
+                // for a recurring event the years between (FUN_0044bc20 re-rolls it).
+                delay: (e.year_fixed, e.time.min, e.time.max),
+                interval: repeat_interval(e),
                 item: e.item.into(),
                 amount_pick: e.amount.into(),
                 cities: (e.location[0], e.location[1]),
@@ -230,6 +232,12 @@ impl ScenarioEvents {
     pub fn open_requests(&self) -> impl Iterator<Item = (usize, &ScenarioEvent)> {
         self.list.iter().enumerate().filter(|(_, e)| e.kind == event::REQUEST && e.active && e.state <= state::OVERDUE)
     }
+}
+
+/// The years between a recurring event's occurrences: the range its author set, or
+/// the fixed year when no range is set.
+pub fn repeat_interval(e: &EventRecord) -> (i16, i16) {
+    if e.time.min < 0 && e.year_fixed >= 0 { (e.year_fixed, e.year_fixed) } else { (e.time.min, e.time.max) }
 }
 
 /// The phrase group a request's messages come from, by its reason.
