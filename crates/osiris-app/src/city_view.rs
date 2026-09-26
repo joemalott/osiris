@@ -233,7 +233,9 @@ impl CityView {
         if flat != flat_pass {
             return;
         }
-        let Some(pos) = footprint_pos(r, map, x, y, id) else { return };
+        // Where footprint_pos puts it, from the record already at hand.
+        let p = tile_to_world(map, x, y);
+        let pos = [p[0], p[1] + TILE_H / 2.0 * (n + 1) as f32 - ih];
         if pos[0] > vx1 || pos[1] > vy1 || pos[0] + iw < vx0 || pos[1] + ih < vy0 {
             return;
         }
