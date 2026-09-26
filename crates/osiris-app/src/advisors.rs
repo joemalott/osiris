@@ -1403,58 +1403,82 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
     const G: usize = 51;
     let title = ui.t(G, 0);
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
+    // The column headings over the company rows (FUN_00520ea0), and Kingdom service's
+    // over its own column.
+    for (g, id, x, y) in [(138, 36, 250.0, 58.0), (G, 17, 350.0, 43.0), (G, 18, 330.0, 58.0), (G, 1, 425.0, 43.0), (G, 2, 425.0, 58.0), (G, 3, 490.0, 43.0), (G, 4, 490.0, 58.0), (G, 5, 550.0, 43.0), (G, 6, 550.0, 58.0)] {
+        let s = ui.t(g, id);
+        ui.label(Font::NormalBlackOnLight, &s, px + x, py + y);
+    }
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 70.0, 36, 17);
     let companies: Vec<(usize, osiris_sim::military::Company)> = world.military.companies.iter().cloned().enumerate().filter(|(_, c)| c.fort != 0).collect();
     if companies.is_empty() {
         let none = ui.t(G, 16);
-        ui.wrapped(Font::NormalWhiteOnDark, &none, px + 42.0, py + 70.0 + 128.0, 34.0 * 16.0);
+        ui.wrapped(Font::NormalBlackOnDark, &none, px + 64.0, py + 200.0, 496.0);
     }
+    let buttons = ui.r.library.group_id("Pharaoh_General", 131, 0).unwrap_or(0);
     let mut action = None;
+    // Each row as the original lays it out: the company's emblem, its name over its
+    // strength, its morale, then 30-pixel boxes holding its experience and the icons
+    // to go to it, to send it back to its fort and to put it in Kingdom service; a
+    // company away fighting shows "abroad" in place of its buttons.
     for (row, (c, co)) in companies.iter().take(6).enumerate() {
-        let ry = py + 78.0 + 44.0 * row as f32;
+        let ry = py + 82.0 + 44.0 * row as f32;
+        ui.image(ui.img.company_emblems + (c % 10) as u32, px + 48.0, ry);
         let name = ui.t(138, c % 10).trim_matches('"').to_owned();
-        ui.label(Font::NormalWhiteOnDark, &name, px + 84.0, ry + 4.0);
+        ui.label(Font::NormalWhiteOnDark, &name, px + 100.0, ry + 1.0);
         let arm = ui.t(138, match co.kind {
             osiris_sim::military::CHARIOTEER => 33,
             osiris_sim::military::ARCHER => 35,
             _ => 34,
         });
         let count = format!("{} {}", co.soldiers.len(), arm);
-        // The strength and morale are in the dark font, under the light name.
-        ui.label(Font::NormalBlackOnDark, &count, px + 84.0, ry + 22.0);
+        ui.label(Font::NormalBlackOnDark, &count, px + 100.0, ry + 18.0);
         let morale = ui.t(138, 37 + (co.morale / 5).clamp(0, 20) as usize);
-        ui.label(Font::NormalBlackOnDark, &morale, px + 200.0, ry + 22.0);
-        // Experience: its rank's icon and name.
+        ui.centred(Font::NormalBlackOnDark, &morale, px + 200.0, ry + 9.0, 150.0);
+        let bx = |x: f32| [px + x, ry + 1.0, 30.0, 30.0];
         let rank = osiris_sim::military::experience_rank(co.experience);
-        ui.image(ui.img.experience_icons + rank as u32, px + 172.0, ry + 1.0);
-        let rank = ui.t(138, 60 + rank);
-        ui.label(Font::NormalWhiteOnDark, &rank, px + 200.0, ry + 4.0);
-        let go = format!("{} {}", ui.t(G, 1), ui.t(G, 2));
-        if !co.soldiers.is_empty() && ui.button([px + 330.0, ry + 4.0, 110.0, 22.0], &go, Font::NormalWhiteOnDark) {
+        panel::button_border(ui.r, ui.panels, px + 360.0, ry + 1.0, 30, 30, false);
+        ui.image(ui.img.experience_icons + rank as u32, px + 363.0, ry + 4.0);
+        if co.abroad > 0 {
+            let away = ui.t(G, 29);
+            ui.label(Font::NormalBlackOnDark, &away, px + 500.0, ry + 4.0);
+            continue;
+        }
+        let go = bx(440.0);
+        let hot = ui.hot(go) && !co.soldiers.is_empty();
+        panel::button_border(ui.r, ui.panels, go[0], go[1], 30, 30, hot);
+        ui.image(buttons, go[0] + 3.0, go[1] + 3.0);
+        if hot && ui.clicked(go) {
             action = Some(AdvisorAction::GoToCompany(*c));
         }
-        let back = format!("{} {}", ui.t(G, 3), ui.t(G, 4));
-        if !co.at_fort && ui.button([px + 450.0, ry + 4.0, 110.0, 22.0], &back, Font::NormalWhiteOnDark) {
+        let back = bx(500.0);
+        let hot = ui.hot(back);
+        panel::button_border(ui.r, ui.panels, back[0], back[1], 30, 30, hot);
+        ui.image(buttons + if co.at_fort { 2 } else { 1 }, back[0] + 3.0, back[1] + 3.0);
+        if ui.clicked(back) && !co.at_fort {
             world.apply(&Command::ReturnCompany(*c));
         }
-        // Kingdom service: lit when the company answers Pharaoh's calls for troops.
-        let service = format!("{} {}", ui.t(G, 5), ui.t(G, 6));
-        let rect = [px + 450.0, ry + 26.0, 110.0, 18.0];
-        panel::button_border(ui.r, ui.panels, rect[0], rect[1], rect[2] as i32, rect[3] as i32, co.kingdom_service);
-        ui.centred(if co.kingdom_service { Font::NormalYellow } else { Font::NormalWhiteOnDark }, &service, rect[0], rect[1] + 3.0, rect[2]);
-        if ui.clicked(rect) {
+        let service = bx(560.0);
+        let hot = ui.hot(service);
+        panel::button_border(ui.r, ui.panels, service[0], service[1], 30, 30, hot);
+        ui.image(buttons + if co.kingdom_service { 3 } else { 4 }, service[0] + 3.0, service[1] + 3.0);
+        if ui.clicked(service) {
             world.apply(&Command::KingdomService(*c));
         }
-        if co.abroad > 0 {
-            let away = format!("{} {}", co.abroad, ui.t(G, 29));
-            ui.label(Font::NormalWhiteOnDark, &away, px + 330.0, ry + 26.0);
-        }
     }
-    // What the scouts report.
+    // What the scouts report, a bullet by each line, under the soldiers and companies
+    // when there are any.
+    let bullet = ui.r.library.group_id("Pharaoh_General", 158, 0).unwrap_or(0);
+    let mut lines = Vec::new();
+    if !companies.is_empty() {
+        let soldiers: usize = companies.iter().map(|(_, co)| co.soldiers.len()).sum();
+        let n = companies.len();
+        lines.push((348.0, format!("{soldiers} {} {} {n} {}", ui.t(8, if soldiers == 1 { 46 } else { 47 }), ui.t(G, 7), ui.t(8, if n == 1 { 48 } else { 49 }))));
+    }
     let invaders = world.figures.iter().any(|f| osiris_sim::invasions::is_invader_kind(f.kind));
     let coming = world.invasions.planned.iter().any(|p| p.announced && !p.done);
     let threat = ui.t(G, if invaders { 10 } else if coming { 9 } else { 8 });
-    ui.label(Font::NormalBlackOnLight, &threat, px + 60.0, py + 432.0 - 80.0);
+    lines.push((if companies.is_empty() { 358.0 } else { 368.0 }, threat));
     let troops_wanted = world.scenario_events.open_requests().any(|(_, e)| e.resource == osiris_sim::scenario_events::TROOPS);
     let abroad = ui.t(G, match &world.military.battle {
         Some(b) if b.fought => 15,
@@ -1462,7 +1486,11 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
         None if troops_wanted => 13,
         None => 12,
     });
-    ui.label(Font::NormalBlackOnLight, &abroad, px + 60.0, py + 432.0 - 60.0);
+    lines.push((388.0, abroad));
+    for (y, line) in lines {
+        ui.image(bullet, px + 50.0, py + y + 1.0);
+        ui.label(Font::NormalBlackOnLight, &line, px + 70.0, py + y);
+    }
     action
 }
 
