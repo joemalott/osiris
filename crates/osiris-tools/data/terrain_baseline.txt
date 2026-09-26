@@ -1,0 +1,26 @@
+# check-terrain-images baseline: group, kind, tiles checked, exact matches, matches within the same set
+maps deepwater 91435 91435 91435
+maps dune 8707 8707 8707
+maps floodplain 23342 23342 23342
+maps land 415666 415604 415604
+maps marsh 6569 6569 6569
+maps meadow 20743 20743 20743
+maps ore 1662 1662 1662
+maps road 5691 5691 5691
+maps rock 17664 17664 17664
+maps tree 9759 9759 9759
+maps water 22807 22807 22807
+missions cliff 33464 33464 33464
+missions deepwater 91005 78644 91005
+missions dune 22402 22402 22402
+missions floodplain 42943 23919 42943
+missions garden 132 132 132
+missions land 445009 442721 442721
+missions marsh 10885 10875 10885
+missions meadow 14282 14282 14282
+missions ore 833 833 833
+missions road 9363 9191 9191
+missions rock 19107 19107 19107
+missions rubble 157 157 157
+missions tree 12817 12817 12817
+missions water 35807 35278 35805

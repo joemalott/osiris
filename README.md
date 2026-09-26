@@ -146,6 +146,16 @@ the game data, so they don't run in CI:
 cargo test --release -p osiris-sim --test replays -- --ignored
 ```
 
+Some tests need a copy of the game data (in `PharaohData` at the top of the checkout,
+or wherever `OSIRIS_TEST_DATA` points) and are left out of a plain `cargo test`. After
+changing how terrain images are picked, run the terrain check, which redraws every
+shipped map and campaign mission and fails if any kind of terrain matches the stored
+images less often than it did before (`crates/osiris-tools/data/terrain_baseline.txt`):
+
+```
+cargo test --release -p osiris-tools -- --ignored
+```
+
 ## Layout
 
 - `crates/osiris-formats`: readers for the original data files (sprites, maps, saves,
