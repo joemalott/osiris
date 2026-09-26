@@ -21,6 +21,7 @@ mod minimap;
 mod overlay;
 mod mission_brief;
 mod progress;
+mod recording;
 mod script;
 mod sidebar;
 mod tomb_view;
@@ -29,7 +30,7 @@ mod water_view;
 mod widgets;
 
 use anyhow::{Context, Result, bail};
-use osiris_formats::{Campaign, ImageLibrary, MessageTable, MissionPak, Model, Scenario, TextTable};
+use osiris_formats::{Campaign, ImageLibrary, MessageTable, MissionPak, Scenario, TextTable};
 use osiris_sim::{Balance, Defs, World};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -39,7 +40,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
-const USAGE: &str = "usage: osiris [--data DIR] [--map FILE | --mission N] [--screenshot OUT.png] [--size WxH] [--script STEPS]";
+const USAGE: &str = "usage: osiris [--data DIR] [--map FILE | --mission N | --replay FILE] [--record FILE] [--screenshot OUT.png] [--size WxH] [--script STEPS]";
 
 struct Args {
     /// The game data from `--data`; otherwise found or asked for at startup.
@@ -49,6 +50,9 @@ struct Args {
     screenshot: Option<PathBuf>,
     script: Option<String>,
     size: (u32, u32),
+    /// A recorded game to play back: checked headless with `--screenshot`,
+    /// otherwise watched in the window.
+    replay: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -59,6 +63,7 @@ fn parse_args() -> Result<Args> {
         screenshot: None,
         script: None,
         size: (1280, 800),
+        replay: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -69,6 +74,8 @@ fn parse_args() -> Result<Args> {
             "--mission" => args.mission = Some(val()?.parse()?),
             "--screenshot" => args.screenshot = Some(val()?.into()),
             "--script" => args.script = Some(val()?),
+            "--replay" => args.replay = Some(val()?.into()),
+            "--record" => recording::record_to(val()?.into()),
             "--size" => {
                 let v = val()?;
                 let (w, h) = v.split_once('x').context("--size WxH")?;
@@ -559,6 +566,7 @@ impl App {
     fn start(&mut self, mut world: World, mission: Option<usize>) {
         let (Some(gfx), Some(images)) = (self.gfx.as_mut(), self.images.clone()) else { return };
         world.rules = load_rules();
+        recording::start(&mut world);
         let mut game = game::Game::new(world, images, self.assets.text.clone(), self.assets.messages.clone(), self.audio.clone());
         game.phrases = self.assets.phrases.clone();
         game.player_name = player_name();
@@ -568,6 +576,26 @@ impl App {
         self.autosaved = None;
         start_camera(&mut gfx.renderer, &mut game);
         self.screen = Some(Screen::Playing(Box::new(game), mission));
+    }
+
+    /// `--replay` without `--screenshot`: the recorded game plays itself in the
+    /// window, at the chosen speed, as the player watches.
+    fn watch_replay(&mut self, path: &Path) {
+        let (Some(gfx), Some(images)) = (self.gfx.as_mut(), self.images.clone()) else { return };
+        match recording::open(path, self.assets.defs.clone(), self.assets.balances.clone()) {
+            Ok((world, player)) => {
+                let mut game = game::Game::new(world, images, self.assets.text.clone(), self.assets.messages.clone(), self.audio.clone());
+                game.phrases = self.assets.phrases.clone();
+                game.player_name = player_name();
+                game.sound_prefs = self.sound;
+                // Not the player's city: nothing of it goes into the saves.
+                game.set_autosave(false);
+                game.replay = Some(player);
+                start_camera(&mut gfx.renderer, &mut game);
+                self.screen = Some(Screen::Playing(Box::new(game), None));
+            }
+            Err(e) => self.status = Some((format!("{e:#}"), 10.0)),
+        }
     }
 
     fn choose(&mut self, choice: menu::Choice, event_loop: &ActiveEventLoop) {
@@ -904,7 +932,11 @@ impl ApplicationHandler for App {
         } else {
             self.args.mission.map(|n| (Source::Mission(n), Some(n)))
         };
+        if let Some(path) = self.args.replay.clone() {
+            self.watch_replay(&path);
+        }
         match direct {
+            _ if self.screen.is_some() => {}
             Some((Source::Map(p), _)) => {
                 self.start_map(p);
                 if self.screen.is_none() {
@@ -1383,17 +1415,7 @@ fn start_view(w: &World) -> (i32, i32) {
 
 /// The model files of difficulty `d` (as spelled in their names).
 fn load_balance(data: &Path, d: &str) -> Result<Balance> {
-    let model_path = data.join(format!("Pharaoh_Model_{d}.txt"));
-    let model_text = std::fs::read(&model_path).with_context(|| model_path.display().to_string())?;
-    let mut balance = Balance::from_model(&Model::parse(&String::from_utf8_lossy(&model_text))?);
-    if let Ok(t) = std::fs::read(data.join(format!("Tax_Sentiment_Model_{d}.txt"))) {
-        balance.tax_sentiment = osiris_formats::model::parse_tax_sentiment(&String::from_utf8_lossy(&t));
-    }
-    let figures = data.join(format!("Figure_model_{}.txt", d.to_lowercase()));
-    if let Ok(t) = std::fs::read(figures).or_else(|_| std::fs::read(data.join("Figure_model.txt"))) {
-        balance.set_units(&osiris_formats::model::parse_figures(&String::from_utf8_lossy(&t))?);
-    }
-    Ok(balance)
+    Balance::load(data, d).map_err(anyhow::Error::msg)
 }
 
 fn load_assets(data: &Path, library: &ImageLibrary) -> Result<Assets> {
@@ -1441,7 +1463,9 @@ fn init_logging(headless: bool) {
         let what = info.payload().downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| info.payload().downcast_ref::<String>().cloned()).unwrap_or_default();
         log::error!("crashed{at}: {what}");
         default(info);
-        data_dir::show_error(&format!("Osiris crashed{at}:\n\n{what}\n\nThe details are in {}.", log_path().display()));
+        // The game so far, which replays up to the crash.
+        let dump = recording::write_crash_dump(&user_dir()).map_or_else(String::new, |p| format!(" The game up to the crash is in {}; please send it along with the log.", p.display()));
+        data_dir::show_error(&format!("Osiris crashed{at}:\n\n{what}\n\nThe details are in {}.{dump}", log_path().display()));
     }));
 }
 
@@ -1520,10 +1544,16 @@ fn run(mut args: Args) -> Result<()> {
             (None, Some(m)) => Source::Map(m.clone()),
             (None, None) => Source::Mission(args.mission.unwrap_or(0)),
         };
-        let mut world = new_world(&assets, &source, osiris_sim::difficulty::NORMAL)?;
+        let (mut world, verdict) = match &args.replay {
+            Some(path) => {
+                let (world, verdict) = recording::play(path, assets.defs.clone(), assets.balances.clone())?;
+                (world, Some(verdict))
+            }
+            None => (new_world(&assets, &source, osiris_sim::difficulty::NORMAL)?, None),
+        };
         let view = match &args.script {
             Some(s) if play_map.is_none() => script::run_script(&mut world, s)?,
-            _ => script::ScriptView { keep_dialogs: true, ..Default::default() },
+            _ => script::ScriptView { keep_dialogs: args.replay.is_none(), ..Default::default() },
         };
         let images = sidebar::SidebarImages::load(&library)?;
         if view.menu {
@@ -1657,7 +1687,7 @@ fn run(mut args: Args) -> Result<()> {
         }
         let zoom = view.zoom;
         let hover = view.hover;
-        return gfx::screenshot(library, args.size, out, |r| {
+        let shot = gfx::screenshot(library, args.size, out, |r| {
             if let Some(z) = zoom {
                 r.camera.zoom = z;
             }
@@ -1672,6 +1702,7 @@ fn run(mut args: Args) -> Result<()> {
             }
             game.draw(r);
         });
+        return shot.and(verdict.map_or(Ok(()), recording::check));
     }
 
     let audio = osiris_audio::Audio::new(args.data.as_deref().unwrap_or(Path::new("PharaohData"))).ok().map(Arc::new);
@@ -1707,5 +1738,6 @@ fn run(mut args: Args) -> Result<()> {
         editor_waiting: None,
     };
     event_loop.run_app(&mut app)?;
+    recording::flush();
     Ok(())
 }

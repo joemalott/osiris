@@ -19,7 +19,8 @@ const USAGE: &str = "usage:
   osiris-tools model <game dir> <difficulty>         print buildings/houses/figures for a difficulty
   osiris-tools campaign <game dir>                   print the campaign.txt structure
   osiris-tools empire <game dir> <mission|map path>  print the empire's cities and routes
-  osiris-tools roundtrip-map <map> <out>             read a .map and write it back out";
+  osiris-tools roundtrip-map <map> <out>             read a .map and write it back out
+  osiris-tools replay <game dir> <replay>...         play recorded games back, report the first divergence";
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -46,6 +47,7 @@ fn main() -> Result<()> {
         ["campaign", dir] => campaign_cmd(Path::new(dir)),
         ["empire", dir, what] => empire_cmd(Path::new(dir), what),
         ["roundtrip-map", map, out] => roundtrip_map(Path::new(map), Path::new(out)),
+        ["replay", dir, files @ ..] if !files.is_empty() => replay(Path::new(dir), files),
         _ => bail!("{USAGE}"),
     }
 }
@@ -521,6 +523,32 @@ fn empire_cmd(game: &Path, what: &str) -> Result<()> {
             "event {i:3} type {:2} trig {:2} y{} m{} time {:?} item {:?} amount {:?} loc {:?} months {} sender {} sub {} city {} tag {} chain c{} r{} l{} d{} reasons {:?}",
             e.kind, e.trigger, e.year, e.month, (e.time.min, e.time.max), e.item, e.amount, e.location, e.months, e.sender, e.subtype, e.city, e.tag, e.on_completed, e.on_refusal, e.on_too_late, e.on_defeat, e.reasons
         );
+    }
+    Ok(())
+}
+
+/// Plays each recorded game back from its start and says whether it came out the
+/// same, or where it first went another way. Fails if any differed.
+fn replay(game: &Path, files: &[&str]) -> Result<()> {
+    use osiris_sim::replay::{Player, Replay};
+    let library = osiris_formats::ImageLibrary::open(&game.join("Data"))?;
+    let defs = std::sync::Arc::new(osiris_sim::Defs::load(&library).map_err(anyhow::Error::msg)?);
+    let balances = osiris_sim::Balance::load_all(game).map_err(anyhow::Error::msg)?;
+    let mut failed = 0;
+    for file in files {
+        let replay = Replay::read(Path::new(file)).map_err(anyhow::Error::msg)?;
+        let (mut world, mut player) = Player::start(replay, defs.clone(), balances.clone()).map_err(anyhow::Error::msg)?;
+        let started = std::time::Instant::now();
+        match player.run(&mut world) {
+            Ok((commands, months)) => println!("{file}: identical ({commands} commands, {months} months, {} ticks, {:.1?})", world.time.total_ticks, started.elapsed()),
+            Err(d) => {
+                println!("{file}: {d}");
+                failed += 1;
+            }
+        }
+    }
+    if failed > 0 {
+        bail!("{failed} of {} replays diverged", files.len());
     }
     Ok(())
 }

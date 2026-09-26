@@ -200,6 +200,9 @@ pub struct Game {
     /// The custom map the city was started from, which Replay starts again while
     /// the file is still there.
     pub replay_map: Option<std::path::PathBuf>,
+    /// A recorded game being watched (`--replay`): it runs the city in place of
+    /// the clock until it ends.
+    pub replay: Option<osiris_sim::replay::Player>,
 }
 
 impl Game {
@@ -275,6 +278,7 @@ impl Game {
             cheat_entry: None,
             cheat_unlock_missions: false,
             replay_map: None,
+            replay: None,
         }
     }
 
@@ -376,13 +380,8 @@ impl Game {
 
     fn undo(&mut self) {
         let Some((data, _)) = self.undo.take() else { return };
-        match World::load(&data, self.world.defs.clone(), self.world.balance.clone()) {
-            Ok(mut w) => {
-                w.rules = self.world.rules.clone();
-                if let Some(b) = self.world.balances.clone() {
-                    w.attach_balances(b);
-                }
-                self.world = w;
+        match self.world.restore_snapshot(&data) {
+            Ok(()) => {
                 self.map_changed = true;
                 self.ghost = None;
             }
@@ -500,7 +499,17 @@ impl Game {
         let start = std::time::Instant::now();
         while self.accumulator >= ms {
             self.accumulator -= ms;
-            self.world.tick();
+            match &mut self.replay {
+                Some(p) => {
+                    if !p.advance(&mut self.world, 1) {
+                        let verdict = p.divergence.as_ref().map_or_else(|| "Replay over: identical".to_owned(), |d| format!("Replay {d}"));
+                        println!("{verdict}");
+                        self.message = Some((verdict, 10.0));
+                        self.replay = None;
+                    }
+                }
+                None => self.world.tick(),
+            }
             if !self.world.messages.is_empty() {
                 // Stop at a new message so it shows at the moment it happened.
                 self.accumulator = 0.0;
@@ -665,12 +674,12 @@ impl Game {
             match e.click(r, &self.world, &images, self.cursor) {
                 crate::empire_window::EmpireClick::Close => self.empire = None,
                 crate::empire_window::EmpireClick::Advisor => self.open_advisor(crate::advisors::Advisor::Trade),
-                crate::empire_window::EmpireClick::OpenRoute(c) => match self.world.open_trade_route(c) {
-                    Ok(()) => {
+                crate::empire_window::EmpireClick::OpenRoute(c) => match self.world.apply(&Command::OpenTradeRoute(c)) {
+                    Outcome::Invalid(why) => self.say(why),
+                    _ => {
                         e.show(Some(crate::empire_window::EmpirePopup::Opened(c)));
                         self.sound("BUTTON.WAV");
                     }
-                    Err(why) => self.say(why),
                 },
                 crate::empire_window::EmpireClick::Nothing => {}
             }
@@ -715,8 +724,10 @@ impl Game {
             return None;
         }
         if let Some(p) = &mut self.rules_panel {
-            match p.click(&mut self.world.rules, screen, sidebar::panel_left(screen_w), self.cursor) {
+            let mut rules = self.world.rules.clone();
+            match p.click(&mut rules, screen, sidebar::panel_left(screen_w), self.cursor) {
                 RulesClick::Toggled => {
+                    self.world.apply(&Command::Rules(rules));
                     self.rules_changed = true;
                     self.sound("BUTTON.WAV");
                 }
@@ -1148,8 +1159,8 @@ impl Game {
             let clicked = self.world.map.building.at_or(x, y, 0);
             let low_morale = company.morale < 21;
             if clicked != 0 && (clicked == company.fort || clicked == company.ground) {
-                self.world.return_company(c);
-            } else if !self.world.move_company(c, (x, y)) {
+                self.world.apply(&Command::ReturnCompany(c));
+            } else if self.world.apply(&Command::MoveCompany { company: c, x, y }) == Outcome::Blocked {
                 self.warn(209);
             } else if low_morale {
                 self.warn(49);
@@ -1229,13 +1240,10 @@ impl Game {
     /// See notes/cheats.md for the source list and Osiris's own additions, which are
     /// clearly marked there.
     fn run_cheat(&mut self, code: &str) {
-        use osiris_sim::cheats::Outcome;
-        match osiris_sim::cheats::apply(&mut self.world, code) {
-            Outcome::Applied => {}
-            Outcome::NeedsGod(g) => self.say(&format!("{} is not worshipped here", osiris_sim::religion::NAMES[g])),
-            Outcome::NotModeled => self.say("Not modeled in Osiris"),
-            Outcome::NeedsApp if code == "Unlock All Missions" => self.cheat_unlock_missions = true,
-            Outcome::NeedsApp | Outcome::Unknown => self.say("Unknown cheat"),
+        match self.world.apply(&Command::Cheat(code.to_owned())) {
+            Outcome::Invalid(_) if code == "Unlock All Missions" => self.cheat_unlock_missions = true,
+            Outcome::Invalid(why) => self.say(why),
+            _ => {}
         }
     }
 
@@ -1684,7 +1692,7 @@ impl Game {
             self.sound("BUTTON.WAV");
         }
         if want != d {
-            self.world.set_difficulty(want);
+            self.world.apply(&Command::Difficulty(want));
             self.difficulty_changed = true;
         }
         if outside {
@@ -1737,7 +1745,7 @@ impl Game {
         if let Some(a) = choice {
             self.sound("BUTTON.WAV");
             if a == MenuAction::LowerDifficulty {
-                self.world.lower_difficulty_for_time();
+                self.world.apply(&Command::LowerDifficultyForTime);
                 self.difficulty_changed = true;
             } else {
                 self.request = Some(a);

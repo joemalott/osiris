@@ -57,6 +57,8 @@ pub struct ScriptView {
 /// Runs `--script` steps against the world.
 pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
     let mut view = ScriptView::default();
+    // `record FILE`: the replay file written when the script ends.
+    let mut record_to: Option<std::path::PathBuf> = None;
     for step in script.split(';').map(str::trim).filter(|s| !s.is_empty()) {
         let parts: Vec<&str> = step.split_whitespace().collect();
         match parts.as_slice() {
@@ -75,6 +77,15 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let out = world.apply(&Command::Build { kind: k.parse()?, x: a.0, y: a.1, x1: b.0, y1: b.1 });
                 eprintln!("{step}: {out:?}");
             }
+            // Records the game from here to the end of the script into FILE (a replay,
+            // see osiris_sim::replay). Steps that change the city other than by a
+            // command are not recorded, so only these may follow: build, road,
+            // clear, ticks, town, fuzz, taxrate, wages, route, import, export, sendburial, company, fortreturn,
+            // rotate, service, order, cheat, difficulty, and the look-only steps.
+            ["record", file] => {
+                world.start_recording().map_err(anyhow::Error::msg)?;
+                record_to = Some(file.into());
+            }
             ["ticks", n] => {
                 for _ in 0..n.parse::<u32>()? {
                     world.tick();
@@ -88,9 +99,10 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 let c = town_roads(world);
                 fuzz(world, n.parse()?, s.parse()?, Some(c));
             }
-            // Lets every building type be built.
+            // Lets every building type be built (but for earlier builds' types, which a
+            // reload would change, and a replay with them).
             ["allowall"] => {
-                let all: Vec<u16> = (0..world.defs.buildings.len() as u16).filter(|&k| world.defs.building(k).is_some()).collect();
+                let all: Vec<u16> = (0..world.defs.buildings.len() as u16).filter(|&k| world.defs.building(k).is_some() && !osiris_sim::missions::is_obsolete_kind(k)).collect();
                 if let Some(m) = world.mission.as_mut() {
                     m.allowed.extend(all);
                 }
@@ -172,8 +184,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             // Marks N units of burial provision R as already sent.
             ["burialsent", r, n] => world.burial.get_mut(r.parse::<usize>()?).context("no such burial rank")?.1 = n.parse()?,
             ["sendburial", r, n] => {
-                let sent = world.dispatch_burial(r.parse()?, n.parse()?);
-                eprintln!("{step}: sent {sent}");
+                let sent = world.apply(&Command::DispatchBurial { resource: r.parse()?, units: n.parse()? });
+                eprintln!("{step}: sent {sent:?}");
             }
             ["monuments", list] => {
                 for (slot, m) in world.scenario_monuments.iter_mut().zip(list.split(',')) {
@@ -194,7 +206,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["complexface", f] => world.complex_facing = f.parse::<u8>()? & 1,
             ["treasury", n] => world.treasury = n.parse()?,
             // Plays on at difficulty N (0 Very Easy .. 4 Impossible).
-            ["difficulty", n] => world.set_difficulty(n.parse()?),
+            ["difficulty", n] => _ = world.apply(&Command::Difficulty(n.parse()?)),
             ["gatefacing", n] => world.gatehouse_facing = n.parse::<u8>()?.min(1),
             // The placement preview of building K with the cursor on x,y: each tile's verdict.
             ["preview", k, p] => {
@@ -447,17 +459,17 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             // as if typed into the cheat box, without the app's UI around it.
             ["cheat", rest @ ..] if !rest.is_empty() => {
                 let code = rest.join(" ");
-                let outcome = osiris_sim::cheats::apply(world, &code);
+                let outcome = world.apply(&Command::Cheat(code.clone()));
                 eprintln!("cheat {code:?}: {outcome:?}");
             }
             ["company", c, p] => {
-                let p = parse_point(p)?;
-                world.move_company(c.parse()?, p);
+                let (x, y) = parse_point(p)?;
+                world.apply(&Command::MoveCompany { company: c.parse()?, x, y });
             }
-            ["fortreturn", c] => world.return_company(c.parse()?),
+            ["fortreturn", c] => _ = world.apply(&Command::ReturnCompany(c.parse()?)),
             // The company window's switch that turns the next held line.
-            ["rotate", c] => world.rotate_line(c.parse()?),
-            ["service", c] => world.toggle_kingdom_service(c.parse()?),
+            ["rotate", c] => _ = world.apply(&Command::RotateLine(c.parse()?)),
+            ["service", c] => _ = world.apply(&Command::KingdomService(c.parse()?)),
             // Lets the city raise a temple complex to god `g`.
             ["allowcomplex", g] => world.complex_gods[g.parse::<usize>()?.min(4)] = true,
             // A god blesses or curses the city now: god index, bless|curse, major|minor.
@@ -486,7 +498,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     "charge" => Order::Charge,
                     _ => Order::MopUp,
                 };
-                world.set_order(c.parse()?, order);
+                world.apply(&Command::CompanyOrder { company: c.parse()?, order });
             }
             ["seapoint", p] => world.invasions.sea_points.push(parse_point(p)?),
             ["landpoint", p] => world.invasions.land_points.push(parse_point(p)?),
@@ -841,7 +853,14 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 eprintln!("{:?} pop {} sentiment {} migration {:?} houses {levels:?}", world.time, world.population, world.sentiment, world.migration);
             }
-            ["taxrate", n] => world.finance.tax_rate = n.parse::<i32>()?.clamp(0, 25),
+            ["taxrate", n] => _ = world.apply(&Command::TaxRate(n.parse()?)),
+            ["wages", n] => _ = world.apply(&Command::Wages(n.parse()?)),
+            // Opens the trade route to empire city C.
+            ["route", c] => eprintln!("{step}: {:?}", world.apply(&Command::OpenTradeRoute(c.parse()?))),
+            // The trade overseer's import and export buttons for resource R.
+            ["flood"] => eprintln!("{step}: {:?} {:?}", world.time, world.floods),
+            ["import", r] =>_ = world.apply(&Command::CycleImport(r.parse()?)),
+            ["export", r] => _ = world.apply(&Command::CycleExport(r.parse()?)),
             ["ratings"] => {
                 let (r, f, l) = (&world.ratings, &world.finance, &world.labor);
                 eprintln!(
@@ -882,6 +901,12 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             }
             _ => bail!("bad script step: {step}"),
         }
+    }
+    if let Some(path) = record_to {
+        let replay = world.replay().context("recording")?;
+        replay.write(&path).map_err(anyhow::Error::msg)?;
+        let size = std::fs::metadata(&path).map_or(0, |m| m.len());
+        eprintln!("recorded {} commands, {} months, {} ticks to {} ({size} bytes)", replay.events.len(), replay.checkpoints.len(), replay.end_tick, path.display());
     }
     Ok(view)
 }
