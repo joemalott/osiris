@@ -1916,7 +1916,22 @@ fn run(mut args: Args) -> Result<()> {
             if view.menu_results {
                 menu.show_prior_results(true);
             }
-            return gfx::screenshot(library, args.size, out, |r| menu.draw(r, &images.panels));
+            let mut input = view.menu_input.clone();
+            return gfx::screenshot(library, args.size, out, |r| {
+                if !input.is_empty() {
+                    menu.draw(r, &images.panels);
+                    for i in input.drain(..) {
+                        match i {
+                            script::MenuInput::Click(p) => {
+                                menu.hover(r.screen, p);
+                                menu.click(r.screen, p);
+                            }
+                            script::MenuInput::Wheel(n) => menu.scroll(n),
+                        }
+                    }
+                }
+                menu.draw(r, &images.panels)
+            });
         }
         let mut game = game::Game::new(world, images, assets.text.clone(), assets.messages.clone(), None);
         game.replay_map = match source {

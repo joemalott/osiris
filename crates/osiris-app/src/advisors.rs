@@ -39,14 +39,14 @@ const STRIP: [(Advisor, f32, f32); 13] = [
     (Advisor::Trade, 178.0, 46.0),
     (Advisor::Population, 229.0, 48.0),
     (Advisor::Health, 282.0, 35.0),
-    (Advisor::Education, 322.0, 38.0),
+    (Advisor::Education, 321.0, 38.0),
     (Advisor::Entertainment, 363.0, 39.0),
     (Advisor::Religion, 406.0, 35.0),
     (Advisor::Financial, 445.0, 40.0),
     (Advisor::Chief, 490.0, 46.0),
     (Advisor::Monuments, 542.0, 40.0),
 ];
-const BACK: (f32, f32) = (588.0, 40.0);
+const BACK: (f32, f32) = (588.0, 42.0);
 
 /// Every overseer, in the strip's order.
 pub const ALL: [Advisor; 13] = [
@@ -246,8 +246,8 @@ impl Advisors {
                 let tip = ui.t(TOOLTIPS, 71 + a.index());
                 let tw = ui.width(Font::SmallPlain, &tip);
                 let tx = (strip_x + x).min(screen[0] - tw - 12.0);
-                ui.r.rect([tx - 4.0, button_y - 22.0], [tw + 8.0, 18.0], [1.0, 1.0, 0.85, 1.0], Space::Screen);
-                ui.label(Font::SmallPlain, &tip, tx, button_y - 20.0);
+                panel::tooltip_box(ui.r, tx - 4.0, button_y - 22.0, tw + 9.0, 18.0);
+                osiris_ui::font::draw_tooltip_text(ui.r, &tip, tx, button_y - 18.0);
             }
         }
         panel::outer_panel(ui.r, panels, px, py, 40, self.current.panel_tiles_high());
@@ -334,7 +334,7 @@ fn labor(ui: &mut Ui, lock: u32, world: &mut World, [px, py]: [f32; 2], popup: &
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
     for (x, id) in [(60.0, 21), (170.0, 22), (400.0, 23), (500.0, 24)] {
         let s = ui.t(G, id);
-        ui.label(Font::SmallPlain, &s, px + x, py + 46.0);
+        ui.label(Font::NormalBlackOnLight, &s, px + x, py + 46.0);
     }
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 65.0, 36, 16);
     for (i, &(id, key)) in LABOR_ROWS.iter().enumerate() {
@@ -440,7 +440,7 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
         draw_text(ui.r, Font::NormalWhiteOnDark, &world.yards_stored(r).to_string(), px + 206.0, y, font::WHITE);
         if world.is_stockpiled(r) {
             let s = ui.t(G, 3);
-            draw_text(ui.r, Font::SmallPlain, &s, px + 304.0, y + 2.0, [0.9, 0.85, 0.6, 1.0]);
+            draw_text(ui.r, Font::NormalWhiteOnDark, &s, px + 304.0, y, font::WHITE);
         } else if world.is_mothballed(r) {
             let s = ui.t(18, 5);
             draw_text(ui.r, Font::NormalYellow, &s, px + 304.0, y, font::WHITE);
@@ -836,12 +836,16 @@ fn religion(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opti
         let x = px + 40.0;
         let name = ui.t(157, i);
         let st = ui.t(187, god.status as usize);
+        // Known or not, a god's line is in the light font; an unknown god's columns
+        // hold dashes (FUN_00528f10's panel).
+        draw_text(ui.r, Font::NormalWhiteOnDark, &name, x, y, font::WHITE);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &st, x + 62.0, y, font::WHITE);
         if god.status == 0 {
-            draw_text(ui.r, Font::NormalYellow, &name, x, y, font::WHITE);
-            draw_text(ui.r, Font::NormalYellow, &st, x + 62.0, y, font::WHITE);
+            let dash = ui.t(G, 37);
+            for dx in [162.0, 227.0, 292.0, 352.0, 422.0] {
+                draw_text(ui.r, Font::NormalWhiteOnDark, &dash, x + dx, y, font::WHITE);
+            }
         } else {
-            draw_text(ui.r, Font::NormalWhiteOnDark, &name, x, y, font::WHITE);
-            draw_text(ui.r, Font::NormalWhiteOnDark, &st, x + 62.0, y, font::WHITE);
             let (complexes, _) = staffed(world, 65 + i as u16);
             let (temples, active) = staffed(world, 60 + i as u16);
             let (shrines, _) = staffed(world, 140 + i as u16);
@@ -977,7 +981,7 @@ fn entertainment(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<A
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
     for (x, y, id) in [(180.0, 42.0, 1), (180.0, 56.0, 55), (280.0, 56.0, 2), (340.0, 56.0, 3), (470.0, 56.0, 4)] {
         let s = ui.t(G, id);
-        ui.label(Font::SmallPlain, &s, px + x, py + y);
+        ui.label(Font::NormalBlackOnLight, &s, px + x, py + y);
     }
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 70.0, 36, 9);
     let c = world.ratings.coverage.clone();
@@ -1020,7 +1024,7 @@ fn education(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Advis
     }
     for (x, id) in [(180.0, 1), (290.0, 2), (478.0, 3)] {
         let s = ui.t(G, id);
-        ui.label(Font::SmallPlain, &s, px + x, py + 86.0);
+        ui.label(Font::NormalBlackOnLight, &s, px + x, py + 86.0);
     }
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 108.0, 36, 8);
     let c = world.ratings.coverage.clone();
@@ -1053,11 +1057,11 @@ fn health(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorA
     ui.wrapped(Font::NormalBlackOnLight, &state, px + 60.0, py + 46.0, 500.0);
     for (x, id) in [(180.0, 3), (290.0, 4)] {
         let s = ui.t(G, id);
-        ui.label(Font::SmallPlain, &s, px + x, py + 94.0);
+        ui.label(Font::NormalBlackOnLight, &s, px + x, py + 94.0);
     }
     // "City coverage" is centred in a 160-wide box (ui_advisor_health.js city_coverage).
     let coverage_head = ui.t(G, 5);
-    ui.centred(Font::SmallPlain, &coverage_head, px + 440.0, py + 94.0, 160.0);
+    ui.centred(Font::NormalBlackOnLight, &coverage_head, px + 440.0, py + 94.0, 160.0);
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 108.0, 36, 6);
     let c = world.ratings.coverage.clone();
     let rows = [(25, osiris_sim::ratings::PHYSICIAN, 1000, c.physician), (27, osiris_sim::ratings::DENTIST, 1000, c.dentist), (29, kind::APOTHECARY, 100, c.apothecary), (31, osiris_sim::ratings::MORTUARY, 1000, c.mortuary)];
@@ -1169,7 +1173,7 @@ fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
         };
         ui.label(Font::NormalWhiteOnDark, &held, rx + 30.0, ry + 25.0);
         let status = ui.t(G, if can { 47 } else { 48 });
-        ui.label(if can { Font::NormalYellow } else { Font::NormalWhiteOnDark }, &status, rx + 310.0, ry + 25.0);
+        ui.label(Font::NormalWhiteOnDark, &status, rx + 310.0, ry + 25.0);
         if ui.hot(rect) {
             panel::button_border(ui.r, ui.panels, rx + 2.0, ry + 2.0, rect[2] as i32 - 4, rect[3] as i32 - 4, false);
         }
@@ -1399,57 +1403,82 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
     const G: usize = 51;
     let title = ui.t(G, 0);
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
+    // The column headings over the company rows (FUN_00520ea0), and Kingdom service's
+    // over its own column.
+    for (g, id, x, y) in [(138, 36, 250.0, 58.0), (G, 17, 350.0, 43.0), (G, 18, 330.0, 58.0), (G, 1, 425.0, 43.0), (G, 2, 425.0, 58.0), (G, 3, 490.0, 43.0), (G, 4, 490.0, 58.0), (G, 5, 550.0, 43.0), (G, 6, 550.0, 58.0)] {
+        let s = ui.t(g, id);
+        ui.label(Font::NormalBlackOnLight, &s, px + x, py + y);
+    }
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 70.0, 36, 17);
     let companies: Vec<(usize, osiris_sim::military::Company)> = world.military.companies.iter().cloned().enumerate().filter(|(_, c)| c.fort != 0).collect();
     if companies.is_empty() {
         let none = ui.t(G, 16);
-        ui.wrapped(Font::NormalWhiteOnDark, &none, px + 42.0, py + 70.0 + 128.0, 34.0 * 16.0);
+        ui.wrapped(Font::NormalBlackOnDark, &none, px + 64.0, py + 200.0, 496.0);
     }
+    let buttons = ui.r.library.group_id("Pharaoh_General", 131, 0).unwrap_or(0);
     let mut action = None;
+    // Each row as the original lays it out: the company's emblem, its name over its
+    // strength, its morale, then 30-pixel boxes holding its experience and the icons
+    // to go to it, to send it back to its fort and to put it in Kingdom service; a
+    // company away fighting shows "abroad" in place of its buttons.
     for (row, (c, co)) in companies.iter().take(6).enumerate() {
-        let ry = py + 78.0 + 44.0 * row as f32;
+        let ry = py + 82.0 + 44.0 * row as f32;
+        ui.image(ui.img.company_emblems + (c % 10) as u32, px + 48.0, ry);
         let name = ui.t(138, c % 10).trim_matches('"').to_owned();
-        ui.label(Font::NormalWhiteOnDark, &name, px + 84.0, ry + 4.0);
+        ui.label(Font::NormalWhiteOnDark, &name, px + 100.0, ry + 1.0);
         let arm = ui.t(138, match co.kind {
             osiris_sim::military::CHARIOTEER => 33,
             osiris_sim::military::ARCHER => 35,
             _ => 34,
         });
         let count = format!("{} {}", co.soldiers.len(), arm);
-        ui.label(Font::NormalWhiteOnDark, &count, px + 84.0, ry + 22.0);
+        ui.label(Font::NormalBlackOnDark, &count, px + 100.0, ry + 18.0);
         let morale = ui.t(138, 37 + (co.morale / 5).clamp(0, 20) as usize);
-        ui.label(Font::NormalWhiteOnDark, &morale, px + 200.0, ry + 22.0);
-        // Experience: its rank's icon and name.
+        ui.centred(Font::NormalBlackOnDark, &morale, px + 200.0, ry + 9.0, 150.0);
+        let bx = |x: f32| [px + x, ry + 1.0, 30.0, 30.0];
         let rank = osiris_sim::military::experience_rank(co.experience);
-        ui.image(ui.img.experience_icons + rank as u32, px + 172.0, ry + 1.0);
-        let rank = ui.t(138, 60 + rank);
-        ui.label(Font::NormalWhiteOnDark, &rank, px + 200.0, ry + 4.0);
-        let go = format!("{} {}", ui.t(G, 1), ui.t(G, 2));
-        if !co.soldiers.is_empty() && ui.button([px + 330.0, ry + 4.0, 110.0, 22.0], &go, Font::NormalWhiteOnDark) {
+        panel::button_border(ui.r, ui.panels, px + 360.0, ry + 1.0, 30, 30, false);
+        ui.image(ui.img.experience_icons + rank as u32, px + 363.0, ry + 4.0);
+        if co.abroad > 0 {
+            let away = ui.t(G, 29);
+            ui.label(Font::NormalBlackOnDark, &away, px + 500.0, ry + 4.0);
+            continue;
+        }
+        let go = bx(440.0);
+        let hot = ui.hot(go) && !co.soldiers.is_empty();
+        panel::button_border(ui.r, ui.panels, go[0], go[1], 30, 30, hot);
+        ui.image(buttons, go[0] + 3.0, go[1] + 3.0);
+        if hot && ui.clicked(go) {
             action = Some(AdvisorAction::GoToCompany(*c));
         }
-        let back = format!("{} {}", ui.t(G, 3), ui.t(G, 4));
-        if !co.at_fort && ui.button([px + 450.0, ry + 4.0, 110.0, 22.0], &back, Font::NormalWhiteOnDark) {
+        let back = bx(500.0);
+        let hot = ui.hot(back);
+        panel::button_border(ui.r, ui.panels, back[0], back[1], 30, 30, hot);
+        ui.image(buttons + if co.at_fort { 2 } else { 1 }, back[0] + 3.0, back[1] + 3.0);
+        if ui.clicked(back) && !co.at_fort {
             world.apply(&Command::ReturnCompany(*c));
         }
-        // Kingdom service: lit when the company answers Pharaoh's calls for troops.
-        let service = format!("{} {}", ui.t(G, 5), ui.t(G, 6));
-        let rect = [px + 450.0, ry + 26.0, 110.0, 18.0];
-        panel::button_border(ui.r, ui.panels, rect[0], rect[1], rect[2] as i32, rect[3] as i32, co.kingdom_service);
-        ui.centred(if co.kingdom_service { Font::NormalYellow } else { Font::NormalWhiteOnDark }, &service, rect[0], rect[1] + 3.0, rect[2]);
-        if ui.clicked(rect) {
+        let service = bx(560.0);
+        let hot = ui.hot(service);
+        panel::button_border(ui.r, ui.panels, service[0], service[1], 30, 30, hot);
+        ui.image(buttons + if co.kingdom_service { 3 } else { 4 }, service[0] + 3.0, service[1] + 3.0);
+        if ui.clicked(service) {
             world.apply(&Command::KingdomService(*c));
         }
-        if co.abroad > 0 {
-            let away = format!("{} {}", co.abroad, ui.t(G, 29));
-            ui.label(Font::NormalWhiteOnDark, &away, px + 330.0, ry + 26.0);
-        }
     }
-    // What the scouts report.
+    // What the scouts report, a bullet by each line, under the soldiers and companies
+    // when there are any.
+    let bullet = ui.r.library.group_id("Pharaoh_General", 158, 0).unwrap_or(0);
+    let mut lines = Vec::new();
+    if !companies.is_empty() {
+        let soldiers: usize = companies.iter().map(|(_, co)| co.soldiers.len()).sum();
+        let n = companies.len();
+        lines.push((348.0, format!("{soldiers} {} {} {n} {}", ui.t(8, if soldiers == 1 { 46 } else { 47 }), ui.t(G, 7), ui.t(8, if n == 1 { 48 } else { 49 }))));
+    }
     let invaders = world.figures.iter().any(|f| osiris_sim::invasions::is_invader_kind(f.kind));
     let coming = world.invasions.planned.iter().any(|p| p.announced && !p.done);
     let threat = ui.t(G, if invaders { 10 } else if coming { 9 } else { 8 });
-    ui.label(Font::NormalBlackOnLight, &threat, px + 60.0, py + 432.0 - 80.0);
+    lines.push((if companies.is_empty() { 358.0 } else { 368.0 }, threat));
     let troops_wanted = world.scenario_events.open_requests().any(|(_, e)| e.resource == osiris_sim::scenario_events::TROOPS);
     let abroad = ui.t(G, match &world.military.battle {
         Some(b) if b.fought => 15,
@@ -1457,7 +1486,11 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
         None if troops_wanted => 13,
         None => 12,
     });
-    ui.label(Font::NormalBlackOnLight, &abroad, px + 60.0, py + 432.0 - 60.0);
+    lines.push((388.0, abroad));
+    for (y, line) in lines {
+        ui.image(bullet, px + 50.0, py + y + 1.0);
+        ui.label(Font::NormalBlackOnLight, &line, px + 70.0, py + y);
+    }
     action
 }
 

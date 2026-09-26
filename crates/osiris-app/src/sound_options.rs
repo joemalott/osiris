@@ -117,9 +117,9 @@ impl SoundWindow {
         let t = ui.t(46, 0);
         ui.centred(Font::LargeBlackOnLight, &t, x, y + 14.0, w);
         let t = ui.t(46, 10);
-        ui.label(Font::SmallPlain, &t, x + 16.0, y + 48.0);
+        ui.label(Font::NormalBlackOnLight, &t, x + 16.0, y + 48.0);
         let t = ui.t(46, 11);
-        ui.label(Font::SmallPlain, &t, x + 280.0, y + 48.0);
+        ui.label(Font::NormalBlackOnLight, &t, x + 280.0, y + 48.0);
         let before = *prefs;
         // Each row: its button's "off"/"on" texts (46, 1-8) and the channel.
         let rows: [(usize, &mut Channel); 4] = [(1, &mut prefs.music), (3, &mut prefs.speech), (5, &mut prefs.effects), (7, &mut prefs.city)];
@@ -135,7 +135,7 @@ impl SoundWindow {
             if ui.arrow(x + 288.0, ry, true) {
                 c.volume = (c.volume + 5).min(100);
             }
-            ui.label(Font::SmallPlain, &format!("{}%", c.volume), x + 326.0, ry + 4.0);
+            ui.label(Font::NormalBlackOnLight, &format!("{}%", c.volume), x + 326.0, ry + 4.0);
         }
         // The movies have no text of their own in the original's tables.
         let t = if prefs.movies { "Movies are on" } else { "Movies are off" };

@@ -2,7 +2,7 @@
 //! opens it.
 
 use osiris_formats::{MessageTable, TextTable};
-use osiris_render::Renderer;
+use osiris_render::{Renderer, Space, WHITE};
 use osiris_sim::World;
 use osiris_ui::{Font, PanelImages, draw_text, font, panel, text_width};
 
@@ -67,26 +67,26 @@ impl MessageList {
         panel::inner_panel(r, panels, x + 16.0, y + 48.0, W_BLOCKS - 2, H_BLOCKS - 6);
         let log = &world.notices.log;
         if log.is_empty() {
-            draw_text(r, Font::NormalWhiteOnDark, "No messages", x + 32.0, y + 60.0, font::WHITE);
+            draw_text(r, Font::NormalBlackOnDark, "No messages", x + 32.0, y + 60.0, font::WHITE);
         }
+        // As the original's list (FUN_004e1a50): a scroll icon, open once the message is
+        // read, then the date and the title, yellow under the mouse and light otherwise.
+        let icons = r.library.group_id("Pharaoh_General", 90, 14).ok();
         for (row, (i, n)) in log.iter().enumerate().rev().skip(self.scroll).take(ROWS).enumerate() {
             let ry = y + 58.0 + row as f32 * ROW_H;
-            let f = if self.hover == Some(i) {
-                Font::NormalYellow
-            } else if n.read {
-                Font::NormalWhiteOnDark
-            } else {
-                Font::NormalBlue
-            };
+            if let Some(icon) = icons {
+                r.image(icon + n.read as u32, [x + 28.0, ry - 2.0], WHITE, Space::Screen);
+            }
+            let f = if self.hover == Some(i) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
             let month = text.get(TEXT_MONTHS, n.month as usize).unwrap_or("?");
             let year = if n.year < 0 { format!("{} BC", -n.year) } else { format!("{} AD", n.year) };
-            draw_text(r, f, &format!("{month} {year}"), x + 28.0, ry, font::WHITE);
+            draw_text(r, f, &format!("{month} {year}"), x + 58.0, ry, font::WHITE);
             let title = osiris_sim::missions::message_id(&n.key)
                 .and_then(|id| messages.get(id as usize))
                 .map_or_else(|| n.key.clone(), |m| m.title.clone());
-            draw_text(r, f, &title, x + 150.0, ry, font::WHITE);
+            draw_text(r, f, &title, x + 200.0, ry, font::WHITE);
         }
         let hint = "Click a message to read it. Right-click or Esc to close.";
-        draw_text(r, Font::SmallPlain, hint, x + 24.0, y + H_BLOCKS as f32 * 16.0 - 30.0, font::BLACK);
+        draw_text(r, Font::NormalBlackOnLight, hint, x + 24.0, y + H_BLOCKS as f32 * 16.0 - 30.0, font::BLACK);
     }
 }

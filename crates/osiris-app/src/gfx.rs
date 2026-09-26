@@ -235,7 +235,8 @@ pub fn screenshot(
     });
     let mut renderer = Renderer::new(device, queue, format, library);
     // OSIRIS_SCALE=2 renders as a Retina display would: the same pixels, laid out at
-    // half the size.
+    // half the size. Any factor goes, which stands in for the interface size that
+    // screenshots don't read: 1.5 is 150% on a plain display, 3 is 150% on Retina.
     let system = std::env::var("OSIRIS_SCALE").ok().and_then(|s| s.parse::<f64>().ok()).unwrap_or(1.0).max(1.0);
     let scale = ui_scale(system, h as f64) as f32;
     renderer.scale = scale;

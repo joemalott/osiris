@@ -89,8 +89,17 @@ const BRIEF_GO: [f32; 4] = [772.0, 570.0, 27.0, 27.0];
 const BRIEF_BACK: [f32; 4] = [218.0, 572.0, 31.0, 20.0];
 const BRIEF_UP: [f32; 4] = [318.0, 576.0, 17.0, 17.0];
 const BRIEF_DOWN: [f32; 4] = [335.0, 576.0, 17.0, 17.0];
-/// The briefing's text: where it is drawn and the band it is clipped to.
-const BRIEF_TEXT: [f32; 4] = [240.0, 340.0, 528.0, 234.0];
+/// The briefing's text: where it is drawn and the band it is clipped to. The original
+/// wraps it at 544 pixels, which would run it past the right edge of its 33-block box
+/// and under the scroll bar; it wraps here to stay 8 pixels inside the box.
+const BRIEF_TEXT: [f32; 4] = [240.0, 340.0, 504.0, 234.0];
+/// The briefing's scroll arrows (Pharaoh_General group 96, FUN_00418f70) and its stone's
+/// x, top and travel (FUN_004c72b0).
+const BRIEF_ARROW_UP: [f32; 4] = [762.0, 328.0, 39.0, 26.0];
+const BRIEF_ARROW_DOWN: [f32; 4] = [762.0, 542.0, 39.0, 26.0];
+const BRIEF_STONE: [f32; 3] = [768.0, 356.0, 163.0];
+/// A line of the briefing's text, the step its arrows and wheel scroll by.
+const BRIEF_LINE: f32 = 16.0;
 
 /// The family's menu (FUN_004cb4d0) in its 640x480 art: the panel, and the first
 /// button (225x25, one every 48 pixels, table 0x5e0408).
@@ -320,6 +329,8 @@ pub struct Menu {
     explore_confirm: bool,
     /// How far the briefing's text can scroll, found as it is drawn.
     briefing_max: std::cell::Cell<f32>,
+    /// The briefing's stone is being dragged.
+    briefing_drag: bool,
 }
 
 const BUTTON_H: f32 = 25.0;
@@ -446,6 +457,7 @@ impl Menu {
             briefing_scroll: 0.0,
             explore_confirm: false,
             briefing_max: std::cell::Cell::new(0.0),
+            briefing_drag: false,
         };
         m.build();
         m
@@ -735,6 +747,9 @@ impl Menu {
             let f = if matches!(self.page, Page::Load | Page::Family) { Self::main_frame(screen) } else { Frame::new(screen) };
             self.drag_stone(f.to_bg(p)[1]);
         }
+        if self.briefing_drag {
+            self.drag_briefing(Frame::new(screen).to_bg(p)[1]);
+        }
         self.hover = self.item_at(screen, p);
         self.hover_point = self.point_at(screen, p);
         self.family_hover = match self.page {
@@ -749,11 +764,21 @@ impl Menu {
     /// The left button came up: the stone is let go.
     pub fn release(&mut self) {
         self.dragging = false;
+        self.briefing_drag = false;
+    }
+
+    /// Puts the briefing's stone's middle under `y` (in the page's coordinates), in
+    /// whole lines.
+    fn drag_briefing(&mut self, y: f32) {
+        let [_, top, travel] = BRIEF_STONE;
+        let t = ((y - top - 12.0) / travel).clamp(0.0, 1.0);
+        let max = self.briefing_max.get();
+        self.briefing_scroll = ((t * max / BRIEF_LINE).round() * BRIEF_LINE).min(max);
     }
 
     pub fn scroll(&mut self, lines: i32) {
         if self.page == Page::Briefing {
-            self.briefing_scroll = (self.briefing_scroll + 11.0 * lines as f32).clamp(0.0, self.briefing_max.get());
+            self.briefing_scroll = (self.briefing_scroll + BRIEF_LINE * lines as f32).clamp(0.0, self.briefing_max.get());
             return;
         }
         let max = self.items.len().saturating_sub(self.visible_rows()) as i32;
@@ -1063,6 +1088,17 @@ impl Menu {
             self.difficulty = want;
             self.difficulty_changed = true;
         }
+        // The scroll arrows and stone, there only while the text runs past its box.
+        if self.briefing_max.get() > 0.0 {
+            if inside4(b, BRIEF_ARROW_UP) {
+                self.scroll(-1);
+            } else if inside4(b, BRIEF_ARROW_DOWN) {
+                self.scroll(1);
+            } else if inside(b, BRIEF_STONE[0], BRIEF_STONE[1], 25.0, BRIEF_STONE[2] + 25.0) {
+                self.briefing_drag = true;
+                self.drag_briefing(b[1]);
+            }
+        }
         None
     }
 
@@ -1268,7 +1304,7 @@ impl Menu {
         bg_centred(r, Font::LargeBlackOnLight, &title, 212.0, 161.0, 600.0);
         bg_centred(r, Font::LargeBlackOnDark, &t(294, 4 * k), 531.0, 204.0, 283.0);
         let line = if explore || k == current { 2 } else if k < current { 1 } else { 3 };
-        bg_wrapped(r, Font::NormalWhiteOnDark, &t(294, 4 * k + line), 539.0, 260.0, 269.0);
+        bg_wrapped(r, Font::NormalBlackOnDark, &t(294, 4 * k + line), 539.0, 260.0, 269.0);
 
         bg_text(r, Font::NormalBlackOnLight, &t(294, 41), 222.0, 410.0);
         bg_text(r, Font::NormalBlackOnLight, &t(294, 42), 222.0, 510.0);
@@ -1276,7 +1312,8 @@ impl Menu {
             let enabled = explore || i == current;
             let lit = enabled && inside(cursor, x, y, PERIOD_W, BUTTON_H);
             panel::large_label(r, panels, x, y, (PERIOD_W / 16.0) as i32, lit as u32);
-            let font = if enabled { Font::NormalBlackOnLight } else { Font::NormalBlue };
+            // A period that can't be begun is named in yellow.
+            let font = if enabled { Font::NormalBlackOnLight } else { Font::NormalYellow };
             bg_centred(r, font, &t(27, i), x, y + 6.0, PERIOD_W);
         }
         if explore {
@@ -1309,7 +1346,8 @@ impl Menu {
         bg_text(r, Font::NormalBlackOnLight, &b.subtitle, px + 16.0, py + 46.0);
 
         panel::inner_panel(r, panels, px + 16.0, py + 64.0, 36, 6);
-        bg_text(r, Font::NormalYellow, &t(62, 10), px + 32.0, py + 72.0);
+        // The heading is light on the dark panel, the goals yellow on their labels.
+        bg_text(r, Font::NormalWhiteOnDark, &t(62, 10), px + 32.0, py + 72.0);
         let w = &b.brief.win;
         let mut goals = Vec::new();
         if w.population.enabled {
@@ -1324,29 +1362,41 @@ impl Menu {
             }
         }
         for (line, [x, y]) in goals.iter().zip(GOAL_SLOTS) {
-            panel::label(r, panels, px + x, py + y, 15, 0);
-            bg_text(r, Font::NormalBlue, line, px + x + 8.0, py + y + 3.0);
+            panel::label(r, panels, px + x, py + y, 15, 1);
+            bg_text(r, Font::NormalYellow, line, px + x + 8.0, py + y + 3.0);
         }
         if let Some(line) = &b.tutorial {
             let [x, y] = GOAL_SLOTS[4];
-            panel::label(r, panels, px + x, py + y, 34, 0);
-            bg_text(r, Font::NormalBlue, line, px + x + 8.0, py + y + 3.0);
+            panel::label(r, panels, px + x, py + y, 34, 1);
+            bg_text(r, Font::NormalYellow, line, px + x + 8.0, py + y + 3.0);
         }
 
-        panel::inner_panel(r, panels, px + 16.0, py + 168.0, 34, 15);
+        panel::inner_panel(r, panels, px + 16.0, py + 168.0, 33, 15);
         let [tx, ty, tw, th] = BRIEF_TEXT;
         // Drawn as the original draws messages (FUN_004c8070): a paragraph's first
         // line starts 50 pixels in.
         let opts = rich_text::Options { font: Font::NormalWhiteOnDark, width: tw as i32, paragraph_indent: 50 };
         let laid = rich_text::layout(&b.content, &opts, &mut rich_text::RendererMeasure::new(r));
-        let max = (laid.height as f32 - th).max(0.0);
+        // Whole lines are shown, and it scrolls by whole lines until the last is in view.
+        let view_h = th - 6.0;
+        let max = ((laid.height as f32 - view_h) / BRIEF_LINE).ceil().max(0.0) * BRIEF_LINE;
         self.briefing_max.set(max);
         let scroll = self.briefing_scroll.min(max);
         r.set_clip(Some([tx - 16.0, py + 171.0, tw + 32.0, th]));
-        rich_text::draw(r, &laid, [tx, ty - GLYPH_RISE - scroll], laid.height as f32, 0.0, text_color(Font::NormalWhiteOnDark));
+        rich_text::draw(r, &laid, [tx, ty - GLYPH_RISE], view_h, scroll, text_color(Font::NormalWhiteOnDark));
         r.set_clip(None);
+        // Text longer than its box gets the scroll arrows at either end of the track and
+        // the stone between them (FUN_00418f70, FUN_004c72b0); none when it fits.
         if max > 0.0 {
             panel::inner_panel(r, panels, px + 557.0, py + 192.0, 2, 12);
+            if let Ok(arrows) = r.library.group_id("Pharaoh_General", 96, 8) {
+                for (rect, image) in [(BRIEF_ARROW_UP, arrows), (BRIEF_ARROW_DOWN, arrows + 4)] {
+                    bg_image(r, image + inside4(cursor, rect) as u32, rect[0], rect[1]);
+                }
+            }
+            let [sx, top, travel] = BRIEF_STONE;
+            let sy = top + (scroll / max * travel).round();
+            bg_image(r, panels.panel_button + 39, sx, sy);
         }
 
         bg_text(r, Font::NormalBlackOnLight, &format!("{} {}", t(44, 216), t(153, self.difficulty as usize + 1)), px + 150.0, py + 417.0);
@@ -1394,7 +1444,7 @@ impl Menu {
         r.set_clip(Some([LIST_X, top, LIST_W, rows as f32 * 16.0]));
         for (row, i) in (self.scroll..self.items.len()).take(rows).enumerate() {
             let lit = self.hover == Some(i) || (self.hover.is_none() && self.picked == Some(i));
-            let font = if lit { Font::NormalYellow } else { Font::NormalWhiteOnDark };
+            let font = if lit { Font::NormalWhiteOnDark } else { Font::NormalBlackOnDark };
             bg_text(r, font, &self.items[i].label, LIST_X, top + 16.0 * row as f32);
         }
         r.set_clip(None);
@@ -1454,11 +1504,13 @@ impl Menu {
         if let Ok(id) = image {
             bg_image(r, id, 270.0, if history { 200.0 } else { 180.0 });
         }
-        let white = Font::NormalWhiteOnDark;
-        bg_centred(r, white, &b.name, 527.0, 209.0, 260.0);
-        bg_centred(r, Font::NormalYellow, &b.subtitle, 527.0, 229.0, 260.0);
+        // The details are in the dark font; the subtitle, "Win conditions" and the
+        // score are light (FUN_0041e5c0).
+        let dark = Font::NormalBlackOnDark;
+        bg_centred(r, dark, &b.name, 527.0, 209.0, 260.0);
+        bg_centred(r, Font::NormalWhiteOnDark, &b.subtitle, 527.0, 229.0, 260.0);
         let year = if b.start_year < 0 { format!("{} {}", -b.start_year, t(20, 0)) } else { format!("{} {}", t(20, 1), b.start_year) };
-        bg_text(r, white, &year, 602.0, 249.0);
+        bg_text(r, dark, &year, 602.0, 249.0);
 
         if history && self.show_results {
             let m = match self.picked.and_then(|i| self.items.get(i)).map(|i| &i.action) {
@@ -1466,10 +1518,10 @@ impl Menu {
                 _ => return,
             };
             let Some(res) = self.campaign.results.get(&m) else {
-                bg_wrapped(r, white, &t(305, 0), 537.0, 269.0, 260.0);
+                bg_wrapped(r, dark, &t(305, 0), 537.0, 269.0, 260.0);
                 return;
             };
-            bg_wrapped(r, white, &t(297, m), 537.0, 269.0, 270.0);
+            bg_wrapped(r, dark, &t(297, m), 537.0, 269.0, 270.0);
             let w = &b.win;
             let lines = [
                 (w.culture.enabled, 0, res.culture, 429.0),
@@ -1480,27 +1532,27 @@ impl Menu {
             ];
             for (shown, id, value, y) in lines {
                 if shown {
-                    bg_centred(r, white, &format!("{} {value}", t(298, id)), 537.0, y, 270.0);
+                    bg_centred(r, dark, &format!("{} {value}", t(298, id)), 537.0, y, 270.0);
                 }
             }
-            bg_centred(r, white, &format!("{} {}", t(298, 7), t(153, res.difficulty as usize + 1)), 527.0, 509.0, 270.0);
-            bg_centred(r, white, &format!("{} {} {}", t(298, 6), res.months / 12, t(298, 9)), 537.0, 525.0, 270.0);
-            bg_centred(r, Font::NormalYellow, &format!("{} {}", t(298, 8), res.score), 537.0, 541.0, 270.0);
+            bg_centred(r, dark, &format!("{} {}", t(298, 7), t(153, res.difficulty as usize + 1)), 527.0, 509.0, 270.0);
+            bg_centred(r, dark, &format!("{} {} {}", t(298, 6), res.months / 12, t(298, 9)), 537.0, 525.0, 270.0);
+            bg_centred(r, Font::NormalWhiteOnDark, &format!("{} {}", t(298, 8), res.score), 537.0, 541.0, 270.0);
             return;
         }
 
-        bg_centred(r, white, &t(44, 77 + b.climate as usize), 527.0, 269.0, 260.0);
-        bg_centred(r, white, &t(44, b.size_text()), 527.0, 289.0, 260.0);
-        bg_centred(r, white, &t(44, b.military_text()), 527.0, 309.0, 260.0);
-        bg_centred(r, white, &t(32, b.challenge_text()), 527.0, 329.0, 260.0);
+        bg_centred(r, dark, &t(44, 77 + b.climate as usize), 527.0, 269.0, 260.0);
+        bg_centred(r, dark, &t(44, b.size_text()), 527.0, 289.0, 260.0);
+        bg_centred(r, dark, &t(44, b.military_text()), 527.0, 309.0, 260.0);
+        bg_centred(r, dark, &t(32, b.challenge_text()), 527.0, 329.0, 260.0);
         if b.open_play {
-            bg_wrapped(r, white, &t(145, 0), 537.0, 369.0, 260.0);
+            bg_wrapped(r, dark, &t(145, 0), 537.0, 369.0, 260.0);
             if self.page != Page::Editor {
                 self.draw_difficulty(r, f);
             }
             return;
         }
-        bg_centred(r, Font::NormalYellow, &t(44, 127), 527.0, 361.0, 260.0);
+        bg_centred(r, Font::NormalWhiteOnDark, &t(44, 127), 527.0, 361.0, 260.0);
         let w = &b.win;
         let goals = [
             (w.culture.enabled, w.culture.value, 129, 389.0),
@@ -1512,18 +1564,18 @@ impl Menu {
         ];
         for (on, value, id, y) in goals {
             if on {
-                bg_text(r, white, &format!("{value} {}", t(44, id)), 602.0, y);
+                bg_text(r, dark, &format!("{value} {}", t(44, id)), 602.0, y);
             }
         }
         let count = w.housing_count.value;
         if count != 0 {
             let level = w.housing_level.value.max(0) as usize + if count >= 2 { 20 } else { 0 };
-            bg_text(r, white, &format!("{count} {}", t(29, level)), 602.0, 453.0);
+            bg_text(r, dark, &format!("{count} {}", t(29, level)), 602.0, 453.0);
         }
         // The monuments to build, by name; the monument goal's own number is never shown.
         for (i, &m) in b.monuments.iter().enumerate() {
             if m != 0 {
-                bg_centred(r, white, &t(198, m as usize), 542.0, 485.0 + 16.0 * i as f32, 260.0);
+                bg_centred(r, dark, &t(198, m as usize), 542.0, 485.0 + 16.0 * i as f32, 260.0);
             }
         }
         // The editor shows no difficulty (FUN_0041a180 draws it only in the game).
@@ -1537,7 +1589,7 @@ impl Menu {
     fn draw_difficulty(&self, r: &mut Renderer, f: &Frame) {
         let t = |g: usize, i: usize| self.text.get(g, i).unwrap_or("").trim().to_string();
         let line = format!("{} {}", t(44, 216), t(153, self.difficulty as usize + 1));
-        bg_text(r, Font::NormalWhiteOnDark, &line, 602.0, 536.0);
+        bg_text(r, Font::NormalBlackOnDark, &line, 602.0, 536.0);
         let cursor = f.to_bg(self.cursor);
         for (group, rect) in [(212, DIFFICULTY_UP), (16, DIFFICULTY_DOWN)] {
             if let Ok(id) = r.library.group_id("Pharaoh_General", group, 0) {
@@ -1584,10 +1636,10 @@ impl Menu {
         bg_centred(r, Font::LargeBlackOnLight, &t(43, 1), 160.0, 50.0, 304.0);
         bg_text(r, Font::NormalBlackOnLight, &t(43, 5), 224.0, 342.0);
         if let Some(item) = self.picked.and_then(|i| self.items.get(i)) {
-            bg_text(r, Font::NormalYellow, &item.label, 160.0, 90.0);
+            bg_text(r, Font::NormalWhiteOnDark, &item.label, 160.0, 90.0);
         }
         for (row, i) in (self.scroll..self.items.len()).take(PAGE_ROWS).enumerate() {
-            let font = if self.hover == Some(i) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
+            let font = if self.hover == Some(i) { Font::NormalWhiteOnDark } else { Font::NormalBlackOnDark };
             bg_text(r, font, &self.items[i].label, PAGE_ROW[0], 130.0 + 16.0 * row as f32);
         }
         self.draw_page_scroll(r, panels, cursor, 144.0);
@@ -1604,7 +1656,7 @@ impl Menu {
         panel::inner_panel(r, panels, 144.0, 120.0, 20, 13);
         bg_centred(r, Font::LargeBlackOnLight, &self.family_text.registry_title, px, 58.0, 384.0);
         for (row, i) in (self.scroll..self.items.len()).take(PAGE_ROWS).enumerate() {
-            let font = if self.family_selected == Some(i) || self.hover == Some(i) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
+            let font = if self.family_selected == Some(i) || self.hover == Some(i) { Font::NormalWhiteOnDark } else { Font::NormalBlackOnDark };
             bg_text(r, font, &self.items[i].label, PAGE_ROW[0], PAGE_ROW[1] + PAGE_ROW[3] * row as f32);
         }
         self.draw_page_scroll(r, panels, cursor, 146.0);
@@ -1631,7 +1683,7 @@ impl Menu {
         panel::outer_panel(r, panels, px, py, 24, 8);
         bg_centred(r, Font::LargeBlackOnLight, &self.family_text.enter_name, px, py + 12.0, 384.0);
         panel::inner_panel(r, panels, 160.0, 208.0, 20, 2);
-        bg_text(r, Font::NormalYellow, &format!("{}_", self.new_family), 176.0, 216.0);
+        bg_text(r, Font::NormalWhiteOnDark, &format!("{}_", self.new_family), 176.0, 216.0);
         bg_text(r, Font::NormalBlackOnLight, &self.family_text.continue_button, 395.0, 255.0);
         if let Ok(go) = r.library.group_id("Pharaoh_General", 192, 0) {
             bg_image(r, go + inside4(cursor, NEW_FAMILY_GO) as u32, NEW_FAMILY_GO[0], NEW_FAMILY_GO[1]);

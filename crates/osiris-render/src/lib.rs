@@ -152,6 +152,12 @@ pub struct Renderer {
     /// pixel: for art stretched by a fraction, where nearest pixels double some rows
     /// and columns and not others.
     pub smooth: bool,
+    /// While set, screen-space images land on whole device pixels and are scaled
+    /// sharply: each texel stays a solid block, and only where a texel edge falls
+    /// inside a device pixel are the two blended. For text, which bilinear
+    /// filtering blurs and nearest pixels at a fractional scale draw with strokes
+    /// of uneven width. It overrides `smooth`.
+    pub sharp: bool,
     pub library: ImageLibrary,
     /// The pack image of every core image id (below `EXTRA_BASE`), worked out once:
     /// `pack << 16 | index`, or `NO_IMAGE`.
@@ -299,6 +305,7 @@ impl Renderer {
             clip: None,
             screen_frame: None,
             smooth: false,
+            sharp: false,
             library,
             resolved,
             by_id: Vec::new(),
@@ -421,7 +428,8 @@ impl Renderer {
         space: Space,
         paint: Paint,
     ) {
-        // bit 0 screen space, 1 silhouette, 2 masked, 3 filter, 4 smooth, 5 spread;
+        // bit 0 screen space, 1 silhouette, 2 masked, 3 filter, 4 smooth, 5 spread,
+        // 6 sharp;
         // bits 16-31 the mask.
         let (mode, mask, color) = match paint {
             Paint::Normal => (0, 0, color),
@@ -444,15 +452,20 @@ impl Renderer {
                 let y1 = snap(o[1] + (pos[1] + size[1]) * k);
                 ([x0, y0], [x1 - x0, y1 - y0])
             }
+            _ if self.sharp && space == Space::Screen => {
+                let snap = |v: f32| (v * self.scale).round() / self.scale;
+                ([snap(pos[0]), snap(pos[1])], size)
+            }
             _ => (pos, size),
         };
+        let filter = if self.sharp { 64 } else { (self.smooth as u32) << 4 };
         let inst = Instance {
             pos,
             size,
             uv0,
             uv1,
             color,
-            flags: (space == Space::Screen) as u32 | mode | (self.smooth as u32) << 4 | (mask as u32) << 16,
+            flags: (space == Space::Screen) as u32 | mode | filter | (mask as u32) << 16,
         };
         let multiply = matches!(paint, Paint::Filter(_));
         let idx = self.instances.len() as u32;

@@ -239,15 +239,15 @@ pub fn layout(text: &str, opts: &Options, measure: &mut dyn Measure) -> Layout {
 }
 
 /// Draws `layout` with its top-left at `origin`, offset upward by `scroll` pixels, and
-/// clipped to `origin.y .. origin.y + viewport_h` (runs entirely outside are skipped;
-/// there's no GPU scissor, so partially visible text/images may draw a few pixels past
-/// the edge).
+/// clipped to `origin.y .. origin.y + viewport_h`. Only whole lines of text are drawn,
+/// as the original draws a scrolled message; images entirely outside are skipped, and
+/// there's no GPU scissor, so a partly visible image may draw past the edge.
 pub fn draw(r: &mut Renderer, laid_out: &Layout, origin: [f32; 2], viewport_h: f32, scroll: f32, color: [f32; 4]) {
     for run in &laid_out.runs {
         match run {
             Run::Text { x, y, font, text } => {
                 let py = origin[1] + *y as f32 - scroll;
-                if py + font.line_height() as f32 <= origin[1] || py >= origin[1] + viewport_h {
+                if py < origin[1] - 0.5 || py + font.line_height() as f32 > origin[1] + viewport_h + 0.5 {
                     continue;
                 }
                 draw_text_unrisen(r, *font, text, origin[0] + *x as f32, py, color);

@@ -775,7 +775,7 @@ impl Editor {
         ];
         for (ry, label, value, at, next) in rows {
             let l = ui.t(44, label);
-            ui.label(Font::NormalYellow, &l, x + 60.0, py + ry + 8.0);
+            ui.label(Font::NormalBlackOnDark, &l, x + 60.0, py + ry + 8.0);
             if ui.button([x + 220.0, py + ry, 200.0, 30.0], &ui.t(44, value as usize), Font::NormalBlackOnLight) {
                 f[at..at + 4].copy_from_slice(&next.to_le_bytes());
             }
