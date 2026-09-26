@@ -243,7 +243,7 @@ impl World {
     }
 
     /// Each space shows its resource, in four steps of fullness.
-    fn refresh_yard_images(&mut self, id: BuildingId) {
+    pub(crate) fn refresh_yard_images(&mut self, id: BuildingId) {
         let Some(b) = self.buildings.get(id) else { return };
         let Some(def) = self.defs.building(kind::STORAGE_YARD) else { return };
         let (Some(empty), Some(filled)) = (def.anims.get("space_empty"), def.anims.get("space_filled")) else { return };

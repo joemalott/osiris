@@ -397,8 +397,10 @@ impl World {
         }
     }
 
-    /// Starts the scenario: places the herds from the map's predator and prey points.
+    /// Starts the scenario: sets up the buildings a saved game or campaign mission
+    /// holds, and places the herds from the map's predator and prey points.
     pub fn start(&mut self, scenario: &Scenario) {
+        self.import_buildings(&scenario.buildings, scenario.version);
         let points = |list: &[osiris_formats::scenario::TilePoint]| list.iter().filter(|p| p.is_valid()).map(|p| (p.x, p.y)).collect::<Vec<_>>();
         self.create_herds(&points(&scenario.info.predator_herd_points), &points(&scenario.info.prey_herd_points));
         self.init_floods(&scenario.floodplain_settings);

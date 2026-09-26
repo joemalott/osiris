@@ -156,6 +156,14 @@ images less often than it did before (`crates/osiris-tools/data/terrain_baseline
 cargo test --release -p osiris-tools -- --ignored
 ```
 
+After changing how a campaign mission's own buildings are set up when it starts
+(Thinis, Kebet, Khmun and the others that open with a city), run the test that loads
+each of them and checks every building is where the mission's file puts it:
+
+```
+cargo test --release -p osiris-sim --test saved_buildings -- --ignored
+```
+
 ## Layout
 
 - `crates/osiris-formats`: readers for the original data files (sprites, maps, saves,

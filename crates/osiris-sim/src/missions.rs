@@ -122,11 +122,16 @@ pub fn is_obsolete_kind(k: u16) -> bool {
     OLD_PALACES.iter().any(|p| p.0 == k) || [OLD_WALL, OLD_TOWER, OLD_GATEHOUSE].contains(&k)
 }
 
+/// The original's palace an earlier Osiris build's palace type became.
+pub(crate) fn upgraded_palace(k: u16) -> u16 {
+    OLD_PALACES.iter().find(|p| p.0 == k).map_or(k, |p| p.1)
+}
+
 impl World {
     /// A saved game's palaces of the old types become the original's, in the city and
     /// in the lists of what may be built.
     pub(crate) fn upgrade_palaces(&mut self) {
-        let new = |k: u16| OLD_PALACES.iter().find(|p| p.0 == k).map_or(k, |p| p.1);
+        let new = upgraded_palace;
         for b in self.buildings.iter_mut() {
             b.kind = new(b.kind);
         }

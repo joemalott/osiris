@@ -11,7 +11,7 @@ const USAGE: &str = "usage:
   osiris-tools check-sg3 <Data dir>                  decode every image in every .sg3
   osiris-tools dump-sprites <Data dir> <pak> <out>   write each image of <pak> as PNG
   osiris-tools info <Data dir> <pak>                 list groups and records
-  osiris-tools check-images <game dir>              check every map's tile images
+  osiris-tools check-images <game dir>              check every map's tile images as its city starts
   osiris-tools check-terrain-images <game dir> [-v] [--tiles <map or 'mission1.pak #N' or '*'> <kind>]
                [--baseline <file>] [--write-baseline <file>]
                                                      redraw every map's terrain and compare
@@ -279,15 +279,19 @@ fn image_histogram(game: &Path, what: &str) -> Result<()> {
 /// with an example, and fails if any do.
 fn check_images(game: &Path) -> Result<()> {
     let lib = osiris_formats::ImageLibrary::open(&game.join("Data"))?;
-    let defs = osiris_sim::Defs::load(&lib).map_err(anyhow::Error::msg)?;
+    let defs = std::sync::Arc::new(osiris_sim::Defs::load(&lib).map_err(anyhow::Error::msg)?);
+    let balance = std::sync::Arc::new(osiris_sim::Balance::load(game, "Normal").map_err(anyhow::Error::msg)?);
     let not_ground = ["SprMain", "SprMain2", "SprAmbient", "Pharaoh_Fonts", "Empire", "Pharaoh_Unloaded"];
     let sources = terrain_check::sources(game)?;
     let mut bad_sources = 0;
     for (name, s) in &sources {
         let (mut drawn, mut unknown, mut wrong) = (0, 0, 0);
         let mut example = None;
-        let mut map = osiris_sim::map::Map::from_scenario(s);
-        osiris_sim::terrain_images::redraw_on_load(&mut map, &defs);
+        // The city as it starts: the terrain redrawn and the buildings a mission holds
+        // set up, each drawing itself.
+        let mut world = osiris_sim::World::new(s, defs.clone(), balance.clone());
+        world.start(s);
+        let map = &world.map;
         for y in 0..map.height {
             for x in 0..map.width {
                 let id = map.images.at_or(x, y, 0);
