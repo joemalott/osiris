@@ -141,11 +141,34 @@ pub fn building_animations(cx: &AnimContext, out: &mut Vec<Overlay>) {
             water_lift(cx, b, out);
             continue;
         }
-        let active = if b.kind == kind::BURNING_RUIN { b.progress > 0 } else { b.kind == kind::WELL || b.workers > 0 };
+        let active = if b.kind == kind::BURNING_RUIN { b.progress > 0 } else { b.kind == kind::WELL || (b.workers > 0 && has_materials(cx.world, b)) };
         if active {
             working(cx, b, out);
         }
     }
+}
+
+/// Buildings the original animates only while they hold their raw material, as well
+/// as staff (FUN_0040f2c0): the workshops, the guilds of carpenters, bricklayers and
+/// artisans, the shipwright, the cattle ranch, the zoo, the senet house, the
+/// mortuary, the scribal school and the library.
+const NEEDS_MATERIAL: [u16; 20] = [32, 47, 51, 53, 74, 110, 111, 112, 113, 114, 177, 178, 194, 203, 204, 205, 226, 231, 232, 233];
+/// Of those, the ones that need their second material on hand too: the brickworks,
+/// the zoo and the lamp maker.
+const NEEDS_BOTH: [u16; 3] = [204, 226, 232];
+
+/// Whether `b` holds the materials its working animation needs: some of its first
+/// input, and of its second for the few in `NEEDS_BOTH`. A shipwright laying down a
+/// fishing boat needs no timber. A building with no input of its own (the
+/// bricklayers, whose bricks go to the site by sled) never has any, as in the
+/// original, where their stock stays empty.
+fn has_materials(world: &World, b: &Building) -> bool {
+    if !NEEDS_MATERIAL.contains(&b.kind) || (b.kind == kind::SHIPWRIGHT && b.boat_kind == 0) {
+        return true;
+    }
+    let Some(def) = world.defs.building(b.kind) else { return true };
+    let held = |i: usize| def.inputs.get(i).and_then(|r| world.resource_id(r)).is_some_and(|r| b.stock.get(r as usize).is_some_and(|&n| n > 0));
+    held(0) && (!NEEDS_BOTH.contains(&b.kind) || held(1))
 }
 
 /// A building at work: the frames stored after the image on its draw tile, placed
@@ -198,7 +221,7 @@ fn shore(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
                 cx.sprite(out, dx, dy, DOCK_SPOTS[unloading as usize][facing], a.image + 4 * (frame - 1) + variant);
             }
         }
-        SHIPWRIGHT if b.progress > 0 => {
+        SHIPWRIGHT if b.progress > 0 && has_materials(cx.world, b) => {
             let key = match b.boat_kind {
                 0 => "work_fishing_boat",
                 osiris_sim::navy::WARSHIP => "work_warship",
