@@ -167,6 +167,14 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 );
             }
             // Every figure of kind K: where it is, what it is doing and where it is going.
+            // Walkers carrying resource R: kind, place, home building and amount.
+            ["carrying", r] => {
+                let r: u16 = r.parse()?;
+                for f in world.figures.iter().filter(|f| f.cargo == r) {
+                    let home = world.buildings.iter().find(|b| b.id == f.home).map(|b| (b.kind, b.x, b.y));
+                    eprintln!("  fig {} kind {} at ({},{}) action {} home {:?} amount {} dest {:?}", f.id, f.kind, f.x, f.y, f.action, home, f.amount, f.destination);
+                }
+            }
             ["figs", k] => {
                 let k: u16 = k.parse()?;
                 for f in world.figures.iter().filter(|f| f.kind == k) {
@@ -1046,6 +1054,21 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                         None => eprintln!("{k} {name}: NOWHERE {why:?}"),
                     }
                 }
+            }
+            // The N tiles nearest the entry point where building type K can go.
+            ["spots", k, n] => {
+                let (k, n): (u16, usize) = (k.parse()?, n.parse()?);
+                let (ex, ey) = world.entry_point;
+                let mut fits: Vec<(i32, i32, i32)> = Vec::new();
+                for y in 0..world.map.height {
+                    for x in 0..world.map.width {
+                        if world.can_place(k, x, y).is_ok() {
+                            fits.push(((x - ex).abs().max((y - ey).abs()), x, y));
+                        }
+                    }
+                }
+                fits.sort();
+                eprintln!("{step}: {} fit, nearest {:?}", fits.len(), fits.iter().take(n).map(|f| (f.1, f.2)).collect::<Vec<_>>());
             }
             // Spots where a pyramid complex's valley temple could meet the water: a
             // straight north-south shore (land west, open water east, two rows).
