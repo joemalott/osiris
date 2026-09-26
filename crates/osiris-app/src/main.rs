@@ -445,6 +445,18 @@ fn family_text(assets: &Assets) -> menu::FamilyText {
 /// What the menu shows of the family's campaign: the missions won and their results,
 /// the period reached, and whether a city of it waits to be resumed. The choice of
 /// city waiting is that of the campaign being played, `at`.
+/// The movie the campaign window's arrow plays before `choice` (0x41bb70): Pharaoh's
+/// five periods have one each, whether the family history begins the one it has
+/// `reached` or Explore History plays one; Cleopatra's four have none.
+fn period_movie(choice: &menu::Choice, reached: usize) -> Option<&'static str> {
+    let k = match choice {
+        menu::Choice::Begin => reached,
+        menu::Choice::Period(k) => *k,
+        _ => return None,
+    };
+    movie::PERIODS.get(k).copied()
+}
+
 fn campaign_view(assets: &Assets, p: &progress::Progress, at: &progress::Progress) -> menu::CampaignView {
     let text = |id: u32| assets.text.get(144, id as usize).unwrap_or("").trim().to_string();
     let choice = at.choice(&assets.campaign).map(|(screen, choices)| menu::ChoiceView {
@@ -578,9 +590,12 @@ impl App {
     }
 
     /// Plays movie `name` (movie.rs), then shows `then`; straight to `then` when the
-    /// player turned movies off or the install hasn't got it.
+    /// player turned movies off, the install hasn't got it, or the run was started
+    /// with --map, --mission, --replay or --script.
     fn play_movie(&mut self, name: &str, then: Screen) {
-        let started = if self.sound.movies { movie::Movie::start(&self.assets.data, name, self.audio.as_deref(), self.sound.movie_volume()) } else { None };
+        let args = &self.args;
+        let direct = args.map.is_some() || args.mission.is_some() || args.replay.is_some() || args.script.is_some();
+        let started = if self.sound.movies && !direct { movie::Movie::start(&self.assets.data, name, self.audio.as_deref(), self.sound.movie_volume()) } else { None };
         match started {
             Some(m) => {
                 log::info!("playing movie {name}");
@@ -593,6 +608,16 @@ impl App {
                 self.screen = Some(Screen::Movie(Box::new(m), Box::new(then)));
             }
             None => self.screen = Some(then),
+        }
+    }
+
+    /// The campaign window's arrow plays the period's movie (0x41bb70) before the
+    /// screen `step` just put up, its first briefing or choice of city.
+    fn period_movie(&mut self, choice: &menu::Choice, reached: usize) {
+        if let Some(name) = period_movie(choice, reached)
+            && let Some(then) = self.screen.take()
+        {
+            self.play_movie(name, then);
         }
     }
 
@@ -756,12 +781,15 @@ impl App {
             }
             menu::Choice::Begin => {
                 self.run = Run::History;
+                let reached = load_progress(&c, &self.family).period(&c);
                 self.step();
+                self.period_movie(&choice, reached);
                 return;
             }
             menu::Choice::Period(k) => {
                 self.run = Run::Replay(progress::Progress::at_period(&c, *k));
                 self.step();
+                self.period_movie(&choice, *k);
                 return;
             }
             menu::Choice::ToCity(m) => {
@@ -1874,6 +1902,17 @@ fn run(mut args: Args) -> Result<()> {
             if let Some(i) = view.menu_pick {
                 menu.pick_row(i);
             }
+            // The campaign window's arrow: the period's movie, at that moment.
+            if let Some(seconds) = view.menu_play {
+                let choice = menu.play_period();
+                let name = choice.as_ref().and_then(|c| period_movie(c, p.period(&assets.campaign)));
+                println!("menuplay: {choice:?} plays {}", name.unwrap_or("no movie"));
+                if let Some(name) = name {
+                    let mut m = movie::Movie::silent(&data, name).with_context(|| format!("no movie {name} in {}", data.display()))?;
+                    m.seek_blocking(seconds);
+                    return gfx::screenshot(library, args.size, out, |r| m.draw(r));
+                }
+            }
             if view.menu_results {
                 menu.show_prior_results(true);
             }
@@ -2031,5 +2070,19 @@ mod tests {
         assert!(!autosave_path(&dir, "Thinis", AUTOSAVES + 1).exists());
         assert_eq!(autosave_path(&dir, "Thinis", 2).file_name().unwrap(), "Thinis autosave 2.osiris");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn each_of_pharaohs_periods_has_its_movie() {
+        use menu::Choice;
+        assert_eq!(period_movie(&Choice::Begin, 0), Some("pre_dynastic_big"));
+        assert_eq!(period_movie(&Choice::Begin, 3), Some("middle_kingdom_big"));
+        assert_eq!(period_movie(&Choice::Period(1), 0), Some("archaic_big"));
+        assert_eq!(period_movie(&Choice::Period(2), 0), Some("old_kingdom_big"));
+        assert_eq!(period_movie(&Choice::Period(4), 0), Some("new_king_big"));
+        // Cleopatra's periods, and anything but the arrow, play none.
+        assert_eq!(period_movie(&Choice::Period(5), 0), None);
+        assert_eq!(period_movie(&Choice::Begin, 8), None);
+        assert_eq!(period_movie(&Choice::Mission(3), 0), None);
     }
 }

@@ -1030,14 +1030,19 @@ impl Menu {
             return None;
         }
         if inside4(b, PLAY_BUTTON) {
-            if explore {
-                return Some(Choice::Period(self.period_sel));
-            }
-            if self.period_sel == self.campaign.period {
-                return Some(Choice::Begin);
-            }
+            return self.play_period();
         }
         None
+    }
+
+    /// The campaign window's arrow: Explore History plays the picked period, and the
+    /// family history begins it if it is the one reached.
+    pub fn play_period(&self) -> Option<Choice> {
+        match self.page {
+            Page::HistoryPeriods => Some(Choice::Period(self.period_sel)),
+            Page::Periods if self.period_sel == self.campaign.period => Some(Choice::Begin),
+            _ => None,
+        }
     }
 
     /// A click on the briefing: on to the city, back to the choice of city, or the

@@ -13,6 +13,9 @@ use std::time::{Duration, Instant};
 /// The movies, by the names the original gives their files.
 pub const INTRO: &str = "Intro_big";
 pub const WIN_GRAND: &str = "win_grand_big";
+/// Pharaoh's five periods' movies, which the campaign window's arrow plays as it
+/// begins or plays the period (0x41bb70); Cleopatra's periods have none.
+pub const PERIODS: [&str; 5] = ["pre_dynastic_big", "archaic_big", "old_kingdom_big", "middle_kingdom_big", "new_king_big"];
 
 /// Key passed to `Renderer::upload_dynamic` for the movie's picture.
 const TEXTURE_KEY: u32 = 0x4249_4b00;

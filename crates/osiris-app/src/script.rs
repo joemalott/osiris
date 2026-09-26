@@ -27,6 +27,9 @@ pub struct ScriptView {
     /// A period picked on the campaign window, and a mission's briefing to show.
     pub menu_period: Option<usize>,
     pub menu_brief: Option<usize>,
+    /// The campaign window's arrow pressed, and how many seconds into the period's
+    /// movie to show.
+    pub menu_play: Option<f64>,
     pub rules: bool,
     /// Opens the Difficulty window.
     pub difficulty: bool,
@@ -185,6 +188,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["menuresults"] => view.menu_results = true,
             ["menuwins", n] => view.menu_wins = Some(n.parse()?),
             ["menuperiod", k] => view.menu_period = Some(k.parse()?),
+            ["menuplay"] => view.menu_play = Some(0.0),
+            ["menuplay", seconds] => view.menu_play = Some(seconds.parse()?),
             ["menubrief", m] => {
                 view.menu = true;
                 view.menu_brief = Some(m.parse()?);
