@@ -33,6 +33,9 @@ const ARROW_H: f32 = 26.0;
 const DOT: f32 = 25.0;
 const REPEAT_DELAY: Duration = Duration::from_millis(300);
 const REPEAT: Duration = Duration::from_millis(60);
+/// The body's font: the original sets message text light on the dark sunken panel
+/// (FUN_004c5e60), as it does the mission briefing's.
+const BODY_FONT: Font = Font::NormalWhiteOnDark;
 
 /// What the left button is holding down on the scroll bar.
 #[derive(Clone, Copy)]
@@ -84,7 +87,7 @@ impl MessageDialog {
 
         let mut measure = RendererMeasure::new(r);
         let mut opts = rich_text::Options {
-            font: Font::NormalBlackOnLight,
+            font: BODY_FONT,
             width: text_width_px.max(16),
             paragraph_indent: 50,
         };
@@ -214,7 +217,7 @@ impl MessageDialog {
 
     /// Scrolls one line up (`dir` -1) or down (1).
     fn step(&mut self, dir: i32, screen: [f32; 2]) {
-        let line = Font::NormalBlackOnLight.line_height() as f32;
+        let line = BODY_FONT.line_height() as f32;
         self.scroll = (self.scroll + dir as f32 * line).clamp(0.0, self.max_scroll(screen));
     }
 
@@ -227,7 +230,7 @@ impl MessageDialog {
     fn drag_dot(&mut self, y: f32, g: &Geometry, screen: [f32; 2]) {
         let t = ((y - g.bar.1 - ARROW_H - DOT / 2.0) / Self::track(g)).clamp(0.0, 1.0);
         let max = self.max_scroll(screen);
-        let line = Font::NormalBlackOnLight.line_height() as f32;
+        let line = BODY_FONT.line_height() as f32;
         // Whole lines, as the original scrolls.
         self.scroll = ((t * max / line).round() * line).min(max);
     }
@@ -235,7 +238,7 @@ impl MessageDialog {
     /// Applies a mouse wheel step (`delta` in the same sign convention as the window
     /// event's scroll: positive scrolls content up). One step moves about three lines.
     pub fn scroll(&mut self, delta: f32, screen: [f32; 2]) {
-        let step = Font::NormalBlackOnLight.line_height() as f32 * 3.0;
+        let step = BODY_FONT.line_height() as f32 * 3.0;
         self.scroll = (self.scroll - delta * step).clamp(0.0, self.max_scroll(screen));
     }
 
@@ -272,7 +275,7 @@ impl MessageDialog {
             [g.body_x + BODY_PAD_X, g.body_y + BODY_PAD_Y],
             body_h,
             self.scroll,
-            font::BLACK,
+            font::WHITE,
         );
         r.set_clip(None);
         if let Some(arrows) = self.arrows {
