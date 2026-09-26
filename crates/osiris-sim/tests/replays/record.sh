@@ -1,8 +1,9 @@
 #!/bin/sh
 # Records the replay fixtures that tests/replays.rs plays back, with the script
-# harness (see osiris-app/src/script.rs, the `record` step). Run it from the
-# repository root after a change that alters the simulation on purpose (the
-# replays then no longer match), and commit the new files with the change:
+# harness (see osiris-app/src/script.rs, the `record` step). The recordings hold
+# campaign missions from the original game, so git ignores them: record them from
+# your own copy of the game before a change you want to check, and again after a
+# change that alters the simulation on purpose. Run it from the repository root:
 #
 #   cargo build --release -p osiris-app
 #   sh crates/osiris-sim/tests/replays/record.sh [game data dir]

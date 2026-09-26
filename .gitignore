@@ -5,3 +5,4 @@
 /dist
 /notes
 .claude/
+/crates/osiris-sim/tests/replays/*.osiris-replay

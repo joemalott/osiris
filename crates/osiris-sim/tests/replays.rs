@@ -7,9 +7,11 @@
 //! cargo test --release -p osiris-sim --test replays -- --ignored --nocapture
 //! ```
 //!
-//! It looks for the game data at `$OSIRIS_TEST_DATA`, or else the path this project
-//! keeps it at during development. A change meant to alter the simulation breaks
-//! these; record them again with `tests/replays/record.sh`. The same check from the
+//! It looks for the game data at `$OSIRIS_TEST_DATA`, or else `PharaohData` at the top
+//! of the checkout. The recordings start from campaign missions, so they hold the
+//! original game's maps and aren't kept in the repository: make them from your own
+//! copy with `tests/replays/record.sh`, before the change you want to check. A change
+//! meant to alter the simulation breaks them; record them again. The same check from the
 //! command line: `osiris-tools replay <game dir> crates/osiris-sim/tests/replays/*.osiris-replay`.
 
 use osiris_formats::ImageLibrary;
@@ -19,7 +21,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 fn data_dir() -> PathBuf {
-    std::env::var_os("OSIRIS_TEST_DATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/Users/jmalott/Desktop/Projects/Osiris/PharaohData"))
+    std::env::var_os("OSIRIS_TEST_DATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../PharaohData")))
 }
 
 #[test]
@@ -32,7 +34,10 @@ fn recorded_games_replay_identically() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/replays");
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "osiris-replay")).collect();
     files.sort();
-    assert!(!files.is_empty(), "no replays in {}", dir.display());
+    if files.is_empty() {
+        println!("no replays in {}; record them with tests/replays/record.sh", dir.display());
+        return;
+    }
     let mut failures = Vec::new();
     for path in &files {
         let replay = Replay::read(path).unwrap();

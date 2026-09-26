@@ -149,8 +149,11 @@ written to `crash.osiris-replay` beside `osiris.log`. A script records with its
 `record FILE` step. `osiris --replay FILE` plays a recording back in the window;
 with `--screenshot` it runs headless and says whether the city came out the same or
 in which month it first differed, as `osiris-tools replay <game dir> FILE...` does.
-The recordings in `crates/osiris-sim/tests/replays` are regression tests; they need
-the game data, so they don't run in CI:
+Recordings in `crates/osiris-sim/tests/replays` are regression tests. They start
+from campaign missions, so they hold the original game's maps and aren't in the
+repository: record them from your own copy with
+`sh crates/osiris-sim/tests/replays/record.sh /path/to/PharaohData` before a change,
+then check the change against them:
 
 ```
 cargo test --release -p osiris-sim --test replays -- --ignored
