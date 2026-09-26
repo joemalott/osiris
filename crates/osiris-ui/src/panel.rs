@@ -191,3 +191,12 @@ pub fn button_border(r: &mut Renderer, p: &PanelImages, x: f32, y: f32, w: i32, 
         }
     }
 }
+
+/// The original's tooltip box (FUN_004cabd0), `w x h` pixels: a maroon border around a
+/// terracotta fill. Its text goes in with [`crate::font::draw_tooltip_text`].
+pub fn tooltip_box(r: &mut Renderer, x: f32, y: f32, w: f32, h: f32) {
+    const BORDER: [f32; 4] = [0x5a as f32 / 255.0, 0x14 as f32 / 255.0, 0.0, 1.0];
+    const FILL: [f32; 4] = [0xbd as f32 / 255.0, 0x71 as f32 / 255.0, 0x42 as f32 / 255.0, 1.0];
+    r.rect([x, y], [w, h], BORDER, Space::Screen);
+    r.rect([x + 1.0, y + 1.0], [w - 2.0, h - 2.0], FILL, Space::Screen);
+}

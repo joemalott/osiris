@@ -246,8 +246,8 @@ impl Advisors {
                 let tip = ui.t(TOOLTIPS, 71 + a.index());
                 let tw = ui.width(Font::SmallPlain, &tip);
                 let tx = (strip_x + x).min(screen[0] - tw - 12.0);
-                ui.r.rect([tx - 4.0, button_y - 22.0], [tw + 8.0, 18.0], [1.0, 1.0, 0.85, 1.0], Space::Screen);
-                ui.label(Font::SmallPlain, &tip, tx, button_y - 20.0);
+                panel::tooltip_box(ui.r, tx - 4.0, button_y - 22.0, tw + 9.0, 18.0);
+                osiris_ui::font::draw_tooltip_text(ui.r, &tip, tx, button_y - 18.0);
             }
         }
         panel::outer_panel(ui.r, panels, px, py, 40, self.current.panel_tiles_high());

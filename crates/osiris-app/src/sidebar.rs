@@ -579,9 +579,8 @@ impl Sidebar {
         let (bw, bh) = (tw + 10.0, 20.0);
         let x = (self.cursor[0] - bw - 4.0).max(4.0);
         let y = self.cursor[1] + 18.0;
-        r.rect([x, y], [bw, bh], [0.0, 0.0, 0.0, 1.0], Space::Screen);
-        r.rect([x + 1.0, y + 1.0], [bw - 2.0, bh - 2.0], [1.0, 1.0, 0.94, 1.0], Space::Screen);
-        draw_text(r, f, &tip, x + 5.0, y + 5.0, font::BLACK);
+        panel::tooltip_box(r, x, y, bw, bh);
+        font::draw_tooltip_text(r, &tip, x + 4.0, y + 4.0);
     }
 
     fn draw_menu(&self, r: &mut Renderer, img: &SidebarImages) {

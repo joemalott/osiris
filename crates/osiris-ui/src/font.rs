@@ -154,6 +154,15 @@ pub fn draw_text_unrisen(r: &mut Renderer, font: Font, text: &str, x: f32, y: f3
     draw(r, font, text, x, y, color, WHITE)
 }
 
+/// Tooltip text as the original sets it (FUN_004c8070 with the small font): cream
+/// glyphs over a dark brown copy a pixel down and right, their tops at `y`.
+pub fn draw_tooltip_text(r: &mut Renderer, text: &str, x: f32, y: f32) -> i32 {
+    const SHADOW: [f32; 4] = [0x3a as f32 / 255.0, 0x25 as f32 / 255.0, 0x10 as f32 / 255.0, 1.0];
+    const CREAM: [f32; 4] = [1.0, 0xe7 as f32 / 255.0, 0xd6 as f32 / 255.0, 1.0];
+    draw(r, Font::SmallPlain, text, x + 1.0, y + 1.0, SHADOW, WHITE);
+    draw(r, Font::SmallPlain, text, x, y, CREAM, WHITE) + 1
+}
+
 fn draw(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, color: [f32; 4], tint: [f32; 4]) -> i32 {
     // Glyphs land on whole device pixels and keep their pixels square at every
     // interface size, even where the art around them is filtered smoothly.
