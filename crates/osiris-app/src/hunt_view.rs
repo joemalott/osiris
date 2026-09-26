@@ -22,8 +22,8 @@ pub fn figure_sprite(world: &World, f: &Figure) -> Option<Option<Sprite>> {
         }
         hunter(world, f)?
     } else if f.kind == HUNTER_SPEAR {
-        // The spear in flight, in the eight directions of its throw.
-        (anim(world, HUNTER_SPEAR, "walk")?, 0, true)
+        // The spear in flight, in the 32 headings of its throw.
+        (anim(world, HUNTER_SPEAR, "walk")?, f.look as u32 % 32, false)
     } else {
         return None;
     };

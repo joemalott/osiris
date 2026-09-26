@@ -186,6 +186,14 @@ pub fn is_hunter(k: u16) -> bool {
     matches!(k, figure_kind::OSTRICH_HUNTER | figure_kind::ANTELOPE_HUNTER | figure_kind::BIRDS_HUNTER)
 }
 
+/// The heading of a spear thrown from `from` at `to`, one of 32 turning clockwise from
+/// north (`y - 1`), as its 32 pictures are.
+fn spear_heading(from: (i32, i32), to: (i32, i32)) -> u8 {
+    let (dx, dy) = ((to.0 - from.0) as f64, (to.1 - from.1) as f64);
+    let turn = dx.atan2(-dy).rem_euclid(std::f64::consts::TAU);
+    ((turn / std::f64::consts::TAU * 32.0).round() as u8) % 32
+}
+
 /// What game runs from: hunters, crocodiles, hyenas and hippos (the first four of the
 /// original's list at 0x5e4dd0).
 fn frightens(k: u16) -> bool {
@@ -778,6 +786,7 @@ impl World {
                         s.foe = target;
                         s.destination = Some(to);
                         s.direction = crate::figures::direction_to(pos, to).unwrap_or(0);
+                        s.look = spear_heading(pos, to);
                     }
                 } else if f.counter > 300 {
                     f.action = action::LOOKING;

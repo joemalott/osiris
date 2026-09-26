@@ -530,7 +530,7 @@ terrain_usage = "animal"
 id = 69
 key = "ostrich"
 category = "animal"
-anims = { walk = { pack = "SprMain", group = 156, offset = 0, frames = 12 }, death = { pack = "SprMain", group = 157, offset = 0, frames = 8, duration = 3, loop = false }, eating = { pack = "SprMain", group = 159, offset = 0, frames = 7 }, idle = { pack = "SprMain", group = 160, offset = 0, frames = 7 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 69 } }
+anims = { walk = { pack = "SprMain", group = 156, offset = 0, frames = 12 }, death = { pack = "SprMain", group = 157, offset = 0, frames = 8, duration = 3, loop = false }, eating = { pack = "SprMain", group = 159, offset = 0, frames = 8 }, idle = { pack = "SprMain", group = 160, offset = 0, frames = 8 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 69 } }
 corpse_time_delay = 300
 max_damage = 100
 scared_ticks = 128
@@ -559,7 +559,7 @@ terrain_usage = "any"
 id = 73
 key = "ostrich_hunter"
 category = "armed"
-anims = { walk = { pack = "SprMain", group = 45, offset = 0, frames = 12 }, death = { pack = "SprMain", group = 46, offset = 0, frames = 8, loop = false }, hunt = { pack = "SprMain", group = 47, offset = 0, frames = 12, loop = false }, fight = { pack = "SprMain", group = 48, offset = 0, frames = 12 }, pack = { pack = "SprMain", group = 50, offset = 0, frames = 12, loop = false }, unpack = { pack = "SprMain", group = 50, offset = 0, frames = 12, loop = false }, move_pack = { pack = "SprMain", group = 51, offset = 0, frames = 12 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 73 } }
+anims = { walk = { pack = "SprMain", group = 45, offset = 0, frames = 12 }, death = { pack = "SprMain", group = 46, offset = 0, frames = 8, loop = false }, hunt = { pack = "SprMain", group = 47, offset = 0, frames = 12, loop = false }, fight = { pack = "SprMain", group = 48, offset = 0, frames = 12 }, pack = { pack = "SprMain", group = 50, offset = 0, frames = 18, loop = false }, unpack = { pack = "SprMain", group = 50, offset = 0, frames = 18, loop = false }, move_pack = { pack = "SprMain", group = 51, offset = 0, frames = 12 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 73 } }
 animal_attack_value = 100
 attack_distance = 5
 attack_value = 4
@@ -574,7 +574,7 @@ terrain_usage = "animal"
 id = 74
 key = "hunter_arrow"
 category = "inactive"
-anims = { walk = { pack = "SprMain", group = 0, offset = 0, frames = 12 }, shadow = { pack = "SprMain", group = 1, offset = 0, frames = 12 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 74 } }
+anims = { walk = { pack = "SprMain", group = 0, offset = 0, frames = 32 }, shadow = { pack = "SprMain", group = 1, offset = 0, frames = 32 }, big_image = { pack = "Pharaoh_Unloaded", group = 25, offset = 74 } }
 max_damage = 100
 missile_attack_value = 6
 terrain_usage = "any"
