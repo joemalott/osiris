@@ -27,14 +27,14 @@ fn img(r: &mut Renderer, id: u32, x: f32, y: f32) {
 const MAP_W: f32 = 1200.0;
 const MAP_H: f32 = 1600.0;
 /// The frame's bars are 16 pixels thick; the map ends 120 pixels above the bottom
-/// of the screen, where the panel's top bar is (Akhenaten's ui_empire_window.js:
+/// of the screen, where the panel's top bar is (ui_empire_window.js:
 /// `start_pos (16,16)`, `finish_pos (32,136)`, so the view's bottom edge sits at
 /// `start_pos.y + (screen height - finish_pos.y)` = `16 + height - 136` = `height - 120`).
 const BAR: f32 = 16.0;
 const PANEL_TOP: f32 = 120.0;
 /// The paneling art's own divider bar and corner pieces are drawn 20 pixels above
 /// `PANEL_TOP`, so their top edge lands flush with the view boundary once the bar's
-/// own height is added (Akhenaten's ui_empire_chrome.js `draw_paneling`: the bottom
+/// own height is added (ui_empire_chrome.js `draw_paneling`: the bottom
 /// rows tile at `max_pos.y - 140, -100, -60, -20` and the divider `hbar`/`cross` sit
 /// at `max_pos.y - 140`).
 const DIVIDER: f32 = 140.0;
@@ -251,7 +251,7 @@ impl EmpireWindow {
     }
 
     /// The screen's horizontal centre: the trade panel's buttons and columns are laid
-    /// out from here, not from a fixed-width box (Akhenaten's ui_empire_trade_panel.js
+    /// out from here, not from a fixed-width box (ui_empire_trade_panel.js
     /// `empire_window_layout_ui`, which positions everything from `centerX`).
     fn panel_x(screen: [f32; 2]) -> f32 {
         (screen[0] / 2.0).floor()
@@ -286,7 +286,7 @@ impl EmpireWindow {
         (at, [at[0] + 256.0, at[1] + 100.0, 34.0, 34.0], [at[0] + 192.0, at[1] + 100.0, 34.0, 34.0])
     }
 
-    /// The route-opened window's own top-left: Akhenaten's ui_trade_opened_window.js
+    /// The route-opened window's own top-left: ui_trade_opened_window.js
     /// centres a 30x14 tile panel on the screen directly, not nested 80 pixels into
     /// the 640x480 layout the way Osiris drew it before.
     fn opened_origin(screen: [f32; 2]) -> [f32; 2] {
@@ -450,7 +450,7 @@ impl EmpireWindow {
                 }
             }
             EmpirePopup::Opened(c) => {
-                // Akhenaten's ui_trade_opened_window.js: its own 30x14 tile panel
+                // ui_trade_opened_window.js: its own 30x14 tile panel
                 // centred on the screen (group 142: the title, the note about the
                 // Overseer of Commerce and, for a water route, the reminder that ships
                 // need a dock).
@@ -567,8 +567,8 @@ impl EmpireWindow {
             r.rect([x, y + h - 1.0], [w, 1.0], font::WHITE, Space::Screen);
         };
         if !c.open {
-            // Not yet open: what the city would sell and buy, stacked (Akhenaten's
-            // city_want_sell_title/items at centerX-220/-170, y sellItemsTop = sh-90;
+            // Not yet open: what the city would sell and buy, stacked
+            // (city_want_sell_title/items at centerX-220/-170, y sellItemsTop = sh-90;
             // city_want_buy_title/items at the same x, y buyItemsTop+20 = sh-70).
             label(r, Font::NormalBlackOnLight, &t(5), cx - 220.0, sh - 90.0);
             for (k, &res) in goods(false).iter().enumerate() {
@@ -614,7 +614,7 @@ impl EmpireWindow {
             draw_text(r, Font::SmallPlain, &b, x + 26.0 + wa + wof, y, font::BLACK);
         };
         // The city's sales (what we buy from it) sit on the right, its purchases (what
-        // we sell it) on the left: Akhenaten's city_sell_title/items (text group 47 id
+        // we sell it) on the left: city_sell_title/items (text group 47 id
         // 11, city.city_sells_resource) are at centerX+250/+100, and city_buy_title/
         // items (id 10, city.city_buys_resource) at centerX-300/-430; both titles sit
         // at infoTop = sh-121, both item blocks at sellItemsTop = buyItemsTop = sh-90.

@@ -146,8 +146,7 @@ impl InfoPanel {
         self.rect = [x, y, w, h];
         panel::outer_panel(ui.r, ui.panels, x, y, wb, hb);
         // The original's building window title is centred at y+10 (checked against the
-        // exe: notes/building_info.md "Decompile facts", which supersedes Akhenaten's
-        // pos[0,16] where the two differ).
+        // exe: notes/building_info.md "Decompile facts").
         ui.centred(Font::LargeBlackOnLight, title, x, y + 10.0, w);
         let ctx = ui.img.context_icons;
         ui.image(ctx, x + 14.0, y + h - 40.0);
@@ -708,7 +707,7 @@ impl InfoPanel {
     fn house_window(&mut self, ui: &mut Ui, world: &World, b: &Building) -> Option<InfoAction> {
         let h = b.house.clone().expect("house");
         if h.population <= 0 {
-            // A vacant lot, 21 blocks tall (notes/building_info.md 2.2, from Akhenaten's
+            // A vacant lot, 21 blocks tall (notes/building_info.md 2.2, from
             // ui_house_window.js): whether a road is near enough for anyone to move in.
             // The panel holds only that one description, at (36,114); it does not also
             // carry a separate "No people in this locality" line (that line isn't in

@@ -21,12 +21,12 @@ use crate::world::World;
 pub const WALL: u16 = 169;
 pub const TOWER: u16 = 173;
 pub const GATEHOUSE: u16 = 202;
-/// Akhenaten's mud wall and tower, which earlier Osiris builds offered in their place;
-/// a saved game's are turned into the original's on load.
+/// A mud wall and tower that are not the original's, which earlier Osiris builds
+/// offered in their place; a saved game's are turned into the original's on load.
 pub const OLD_WALL: u16 = 6;
 pub const OLD_TOWER: u16 = 59;
-/// Akhenaten's one-tile gatehouse. A saved game's are kept as they stand (they cannot
-/// become the five-tile gatehouse), but no longer built.
+/// A one-tile gatehouse that is not the original's. A saved game's are kept as they
+/// stand (they cannot become the five-tile gatehouse), but no longer built.
 pub const OLD_GATEHOUSE: u16 = 58;
 pub const TOWER_SENTRY: u16 = 42;
 pub const ROADBLOCK: u16 = 138;
@@ -183,7 +183,7 @@ impl World {
         } else if k == GATEHOUSE {
             self.place_gatehouse(id);
         } else if is_gatehouse(k) {
-            // Akhenaten's one-tile gatehouse, kept for old saves.
+            // The one-tile gatehouse that is not the original's, kept for old saves.
             self.map.terrain.update(x, y, |t| (t & !terrain::BUILDING) | terrain::GATEHOUSE | terrain::ROAD);
             let ns = self.map.terrain_is(x, y - 1, terrain::ROAD) || self.map.terrain_is(x, y + 1, terrain::ROAD);
             if let Some(a) = self.defs.building(k).and_then(|d| d.anims.get(if ns { "base_n" } else { "base_w" })) {
@@ -281,7 +281,7 @@ impl World {
         self.redraw_walls_around(x, y, w.max(h) + 1);
     }
 
-    /// Turns an old save's Akhenaten walls and towers into the original's, and its
+    /// Turns an old save's non-original walls and towers into the original's, and its
     /// lists of what may be built with them.
     pub(crate) fn upgrade_defenses(&mut self) {
         for b in self.buildings.iter_mut() {

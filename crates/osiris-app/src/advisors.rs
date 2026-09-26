@@ -79,7 +79,7 @@ impl Advisor {
 
     /// The outer panel's height in tiles: most overseers fill the full 40x27, but a
     /// few with less to show use a shorter panel, per each advisor's
-    /// `outer_panel({size...})` in Akhenaten's ui_advisor_*.js.
+    /// `outer_panel({size...})` in ui_advisor_*.js.
     fn panel_tiles_high(self) -> i32 {
         match self {
             Advisor::Health => 18,
@@ -384,7 +384,7 @@ fn priority_popup(ui: &mut Ui, world: &mut World, category: usize) -> bool {
     let title = ui.t(G, 25);
     let tw = ui.width(Font::LargeBlackOnLight, &title);
     ui.label(Font::LargeBlackOnLight, &title, x + (w - tw) / 2.0, y + 16.0);
-    // The rank buttons sit at a fixed left margin (24), not centred: Akhenaten's
+    // The rank buttons sit at a fixed left margin (24), not centred:
     // ui_labor_priority_window.js has btn_areas at [24, 60], btn_priority at [34, 0]
     // size [30, 30], for priority_rank_max() (9, the same as MAX_PRIORITY) ranks.
     let ranks = osiris_sim::labor::MAX_PRIORITY as usize;
@@ -467,7 +467,7 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
                 (id.map(|i| ui.t(G, i)).unwrap_or_default(), !(imp_open || exp_open))
             }
         };
-        // Akhenaten's advisor_trade_render_row draws this at row-x + 254 (row-x + 3 for
+        // advisor_trade_render_row draws this at row-x + 254 (row-x + 3 for
         // Osiris's slightly wider row inset), y - 2.
         let sx = px + 274.0;
         if dull {
@@ -500,7 +500,7 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
 
 /// Prices throughout Egypt: what buyers pay and sellers receive for each good.
 ///
-/// Akhenaten's trade_prices_window is 56x16 tiles, with up to 18 icons a row 42
+/// The trade_prices_window is 56x16 tiles, with up to 18 icons a row 42
 /// pixels apart starting at (156, 44), a 90-pixel row pitch, buy/sell prices 30 and
 /// 50 pixels under each icon, and the "Buyers pay"/"Sellers receive" labels at a
 /// fixed x of 26 (28 and 48 pixels under the row, level with the numbers).
@@ -788,7 +788,7 @@ fn ratings(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], selected: &mut us
         let base_y = py + 256.0;
         // The column rises one step per point and a half. The original draws the
         // pedestal 4px left and the rising body 11px right of the column's centre
-        // (elm.x + 30): FUN_ akhenaten ui_advisor_ratings.js advisor_ratings_draw_column.
+        // (elm.x + 30): FUN_ ui_advisor_ratings.js advisor_ratings_draw_column.
         let steps = 2 * (*value as f32 * 0.75) as i32;
         ui.image(column, x + 26.0, base_y);
         for k in 0..steps {
@@ -1241,7 +1241,7 @@ fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
     None
 }
 
-/// The eleven salaries, one per rank. Akhenaten's ui_set_salary_window.js: a 24x25
+/// The eleven salaries, one per rank. ui_set_salary_window.js: a 24x25
 /// tile panel (not the 32x22 popup_frame) with a Deben icon beside the title, an
 /// 11-row list at (16,48) with rows `buttons_size_y(20)*rank + buttons_margin_y(12)`
 /// down (scroll_list_panel.cpp's `rebuild_buttons_geometry`: the margin is a one-time
@@ -1277,7 +1277,7 @@ fn salary_popup(ui: &mut Ui, world: &mut World) -> bool {
     ui.button([x + 112.0, y + 340.0, 160.0, 20.0], "Cancel", Font::NormalBlackOnLight)
 }
 
-/// Modest, generous and lavish gifts and what they cost. Akhenaten's
+/// Modest, generous and lavish gifts and what they cost.
 /// ui_send_gift_window.js: a 30x15 tile panel, a "Modest/Generous/Lavish" label at
 /// (32, row) beside a cost link at (116, row) 20 pixels per row from y 80, and Cancel
 /// at a margin of 180 from the right, 40 above the bottom. True when it closes.
@@ -1311,7 +1311,7 @@ fn gift_popup(ui: &mut Ui, world: &mut World) -> bool {
     ui.button([x + 300.0, y + 200.0, 160.0, 20.0], "Cancel", Font::NormalBlackOnLight)
 }
 
-/// Choosing how much of a burial provision to send. Akhenaten's ui_advisor_monuments.js
+/// Choosing how much of a burial provision to send. ui_advisor_monuments.js
 /// `burial_dispatch_window`: a 28x12 tile panel, the resource icon at (16, 16), the
 /// title (group 199 id 4, not id 10 which is the overview's section header) centred in
 /// a box starting at 48, an "All" button inside a 24x4 inner panel, a hint (id 3) and
@@ -1329,7 +1329,7 @@ fn burial_popup(ui: &mut Ui, world: &mut World, r: u16, amount: i32) -> Option<i
     let (need, sent) = world.burial.get(r as usize).copied().unwrap_or((0, 0));
     let most = ((need - sent).min(world.city_stored(r)) / 100).max(0);
     // A taller inner panel than the original's 24x4 (Osiris's group 199 id 3 hint is
-    // longer than fits on Akhenaten's single line before the arrows): the "All" button
+    // longer than fits on a single line before the arrows): the "All" button
     // and hint share a row, wrapped into the space right of the button, with the
     // arrows and amount on their own row below so nothing overlaps.
     panel::inner_panel(ui.r, ui.panels, x + 32.0, y + 56.0, 24, 5);
@@ -1359,7 +1359,7 @@ fn burial_popup(ui: &mut Ui, world: &mut World, r: u16, amount: i32) -> Option<i
     Some(amount)
 }
 
-/// Choosing how much of his savings the governor gives the city. Akhenaten's
+/// Choosing how much of his savings the governor gives the city.
 /// ui_donate_to_city_window.js: a 32x10 tile panel, the Deben icon at (16, 16), fixed
 /// amount buttons (0/500/2000/5000/All) in a 26x4 inner panel, a hint beside a
 /// down-then-up arrow pair and the raw amount, and Give/Cancel at the bottom. The new
@@ -1562,7 +1562,7 @@ fn monuments(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
     let rating = format!("{} {}", ui.t(G, 11), world.ratings.monument);
     ui.label(Font::NormalBlackOnLight, &rating, px + 60.0, py + 42.0);
-    // The scenario's monuments, each with how it stands. Akhenaten's monuments_panel
+    // The scenario's monuments, each with how it stands. monuments_panel
     // is 8 tiles tall (ui_advisor_monuments.js pos[32,60] size[36,8], ending at
     // py+188, clear of the burial_title at py+200): the original's rows show a
     // compact "phase/total pct%" that never wraps, but Osiris shows a full sentence

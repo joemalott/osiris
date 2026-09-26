@@ -10,7 +10,7 @@ id, and the `m_NNN_*` filename number are all the same number. Files `m_128_alex
 `m_135_enkomi.js` are non-campaign scripted maps (multiplayer/sandbox/custom scenarios) and are
 out of scope for `missions.toml`.
 
-## How mission scripting works (Akhenaten source engine)
+## How mission scripting works
 
 Each `m_NNN_*.js` file defines one `missionN { ... }` config block (map file, starting building
 roster, funds, environment flags, win_criteria, and a `vars {}` table of mission-local scalar

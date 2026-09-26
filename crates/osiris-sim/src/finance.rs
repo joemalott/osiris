@@ -23,7 +23,7 @@ pub struct Finance {
     pub tax_rate: i32,
     /// Deben per worker per year (x10), as the original stores it.
     pub wages: i32,
-    /// A per-difficulty tax percentage from Akhenaten's mission data; not applied, as
+    /// A per-difficulty tax percentage from mission data; not applied, as
     /// the original collects `TAX_COLLECTED_PCT` at every difficulty.
     pub tax_multiplier_pct: i32,
     pub this_year: YearTotals,

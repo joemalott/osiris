@@ -96,7 +96,7 @@ pub struct Mission {
 
 /// Always available, whatever the mission says.
 const ALWAYS: [u16; 3] = [kind::ROAD, kind::VACANT_LOT, kind::WELL];
-/// Buildings the original never offers in any menu (Akhenaten additions): the bull
+/// Buildings the original never offers in any menu: the bull
 /// trainer, the tower gatehouse, the dike, the food mill and the industry office.
 const NEVER_BUILT: [u16; 5] = [37, 302, 337, 360, 361];
 /// The palaces and the mansions, for ranks 0-5, 6-7 and 8-10.

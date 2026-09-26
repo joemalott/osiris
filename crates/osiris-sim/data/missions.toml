@@ -13,7 +13,7 @@
 #
 # Schema (per [[mission]]):
 #   id          = scenario id (0..52)
-#   key         = "m_NNN_slug" (matches the Akhenaten source filename, minus .js)
+#   key         = "m_NNN_slug" (matches the source script's filename, minus .js)
 #   name        = selection_title from the source script
 #   buildings   = [building_key, ...]  buildings.toml keys available at mission start (the
 #                 source script's top-level `buildings [...]` list; BUILDING_HOUSE_VACANT_LOT is

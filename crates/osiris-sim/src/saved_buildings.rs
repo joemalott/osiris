@@ -109,7 +109,7 @@ impl World {
                 Some(Placement { kind: k, x, y, facing })
             }
             crate::defenses::GATEHOUSE => at(crate::defenses::GATEHOUSE, u8::from(r.orientation() & 1 != 0)),
-            // Akhenaten's one-tile gatehouse: not the original's, never in its files.
+            // A one-tile gatehouse: not the original's, never in its files.
             crate::defenses::OLD_GATEHOUSE => None,
             crate::defenses::OLD_WALL => at(crate::defenses::WALL, 0),
             crate::defenses::OLD_TOWER => at(crate::defenses::TOWER, 0),

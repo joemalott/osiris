@@ -13,7 +13,7 @@
 # table).
 #
 # Values that may be later additions rather than the original Pharaoh.exe's behavior
-# are marked "# akhenaten-only?" (or, where there was stronger evidence, a more
+# are marked "# non-original?" (or, where there was stronger evidence, a more
 # specific note). Difficulty-tiered arrays are given as
 # [very_easy, easy, normal, hard, very_hard] unless noted otherwise.
 
@@ -62,7 +62,7 @@ sentiment_table = [
 # unemployment% -> migration percentage, same first-match-wins semantics.
 # src/scripts/migration.js:20-34, migration_unemployment_percentage table,
 # src/city/city_migration.h:13-14.
-# akhenaten-only? not confirmed against Ghidra; final percentage = sentiment_table
+# non-original? not confirmed against Ghidra; final percentage = sentiment_table
 # result + unemployment_table result (city_migration.cpp:48), clamped by any
 # registered unemployment-cap range.
 unemployment_table = [
@@ -92,9 +92,9 @@ max_people_per_house_per_batch = 4
 # house level and pulls up to 4 people per house.
 emigration_sort = "ascending_house_level"
 emigration_max_people_per_house = 4
-# src/game/game_config.cpp:90 - default true in Akhenaten; flag NAME implies the
-# ORIGINAL engine let even the smallest huts emigrate (Akhenaten's default changes
-# that). akhenaten-only (default behavior differs from original; set false to restore
+# src/game/game_config.cpp:90 - default true here; flag NAME implies the
+# ORIGINAL engine let even the smallest huts emigrate (this default changes
+# that). non-original (default behavior differs from original; set false to restore
 # original behavior if reimplementing faithfully).
 gameplay_change_small_hut_not_create_emigrant_default = true
 
@@ -102,9 +102,9 @@ gameplay_change_small_hut_not_create_emigrant_default = true
 # src/city/city_migration.cpp:53-79. Effective cap = min over every registered
 # population-cap "reason" plus the scenario population_cap; when population >= cap,
 # migration percentage is forced to 0 (message #immigration_people_wont_come).
-# The string-keyed multi-reason cap registry itself is likely akhenaten-only
+# The string-keyed multi-reason cap registry itself is likely non-original
 # scripting/extensibility over a single original scenario population cap.
-# akhenaten-only? (mechanism, not the underlying single-cap concept)
+# non-original? (mechanism, not the underlying single-cap concept)
 war_invading_enemy_threshold = 3   # > this many invaders zeroes immigration this update
 
 # ---------------------------------------------------------------------------
@@ -112,11 +112,11 @@ war_invading_enemy_threshold = 3   # > this many invaders zeroes immigration thi
 # ---------------------------------------------------------------------------
 
 [population]
-# Contrary to the common claim that Pharaoh has no births/deaths, Akhenaten models
-# both explicitly, once per year. A comment in city_population.cpp fixing a
-# "100y ghost" double-removal bug describes it as a bug in "the original engine",
-# which is in-code evidence the underlying births/deaths system reproduces real
-# Sierra logic (not an Akhenaten invention), even though exact table values were not
+# Contrary to the common claim that Pharaoh has no births/deaths, the underlying
+# system models both explicitly, once per year. A comment in city_population.cpp
+# fixing a "100y ghost" double-removal bug describes it as a bug in "the original
+# engine", which is in-code evidence the underlying births/deaths system reproduces
+# real Sierra logic (not a later invention), even though exact table values were not
 # independently confirmed against the Ghidra decompile (no literal-array match found;
 # tables likely live in .rodata that Ghidra didn't reconstruct as C initializers).
 yearly_update_tick = 23   # same daily tick slot as migration; gated by yearly flag
@@ -145,14 +145,14 @@ deaths_per_health_per_age_decennium = [
 # working-age population = ages [start, end). src/city/city_population.cpp:381-384
 working_age_start = 20
 working_age_end_default = 50
-# game_config.cpp:51, flag gameplay_change_retire_at_60 default true in Akhenaten.
-# The flag NAME implies original Pharaoh's cutoff was 50, i.e. Akhenaten's default
-# (60) is a behavior change. akhenaten-only (default differs from original).
-working_age_end_akhenaten_retire60_default = 60
+# game_config.cpp:51, flag gameplay_change_retire_at_60 default true here.
+# The flag NAME implies original Pharaoh's cutoff was 50, i.e. this default
+# (60) is a behavior change. non-original (default differs from original).
+working_age_end_retire60_default = 60
 # game_config.cpp:26, flag gameplay_fix_100y_ghosts, default true — an opt-in fix for
 # a documented original-engine double-removal bug at the top of the age census; the
 # bug itself is evidence the surrounding system replicates original behavior.
-# akhenaten-only? (the fix is new, the underlying bug/system is original)
+# non-original? (the fix is new, the underlying bug/system is original)
 
 [population.room]
 # building_house::population_room(), src/building/building_house.cpp:429-438
@@ -214,7 +214,7 @@ zero_food_types_days_cap = 3
 # building_house.cpp:585-591,614-617: days_without_food >= this forces devolve
 # regardless of other requirements; also nonzero days_without_food blocks evolution
 # outright. Per-house-level value lives in the model file's own field
-# (days_without_food_devolve_threshold); Akhenaten sets it uniformly to 3 for every
+# (days_without_food_devolve_threshold); set uniformly to 3 for every
 # house level and difficulty (src/scripts/houses.js, all 20 blocks).
 days_without_food_devolve_threshold = 3
 
@@ -246,12 +246,12 @@ neither_manors_nor_residences = [
 ]
 
 [sentiment.religion_coverage]
-# akhenaten-only: gated behind game_features::gameplay_change_religion_coverage_influence_sentiment.
+# non-original: gated behind game_features::gameplay_change_religion_coverage_influence_sentiment.
 # src/city/city_sentiment.cpp:102-126. avg = mean coverage% across known gods.
 formula = "avg >= 50: (avg-50)/15 ; else (avg-50)/25 - 1 ; clamp [-5, 5]"
 
 [sentiment.monuments]
-# akhenaten-only: gated behind game_features::gameplay_change_monuments_influence_sentiment.
+# non-original: gated behind game_features::gameplay_change_monuments_influence_sentiment.
 # src/city/city_sentiment.cpp:144-168.
 shrine_points_by_population = [
   { above = 5000, points = 5 },
@@ -278,7 +278,7 @@ crime_threshold = 40
 # actually available (plebs only, patricians never work).
 workforce_available_fraction_pct = 60
 # game_features::gameplay_fixed_worker_percent - an alternate fixed-percentage
-# override path. akhenaten-only.
+# override path. non-original.
 
 # labor_category.h:5-24. Categories 0-10 are the base set; STORAGE(11) is explicitly
 # commented "Enhanced... do not renumber 0..10" and gated by
@@ -295,7 +295,7 @@ categories = [
   "military",               # 8
   "culture",                # 9
   "house",                  # 10
-  "storage",                 # 11, akhenaten-only? (enhanced split, feature-flagged)
+  "storage",                 # 11, non-original? (enhanced split, feature-flagged)
 ]
 
 # DEFAULT_PRIORITY[]: round-robin workers-per-round weight used for any category not
@@ -360,7 +360,7 @@ difficulty_money_multiplier = { very_easy = 300, easy = 200, normal = 150, hard 
 # pay_monthly_wages()/estimate_wages(), src/city/city_finance.cpp:117,312-313
 formula = "monthly_wages = wages * workers_employed / 10 / 12"
 # game_features::gameplay_enhanced_historical_economy - optional grain-instead-of-
-# treasury wage path. akhenaten-only. src/city/city_finance.cpp:317-336
+# treasury wage path. non-original. src/city/city_finance.cpp:317-336
 
 [finance.debt]
 # pay_monthly_interest(), src/city/city_finance.cpp:344-351. Charged only while treasury < 0.
@@ -372,7 +372,7 @@ out_of_money_treasury_threshold = -5000   # is_out_of_money(), city_finance.cpp:
 # pay_tribute(), src/city/city_finance.cpp:456-505. Annual. Skipped entirely if
 # treasury <= 0 (marked unpaid). Not independently confirmed against Ghidra
 # (no direct hits searching for these population-threshold constants).
-# akhenaten-only? treat this whole schedule as unverified against the original binary.
+# non-original? treat this whole schedule as unverified against the original binary.
 loss_year_tribute_by_population = [
   { above = 2000, tribute = 200 },
   { above = 1000, tribute = 100 },
@@ -437,9 +437,9 @@ health_formula = "count of nonzero apothecary/physician fields (0-2); dentist/mo
 service_radius_tiles = 2
 
 # max_roam_length per walker type, in the same units the pathfinder uses (not tiles
-# 1:1). src/scripts/figure/*.js. akhenaten-only? not independently confirmed against
+# 1:1). src/scripts/figure/*.js. non-original? not independently confirmed against
 # Ghidra — flagged as unverified against the original binary; treat as plausible but
-# Akhenaten-sourced tuning.
+# externally sourced tuning.
 roam_length = { water_carrier = 640, juggler = 640, senet_player = 640, zookeeper = 640, magistrate = 800, tax_collector = 512, musician = 512, dancer = 512, priest = 384, physician = 384, labor_seeker = 384, market_trader = 384, teacher = 384, academy_scriber = 384, dentist = 384, embalmer = 384, herbalist = 384, entertainer_generic = 3200 }
 
 [service_walkers.spawn_delay]
@@ -456,7 +456,7 @@ by_staffing_pct = [
   { min_staffing = 1, delay_days = 15 },
   { min_staffing = 0, delay_days = -1 },   # -1 = no spawn at all when 0% staffed
 ]
-# akhenaten-only: game_features::gameplay_enhanced_walker_spawn_boost halves the
+# non-original: game_features::gameplay_enhanced_walker_spawn_boost halves the
 # above to 0/1/3/7 when enabled (an optional toggle); default (flag off) is presumed
 # to reproduce the original 0/1/3/7/15 schedule.
 enhanced_walker_spawn_boost_halves_delay = true
@@ -485,7 +485,7 @@ well_radius_tiles = 3
 # (has_well_access), used only by the lowest water-tier houses (model.water == 1)
 # when the radius-3 check somehow fails. building_house.cpp:628-639
 well_fallback_radius_tiles = 1
-# akhenaten-only? game_features::gameplay_change_well_radius_depends_moisture -
+# non-original? game_features::gameplay_change_well_radius_depends_moisture -
 # scales the fallback radius 1-4 based on moisture/40 at the well's tile instead of a
 # fixed 1.
 well_requires_groundwater_tile = true
@@ -544,9 +544,9 @@ effect = "full_reset_to_zero"
 detection_radius_tiles = 10
 # scripts/building/firehouse.js:35
 min_houses_coverage = 50
-# akhenaten-only: game_features::gameplay_change_fire_risk_clay_pit_reduced (default
+# non-original: game_features::gameplay_change_fire_risk_clay_pit_reduced (default
 # true) - clay-pit-specific fire risk reduction tuning. building_clay_pit.cpp:25-26
-# akhenaten-only: game_features::gameplay_change_fireman_returning (default true) -
+# non-original: game_features::gameplay_change_fireman_returning (default true) -
 # skips an extra fight_fire() re-check on return-home vs. the original double-check.
 
 [fire.burning_ruin]
@@ -586,11 +586,11 @@ effect_radius_tiles = 2
 # 1+2-tile radius around the architect each service visit. figure_architector.cpp:193-212.
 risk_reduction_strength_pct = 100
 # Sub-100 values give a percentage reduction instead of a full reset — this partial-
-# reduction branch is an akhenaten-only tuning knob; the default (100) reproduces
+# reduction branch is a non-original tuning knob; the default (100) reproduces
 # confirmed original behavior.
 # scripts/architect_post.js:12
 min_houses_coverage = 50
-# akhenaten-only, default OFF (false): game_features::gameplay_change_architect_patrol_most_damaged.
+# non-original, default OFF (false): game_features::gameplay_change_architect_patrol_most_damaged.
 # When enabled, architects seek the worst-damaged building above this threshold with
 # a cooldown, instead of pure random roaming + passive radius reduction (original behavior).
 damage_seek_threshold = 50
@@ -640,7 +640,7 @@ buyer_trip_load_unit = 100
 storage_yard_pickup_cap = 200
 # figure_market_buyer.cpp:164 - max stock a house's bazaar-fed pantry can hold
 house_max_food_stock_formula = "house_model.food_storage_multiplier * highest_population"
-# akhenaten-only: game_features::gameplay_enhanced_food_mill gates a multi-food-type
+# non-original: game_features::gameplay_enhanced_food_mill gates a multi-food-type
 # pickup loop (up to bazaar desired_variety per trip) that ONLY applies at food
 # mills, not granaries/storage yards; in-code comment explicitly contrasts this with
 # "OG behavior on primary fail" for granary/storage-yard sources.
@@ -690,8 +690,8 @@ quality_tiers = [
 ]
 flood_progress_max = 30
 flood_multiplier_grow = 20
-# akhenaten-only: game_features::gameplay_enhanced_flood_basins - a code comment
-# marks the "dike breach on Osiris flood-destroy" mechanic as an Osiris/Akhenaten
+# non-original: game_features::gameplay_enhanced_flood_basins - a code comment
+# marks the "dike breach on Osiris flood-destroy" mechanic as a later
 # addition, not confirmed original behavior.
 
 [farming]
@@ -713,7 +713,7 @@ floodplain_harvest_trigger_cycles_before_flood = 28
 meadow_harvest_schedule = "fixed_calendar_per_crop"
 # Grain farms yield straw as a secondary resource. farm.js output_resource_second_rate: 10
 grain_straw_secondary_rate = 0.1   # straw yield = expected_produce / 10
-# akhenaten-only: game_features::gameplay_change_soil_depletion - deplete_soil()
+# non-original: game_features::gameplay_change_soil_depletion - deplete_soil()
 # comment explicitly says its default path is "DIFFERENT from original Pharaoh...
 # and a bit easier to do"; the fallback (flag off) uses fertility(FERT_WITH_MALUS)*0.2
 # to approximate original behavior.
@@ -752,13 +752,13 @@ progress_per_worker_per_day = 1
 # start_production(), building_industry.cpp:145-161 - requires >= 100 stored units of
 # EACH input resource and consumes exactly 100 of each per production cycle
 input_units_consumed_per_cycle = 100
-# akhenaten-only: game_features::gameplay_rebalance_workshop_output - optional output
+# non-original: game_features::gameplay_rebalance_workshop_output - optional output
 # decay curve [100,80,70,60,50]% for consecutive cycles without restocking; NOT
 # baseline behavior (default output = flat production_rate below).
 
 # production_rate = output units per completed cycle (progress reaching progress_max).
 # Every entry consumes 100 units of each listed input per cycle. Entries marked
-# "(default)" had no explicit override in Akhenaten's config and use the engine
+# "(default)" had no explicit override in the reference config and use the engine
 # default of 100 - treat those magnitudes as lower-confidence than the ones with an
 # explicit script value.
 [industry.clay_pit]
@@ -788,9 +788,8 @@ outputs = ["bricks"]
 [industry.chariots_workshop]
 progress_max = 400
 production_rate = 20
-# Akhenaten's chariots_workshop.js consumes weapons as a second input, but the exe
-# disagrees: its stock-pile draw (FUN_00436310, case 0xcd) and its "still working"
-# animation gate (FUN_0040f2c0) both treat the chariot maker as single-input, the same
+# The chariot maker's stock-pile draw (FUN_00436310, case 0xcd) and its "still
+# working" animation gate (FUN_0040f2c0) both treat it as single-input, the same
 # as the weaponsmith (case 0x70) - neither ever touches the second-good array that
 # bricks (0xcc) and the lamp maker (0xe8) use for their real second input. Osiris
 # follows the exe: timber only (crates/osiris-sim/data/buildings.toml).
@@ -901,7 +900,7 @@ mood_tiers = [
 # Ghidra-VERIFIED: FUN_00468170 computes identical constants
 # (iVar1*8000 + iVar2*0x177(375) + iVar3*0x96(150) for known gods;
 # iVar1*8000 + iVar2*0x2ee(750) + iVar3*300 for patron gods) - this IS original
-# Pharaoh behavior, not an Akhenaten invention. src/city/city_religion.cpp:140-160,176-188
+# Pharaoh behavior, not a later invention. src/city/city_religion.cpp:140-160,176-188
 known_shrine_coverage = 150
 known_temple_coverage = 375
 known_complex_coverage = 8000
@@ -931,7 +930,7 @@ happy_ankhs_at_mood_ge_80 = [3, 2, 1, 1, 0]
 happy_ankhs_at_mood_ge_90 = [2, 1, 0, 0, 0]
 counter_cap = 50
 # NOTE: city_religion.cpp:830 assigns happy_ankhs from wrath_bolts, which looks like a
-# copy-paste bug in Akhenaten - not confirmed as original behavior, flag for review
+# copy-paste bug in the reference source - not confirmed as original behavior, flag for review
 # when reimplementing.
 
 [religion.blessing_curse_triggers]
@@ -944,30 +943,30 @@ minor_curse = { wrath_bolts_gt = 19, months_since_festival_gt = 3, mood_delta = 
 [religion.per_god_effects]
 # city_religion_{osiris,ra,ptah,seth,bast}.cpp - short summary, see BALANCE_NOTES.md
 # for the algorithmic description. "TEMP Enhanced" fallback raids (Ptah scorpions,
-# Seth asps, Bast lions) are explicitly flagged in Akhenaten comments as additions,
-# gated behind game_features::gameplay_* flags. akhenaten-only (raid fallbacks only;
+# Seth asps, Bast lions) are explicitly flagged in source comments as additions,
+# gated behind game_features::gameplay_* flags. non-original (raid fallbacks only;
 # the primary curse/blessing effects listed are not flagged as new).
 osiris_major_blessing = "double farm yield 100-149 days, or flood quality boost x2"
 osiris_major_curse = "flood quality -20 to -50, or locusts"
 ra_major_blessing = "150% export profits 12 months, or +15 kingdom rating"
 ra_major_curse = "harsh trade reduction 12mo and -15 kingdom rating, or no traders 12mo"
 ptah_major_blessing = "restock warehouses/industries"
-ptah_major_curse = "destroy an industry building, or (akhenaten-only fallback) 3-8 scorpions for 2-5 months, or frog plague"
+ptah_major_curse = "destroy an industry building, or (non-original fallback) 3-8 scorpions for 2-5 months, or frog plague"
 seth_major_blessing = "protect troops 10 months"
-seth_major_curse = "sink all ships, or hailstorm crushes a legion/invasion (akhenaten-only asp-raid fallback)"
+seth_major_curse = "sink all ships, or hailstorm crushes a legion/invasion (non-original asp-raid fallback)"
 bast_major_blessing = "throws a festival for the other 4 gods, resets their months_since_festival"
-bast_major_curse = "destroy 20 houses (worst-housing selected), akhenaten-only lion-raid fallback"
+bast_major_curse = "destroy 20 houses (worst-housing selected), non-original lion-raid fallback"
 
 [religion.festivals]
 # scripts/city/festival.js:37-46. cost/duration formulas use current population.
-# Not cross-checked in Ghidra; no Akhenaten comment flags these as new, so likely
+# Not cross-checked in Ghidra; no comment flags these as new, so likely
 # faithful to original but unconfirmed.
 small = { cost_formula = "floor(pop/20) + 10", duration_months_formula = "1 + floor(pop/1000) + 1", happiness_year1 = 7, happiness_year2 = 2, happiness_steady = 1 }
 large = { cost_formula = "floor(pop/10) + 20", duration_months_formula = "2 + floor(pop/1500) + 1", happiness_year1 = 9, happiness_year2 = 3, happiness_steady = 2 }
 grand = { cost_formula = "floor(pop/5) + 40", duration_months_formula = "3 + floor(pop/2000) + 1", happiness_year1 = 12, happiness_year2 = 5, happiness_steady = 3, beer_required_formula = "floor(pop/50) + 1" }
 
 [religion.local_cults]
-# akhenaten-only: gated by game_features::gameplay_enhanced_local_cults /
+# non-original: gated by game_features::gameplay_enhanced_local_cults /
 # gameplay_enhanced_festival_calendar - NOT in original Pharaoh.
 cult_festival_mood_bonus = 5
 appeased_months = 6
@@ -986,7 +985,7 @@ school_points = [0, 1, 4, 6, 10, 15]
 academy_points = [0, 1, 2, 4, 7, 10]
 library_points = [0, 2, 4, 8, 14, 20]
 coverage_breakpoints_pct = [0, 30, 50, 70, 85, 100]
-# akhenaten-only: +1 culture per 3 active jewels workshops, gated by
+# non-original: +1 culture per 3 active jewels workshops, gated by
 # game_features::gameplay_jewels_workshops_culture_bonus
 
 [ratings.prosperity]
@@ -1009,7 +1008,7 @@ luxury_exports_above_100_per_year_bonus = 1
 # rating_prosperity.cpp:72-88
 
 [ratings.monument]
-# akhenaten-only / explicitly a placeholder: scripts/city/monuments.js:54-67 code
+# non-original / explicitly a placeholder: scripts/city/monuments.js:54-67 code
 # comment: "Rating is APPROXIMATE and additive... weights stay placeholders...
 # Exact per-type OG points still need a .pak dump." Do not treat as verified original formula.
 formula = "clamp(2.25 * sum(weight * phase_progress_pct) + 4.5, 0, 100)"
@@ -1047,13 +1046,13 @@ booth = 400
 bandstand = 700
 pavilion = 1200
 zoo = 7500
-# DIVERGENCE FOUND: Akhenaten treats any active senet house as flat 100% coverage
-# (coverage.cpp:103), but Ghidra's FUN_00468170 computes a 5th value as
+# DIVERGENCE FOUND: coverage.cpp:103 treats any active senet house as flat 100%
+# coverage, but Ghidra's FUN_00468170 computes a 5th value as
 # population * 5000 (a per-population divisor, like the other venues), not a binary
-# flag. This looks like a genuine Akhenaten behavior change from the original -
+# flag. This looks like a genuine behavior change from the original -
 # consider using 5000 (matching the other venues' pattern) instead of a binary flag
-# for a faithful reimplementation. akhenaten-only (divergence).
-senet_house_akhenaten = "binary_100pct_if_any_active"
+# for a faithful reimplementation. non-original (divergence).
+senet_house_binary_variant = "binary_100pct_if_any_active"
 senet_house_ghidra_original = 5000
 average_coverage_formula = "mean of the 5 venue coverage percentages"   # coverage.cpp:123-124
 

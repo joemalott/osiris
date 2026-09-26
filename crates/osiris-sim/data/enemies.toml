@@ -28,17 +28,17 @@
 # fallback used when an archer is engaged at close range).
 #
 # [UNVERIFIED] items:
-#   - mitani: Akhenaten defines NO figure_mitani_* blocks and no enemy_mitani{} entry, and
+#   - mitani: enemies.js defines NO figure_mitani_* blocks and no enemy_mitani{} entry, and
 #     e_enemy_type (0-12) has no Mitani value at all -- Mitani cannot be spawned as a scripted
-#     invader in Akhenaten, despite Mitani.sg3 existing on disk and Figure_model.txt carrying
+#     invader, despite Mitani.sg3 existing on disk and Figure_model.txt carrying
 #     a full ALL ENEMIES stats block (rows 15-19) for it. It appears to be diplomacy/text-only,
 #     consistent with the original game (Mitani never appears as an invasion nation in vanilla
 #     Pharaoh either). The group ids given here are INFERRED by analogy: Mitani.sg3's group
 #     layout is byte-for-byte identical (same start offsets) to Assyrian.sg3's, strongly
 #     suggesting a shared animation template, but this has not been confirmed against any
-#     Akhenaten source -- treat as a guess, not a fact.
+#     source -- treat as a guess, not a fact.
 #   - barbarian: has no entry in text group 37 (no dedicated nation name) and no ALL ENEMIES
-#     row; Akhenaten's enemy_barbarian{} carries its own literal stat values (max_damage,
+#     row; enemy_barbarian{} carries its own literal stat values (max_damage,
 #     attack_value, etc.) directly in enemies.js rather than referencing Figure_model.txt.
 #   - Several nations (Nubian, Phoenician, Persian) have a JS figure class name (e.g.
 #     "axeman", "spearman") that doesn't match the Figure_model.txt row label for the same
@@ -57,9 +57,9 @@ key = "barbarian"
 name_text = []  # [UNVERIFIED] no dedicated nation-name text id found for generic barbarian invaders
 pack = "Enemy_1"
 enemy_ids = [0]
-stats_row = -1  # [UNVERIFIED] no ALL ENEMIES row for barbarian; Akhenaten uses hardcoded fallback stats in enemies.js instead
+stats_row = -1  # [UNVERIFIED] no ALL ENEMIES row for barbarian; enemies.js uses hardcoded fallback stats instead
 
-# No dedicated transport/warship in Enemy_1.sg3; Akhenaten falls back to Hittite pack ids 7/8/9 (transport) and 10/11/12 (warship) for barbarian invasions (see figure_barbarian_transport_ship / figure_enemy_warship_generic in enemies.js).
+# No dedicated transport/warship in Enemy_1.sg3; barbarian invasions fall back to Hittite pack ids 7/8/9 (transport) and 10/11/12 (warship) (see figure_barbarian_transport_ship / figure_enemy_warship_generic in enemies.js).
 
 [nation.infantry]
 walk = { group = 3, frames = 12 }
@@ -294,7 +294,7 @@ enemy_ids = []
 stats_row = 15  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
 unverified = true
 
-# [UNVERIFIED] Akhenaten's enemies.js has NO figure_mitani_* blocks and NO enemy_mitani{} entry -- Mitani is not a selectable e_enemy_type (no ENEMY_x value maps to it; see figure_type.h e_enemy_type, values 0-12 skip Mitani entirely). Mitani.sg3 exists on disk and Figure_model.txt ALL ENEMIES rows 15-19 give it full stats, but nothing in Akhenaten spawns it as an invader -- likely diplomacy/text-only in the original game too. Group ids above are INFERRED, not sourced: Mitani.sg3's group-start layout (1,97,105,201,297,393,401,497,529,540,548,580,591,599,695,707,803) is numerically IDENTICAL to Assyrian.sg3's, strongly suggesting a shared sprite template -- ids are copied from the verified Assyrian mapping by analogy only.
+# [UNVERIFIED] enemies.js has NO figure_mitani_* blocks and NO enemy_mitani{} entry -- Mitani is not a selectable e_enemy_type (no ENEMY_x value maps to it; see figure_type.h e_enemy_type, values 0-12 skip Mitani entirely). Mitani.sg3 exists on disk and Figure_model.txt ALL ENEMIES rows 15-19 give it full stats, but nothing spawns it as an invader -- likely diplomacy/text-only in the original game too. Group ids above are INFERRED, not sourced: Mitani.sg3's group-start layout (1,97,105,201,297,393,401,497,529,540,548,580,591,599,695,707,803) is numerically IDENTICAL to Assyrian.sg3's, strongly suggesting a shared sprite template -- ids are copied from the verified Assyrian mapping by analogy only.
 
 [nation.infantry]
 walk = { group = 4, frames = 12 }

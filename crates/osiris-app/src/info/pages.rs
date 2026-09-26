@@ -559,14 +559,14 @@ fn page(ui: &Ui, world: &World, b: &Building) -> Option<Page> {
         }
         k::WELL => {
             // A well has no employee row, just its one line of text at y+56 (notes/
-            // building_info.md 9.1, from Akhenaten's ui_well_info_window.js).
+            // building_info.md 9.1, from ui_well_info_window.js).
             let mut p = Page::new(14, t(109, 0));
             p.line(56.0, t(109, super::InfoPanel::well_line(world, b)));
             p
         }
         k::WATER_SUPPLY => {
             // 17 blocks (notes/building_info.md 1.4: "water supply, water lift | 29x17",
-            // a direct citation from Akhenaten; the "Decompile facts" class list is
+            // a direct citation; the "Decompile facts" class list is
             // admittedly incomplete, so it doesn't override this).
             let mut p = Page::new(17, t(108, 0));
             // One line per worker short, from all five down to none.
@@ -631,7 +631,7 @@ fn page(ui: &Ui, world: &World, b: &Building) -> Option<Page> {
             p
         }
         k::SHRINE_FIRST..=k::SHRINE_LAST => {
-            // 14 blocks tall, god picture at (190,94) (notes/building_info.md: Akhenaten
+            // 14 blocks tall, god picture at (190,94) (notes/building_info.md:
             // ui_shrine_info_window.js, background size[29,14], god_image pos[190,94]).
             let god = (kind - k::SHRINE_FIRST) as u32;
             let mut p = Page::new(14, t(161, 2 * god as usize));
@@ -1073,7 +1073,7 @@ fn cart_line(ui: &Ui, world: &World, b: &Building, p: &mut Page, y: f32) {
 
 fn granary_page(ui: &Ui, world: &World, b: &Building) -> Page {
     // 17 blocks (notes/building_info.md 1.4 and 5.2 both give this directly, from
-    // Akhenaten's ui_granary_info.js; the "Decompile facts" class list of 14/16/18/19/
+    // ui_granary_info.js; the "Decompile facts" class list of 14/16/18/19/
     // 22/24 is admittedly incomplete ("Others need content matching"), so it doesn't
     // override two independent, direct citations of the real size).
     const G: usize = super::TEXT_GRANARY;

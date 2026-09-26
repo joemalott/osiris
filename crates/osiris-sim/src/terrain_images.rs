@@ -7,7 +7,7 @@
 //! floodplain's rows and banks and does it all again, since the banks change how the
 //! land and water beside the floodplain are drawn. Maps saved at version 147 to 160
 //! store the result; older ones store ids from an earlier sprite layout, and later
-//! versions come from other editors (Akhenaten writes 189) whose images need not follow
+//! versions come from other editors (one writes 189) whose images need not follow
 //! the terrain, so Osiris runs this pass on both.
 //!
 //! Almost every image follows from the terrain, the random grid, moisture and soil

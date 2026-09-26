@@ -67,14 +67,14 @@ clamped into [0,100] each cycle:
    other update cycle. The tier table used depends on whether the city already has
    Manors, plain Residences, or neither — cities with more housing variety punish
    a high tent percentage less.
-6. **Religion coverage** and **7. Monuments**: both gated behind optional Akhenaten
+6. **Religion coverage** and **7. Monuments**: both gated behind optional
    feature flags (treat as tunable extras, not confirmed original mechanics).
 
 ## Labor allocation
 
-Workforce = 60% of the working-age population (ages 20-49 by default; Akhenaten
-defaults to 20-59, which its own flag name implies is a change from the original
-20-49 cutoff), plebs only.
+Workforce = 60% of the working-age population (ages 20-49 by default; a feature
+flag can raise the cutoff to 20-59, which its own name implies is a change from
+the original 20-49 cutoff), plebs only.
 
 Labor is allocated **top-down by category**, not by walker/need at the category
 level:
@@ -110,7 +110,7 @@ Monthly, in this fixed order: collect taxes, pay wages, pay interest, pay salary
 0x4599d0 sums that separately for commoners (below common manor) and nobles over
 houses a tax collector has visited, and banks `sum * tax_rate / 100 * 50 / 100` for
 each; the 50 comes from a per-difficulty table that holds 50 for every difficulty
-(Akhenaten's `house_tax_multipliers` [300, 200, 150, 100, 75] are not applied). Wages paid = `wage_rate * workers_employed / 10 / 12` (a monthly
+(an alternate `house_tax_multipliers` [300, 200, 150, 100, 75] is not applied). Wages paid = `wage_rate * workers_employed / 10 / 12` (a monthly
 fraction of an implied annual wage bill). Interest accrues only while the treasury
 is negative, at a fixed annual rate divided by 12; the treasury going below -5000
 marks the city "out of money." Once a year, a tribute payment is computed from a
