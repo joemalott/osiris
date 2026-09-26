@@ -652,7 +652,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                         .map(|x| {
                             let t = world.map.terrain.at_or(x, y, 0);
                             let m = world.map.moisture.at_or(x, y, 0);
-                            if t & terrain::WATER != 0 { '~' } else if t & terrain::FLOODPLAIN != 0 { 'p' } else if t & mask::NOT_CLEAR != 0 { 'x' } else if t & terrain::MEADOW != 0 { 'M' } else if t & terrain::GROUNDWATER == 0 { '.' } else if m >= 88 && m <= 100 { 'G' } else { 'g' }
+                            if t & terrain::WATER != 0 { '~' } else if t & terrain::FLOODPLAIN != 0 { 'p' } else if t & mask::NOT_CLEAR != 0 { 'x' } else if t & terrain::MEADOW != 0 { 'M' } else if t & terrain::GROUNDWATER == 0 { '.' } else if (88..=100).contains(&m) { 'G' } else { 'g' }
                         })
                         .collect();
                     eprintln!("{y:4} {row}");

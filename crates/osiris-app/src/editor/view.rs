@@ -569,15 +569,12 @@ impl Editor {
             }
             return;
         }
-        match &self.view.popup {
-            Some(Popup::SaveName(_)) => {
-                if crate::widgets::inside([x + 192.0, y + 100.0, 34.0, 34.0], p) {
-                    self.view.popup = None;
-                } else if crate::widgets::inside([x + 256.0, y + 100.0, 34.0, 34.0], p) {
-                    self.type_text("\n");
-                }
+        if let Some(Popup::SaveName(_)) = &self.view.popup {
+            if crate::widgets::inside([x + 192.0, y + 100.0, 34.0, 34.0], p) {
+                self.view.popup = None;
+            } else if crate::widgets::inside([x + 256.0, y + 100.0, 34.0, 34.0], p) {
+                self.type_text("\n");
             }
-            _ => {}
         }
     }
 

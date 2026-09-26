@@ -121,10 +121,10 @@ async fn device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue)> 
     // The atlas pages are 4096 square; ask for no more than the adapter has, so an
     // OpenGL or software adapter below the default limits still gives a device.
     let required_limits = wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
-    Ok(adapter
+    adapter
         .request_device(&wgpu::DeviceDescriptor { required_limits, ..Default::default() })
         .await
-        .context("the graphics adapter refused to start")?)
+        .context("the graphics adapter refused to start")
 }
 
 /// Prefer a non-sRGB format so sprite colours reach the screen unchanged.

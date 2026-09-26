@@ -61,7 +61,7 @@ impl World {
         let imported = |r: u16| matches!(self.trade.status.get(r as usize), Some(&status::IMPORT | &status::IMPORT_AS_NEEDED));
         let dist = crate::figures::route_distances(&self.map, Travel::Roads, road);
         let w = self.map.width;
-        let mut best = vec![i32::MAX; resource::COUNT];
+        let mut best = [i32::MAX; resource::COUNT];
         for s in self.buildings.iter() {
             let Some(sr) = s.road.filter(|_| crate::storage::is_storage(s.kind)) else { continue };
             if (s.x - b.x).abs().max((s.y - b.y).abs()) >= MAX_SEARCH || !self.map.contains(sr.0, sr.1) {
