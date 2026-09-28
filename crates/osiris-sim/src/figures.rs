@@ -606,6 +606,16 @@ impl Figure {
     }
 }
 
+/// Sub-steps (fifteen to a tile) a figure of the model's speed `code` goes on `tick`:
+/// the model's speed table, from standing still to three tiles a walker's time
+/// (FUN_004a5da0).
+pub(crate) fn stride(code: i32, tick: u64) -> u8 {
+    const RATE: [(u64, u64); 19] =
+        [(0, 1), (1, 4), (1, 3), (1, 2), (2, 3), (3, 4), (1, 1), (5, 4), (4, 3), (3, 2), (5, 3), (7, 4), (2, 1), (9, 4), (7, 3), (5, 2), (8, 3), (11, 4), (3, 1)];
+    let (n, d) = RATE[code.clamp(0, 18) as usize];
+    ((tick + 1) * n / d - tick * n / d) as u8
+}
+
 /// Storage for all figures, with stable ids.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Figures {

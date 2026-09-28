@@ -92,6 +92,23 @@ const RELOAD: i32 = 30;
 const ENGAGE_SEARCH: i32 = 18;
 const ENGAGE_LEASH: i32 = 10;
 const SEEK_SEARCH: i32 = 228;
+/// The speed-table code a ship of `kind` sails at, its model's speed being `speed`
+/// (FUN_004a5680 for warships, FUN_004a5da0 with the model's speed for transports):
+/// a transport at its speed; a warship at twice it, at most 18, at its speed in
+/// pursuit after its straight run (`rammed_run`), at 40% of it with tired rowers
+/// (`fatigue` 1), and not at all with spent ones (2).
+fn speed_code(kind: u16, speed: i32, fatigue: u8, rammed_run: bool) -> i32 {
+    match kind {
+        WARSHIP | ENEMY_WARSHIP | EGYPT_WARSHIP => match fatigue {
+            2 => 0,
+            1 => speed * 40 / 100,
+            _ if rammed_run => speed,
+            _ => (speed * 2).min(18),
+        },
+        _ => speed,
+    }
+}
+
 /// Why a call for troops can or can't be answered (FUN_0044d520), which decides
 /// the Political Overseer's pop-up (text group 5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -543,20 +560,24 @@ impl World {
         }
     }
 
-    /// Sails a ship on along its route: a warship's exhausted rowers don't row, tired
-    /// ones row at a third of the pace, and in pursuit a warship slows to half pace
-    /// once it has run its model's k tiles straight (FUN_004a5680). Keeps count of the tiles
-    /// run straight, and finds a new way round anything in its path.
+    /// Sails a ship on along its route at its model's speed i, which for an enemy
+    /// ship is its nation's (the speed table of FUN_004a5da0). A transport goes at
+    /// i. A warship rows at twice i, at most 18 (FUN_004a5680); in pursuit it slows
+    /// to i once it has run its model's k tiles straight, tired rowers row at 40% of
+    /// i, and exhausted ones don't row. Keeps count of the tiles run straight, and
+    /// finds a new way round anything in its path.
     fn sail(&mut self, fid: FigureId, chasing: bool) -> Step {
         let ticks = self.time.total_ticks;
-        let run = self.fighter_stats(fid).ram_run.max(1);
+        let stats = self.fighter_stats(fid);
+        let (run, speed) = (stats.ram_run.max(1), stats.speed);
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return Step::Lost };
         let Some((fatigue, straight, heading)) = f.ship.as_deref().map(|s| (s.fatigue, s.straight, s.heading)) else { return Step::Lost };
-        if fatigue == 2 || (fatigue == 1 && ticks % 3 != 0) {
+        let code = speed_code(f.kind, speed, fatigue, chasing && straight >= run);
+        f.speed = crate::figures::stride(code, ticks.wrapping_add(fid as u64));
+        if f.speed == 0 {
             return if f.route.is_empty() && !f.moving { Step::Arrived } else { Step::Moving };
         }
-        f.speed = if fatigue == 1 || (chasing && straight >= run) { 1 } else { 2 };
         let before = (f.x, f.y);
         let step = f.walk(map);
         if (f.x, f.y) != before {
@@ -785,9 +806,15 @@ impl World {
         let force = if straight >= stats.ram_run.max(1) { stats.attack } else { stats.attack * RAM_WEAK_PCT / 100 };
         let force = if braced { force - HOLD_BRACE } else { force };
         let angle = RAM_ANGLE[tdir as usize % 8][dir as usize % 8] as i32;
-        self.figure_sound(fid, 2);
+        // The crash of timbers by the angle of the blow (FUN_004a5880), and four
+        // pieces of wreckage flying from the ship struck (FUN_0048c0e0).
+        self.fx(crate::effects::Fx::Sound(crate::effects::SHIP_COLLISION[(angle.clamp(1, 5) - 1) as usize]));
         if force > 0 {
             self.hurt(target, force / angle.max(1));
+        }
+        if let Some(t) = self.figures.get(target) {
+            let (x, y) = (t.x, t.y);
+            self.fx(crate::effects::Fx::Dust { x, y, size: 0, pieces: 4 });
         }
         let knock = |w: &mut World, d: u8| -> u8 {
             w.rng.next();
@@ -2282,7 +2309,7 @@ mod tests {
         assert!(world.can_send_request(i));
         assert!(world.dispatch_request(i));
         // They sail for the river entry and out of sight, taking no orders.
-        for _ in 0..600 {
+        for _ in 0..1500 {
             world.tick();
         }
         for s in [warship, transport] {
@@ -2370,6 +2397,23 @@ mod tests {
         assert_eq!(world.figures.get(warship).expect("warship").damage, 0, "no battle, no losses");
         assert!(world.notices.log.iter().any(|n| n.key == "message_troops_return_failed"));
         assert_eq!(world.scenario_events.list[i].state, crate::scenario_events::state::FAILED);
+    }
+
+    #[test]
+    fn ships_sail_at_their_models_speed() {
+        // The city's warship (speed 6) rows 2 sub-steps a tick, 1 when its run is
+        // made, a third when tired; its transport goes 1.
+        let per_tick = |code: i32| (0..12).map(|t| crate::figures::stride(code, t) as i32).sum::<i32>() as f32 / 12.0;
+        assert_eq!(per_tick(speed_code(WARSHIP, 6, 0, false)), 2.0);
+        assert_eq!(per_tick(speed_code(WARSHIP, 6, 0, true)), 1.0);
+        assert_eq!(per_tick(speed_code(WARSHIP, 6, 1, false)), 1.0 / 3.0);
+        assert_eq!(speed_code(WARSHIP, 6, 2, false), 0);
+        assert_eq!(per_tick(speed_code(TRANSPORT, 6, 0, false)), 1.0);
+        // A Roman warship (4) is slower than a Libyan (7), which is capped at 14.
+        assert_eq!(speed_code(ENEMY_WARSHIP, 4, 0, false), 8);
+        assert_eq!(speed_code(ENEMY_WARSHIP, 7, 0, false), 14);
+        assert_eq!(speed_code(ENEMY_WARSHIP, 10, 0, false), 18);
+        assert_eq!(speed_code(ENEMY_TRANSPORT, 4, 0, false), 4);
     }
 
     #[test]
