@@ -220,9 +220,10 @@ impl World {
             // Labor seeker: looks for houses while the building's walkers have passed
             // fewer than 51 of them lately (101 for the police, fire, architects',
             // courthouse, recruiter and hunting lodge, whose walkers reach fewer, and
-            // for the water lift, which has none: FUN_00462180's case 0x5a, the
-            // original's placed lift).
-            let seek_below = if matches!(b.kind, 55 | 81 | 95 | 115 | 167 | 184 | crate::irrigation::WATER_LIFT) { 101 } else { 51 };
+            // for the water lift and the military academy, which have none:
+            // FUN_00462180's case 0x5a, the original's placed lift, which it shares
+            // with the academies 0x5e, 0xb9 and 0xba).
+            let seek_below = if matches!(b.kind, 55 | 81 | 94 | 95 | 115 | 167 | 184 | 185 | 186 | crate::irrigation::WATER_LIFT) { 101 } else { 51 };
             if needed > 0 && !self.rules.global_labor_pool && b.walkers[1] == 0 && b.houses_covered < seek_below {
                 self.spawn_roamer(id, figure_kind::LABOR_SEEKER, 1);
             }
