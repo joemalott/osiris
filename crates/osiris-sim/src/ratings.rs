@@ -64,7 +64,9 @@ pub const PHYSICIAN: u16 = 206;
 const SENET_HOUSE: u16 = 32;
 const ZOO_BUILDING: u16 = 226;
 
-/// Worth of each monument toward the rating, by its title (text group 198).
+/// Worth of each monument toward the rating, by its title (text group 198): the
+/// exe's monument table at 0x5d19c8, 16 bytes a title, the worth at +0xc. The royal
+/// tombs (33-36) are worth 4, 12, 26 and 48.
 const MONUMENT_WORTH: [i32; 38] = [
     0, 4, 10, 4, 12, 26, 48, 80, 3, 9, 20, 36, 60, 4, 12, 26, 48, 80, 2, 3, 11, 10, 1, 3, 4, 5, 5, 5, 8, 12, 10, 5, 5, 4, 12, 26,
     48, 48,
@@ -236,18 +238,7 @@ impl World {
     /// January, as the original does.
     pub fn mission_result(&self) -> MissionResult {
         let months = self.time.month as i32 + (self.scenario_events.start_year - self.time.year).abs() * 12;
-        let mut used = Vec::new();
-        let mut worth = 0;
-        for &t in self.scenario_monuments.iter().filter(|&&t| t > 0) {
-            let want = crate::monuments::monument_for_title(t as usize).map(|d| d.title);
-            let done = self.buildings.iter().find(|b| {
-                !used.contains(&b.id) && b.monument.is_some() && crate::monuments::monument_def(b.kind).map(|d| d.title) == want && self.monument_percent(b.id) >= 100
-            });
-            if let Some(b) = done {
-                used.push(b.id);
-                worth += MONUMENT_WORTH.get(t as usize).copied().unwrap_or(0);
-            }
-        }
+        let worth = self.scenario_monument_buildings().into_iter().filter(|&(_, b)| self.monument_percent(b) >= 100).map(|(t, _)| MONUMENT_WORTH.get(t).copied().unwrap_or(0)).sum();
         let r = &self.ratings;
         MissionResult {
             culture: r.culture,
@@ -353,17 +344,34 @@ impl World {
         self.ratings.prosperity_max = if people > 0 { sum / people } else { 0 };
     }
 
+    /// The scenario's monuments (up to three, by title) and the building standing for
+    /// each: one of its type not taken by an earlier one. A royal tomb carried from an
+    /// earlier Valley mission is none of them.
+    fn scenario_monument_buildings(&self) -> Vec<(usize, crate::buildings::BuildingId)> {
+        let mut out: Vec<(usize, crate::buildings::BuildingId)> = Vec::new();
+        for &t in self.scenario_monuments.iter().filter(|&&t| t > 0) {
+            let want = crate::monuments::monument_for_title(t as usize).map(|d| d.title);
+            let b = self.buildings.iter().find(|b| {
+                b.monument.as_ref().is_some_and(|m| !m.carried) && crate::monuments::monument_def(b.kind).map(|d| d.title) == want && out.iter().all(|&(_, id)| id != b.id)
+            });
+            if let Some(b) = b {
+                out.push((t as usize, b.id));
+            }
+        }
+        out
+    }
+
+    /// The monument rating (0x4f78a0): for each of the scenario's three monuments
+    /// placed, its worth (by title, 0x5d19c8) times how far it is built, and a point
+    /// off while any is unfinished; other monuments standing, such as tombs left by
+    /// an earlier mission, count for nothing.
     fn update_monument_rating(&mut self) {
         let mut worth = 0;
         let mut unfinished = false;
-        for b in self.buildings.iter() {
-            let Some(def) = crate::monuments::monument_def(b.kind) else { continue };
-            if b.monument.is_none() {
-                continue;
-            }
-            let pct = self.monument_percent(b.id);
+        for (t, b) in self.scenario_monument_buildings() {
+            let pct = self.monument_percent(b);
             unfinished |= pct < 100;
-            worth += MONUMENT_WORTH.get(def.title).copied().unwrap_or(0) * pct / 100;
+            worth += MONUMENT_WORTH.get(t).copied().unwrap_or(0) * pct / 100;
         }
         for &(r, loads) in &PROVISION_LOADS {
             if let Some(&(need, sent)) = self.burial.get(r as usize)

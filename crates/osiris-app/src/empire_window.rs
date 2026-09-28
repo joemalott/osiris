@@ -14,7 +14,7 @@
 //! Opening a route asks first, in the original's yes/no window (text group 5), and
 //! then shows the window saying the route is open (group 142).
 
-use osiris_formats::empire::city;
+use osiris_formats::empire::{city, object};
 use osiris_formats::{ImageLibrary, TextTable};
 use osiris_render::{Renderer, Space, WHITE};
 use osiris_sim::World;
@@ -40,6 +40,12 @@ const PANEL_TOP: f32 = 120.0;
 const DIVIDER: f32 = 140.0;
 const TEXT: usize = 47;
 const CITY_NAMES: usize = 195;
+const REGION_NAMES: usize = 196;
+/// A region's name is centred in a box this size at its place.
+const REGION_W: f32 = 90.0;
+const REGION_H: f32 = 20.0;
+/// Region names: 0x558a in the game's 555 colour, over a black copy.
+const REGION_COLOR: [f32; 4] = [21.0 / 31.0, 12.0 / 31.0, 10.0 / 31.0, 1.0];
 /// City names on the map: 0x40e4 in the game's 555 colour.
 const NAME_COLOR: [f32; 4] = [16.0 / 31.0, 7.0 / 31.0, 4.0 / 31.0, 1.0];
 /// The inset box around a resource icon: dark top and left, white bottom and right.
@@ -69,6 +75,9 @@ pub struct EmpireImages {
     pub(crate) pharaoh: u32,
     pub(crate) pharaoh_trading: u32,
     pub(crate) flag: u32,
+    /// The Kingdom map's pictures: group 190's images and group 191's first.
+    pub(crate) pictures: u32,
+    pub(crate) last_picture: u32,
     pub(crate) tiers: u32,
     pub(crate) icons: u32,
     pub(crate) context: u32,
@@ -89,12 +98,20 @@ impl EmpireImages {
             pharaoh: g(164)?,
             pharaoh_trading: g(167)?,
             flag: g(222)?,
+            pictures: g(190)?,
+            last_picture: g(191)?,
             tiers: g(171)?,
             icons: lib.group_id("Expansion", 3, 0)?,
             context: g(134)?,
             advisors: g(106)?,
             ok_cancel: g(96)?,
         })
+    }
+
+    /// Picture `n` of the Kingdom map, the last for any number past it
+    /// (FUN_00442660).
+    pub fn picture(&self, n: u16) -> u32 {
+        (self.pictures + n as u32).min(self.last_picture)
     }
 
     /// The small icon of resource `r`.
@@ -120,6 +137,16 @@ impl EmpireImages {
             _ => self.cities + foreign,
         }
     }
+}
+
+/// A region's name with its box's corner at `at`: centred in 90 pixels, a black
+/// copy under one in the region colour a pixel up and left (FUN_0052f8b0).
+pub(crate) fn draw_region_name(r: &mut Renderer, name: &str, at: [f32; 2]) {
+    let name = name.trim();
+    let tw = text_width(r, Font::SmallPlain, name) as f32;
+    let x = at[0] + ((REGION_W - tw) / 2.0).max(0.0).floor();
+    draw_text(r, Font::SmallPlain, name, x, at[1], font::BLACK);
+    draw_text(r, Font::SmallPlain, name, x - 1.0, at[1] - 1.0, REGION_COLOR);
 }
 
 /// A window over the empire map.
@@ -379,25 +406,34 @@ impl EmpireWindow {
         r.set_clip(Some(v));
         let s = Self::scale(screen);
         r.image_scaled(images.map, [v[0] - self.scroll[0], v[1] - self.scroll[1]], [MAP_W * s, MAP_H * s], WHITE, Space::Screen);
-        let pharaoh = world.assigned_rank() >= 10;
-        for c in &world.trade.cities {
-            let image = images.city(c, pharaoh);
-            let (w, h) = r.record(image).map_or((0.0, 0.0), |rec| (rec.width as f32, rec.height as f32));
-            let at = self.place(screen, c.pos, w, h);
-            img(r, image, at[0], at[1]);
-            let name = text.get(CITY_NAMES, c.name_id as usize).unwrap_or("");
-            let tw = text_width(r, Font::SmallPlain, name) as f32;
-            let (x, y) = match c.text_align {
-                0 => (at[0] - tw, at[1] + (h / 2.0).floor()),
-                1 => (at[0] + ((w - tw) / 2.0).floor(), at[1] - 10.0),
-                2 => (at[0] + w, at[1] + (h / 2.0).floor()),
-                _ => (at[0] + ((w - tw) / 2.0).floor(), at[1] + h + 5.0),
-            };
-            draw_text(r, Font::SmallPlain, name, x, y, NAME_COLOR);
-            if c.trades() {
-                let frame = self.flag_frame(r, images.flag);
-                let fh = r.record(images.flag + frame).map_or(0.0, |rec| rec.height as f32);
-                img(r, images.flag + frame, at[0] + (w / 2.0).floor(), at[1] + h - fh);
+        // The map's objects in the scenario's order (FUN_0052f8b0): pictures, cities
+        // and region names; the battle markers are the editor's alone. A game saved
+        // before the objects were kept draws its cities only.
+        let objects = &world.trade.map_objects;
+        let mut cities = 0..world.trade.cities.len();
+        if objects.is_empty() {
+            for c in cities.by_ref() {
+                self.draw_city(r, world, text, images, c);
+            }
+        }
+        for o in objects {
+            match o.kind {
+                object::ORNAMENT => {
+                    let image = images.picture(o.picture);
+                    let (w, h) = r.record(image).map_or((0.0, 0.0), |rec| (rec.width as f32, rec.height as f32));
+                    let at = self.place(screen, (o.x, o.y), w, h);
+                    img(r, image, at[0], at[1]);
+                }
+                object::CITY => {
+                    if let Some(c) = cities.next() {
+                        self.draw_city(r, world, text, images, c);
+                    }
+                }
+                object::REGION => {
+                    let at = self.place(screen, (o.x, o.y), REGION_W, REGION_H);
+                    draw_region_name(r, text.get(REGION_NAMES, o.name as usize).unwrap_or(""), at);
+                }
+                _ => {}
             }
         }
         for c in world.trade.cities.iter().filter(|c| c.trades() && c.open) {
@@ -412,6 +448,32 @@ impl EmpireWindow {
         self.draw_panel(r, panels, world, text, images);
         if let Some(popup) = self.popup {
             self.draw_popup(r, panels, world, text, images, popup);
+        }
+    }
+
+    /// City `c`: its picture, its name beside it, and a flag over it while it can
+    /// trade.
+    fn draw_city(&self, r: &mut Renderer, world: &World, text: &TextTable, images: &EmpireImages, c: usize) {
+        let screen = r.screen;
+        let pharaoh = world.assigned_rank() >= 10;
+        let c = &world.trade.cities[c];
+        let image = images.city(c, pharaoh);
+        let (w, h) = r.record(image).map_or((0.0, 0.0), |rec| (rec.width as f32, rec.height as f32));
+        let at = self.place(screen, c.pos, w, h);
+        img(r, image, at[0], at[1]);
+        let name = text.get(CITY_NAMES, c.name_id as usize).unwrap_or("");
+        let tw = text_width(r, Font::SmallPlain, name) as f32;
+        let (x, y) = match c.text_align {
+            0 => (at[0] - tw, at[1] + (h / 2.0).floor()),
+            1 => (at[0] + ((w - tw) / 2.0).floor(), at[1] - 10.0),
+            2 => (at[0] + w, at[1] + (h / 2.0).floor()),
+            _ => (at[0] + ((w - tw) / 2.0).floor(), at[1] + h + 5.0),
+        };
+        draw_text(r, Font::SmallPlain, name, x, y, NAME_COLOR);
+        if c.trades() {
+            let frame = self.flag_frame(r, images.flag);
+            let fh = r.record(images.flag + frame).map_or(0.0, |rec| rec.height as f32);
+            img(r, images.flag + frame, at[0] + (w / 2.0).floor(), at[1] + h - fh);
         }
     }
 

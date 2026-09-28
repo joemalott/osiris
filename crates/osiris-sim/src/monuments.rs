@@ -405,70 +405,65 @@ pub struct MonumentDef {
     pub style: Style,
     /// Phases, the last being completion (pyramids and mastabas: their stages).
     pub phase_count: u8,
-    /// The monument's worth toward the monument rating.
-    pub weight: i32,
-    /// Its name (text group 198).
+    /// Its name (text group 198), which also gives its worth toward the monument
+    /// rating (`ratings::MONUMENT_WORTH`, the exe's table at 0x5d19c8).
     pub title: usize,
 }
 
 /// A mastaba (`cols` x `rows` blocks) or a pyramid (`blocks` square): built block by
 /// block, in three stages (the site, the courses, the polishing).
-const fn tomb(kind: u16, (cols, rows): (i32, i32), style: Style, weight: i32, title: usize) -> MonumentDef {
-    MonumentDef { kind, cols, rows, style, phase_count: 4, weight, title }
+const fn tomb(kind: u16, (cols, rows): (i32, i32), style: Style, title: usize) -> MonumentDef {
+    MonumentDef { kind, cols, rows, style, phase_count: 4, title }
 }
 
-const fn pyramid(kind: u16, family: Family, blocks: i32, weight: i32, title: usize) -> MonumentDef {
-    tomb(kind, (blocks, blocks), Style::Pyramid(family), weight, title)
+const fn pyramid(kind: u16, family: Family, blocks: i32, title: usize) -> MonumentDef {
+    tomb(kind, (blocks, blocks), Style::Pyramid(family), title)
 }
 
 /// An obelisk: no leveling (it starts at the first building phase), then a phase for
 /// each step it works.
-const fn obelisk(kind: u16, size: i32, stages: u8, granite: i32, steps: &'static [Job], weight: i32, title: usize) -> MonumentDef {
-    MonumentDef { kind, cols: size, rows: size, style: Style::Obelisk { size, stages, granite, steps }, phase_count: LEVELING_PHASES + obelisk_worked(steps.len()) + 1, weight, title }
+const fn obelisk(kind: u16, size: i32, stages: u8, granite: i32, steps: &'static [Job], title: usize) -> MonumentDef {
+    MonumentDef { kind, cols: size, rows: size, style: Style::Obelisk { size, stages, granite, steps }, phase_count: LEVELING_PHASES + obelisk_worked(steps.len()) + 1, title }
 }
 
 /// A royal tomb: its bulk in tiles, its one phase being the cutting.
-const fn royal_tomb(kind: u16, (cols, rows): (i32, i32), weight: i32, title: usize) -> MonumentDef {
-    MonumentDef { kind, cols, rows, style: Style::RoyalTomb, phase_count: 2, weight, title }
+const fn royal_tomb(kind: u16, (cols, rows): (i32, i32), title: usize) -> MonumentDef {
+    MonumentDef { kind, cols, rows, style: Style::RoyalTomb, phase_count: 2, title }
 }
 
 pub const MONUMENTS: [MonumentDef; 29] = [
-    // The rating weights are placeholders.
-    royal_tomb(crate::royal_tombs::SMALL_ROYAL_TOMB, (11, 20), 4, 33),
-    royal_tomb(crate::royal_tombs::MEDIUM_ROYAL_TOMB, (14, 16), 8, 34),
-    royal_tomb(crate::royal_tombs::LARGE_ROYAL_TOMB, (17, 33), 13, 35),
-    royal_tomb(crate::royal_tombs::GRAND_ROYAL_TOMB, (29, 23), 18, 36),
-    MonumentDef { kind: SPHINX, cols: 3, rows: 1, style: Style::Sphinx, phase_count: LEVELING_PHASES + SPHINX_STEPS + 1, weight: 1, title: 21 },
-    // The rating weight is a placeholder.
-    MonumentDef { kind: MAUSOLEUM, cols: 11, rows: 4, style: Style::Mausoleum, phase_count: 6, weight: 4, title: 25 },
-    // The rating weight is a placeholder.
-    MonumentDef { kind: SUN_TEMPLE, cols: 1, rows: 1, style: Style::SunTemple, phase_count: SUN_FORE + 2, weight: 4, title: 24 },
+    royal_tomb(crate::royal_tombs::SMALL_ROYAL_TOMB, (11, 20), 33),
+    royal_tomb(crate::royal_tombs::MEDIUM_ROYAL_TOMB, (14, 16), 34),
+    royal_tomb(crate::royal_tombs::LARGE_ROYAL_TOMB, (17, 33), 35),
+    royal_tomb(crate::royal_tombs::GRAND_ROYAL_TOMB, (29, 23), 36),
+    MonumentDef { kind: SPHINX, cols: 3, rows: 1, style: Style::Sphinx, phase_count: LEVELING_PHASES + SPHINX_STEPS + 1, title: 21 },
+    MonumentDef { kind: MAUSOLEUM, cols: 11, rows: 4, style: Style::Mausoleum, phase_count: 6, title: 25 },
+    MonumentDef { kind: SUN_TEMPLE, cols: 1, rows: 1, style: Style::SunTemple, phase_count: SUN_FORE + 2, title: 24 },
     // Granite taken at placement: 100 and 200 blocks (the original's placement check).
-    obelisk(SMALL_OBELISK, 3, 4, 10_000, &SMALL_OBELISK_STEPS, 2, 22),
-    obelisk(LARGE_OBELISK, 5, 6, 20_000, &LARGE_OBELISK_STEPS, 4, 23),
+    obelisk(SMALL_OBELISK, 3, 4, 10_000, &SMALL_OBELISK_STEPS, 22),
+    obelisk(LARGE_OBELISK, 5, 6, 20_000, &LARGE_OBELISK_STEPS, 23),
     // Sizes in blocks, as in the original: large is 8 across in every family.
-    tomb(kind::SMALL_MASTABA, (2, 5), Style::Mastaba, 2, 18),
-    tomb(kind::MEDIUM_MASTABA, (3, 7), Style::Mastaba, 2, 19),
-    tomb(kind::LARGE_MASTABA, (4, 9), Style::Mastaba, 3, 20),
-    pyramid(SMALL_STEPPED_PYRAMID, Family::Stepped, 4, 8, 8),
-    pyramid(MEDIUM_STEPPED_PYRAMID, Family::Stepped, 6, 16, 9),
-    pyramid(LARGE_STEPPED_PYRAMID, Family::Stepped, 8, 24, 10),
-    pyramid(SMALL_BENT_PYRAMID, Family::Bent, 4, 12, 1),
-    pyramid(MEDIUM_BENT_PYRAMID, Family::Bent, 6, 20, 2),
-    pyramid(SMALL_MUDBRICK_PYRAMID, Family::Mudbrick, 4, 12, 3),
-    pyramid(MEDIUM_MUDBRICK_PYRAMID, Family::Mudbrick, 6, 20, 4),
-    pyramid(LARGE_MUDBRICK_PYRAMID, Family::Mudbrick, 8, 28, 5),
-    pyramid(SMALL_PYRAMID, Family::True, 4, 16, 13),
-    pyramid(MEDIUM_PYRAMID, Family::True, 6, 28, 14),
-    pyramid(LARGE_PYRAMID, Family::True, 8, 40, 15),
+    tomb(kind::SMALL_MASTABA, (2, 5), Style::Mastaba, 18),
+    tomb(kind::MEDIUM_MASTABA, (3, 7), Style::Mastaba, 19),
+    tomb(kind::LARGE_MASTABA, (4, 9), Style::Mastaba, 20),
+    pyramid(SMALL_STEPPED_PYRAMID, Family::Stepped, 4, 8),
+    pyramid(MEDIUM_STEPPED_PYRAMID, Family::Stepped, 6, 9),
+    pyramid(LARGE_STEPPED_PYRAMID, Family::Stepped, 8, 10),
+    pyramid(SMALL_BENT_PYRAMID, Family::Bent, 4, 1),
+    pyramid(MEDIUM_BENT_PYRAMID, Family::Bent, 6, 2),
+    pyramid(SMALL_MUDBRICK_PYRAMID, Family::Mudbrick, 4, 3),
+    pyramid(MEDIUM_MUDBRICK_PYRAMID, Family::Mudbrick, 6, 4),
+    pyramid(LARGE_MUDBRICK_PYRAMID, Family::Mudbrick, 8, 5),
+    pyramid(SMALL_PYRAMID, Family::True, 4, 13),
+    pyramid(MEDIUM_PYRAMID, Family::True, 6, 14),
+    pyramid(LARGE_PYRAMID, Family::True, 8, 15),
     // Complexes: a larger pyramid with a mortuary temple, causeway and valley temple.
-    // (Their rating weights are placeholders.)
-    pyramid(STEPPED_PYRAMID_COMPLEX, Family::Stepped, 10, 32, 11),
-    pyramid(GRAND_STEPPED_PYRAMID_COMPLEX, Family::Stepped, 12, 40, 12),
-    pyramid(MUDBRICK_PYRAMID_COMPLEX, Family::Mudbrick, 10, 36, 6),
-    pyramid(GRAND_MUDBRICK_PYRAMID_COMPLEX, Family::Mudbrick, 12, 44, 7),
-    pyramid(PYRAMID_COMPLEX, Family::True, 10, 52, 16),
-    pyramid(GRAND_PYRAMID_COMPLEX, Family::True, 12, 64, 17),
+    pyramid(STEPPED_PYRAMID_COMPLEX, Family::Stepped, 10, 11),
+    pyramid(GRAND_STEPPED_PYRAMID_COMPLEX, Family::Stepped, 12, 12),
+    pyramid(MUDBRICK_PYRAMID_COMPLEX, Family::Mudbrick, 10, 6),
+    pyramid(GRAND_MUDBRICK_PYRAMID_COMPLEX, Family::Mudbrick, 12, 7),
+    pyramid(PYRAMID_COMPLEX, Family::True, 10, 16),
+    pyramid(GRAND_PYRAMID_COMPLEX, Family::True, 12, 17),
 ];
 
 pub fn monument_def(k: u16) -> Option<&'static MonumentDef> {
@@ -550,6 +545,10 @@ pub struct Monument {
     /// A royal tomb whose completion has been announced.
     #[serde(default)]
     pub announced: bool,
+    /// A royal tomb an earlier mission left, standing sealed: it is none of this
+    /// scenario's monuments.
+    #[serde(default)]
+    pub carried: bool,
 }
 
 impl Monument {

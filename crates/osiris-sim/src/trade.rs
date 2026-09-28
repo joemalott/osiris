@@ -204,8 +204,23 @@ pub struct Trade {
     pub docker_import: u16,
     #[serde(default)]
     pub docker_export: u16,
-    /// Map decorations for the empire window: (kind, x, y, image id).
-    pub objects: Vec<(u8, i32, i32, u16)>,
+    /// The empire map's objects in the scenario's order, which the empire window
+    /// draws in turn: pictures, cities and region names. Games saved before these
+    /// were kept have none.
+    #[serde(default)]
+    pub map_objects: Vec<MapObject>,
+}
+
+/// An object on the empire map: a picture (its number in the Kingdom map's
+/// pictures), a city (the next of `Trade::cities`), a region's name (its line of
+/// text group 196) or a battle marker, at its top-left corner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MapObject {
+    pub kind: u8,
+    pub x: i32,
+    pub y: i32,
+    pub picture: u16,
+    pub name: u8,
 }
 
 impl Trade {
@@ -232,8 +247,13 @@ impl Trade {
             mothballed: vec![false; RESOURCES],
             ..Default::default()
         };
-        for o in e.objects.iter().filter(|o| o.in_use) {
-            t.objects.push((o.kind, o.x, o.y, o.image_id));
+        // The empire window's list ends at the first object not in use (FUN_0052f8b0);
+        // the shipped scenarios hold leftovers after it.
+        let listed = e.objects.iter().position(|o| !o.in_use).unwrap_or(e.objects.len());
+        for (i, o) in e.objects.iter().enumerate().filter(|(_, o)| o.in_use) {
+            if i < listed && o.kind < 4 {
+                t.map_objects.push(MapObject { kind: o.kind, x: o.x, y: o.y, picture: o.expanded_image_id, name: o.city_name_id });
+            }
             if o.kind != fmt::object::CITY {
                 continue;
             }
