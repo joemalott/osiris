@@ -37,9 +37,10 @@
 //! invader hasn't.
 //!
 //! Morale: every man lost shakes his side, the more so the bigger the share of it
-//! that fell; a company rests its spirits at the fort month by month and loses heart
-//! when kept out long. A company whose morale breaks runs home, and a broken army
-//! runs for the edge of the map.
+//! that fell; a company rests its spirits at the fort month by month, up to 60
+//! (charioteers 80, and 20 more once its recruits train at a military academy),
+//! and loses heart when kept out long. A company whose morale breaks runs home,
+//! and a broken army runs for the edge of the map.
 //!
 //! Experience: a company's experience (0 to 100) is the average of its men's. A raw
 //! recruit brings none, one who passed through a military academy 25, and a temple
@@ -131,10 +132,11 @@ pub fn morale_loss(share_pct: i32) -> i32 {
 }
 
 /// The highest morale a company of `kind` reaches: charioteers 80, infantry and
-/// archers 60. (The original would raise it by 20 for a company marked as trained,
-/// but nothing ever sets that mark: the academy gives experience instead.)
-fn morale_cap(kind: u16) -> i32 {
-    if kind == CHARIOTEER { 80 } else { 60 }
+/// archers 60, each 20 more once a recruit of the company has set out for a
+/// military academy (FUN_004b7b50; the mark is set by the soldier's
+/// going-to-the-academy state at 0x490357).
+fn morale_cap(kind: u16, trained: bool) -> i32 {
+    (if kind == CHARIOTEER { 80 } else { 60 }) + if trained { 20 } else { 0 }
 }
 
 /// The most experience a company can have.
@@ -218,6 +220,10 @@ pub struct Company {
     /// Old saves' mark of academy training, turned into experience on loading.
     #[serde(default, skip_serializing)]
     trained: bool,
+    /// A recruit of the company has set out for a military academy: its morale can
+    /// climb 20 higher. The original never takes the mark away.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub schooled: bool,
     /// Marked for Kingdom service: it answers Pharaoh's calls for troops.
     #[serde(default)]
     pub kingdom_service: bool,
@@ -257,6 +263,7 @@ impl Company {
     fn upgrade(&mut self) {
         if std::mem::take(&mut self.trained) {
             self.experience = self.experience.max(ACADEMY_EXPERIENCE);
+            self.schooled = true;
         }
     }
 }
@@ -659,10 +666,12 @@ impl World {
             .map(|(i, _, _)| i)
     }
 
-    /// A recruiter enlists a soldier, if some fort wants one: he takes a load of
-    /// weapons (infantry) or chariots (charioteers) from its store, walks out of
-    /// its door to the nearest fully staffed military academy to the fort if there
-    /// is one, and on to his place on the fort's parade ground.
+    /// A recruiter enlists a soldier, if some fort wants one (FUN_004b70c0): he
+    /// takes a load of weapons (infantry) or chariots (charioteers) from its store,
+    /// walks out of its door to the road beside the fully staffed military academy
+    /// nearest the fort (FUN_004b75c0), if there is one with a road, and on to his
+    /// place on the fort's parade ground. His company takes his experience at once:
+    /// an academy's even if it has no road for him to call at.
     fn recruit(&mut self, recruiter: BuildingId) {
         let Some(c) = self.company_to_recruit(recruiter) else { return };
         let Some(road) = self.buildings.get(recruiter).and_then(|b| b.road) else { return };
@@ -694,19 +703,34 @@ impl World {
         let co = &mut self.military.companies[c];
         let n = (co.soldiers.len() + co.recruits.len()) as i32 + co.abroad;
         co.experience = with_recruit(co.experience, n, brings);
+        match academy.flatten() {
+            Some(to) => self.go_to_academy(fid, to),
+            None => self.send_to_post(fid),
+        }
+    }
+
+    /// A recruit sets out for the academy's road: his company is marked as trained
+    /// the moment he does (0x490357), and if no way leads there he is lost, as the
+    /// original's soldier is when his route can't reach (state 0xd, direction 10).
+    fn go_to_academy(&mut self, fid: FigureId, to: (i32, i32)) {
+        if let Some(c) = self.company_of(fid).and_then(|c| self.military.companies.get_mut(c)) {
+            c.schooled = true;
+        }
         let map = &self.map;
-        let training = match (academy.flatten(), self.figures.get_mut(fid)) {
-            (Some(to), Some(f)) => {
-                let ok = f.go_to(map, to);
-                if ok {
-                    f.action = action::GOING_TO_ACADEMY;
-                }
-                ok
-            }
-            _ => false,
-        };
-        if !training {
-            self.send_to_post(fid);
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        f.action = action::GOING_TO_ACADEMY;
+        if !f.go_to(map, to) {
+            self.lose_recruit(fid);
+        }
+    }
+
+    /// A recruit who can't reach where he is going is gone.
+    fn lose_recruit(&mut self, fid: FigureId) {
+        if let Some(f) = self.figures.get_mut(fid) {
+            f.dead = true;
+        }
+        for c in &mut self.military.companies {
+            c.recruits.retain(|&s| s != fid);
         }
     }
 
@@ -921,10 +945,18 @@ impl World {
                 }
             }
             action::GOING_TO_ACADEMY => {
+                // He calls at the academy's road and goes straight on to his fort
+                // (0x490345: state 0xd, then 0x17). A building in his way sends
+                // him round it; the academy going meanwhile doesn't stop him.
                 let map = &self.map;
                 let f = self.figures.get_mut(fid).expect("present");
-                if f.walk(map) != Step::Moving {
-                    self.send_to_post(fid);
+                match f.walk(map) {
+                    Step::Moving => {}
+                    Step::Arrived => self.send_to_post(fid),
+                    Step::Blocked | Step::Lost => {
+                        let to = f.destination.unwrap_or((f.x, f.y));
+                        self.go_to_academy(fid, to);
+                    }
                 }
             }
             _ => self.send_to_post(fid),
@@ -1468,7 +1500,7 @@ impl World {
         for c in &mut self.military.companies {
             if c.at_fort {
                 c.months_away = 0;
-                c.morale = (c.morale + 5).min(morale_cap(c.kind));
+                c.morale = (c.morale + 5).min(morale_cap(c.kind, c.schooled));
             } else {
                 c.months_away += 1;
                 if c.months_away > 3 {
@@ -1654,6 +1686,74 @@ mod tests {
         assert_eq!((experience_ball(0), experience_ball(2), experience_ball(50), experience_ball(97), experience_ball(100)), (20, 19, 10, 0, 0));
     }
 
+    /// Mission 2's open ground south of the river: a road with a recruiter at its
+    /// west end, an archers' fort below it and, if `academy`, a military academy on
+    /// the road 18 tiles east, everything staffed.
+    fn barracks(academy: bool) -> Option<World> {
+        use crate::world::{Command, Outcome};
+        let mut w = crate::irrigation::tests::mission_world(2)?;
+        w.invasions.planned.clear();
+        let mut steps = vec![Command::Road { start: (40, 70), end: (66, 70) }, Command::Build { kind: RECRUITER, x: 42, y: 71, x1: 42, y1: 71 }, Command::Build { kind: FORT_ARCHERS, x: 44, y: 75, x1: 44, y1: 75 }];
+        if academy {
+            steps.push(Command::Build { kind: ACADEMIES[0], x: 60, y: 71, x1: 60, y1: 71 });
+        }
+        for cmd in steps {
+            assert!(matches!(w.apply(&cmd), Outcome::Done { items: 1.., .. }), "{cmd:?}");
+        }
+        Some(w)
+    }
+
+    /// Ticks until the first recruit has joined his company, and returns the tiles
+    /// he walked.
+    fn first_recruit(w: &mut World) -> Vec<(i32, i32)> {
+        let mut walked = Vec::new();
+        let mut recruit = None;
+        for _ in 0..40 * crate::time::TICKS_PER_DAY {
+            w.tick();
+            let c = &w.military.companies[0];
+            recruit = recruit.or(c.recruits.first().copied());
+            if let Some(f) = recruit.and_then(|s| w.figures.get(s))
+                && walked.last() != Some(&(f.x, f.y))
+            {
+                walked.push((f.x, f.y));
+            }
+            if recruit.is_some_and(|s| c.soldiers.contains(&s)) {
+                return walked;
+            }
+        }
+        panic!("no recruit joined: walked {walked:?}");
+    }
+
+    #[test]
+    fn recruits_call_at_the_academy_and_bring_its_training() {
+        let Some(mut w) = barracks(true) else { return };
+        let walked = first_recruit(&mut w);
+        // He sets out from the recruiter's road, calls at the academy's and goes back
+        // to the parade ground.
+        let academy_road = w.buildings.iter().find(|b| b.kind == ACADEMIES[0]).and_then(|b| b.road).expect("academy road");
+        assert_eq!(walked.first(), Some(&(42, 70)), "{walked:?}");
+        assert!(walked.contains(&academy_road), "never reached the academy at {academy_road:?}: {walked:?}");
+        let c = &w.military.companies[0];
+        assert!(fort_ground(44, 75).any(|t| Some(&t) == walked.last()), "{walked:?}");
+        // His company has the academy's experience, and its morale can climb to 80.
+        assert_eq!((c.experience, c.schooled), (ACADEMY_EXPERIENCE, true));
+        for _ in 0..12 {
+            w.update_morale_month();
+        }
+        assert_eq!(w.military.companies[0].morale, 80);
+
+        // Without an academy he goes straight to the fort, raw, and the company's
+        // morale stops at 60.
+        let Some(mut w) = barracks(false) else { return };
+        let walked = first_recruit(&mut w);
+        assert!(walked.iter().all(|&(x, _)| x < 50), "{walked:?}");
+        for _ in 0..12 {
+            w.update_morale_month();
+        }
+        let c = &w.military.companies[0];
+        assert_eq!((c.experience, c.schooled, c.morale), (0, false, 60));
+    }
+
     #[test]
     fn old_saves_keep_their_training() {
         #[derive(serde::Serialize)]
@@ -1673,7 +1773,7 @@ mod tests {
         let bytes = rmp_serde::to_vec_named(&old).unwrap();
         let mut c: Company = rmp_serde::from_slice(&bytes).unwrap();
         c.upgrade();
-        assert_eq!(c.experience, ACADEMY_EXPERIENCE);
+        assert_eq!((c.experience, c.schooled), (ACADEMY_EXPERIENCE, true));
         assert!(!rmp_serde::to_vec_named(&c).unwrap().windows(7).any(|w| w == b"trained"));
     }
 }
