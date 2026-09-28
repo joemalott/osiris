@@ -64,9 +64,13 @@ pub struct EventRecord {
     pub sender: i8,
     pub route: [i16; 4],
     pub subtype: i8,
+    /// Byte 101. The request handlers (0x44ccf7 for goods, FUN_0044c9e0 for troops)
+    /// send the first reminder when the months left, less the months the journey
+    /// takes, come down to it.
     pub city: i8,
-    /// Byte 100, unnamed: the original follows a request's `on_defeat` only when it is
-    /// 1 or 2.
+    /// Byte 102, unnamed: the original follows a request's `on_defeat` only when it is
+    /// 1 or 2. The request handlers send the last reminder when the months left, less
+    /// the journey, come down to it.
     pub defeat_link: u8,
     /// Phrase ids of the reasons the message may give; 0xffff is none.
     pub reasons: [u16; 4],

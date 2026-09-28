@@ -1169,6 +1169,7 @@ impl Game {
                 .replace("[amount_granted]", &shown(r, amount).to_string())
                 .replace("[item]", &item(r))
                 .replace("[time_allotted]", &t.months.to_string())
+                .replace("[travel_time]", &t.months.to_string())
                 .replace("[time_until_attack]", &t.months.to_string())
                 .replace("[god]", t.god.and_then(|g| self.text.get(157, g as usize)).unwrap_or(""))
                 .replace("[a_foreign_army]", t.army.and_then(|a| self.text.get(37, a)).unwrap_or("an army"))

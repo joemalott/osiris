@@ -1429,16 +1429,16 @@ fn request_popup(ui: &mut Ui, world: &mut World, i: usize, can: bool) -> bool {
     let (w, h) = (480.0, 160.0);
     let (x, y) = (((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor());
     panel::outer_panel(ui.r, ui.panels, x, y, 30, 10);
-    let title = ui.t(5, 6);
-    ui.centred(Font::LargeBlackOnLight, &title, x, y + 20.0, w);
     let troops = world.scenario_events.list.get(i).is_some_and(|e| e.resource == osiris_sim::scenario_events::TROOPS);
-    let line = ui.t(5, match (troops, can) {
-        (true, true) => 15,
-        (true, false) if world.military.companies.iter().any(|c| c.fort != 0 && !c.soldiers.is_empty()) => 13,
-        (true, false) => 11,
-        (false, true) => 7,
-        (false, false) => 9,
-    });
+    // A call for troops says what is missing, by land or by sea (FUN_0044d520).
+    let (title, line) = match (troops, can) {
+        (true, _) => world.troops_status(i).popup(),
+        (false, true) => (6, 7),
+        (false, false) => (6, 9),
+    };
+    let title = ui.t(5, title);
+    ui.centred(Font::LargeBlackOnLight, &title, x, y + 20.0, w);
+    let line = ui.t(5, line);
     ui.centred(Font::NormalBlackOnLight, &line, x, y + 60.0, w);
     if can {
         if ui.button([x + 140.0, y + 110.0, 100.0, 24.0], "Yes", Font::NormalBlackOnLight) {
@@ -1470,15 +1470,21 @@ fn army_navy_switch(ui: &mut Ui, [px, py]: [f32; 2], navy: bool) -> bool {
 /// or sea (27), a call open by land (13) or sea (26), or none (12).
 fn kingdom_call_line(world: &World) -> usize {
     use osiris_sim::scenario_events::TROOPS;
-    match &world.military.battle {
-        Some(b) if b.fought => return if b.sea { 28 } else { 15 },
-        Some(b) => return if b.sea { 27 } else { 14 },
-        None => {}
-    }
-    let open: Vec<usize> = world.scenario_events.open_requests().filter(|(_, e)| e.resource == TROOPS).map(|(i, _)| i).collect();
-    if open.iter().any(|&i| !world.request_by_sea(i)) {
+    let away = |sea: bool, back: bool| world.military.battles.iter().any(|b| b.sea == sea && b.fought == back);
+    let open = |sea: bool| world.scenario_events.open_requests().any(|(i, e)| e.resource == TROOPS && world.request_by_sea(i) == sea);
+    // The original's order (0x521f40 on): home-coming by land, by sea, marching by
+    // land, sailing, then open calls by land and by sea.
+    if away(false, true) {
+        15
+    } else if away(true, true) {
+        28
+    } else if away(false, false) {
+        14
+    } else if away(true, false) {
+        27
+    } else if open(false) {
         13
-    } else if open.iter().any(|&i| world.request_by_sea(i)) {
+    } else if open(true) {
         26
     } else {
         12
