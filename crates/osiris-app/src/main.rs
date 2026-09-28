@@ -489,25 +489,53 @@ fn campaign_view(assets: &Assets, p: &progress::Progress, at: &progress::Progres
     }
 }
 
-/// The first five missions teach the game, and their briefings name the tutorial's
-/// first goal (text 62, FUN_004e2530 with nothing yet done).
-const TUTORIAL_GOALS: [usize; 5] = [21, 24, 28, 33, 31];
-
 /// Mission `m`'s briefing: its campaign.txt intro message and its goals.
 fn briefing_view(assets: &Assets, m: usize, back: bool) -> menu::BriefingView {
     let intro = progress::mission_entry(&assets.campaign, m).map_or(200 + m, |e| e.intro_mm as usize);
     let msg = assets.messages.get(intro).cloned().unwrap_or_default();
-    let name = assets.mission_names.get(m).cloned().unwrap_or_default();
-    let brief = MissionPak::open(&assets.data.join("mission1.pak")).ok().and_then(|pak| pak.scenario(m).ok()).map(|s| mission_brief::Brief::new(name, &s)).unwrap_or_default();
+    let objectives = MissionPak::open(&assets.data.join("mission1.pak")).ok().and_then(|pak| pak.scenario(m).ok()).map(|s| mission_brief::Objectives::from_win(&s.info.win)).unwrap_or_default();
     menu::BriefingView {
         mission: m,
         title: msg.title,
         subtitle: msg.subtitle,
         content: msg.content,
-        brief,
-        tutorial: TUTORIAL_GOALS.get(m).and_then(|&i| assets.text.get(62, i)).map(|s| s.trim().to_owned()),
+        objectives,
+        tutorial: mission_brief::tutorial_goal(&assets.text, m),
         back,
     }
+}
+
+/// What the city's ankh reviews: a campaign mission's briefing, or a custom map's name,
+/// subtitle and description (read from its file when it is still there).
+fn review_view(assets: &Assets, world: &World, mission: Option<usize>, map: Option<&Path>) -> menu::BriefingView {
+    if let Some(m) = mission {
+        return briefing_view(assets, m, false);
+    }
+    let info = map.and_then(|p| Scenario::load_map(p).ok()).map(|s| s.info);
+    menu::BriefingView {
+        title: map.and_then(|p| p.file_stem()).map_or_else(|| world.scenario_name.clone(), |s| s.to_string_lossy().into_owned()),
+        subtitle: info.as_ref().map_or_else(String::new, |i| i.subtitle.trim().to_owned()),
+        content: map.and_then(map_notes).or_else(|| info.map(|i| i.brief_description.trim().to_owned()).filter(|d| !d.starts_with("Brief description of this"))).unwrap_or_default(),
+        ..Default::default()
+    }
+}
+
+/// The notes the game's own maps come with, `<map>.txt` beside the map: a quoted
+/// title line, then paragraphs for the player. The original never reads them (its
+/// maps' own description is the editor's placeholder), but Osiris shows them when a
+/// custom map's mission is reviewed.
+fn map_notes(map: &Path) -> Option<String> {
+    let raw = std::fs::read(map.with_extension("txt")).ok()?;
+    let text = osiris_formats::text::decode_cp1252(&raw).replace("\r\n", "\n");
+    let mut body = text.trim();
+    if body.starts_with('"')
+        && let Some((first, rest)) = body.split_once('\n')
+        && first.trim_end().ends_with('"')
+    {
+        body = rest.trim();
+    }
+    let paragraphs: Vec<String> = body.split("\n\n").map(|p| p.split_whitespace().collect::<Vec<_>>().join(" ")).filter(|p| !p.is_empty()).collect();
+    (!paragraphs.is_empty()).then(|| format!("@P{}", paragraphs.join(" @P")))
 }
 
 /// How the mission in play was started, which decides what follows a win.
@@ -665,6 +693,7 @@ impl App {
             Ok(world) => {
                 self.start(world, None);
                 if let Some(Screen::Playing(g, _)) = &mut self.screen {
+                    g.briefing_view = Some(review_view(&self.assets, &g.world, None, Some(&path)));
                     g.replay_map = Some(path);
                 }
             }
@@ -710,7 +739,9 @@ impl App {
         let (Some(gfx), Some(images)) = (self.gfx.as_mut(), self.images.clone()) else { return };
         world.rules = load_rules();
         recording::start(&mut world);
+        let briefing = review_view(&self.assets, &world, mission, None);
         let mut game = game::Game::new(world, images, self.assets.text.clone(), self.assets.messages.clone(), self.audio.clone());
+        game.briefing_view = Some(briefing);
         game.phrases = self.assets.phrases.clone();
         game.player_name = player_name();
         game.victory_text = mission.and_then(|m| progress::mission_entry(&self.assets.campaign, m)).map_or(37, |e| e.victory_text as usize);
@@ -910,8 +941,18 @@ impl App {
         }
     }
 
-    /// The mission is played again from its start, as the same kind of play.
+    /// The mission is played again from its start, as the same kind of play: "Replay
+    /// mission" after a loss and File's Replay both run 0x418510. The family history's
+    /// mission goes straight back into its city (the original reloads the
+    /// autosave_replay.sav it wrote as the city began); any other campaign mission is
+    /// briefed again first (FUN_004181e0). A custom map starts again straight into
+    /// its city (`start_map`).
     fn restart(&mut self, m: usize) {
+        if !matches!(self.run, Run::History) {
+            self.pending_path = None;
+            self.brief(m, false);
+            return;
+        }
         match self.new_mission(m) {
             Ok(world) => self.start(world, Some(m)),
             Err(e) => self.status = Some((trf("Could not start: {0}", &[&e]), 5.0)),
@@ -1695,10 +1736,7 @@ impl App {
         }
         self.editor_request();
         match lost_choice {
-            Some((top_menu::MenuAction::Replay, Some(n), _)) => match self.new_mission(n) {
-                Ok(world) => self.start(world, Some(n)),
-                Err(e) => self.status = Some((trf("Could not start: {0}", &[&e]), 5.0)),
-            },
+            Some((top_menu::MenuAction::Replay, Some(n), _)) => self.restart(n),
             Some((top_menu::MenuAction::Replay, None, Some(p))) => self.start_map(p),
             Some(_) => self.back_to_menu(),
             None => {}
@@ -1719,6 +1757,13 @@ impl App {
 fn key_pressed(g: &mut game::Game, code: KeyCode, ctrl: bool) {
     use game::Tool;
     use osiris_sim::buildings::kind;
+    // The briefing reviewed covers the city: Escape or Enter goes back to it.
+    if g.review.is_some() {
+        if matches!(code, KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter) {
+            g.cancel();
+        }
+        return;
+    }
     // With a ship selected, its order keys come first.
     let ship_key = match code {
         KeyCode::KeyH => Some('h'),
@@ -2033,7 +2078,12 @@ fn run(mut args: Args) -> Result<()> {
                 menu.draw(r, &images.panels)
             });
         }
+        let briefing = match &source {
+            Source::Map(p) => review_view(&assets, &world, None, Some(p)),
+            Source::Mission(m) => review_view(&assets, &world, Some(*m), None),
+        };
         let mut game = game::Game::new(world, images, assets.text.clone(), assets.messages.clone(), None);
+        game.briefing_view = Some(briefing);
         game.replay_map = match source {
             Source::Map(p) => Some(p),
             Source::Mission(_) => None,
@@ -2048,6 +2098,10 @@ fn run(mut args: Args) -> Result<()> {
             game.view_overlay = overlay::MENU.iter().map(|(o, _)| *o).find(|o| format!("{o:?}").eq_ignore_ascii_case(name));
         }
         game.hide_cliffs = view.hide_cliffs;
+        if view.review {
+            game.close_dialog();
+            game.review_mission();
+        }
         if let Some(n) = view.top_menu {
             game.open_top_menu(n);
         }

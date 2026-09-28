@@ -192,6 +192,11 @@ pub struct Game {
     sound_click: Option<[f32; 2]>,
     /// Set when the player keeps new sound settings, so the caller can store them.
     pub sound_changed: bool,
+    /// What the sidebar's ankh reviews: the mission's briefing (its objectives are
+    /// read from the city when it opens), set by whoever started the city.
+    pub briefing_view: Option<crate::menu::BriefingView>,
+    /// The mission briefing reviewed over the city (the original's window 0x3b).
+    pub review: Option<crate::menu::Briefing>,
     /// The Difficulty window is open, and a click on it waits to be handled.
     pub difficulty_panel: bool,
     difficulty_click: Option<[f32; 2]>,
@@ -303,6 +308,8 @@ impl Game {
             rules_panel: None,
             confirm: None,
             confirm_click: None,
+            briefing_view: None,
+            review: None,
             difficulty_panel: false,
             sound_window: None,
             sound_prefs: Default::default(),
@@ -418,6 +425,7 @@ impl Game {
     pub fn idle(&self) -> bool {
         self.selected_ship.is_none()
             && self.dialog.is_none() && self.info.is_none() && self.message_list.is_none() && self.empire.is_none() && self.advisors.is_none() && self.rules_panel.is_none() && !self.difficulty_panel && self.sound_window.is_none() && self.confirm.is_none() && self.world.messages.is_empty() && self.tool == Tool::None && self.sidebar.open.is_none()
+            && self.review.is_none()
     }
 
     pub fn close_dialog(&mut self) {
@@ -426,6 +434,10 @@ impl Game {
     }
 
     pub fn scroll_dialog(&mut self, delta: f32, screen: [f32; 2]) -> bool {
+        if let Some(b) = &mut self.review {
+            b.scroll(if delta < 0.0 { 1 } else { -1 });
+            return true;
+        }
         if let Some(a) = &mut self.advisors {
             a.scroll(if delta < 0.0 { 1 } else { -1 });
             return true;
@@ -535,6 +547,7 @@ impl Game {
             || self.message_list.is_some()
             || self.rules_panel.is_some()
             || self.difficulty_panel
+            || self.review.is_some()
             || self.sound_window.is_some()
             || self.confirm.is_some()
             || self.custom_dialog.is_some()
@@ -638,6 +651,11 @@ impl Game {
 
     pub fn set_cursor(&mut self, r: &Renderer, screen: [f32; 2]) {
         self.cursor = screen;
+        if let Some(b) = &mut self.review {
+            b.hover(r.screen, screen);
+            self.hover = None;
+            return;
+        }
         if let Some(d) = &mut self.dialog {
             d.hover(screen, r.screen);
             self.hover = None;
@@ -775,6 +793,21 @@ impl Game {
 
     /// Handles a left click. Returns a tile to centre the view on (minimap clicks).
     pub fn press_at(&mut self, r: &Renderer) -> Option<(i32, i32)> {
+        if let Some(b) = &mut self.review {
+            match b.click(r.screen, self.cursor, self.world.difficulty) {
+                Some(crate::menu::BriefingClick::ToCity | crate::menu::BriefingClick::Back) => {
+                    self.review = None;
+                    self.sound("BUTTON.WAV");
+                }
+                Some(crate::menu::BriefingClick::Difficulty(d)) => {
+                    self.world.apply(&Command::Difficulty(d));
+                    self.difficulty_changed = true;
+                    self.sound("BUTTON.WAV");
+                }
+                None => {}
+            }
+            return None;
+        }
         if self.dialog.is_none()
             && let Some(a) = &mut self.advisors
         {
@@ -924,7 +957,7 @@ impl Game {
             Button::Undo => self.can_undo(),
             Button::Messages => !self.world.notices.log.is_empty(),
             Button::Problem => self.world.problems().next().is_some(),
-            Button::Briefing => self.briefing().is_some(),
+            Button::Briefing => self.briefing_view.is_some(),
             Button::SpeedDown | Button::SpeedUp => true,
             Button::Empire => !self.world.trade.cities.is_empty(),
             Button::Advisors | Button::Collapse => true,
@@ -947,11 +980,7 @@ impl Game {
                 self.problem_cursor += 1;
                 return Some(tile);
             }
-            Button::Briefing => {
-                if let Some(key) = self.briefing() {
-                    self.world.messages.push_back(key);
-                }
-            }
+            Button::Briefing => self.review_mission(),
             Button::SpeedDown => self.slower(),
             Button::SpeedUp => self.faster(),
             Button::Empire => {
@@ -1170,8 +1199,21 @@ impl Game {
         self.sound("BUTTON.WAV");
     }
 
-    fn briefing(&self) -> Option<String> {
-        self.world.mission.as_ref()?.start_message.clone()
+    /// The sidebar's ankh, "Review your mission" (text 68:35): the handler at 0x418390
+    /// opens the mission briefing as window 0x3b, the same window (FUN_0041a180) that
+    /// came before the city, its objectives read from the scenario as it is played.
+    /// The original does nothing for a custom map (the handler returns when 0xe38ebc,
+    /// the custom-mission flag, is set); Osiris shows a custom map its own goals the
+    /// same way, under the map's name, subtitle and description.
+    pub fn review_mission(&mut self) {
+        let Some(mut view) = self.briefing_view.clone() else { return };
+        view.back = false;
+        view.objectives = crate::mission_brief::Objectives { goals: self.world.goals(), time_limit: self.world.time_limit, survival: self.world.survival };
+        self.sidebar.open = None;
+        self.tool = Tool::None;
+        self.drag_start = None;
+        self.review = Some(crate::menu::Briefing::new(view));
+        self.sound("BUTTON.WAV");
     }
 
     /// A scenario event's message: the template's frame, written from its phrases with
@@ -1221,6 +1263,9 @@ impl Game {
 
     pub fn release(&mut self) {
         self.sidebar.release();
+        if let Some(b) = &mut self.review {
+            b.release();
+        }
         if let Some(d) = &mut self.dialog {
             d.release();
         }
@@ -1249,6 +1294,9 @@ impl Game {
     }
 
     pub fn cancel(&mut self) {
+        if self.review.take().is_some() {
+            return;
+        }
         if let Some(a) = &mut self.advisors
             && self.dialog.is_none()
         {
@@ -1751,6 +1799,11 @@ impl Game {
     }
 
     pub fn draw(&mut self, r: &mut Renderer) {
+        // The mission briefing reviewed fills the screen, as the original's window does.
+        if let Some(b) = &self.review {
+            b.draw(r, &self.images.panels, &self.text, self.cursor, self.world.difficulty);
+            return;
+        }
         self.next_dialog(r);
         if let Some(a) = &self.audio {
             // The original makes them only while the city itself is the window.
@@ -1879,7 +1932,7 @@ impl Game {
             unread: self.world.unread_notices(),
             has_messages: !self.world.notices.log.is_empty(),
             has_problems: self.world.problems().next().is_some(),
-            has_briefing: self.briefing().is_some(),
+            has_briefing: self.briefing_view.is_some(),
             has_empire: !self.world.trade.cities.is_empty(),
             can_undo: self.can_undo(),
             speed: &speed,

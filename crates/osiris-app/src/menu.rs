@@ -2,7 +2,7 @@
 //! game rules, drawn over the original's background art.
 
 use crate::lang::tr;
-use crate::mission_brief::Brief;
+use crate::mission_brief::{Brief, Objectives};
 use crate::rules_panel::{RulesClick, RulesPanel};
 use osiris_formats::{MissionPak, Scenario, TextTable};
 use osiris_render::{Renderer, Space, WHITE};
@@ -141,18 +141,45 @@ pub struct CampaignView {
     pub resume: bool,
 }
 
-/// A mission's briefing, shown before its city.
+/// A mission's briefing, shown before its city or reviewed from it.
 #[derive(Debug, Clone, Default)]
 pub struct BriefingView {
     pub mission: usize,
     pub title: String,
     pub subtitle: String,
     pub content: String,
-    pub brief: Brief,
-    /// The tutorial's first goal, on the first five missions.
+    pub objectives: Objectives,
+    /// The tutorial's goal, on the first five missions.
     pub tutorial: Option<String>,
     /// The mission was picked on the choice of city, which Cancel goes back to.
     pub back: bool,
+}
+
+/// What a click on the briefing asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BriefingClick {
+    /// "To the city".
+    ToCity,
+    /// Cancel, back to the choice of city.
+    Back,
+    /// The difficulty's arrows: the difficulty wanted.
+    Difficulty(u8),
+}
+
+/// The mission briefing on screen (FUN_0041a180), with its text's scrolling. The
+/// original draws the same window before a mission (window 0x35) and when the city's
+/// ankh reviews the mission (window 0x3b, opened by the button handler at 0x418390),
+/// with "To the city" and the difficulty's arrows in both (button tables 0x579788,
+/// 0x5c81b0) and Cancel only before a mission picked on the choice of city.
+#[derive(Debug, Default)]
+pub struct Briefing {
+    pub view: BriefingView,
+    /// How far the text is scrolled, in pixels.
+    scroll: f32,
+    /// How far the text can scroll, found as it is drawn.
+    max: std::cell::Cell<f32>,
+    /// The stone is being dragged.
+    drag: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -329,16 +356,10 @@ pub struct Menu {
     /// The campaign window came up because a period was won: as in the original, it
     /// can then only be left by beginning the next.
     periods_locked: bool,
-    briefing: Option<BriefingView>,
-    /// How far the briefing's text is scrolled, in pixels.
-    briefing_scroll: f32,
+    briefing: Option<Briefing>,
     /// "No Missions Won By Family": asked before Explore History opens for a family
     /// with no mission won.
     explore_confirm: bool,
-    /// How far the briefing's text can scroll, found as it is drawn.
-    briefing_max: std::cell::Cell<f32>,
-    /// The briefing's stone is being dragged.
-    briefing_drag: bool,
 }
 
 const BUTTON_H: f32 = 25.0;
@@ -423,6 +444,151 @@ fn bg_image(r: &mut Renderer, id: u32, x: f32, y: f32) {
     r.image(id, [x, y], WHITE, Space::Screen);
 }
 
+impl Briefing {
+    pub fn new(view: BriefingView) -> Self {
+        Self { view, ..Default::default() }
+    }
+
+    /// The briefing over its own background, filling the screen.
+    pub fn draw(&self, r: &mut Renderer, panels: &PanelImages, text: &TextTable, cursor: [f32; 2], difficulty: u8) {
+        Menu::background(r, BG_BRIEFING);
+        let f = Frame::new(r.screen);
+        r.screen_frame = Some((f.o, f.s));
+        r.smooth = fractional(r, f.s);
+        self.draw_framed(r, panels, text, f.to_bg(cursor), difficulty);
+        r.set_clip(None);
+        r.screen_frame = None;
+        r.smooth = false;
+    }
+
+    /// The mouse moved to `p`: a dragged stone follows it.
+    pub fn hover(&mut self, screen: [f32; 2], p: [f32; 2]) {
+        if self.drag {
+            self.drag_to(Frame::new(screen).to_bg(p)[1]);
+        }
+    }
+
+    /// The left button came up: the stone is let go.
+    pub fn release(&mut self) {
+        self.drag = false;
+    }
+
+    /// The text scrolled by `lines`, as the wheel does.
+    pub fn scroll(&mut self, lines: i32) {
+        self.scroll = (self.scroll + BRIEF_LINE * lines as f32).clamp(0.0, self.max.get());
+    }
+
+    /// Puts the stone's middle under `y` (in the page's coordinates), in whole lines.
+    fn drag_to(&mut self, y: f32) {
+        let [_, top, travel] = BRIEF_STONE;
+        let t = ((y - top - 12.0) / travel).clamp(0.0, 1.0);
+        let max = self.max.get();
+        self.scroll = ((t * max / BRIEF_LINE).round() * BRIEF_LINE).min(max);
+    }
+
+    /// A left click at `p`: on to the city, back to the choice of city, the
+    /// difficulty's arrows, or the text's scroll arrows and stone.
+    pub fn click(&mut self, screen: [f32; 2], p: [f32; 2], difficulty: u8) -> Option<BriefingClick> {
+        let b = Frame::new(screen).to_bg(p);
+        if inside4(b, BRIEF_GO) {
+            return Some(BriefingClick::ToCity);
+        }
+        if self.view.back && inside4(b, BRIEF_BACK) {
+            return Some(BriefingClick::Back);
+        }
+        let d = difficulty;
+        let want = if inside4(b, BRIEF_UP) { (d + 1).min(osiris_sim::difficulty::IMPOSSIBLE) } else if inside4(b, BRIEF_DOWN) { d.saturating_sub(1) } else { d };
+        if want != d {
+            return Some(BriefingClick::Difficulty(want));
+        }
+        // The scroll arrows and stone, there only while the text runs past its box.
+        if self.max.get() > 0.0 {
+            if inside4(b, BRIEF_ARROW_UP) {
+                self.scroll(-1);
+            } else if inside4(b, BRIEF_ARROW_DOWN) {
+                self.scroll(1);
+            } else if inside(b, BRIEF_STONE[0], BRIEF_STONE[1], 25.0, BRIEF_STONE[2] + 25.0) {
+                self.drag = true;
+                self.drag_to(b[1]);
+            }
+        }
+        None
+    }
+
+    /// The mission briefing (FUN_0041a180): the briefing's title and subtitle, the
+    /// objectives as labels, the briefing itself below, and at the bottom the
+    /// difficulty and the way to the city.
+    fn draw_framed(&self, r: &mut Renderer, panels: &PanelImages, text: &TextTable, cursor: [f32; 2], difficulty: u8) {
+        let b = &self.view;
+        let t = |g: usize, i: usize| text.get(g, i).unwrap_or("").trim().to_string();
+        let [px, py] = BRIEF_AT;
+        panel::outer_panel(r, panels, px, py, 38, 28);
+        bg_text(r, Font::LargeBlackOnLight, &b.title, px + 16.0, py + 16.0);
+        bg_text(r, Font::NormalBlackOnLight, &b.subtitle, px + 16.0, py + 46.0);
+
+        panel::inner_panel(r, panels, px + 16.0, py + 64.0, 36, 6);
+        // The heading is light on the dark panel, the goals yellow on their labels.
+        bg_text(r, Font::NormalWhiteOnDark, &t(62, 10), px + 32.0, py + 72.0);
+        // The tutorial's line takes the last row's two slots.
+        let goals = b.objectives.lines(text);
+        let slots = if b.tutorial.is_some() { 4 } else { GOAL_SLOTS.len() };
+        for (line, &[x, y]) in goals.iter().zip(&GOAL_SLOTS[..slots]) {
+            panel::label(r, panels, px + x, py + y, 15, 1);
+            bg_text(r, Font::NormalYellow, line, px + x + 8.0, py + y + 3.0);
+        }
+        if let Some(line) = &b.tutorial {
+            let [x, y] = GOAL_SLOTS[4];
+            panel::label(r, panels, px + x, py + y, 34, 1);
+            bg_text(r, Font::NormalYellow, line, px + x + 8.0, py + y + 3.0);
+        }
+
+        panel::inner_panel(r, panels, px + 16.0, py + 168.0, 33, 15);
+        let [tx, ty, tw, th] = BRIEF_TEXT;
+        // Drawn as the original draws messages (FUN_004c8070): a paragraph's first
+        // line starts 50 pixels in.
+        let opts = rich_text::Options { font: Font::NormalWhiteOnDark, width: tw as i32, paragraph_indent: 50 };
+        let laid = rich_text::layout(&b.content, &opts, &mut rich_text::RendererMeasure::new(r));
+        // Whole lines are shown, and it scrolls by whole lines until the last is in view.
+        let view_h = th - 6.0;
+        let max = ((laid.height as f32 - view_h) / BRIEF_LINE).ceil().max(0.0) * BRIEF_LINE;
+        self.max.set(max);
+        let scroll = self.scroll.min(max);
+        r.set_clip(Some([tx - 16.0, py + 171.0, tw + 32.0, th]));
+        rich_text::draw(r, &laid, [tx, ty - GLYPH_RISE], view_h, scroll, text_color(Font::NormalWhiteOnDark));
+        r.set_clip(None);
+        // Text longer than its box gets the scroll arrows at either end of the track and
+        // the stone between them (FUN_00418f70, FUN_004c72b0); none when it fits.
+        if max > 0.0 {
+            panel::inner_panel(r, panels, px + 557.0, py + 192.0, 2, 12);
+            if let Ok(arrows) = r.library.group_id("Pharaoh_General", 96, 8) {
+                for (rect, image) in [(BRIEF_ARROW_UP, arrows), (BRIEF_ARROW_DOWN, arrows + 4)] {
+                    bg_image(r, image + inside4(cursor, rect) as u32, rect[0], rect[1]);
+                }
+            }
+            let [sx, top, travel] = BRIEF_STONE;
+            let sy = top + (scroll / max * travel).round();
+            bg_image(r, panels.panel_button + 39, sx, sy);
+        }
+
+        bg_text(r, Font::NormalBlackOnLight, &format!("{} {}", t(44, 216), t(153, difficulty as usize + 1)), px + 150.0, py + 417.0);
+        for (group, rect) in [(212, BRIEF_UP), (16, BRIEF_DOWN)] {
+            if let Ok(id) = r.library.group_id("Pharaoh_General", group, 0) {
+                bg_image(r, id + inside4(cursor, rect) as u32, rect[0], rect[1]);
+            }
+        }
+        if b.back {
+            bg_text(r, Font::NormalBlackOnLight, &t(13, 4), px + 50.0, py + 419.0);
+            if let Ok(id) = r.library.group_id("Pharaoh_General", 90, 8) {
+                bg_image(r, id + inside4(cursor, BRIEF_BACK) as u32, BRIEF_BACK[0], BRIEF_BACK[1]);
+            }
+        }
+        bg_text(r, Font::NormalBlackOnLight, &t(62, 7), px + 476.0, py + 417.0);
+        if let Ok(go) = r.library.group_id("Pharaoh_General", 192, 0) {
+            bg_image(r, go + inside4(cursor, BRIEF_GO) as u32, BRIEF_GO[0], BRIEF_GO[1]);
+        }
+    }
+}
+
 impl Menu {
     #[allow(clippy::too_many_arguments)]
     pub fn new(mission_names: Vec<String>, campaign: CampaignView, maps: Vec<PathBuf>, mut saves: Vec<PathBuf>, rules: Rules, family: String, family_text: FamilyText, text: Arc<TextTable>, data: PathBuf) -> Self {
@@ -462,10 +628,7 @@ impl Menu {
             period_sel: 0,
             periods_locked: false,
             briefing: None,
-            briefing_scroll: 0.0,
             explore_confirm: false,
-            briefing_max: std::cell::Cell::new(0.0),
-            briefing_drag: false,
         };
         m.build();
         m
@@ -546,8 +709,7 @@ impl Menu {
 
     /// A mission's briefing, before its city.
     pub fn show_briefing(&mut self, b: BriefingView) {
-        self.briefing = Some(b);
-        self.briefing_scroll = 0.0;
+        self.briefing = Some(Briefing::new(b));
         self.go(Page::Briefing);
     }
 
@@ -777,8 +939,8 @@ impl Menu {
             let f = if matches!(self.page, Page::Load | Page::Family) { Self::main_frame(screen) } else { Frame::new(screen) };
             self.drag_stone(f.to_bg(p)[1]);
         }
-        if self.briefing_drag {
-            self.drag_briefing(Frame::new(screen).to_bg(p)[1]);
+        if let Some(b) = &mut self.briefing {
+            b.hover(screen, p);
         }
         self.hover = self.item_at(screen, p);
         self.hover_point = self.point_at(screen, p);
@@ -794,21 +956,16 @@ impl Menu {
     /// The left button came up: the stone is let go.
     pub fn release(&mut self) {
         self.dragging = false;
-        self.briefing_drag = false;
-    }
-
-    /// Puts the briefing's stone's middle under `y` (in the page's coordinates), in
-    /// whole lines.
-    fn drag_briefing(&mut self, y: f32) {
-        let [_, top, travel] = BRIEF_STONE;
-        let t = ((y - top - 12.0) / travel).clamp(0.0, 1.0);
-        let max = self.briefing_max.get();
-        self.briefing_scroll = ((t * max / BRIEF_LINE).round() * BRIEF_LINE).min(max);
+        if let Some(b) = &mut self.briefing {
+            b.release();
+        }
     }
 
     pub fn scroll(&mut self, lines: i32) {
         if self.page == Page::Briefing {
-            self.briefing_scroll = (self.briefing_scroll + BRIEF_LINE * lines as f32).clamp(0.0, self.briefing_max.get());
+            if let Some(b) = &mut self.briefing {
+                b.scroll(lines);
+            }
             return;
         }
         let max = self.items.len().saturating_sub(self.visible_rows()) as i32;
@@ -823,7 +980,7 @@ impl Menu {
             Page::Main => {}
             Page::Rules => self.go(Page::Options),
             Page::Periods if self.periods_locked => {}
-            Page::Briefing if self.briefing.as_ref().is_some_and(|b| b.back) => self.go(Page::CityChoice),
+            Page::Briefing if self.briefing.as_ref().is_some_and(|b| b.view.back) => self.go(Page::CityChoice),
             // Nothing to fall back to until a family exists: the registry is the
             // only page reachable, and it must stay so.
             Page::Family if self.family.is_empty() => {}
@@ -1104,33 +1261,19 @@ impl Menu {
     /// A click on the briefing: on to the city, back to the choice of city, or the
     /// difficulty's arrows.
     fn click_briefing(&mut self, screen: [f32; 2], p: [f32; 2]) -> Option<Choice> {
-        let b = Frame::new(screen).to_bg(p);
-        let brief = self.briefing.as_ref()?;
-        if inside4(b, BRIEF_GO) {
-            return Some(Choice::ToCity(brief.mission));
-        }
-        if brief.back && inside4(b, BRIEF_BACK) {
-            self.go(Page::CityChoice);
-            return None;
-        }
-        let d = self.difficulty;
-        let want = if inside4(b, BRIEF_UP) { (d + 1).min(osiris_sim::difficulty::IMPOSSIBLE) } else if inside4(b, BRIEF_DOWN) { d.saturating_sub(1) } else { d };
-        if want != d {
-            self.difficulty = want;
-            self.difficulty_changed = true;
-        }
-        // The scroll arrows and stone, there only while the text runs past its box.
-        if self.briefing_max.get() > 0.0 {
-            if inside4(b, BRIEF_ARROW_UP) {
-                self.scroll(-1);
-            } else if inside4(b, BRIEF_ARROW_DOWN) {
-                self.scroll(1);
-            } else if inside(b, BRIEF_STONE[0], BRIEF_STONE[1], 25.0, BRIEF_STONE[2] + 25.0) {
-                self.briefing_drag = true;
-                self.drag_briefing(b[1]);
+        let brief = self.briefing.as_mut()?;
+        match brief.click(screen, p, self.difficulty)? {
+            BriefingClick::ToCity => Some(Choice::ToCity(brief.view.mission)),
+            BriefingClick::Back => {
+                self.go(Page::CityChoice);
+                None
+            }
+            BriefingClick::Difficulty(d) => {
+                self.difficulty = d;
+                self.difficulty_changed = true;
+                None
             }
         }
-        None
     }
 
     /// A click on Custom Missions or Explore History: the exit and start buttons, the
@@ -1235,7 +1378,11 @@ impl Menu {
             Page::Main | Page::Options => self.draw_main(r, panels),
             Page::Campaign | Page::Custom | Page::Editor => self.draw_scenarios(r, panels),
             Page::Periods | Page::HistoryPeriods => self.draw_framed(r, panels, BG_HISTORY, Self::draw_periods),
-            Page::Briefing => self.draw_framed(r, panels, BG_BRIEFING, Self::draw_briefing),
+            Page::Briefing => {
+                if let Some(b) = &self.briefing {
+                    b.draw(r, panels, &self.text, self.cursor, self.difficulty);
+                }
+            }
             Page::CityChoice => self.draw_framed(r, panels, CHOICE_BACK, Self::draw_choice),
             Page::Load => self.draw_paged(r, panels, BG_CHOOSE_GAME, Self::draw_load),
             Page::Rules => {
@@ -1361,90 +1508,6 @@ impl Menu {
             && let Ok(go) = r.library.group_id("Pharaoh_General", 192, 0)
         {
             bg_image(r, go + inside4(cursor, PLAY_BUTTON) as u32, PLAY_BUTTON[0], PLAY_BUTTON[1]);
-        }
-    }
-
-    /// The mission briefing (FUN_0041a180): the briefing's title and subtitle, the
-    /// objectives as labels, the briefing itself below, and at the bottom the
-    /// difficulty and the way to the city.
-    fn draw_briefing(&self, r: &mut Renderer, panels: &PanelImages, f: &Frame) {
-        let Some(b) = &self.briefing else { return };
-        let t = |g: usize, i: usize| self.text.get(g, i).unwrap_or("").trim().to_string();
-        let cursor = f.to_bg(self.cursor);
-        let [px, py] = BRIEF_AT;
-        panel::outer_panel(r, panels, px, py, 38, 28);
-        bg_text(r, Font::LargeBlackOnLight, &b.title, px + 16.0, py + 16.0);
-        bg_text(r, Font::NormalBlackOnLight, &b.subtitle, px + 16.0, py + 46.0);
-
-        panel::inner_panel(r, panels, px + 16.0, py + 64.0, 36, 6);
-        // The heading is light on the dark panel, the goals yellow on their labels.
-        bg_text(r, Font::NormalWhiteOnDark, &t(62, 10), px + 32.0, py + 72.0);
-        let w = &b.brief.win;
-        let mut goals = Vec::new();
-        if w.population.enabled {
-            goals.push(format!("{} {}", t(62, 11), w.population.value));
-        }
-        if w.housing_count.value != 0 {
-            goals.push(format!("{} {}", w.housing_count.value, t(29, w.housing_level.value.max(0) as usize + 20)));
-        }
-        for (g, id) in [(&w.culture, 12), (&w.prosperity, 13), (&w.monuments, 14), (&w.kingdom, 15)] {
-            if g.enabled {
-                goals.push(format!("{} {}", t(62, id), g.value));
-            }
-        }
-        for (line, [x, y]) in goals.iter().zip(GOAL_SLOTS) {
-            panel::label(r, panels, px + x, py + y, 15, 1);
-            bg_text(r, Font::NormalYellow, line, px + x + 8.0, py + y + 3.0);
-        }
-        if let Some(line) = &b.tutorial {
-            let [x, y] = GOAL_SLOTS[4];
-            panel::label(r, panels, px + x, py + y, 34, 1);
-            bg_text(r, Font::NormalYellow, line, px + x + 8.0, py + y + 3.0);
-        }
-
-        panel::inner_panel(r, panels, px + 16.0, py + 168.0, 33, 15);
-        let [tx, ty, tw, th] = BRIEF_TEXT;
-        // Drawn as the original draws messages (FUN_004c8070): a paragraph's first
-        // line starts 50 pixels in.
-        let opts = rich_text::Options { font: Font::NormalWhiteOnDark, width: tw as i32, paragraph_indent: 50 };
-        let laid = rich_text::layout(&b.content, &opts, &mut rich_text::RendererMeasure::new(r));
-        // Whole lines are shown, and it scrolls by whole lines until the last is in view.
-        let view_h = th - 6.0;
-        let max = ((laid.height as f32 - view_h) / BRIEF_LINE).ceil().max(0.0) * BRIEF_LINE;
-        self.briefing_max.set(max);
-        let scroll = self.briefing_scroll.min(max);
-        r.set_clip(Some([tx - 16.0, py + 171.0, tw + 32.0, th]));
-        rich_text::draw(r, &laid, [tx, ty - GLYPH_RISE], view_h, scroll, text_color(Font::NormalWhiteOnDark));
-        r.set_clip(None);
-        // Text longer than its box gets the scroll arrows at either end of the track and
-        // the stone between them (FUN_00418f70, FUN_004c72b0); none when it fits.
-        if max > 0.0 {
-            panel::inner_panel(r, panels, px + 557.0, py + 192.0, 2, 12);
-            if let Ok(arrows) = r.library.group_id("Pharaoh_General", 96, 8) {
-                for (rect, image) in [(BRIEF_ARROW_UP, arrows), (BRIEF_ARROW_DOWN, arrows + 4)] {
-                    bg_image(r, image + inside4(cursor, rect) as u32, rect[0], rect[1]);
-                }
-            }
-            let [sx, top, travel] = BRIEF_STONE;
-            let sy = top + (scroll / max * travel).round();
-            bg_image(r, panels.panel_button + 39, sx, sy);
-        }
-
-        bg_text(r, Font::NormalBlackOnLight, &format!("{} {}", t(44, 216), t(153, self.difficulty as usize + 1)), px + 150.0, py + 417.0);
-        for (group, rect) in [(212, BRIEF_UP), (16, BRIEF_DOWN)] {
-            if let Ok(id) = r.library.group_id("Pharaoh_General", group, 0) {
-                bg_image(r, id + inside4(cursor, rect) as u32, rect[0], rect[1]);
-            }
-        }
-        if b.back {
-            bg_text(r, Font::NormalBlackOnLight, &t(13, 4), px + 50.0, py + 419.0);
-            if let Ok(id) = r.library.group_id("Pharaoh_General", 90, 8) {
-                bg_image(r, id + inside4(cursor, BRIEF_BACK) as u32, BRIEF_BACK[0], BRIEF_BACK[1]);
-            }
-        }
-        bg_text(r, Font::NormalBlackOnLight, &t(62, 7), px + 476.0, py + 417.0);
-        if let Ok(go) = r.library.group_id("Pharaoh_General", 192, 0) {
-            bg_image(r, go + inside4(cursor, BRIEF_GO) as u32, BRIEF_GO[0], BRIEF_GO[1]);
         }
     }
 
