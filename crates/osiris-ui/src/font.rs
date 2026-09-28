@@ -103,6 +103,62 @@ fn glyph_id(font: Font, byte: u8) -> Option<u32> {
     (slot != 0).then(|| FONT_PACK_BASE + SYSTEM_SLOTS + font.def().offset + slot - 1)
 }
 
+/// The plain letter an accented one is drawn over, to line their feet up.
+fn base_letter(c: char) -> Option<char> {
+    Some(match c {
+        'À' | 'Á' | 'Â' | 'Ã' | 'Ä' | 'Å' | 'Æ' => 'A',
+        'È' | 'É' | 'Ê' | 'Ë' => 'E',
+        'Ì' | 'Í' | 'Î' | 'Ï' => 'I',
+        'Ñ' => 'N',
+        'Ò' | 'Ó' | 'Ô' | 'Õ' | 'Ö' | 'Ø' | 'Œ' => 'O',
+        'Ù' | 'Ú' | 'Û' | 'Ü' => 'U',
+        'Š' => 'S',
+        'Ž' => 'Z',
+        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'æ' => 'a',
+        'è' | 'é' | 'ê' | 'ë' => 'e',
+        'ì' | 'í' | 'î' | 'ï' => 'i',
+        'ñ' => 'n',
+        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'œ' => 'o',
+        'ù' | 'ú' | 'û' | 'ü' => 'u',
+        'ý' | 'ÿ' => 'y',
+        'š' => 's',
+        'ž' => 'z',
+        'ß' => 'b',
+        _ => return None,
+    })
+}
+
+/// The lowest row holding ink in image `id` (glyphs are drawn from their tops, and
+/// the font's art puts letters at different depths in their boxes).
+fn ink_bottom(r: &Renderer, id: u32) -> Option<i32> {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    static CACHE: Mutex<Option<HashMap<u32, Option<i32>>>> = Mutex::new(None);
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    *cache.get_or_insert_with(HashMap::new).entry(id).or_insert_with(|| {
+        let img = r.library.resolve(id)?;
+        let sprite = r.library.sg3(img.pack)?.decode(img.index as usize).ok()?;
+        let w = sprite.width as usize;
+        (0..sprite.height as usize).rev().find(|&row| sprite.pixels[row * w..(row + 1) * w].iter().any(|p| p[3] != 0)).map(|row| row as i32)
+    })
+}
+
+/// How far above the line an accented letter is drawn. The exe raises every glyph
+/// past 0x7F but ç by its height less the font's line (FUN_004cca60), which suits
+/// the fonts its localized editions shipped; the English font's accented letters sit
+/// lower in their boxes than that expects, so Osiris lines the letter's foot up with
+/// its plain letter's instead, and falls back on the exe's rule for the rest (¿, ¡).
+fn accent_lift(r: &Renderer, font: Font, c: char, b: u8, id: u32) -> i32 {
+    if b < 0x80 || b == 0xE7 {
+        return 0;
+    }
+    let plain = base_letter(c).and_then(|p| glyph_id(font, p as u8));
+    match (plain.and_then(|p| ink_bottom(r, p)), ink_bottom(r, id)) {
+        (Some(base), Some(own)) => (own - base).max(0),
+        _ => r.record(id).map_or(0, |rec| (rec.height as i32 - font.def().line).max(0)),
+    }
+}
+
 /// Width in pixels of `text` in `font`.
 pub fn text_width(r: &Renderer, font: Font, text: &str) -> i32 {
     let d = font.def();
@@ -199,9 +255,8 @@ fn draw_glyphs_as(r: &mut Renderer, font: Font, text: &str, x: f32, y: f32, colo
         }
         let Some(id) = glyph_id(font, b) else { continue };
         let Some(rec) = r.record(id) else { continue };
-        let (w, h) = (rec.width as i32, rec.height as i32);
-        // Accented capitals are taller than the line and rise above it.
-        let lift = if b >= 0x80 && b != 0xE7 { (h - d.line).max(0) } else { 0 };
+        let w = rec.width as i32;
+        let lift = accent_lift(r, font, c, b, id);
         let gy = y - lift as f32;
         match font {
             Font::SmallOutlined => {
