@@ -88,6 +88,15 @@ impl MessageList {
             draw_text(r, f, &title, x + 200.0, ry, font::WHITE);
         }
         let hint = tr("Click a message to read it. Right-click or Esc to close.");
-        draw_text(r, Font::NormalBlackOnLight, hint, x + 24.0, y + H_BLOCKS as f32 * 16.0 - 30.0, font::BLACK);
+        // A translation too long for the line takes the small font, a sentence a line.
+        let bottom = y + H_BLOCKS as f32 * 16.0;
+        if text_width(r, Font::NormalBlackOnLight, hint) as f32 <= w - 48.0 {
+            draw_text(r, Font::NormalBlackOnLight, hint, x + 24.0, bottom - 30.0, font::BLACK);
+        } else {
+            let (a, b) = hint.split_once(". ").map_or((hint, ""), |(a, b)| (a, b));
+            let a = if b.is_empty() { a.to_owned() } else { format!("{a}.") };
+            draw_text(r, Font::SmallPlain, &a, x + 24.0, bottom - 38.0, font::BLACK);
+            draw_text(r, Font::SmallPlain, b, x + 24.0, bottom - 25.0, font::BLACK);
+        }
     }
 }

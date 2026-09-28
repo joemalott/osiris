@@ -149,12 +149,12 @@ pub fn next_choice(c: Option<Language>) -> Option<Language> {
     }
 }
 
-/// The Options menu's label for the language, e.g. "Language - Deutsch" or
-/// "Language - Auto (English)".
+/// The Options menu's label for the language, e.g. "Language - Deutsch" or, when
+/// it follows the game's text, "Language - English (auto)".
 pub fn choice_label() -> String {
     match choice() {
         Some(l) => format!("{} - {}", tr("Language"), l.native_name()),
-        None => format!("{} - {} ({})", tr("Language"), tr("Auto"), current().native_name()),
+        None => format!("{} - {} ({})", tr("Language"), current().native_name(), tr("auto")),
     }
 }
 

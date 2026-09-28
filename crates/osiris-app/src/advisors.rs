@@ -1196,7 +1196,9 @@ fn population(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], graph: &mut us
 
 fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<Popup>) -> Option<AdvisorAction> {
     const G: usize = 52;
-    ui.label(Font::LargeBlackOnLight, tr("Political Overseer"), px + 60.0, py + 17.0);
+    // The title is the Overseers menu's own name for it (text 4/3).
+    let title = ui.t(4, 3);
+    ui.label(Font::LargeBlackOnLight, title.trim(), px + 60.0, py + 17.0);
     let rating = format!("{} {}", ui.t(G, 0), world.ratings.kingdom);
     ui.label(Font::NormalBlackOnLight, &rating, px + 60.0, py + 42.0);
     let advice = ui.t(G, (world.ratings.kingdom / 5).clamp(0, 20) as usize + 22);
