@@ -1,5 +1,6 @@
 //! A running city: the world, the view onto it, the sidebar and the player's tool.
 
+use crate::lang::{n_, tr, trf};
 use crate::city_view::{self, CityView, Highlight, Overlay, Sprite};
 use crate::message_list::MessageList;
 use crate::overlay::{Overlay as View, OverlayImages};
@@ -43,13 +44,19 @@ fn ms_per_tick(speed: u32) -> f32 {
     }
 }
 
+/// A year as the original writes it, with its own words from text group 20:
+/// "2500 BC", "AD 30" in English.
+pub fn year_text(text: &TextTable, y: i32) -> String {
+    if y < 0 { format!("{} {}", -y, text.get(20, 0).unwrap_or("BC").trim()) } else { format!("{} {y}", text.get(20, 1).unwrap_or("AD").trim()) }
+}
+
 pub fn speed_label(speed: u32) -> String {
     if speed <= 100 { format!("{speed}%") } else { format!("{}x", speed / 100) }
 }
 
-const CONTROLS: &str = "@PLeft-click a build button, then click or drag on the map to build. Right-click cancels the tool, closes windows, and drags to scroll. The arrow keys scroll the map and the mouse wheel zooms.@PP pauses. [ and ] (or Page Up and Page Down) change the speed, from 10% up to 200 times normal. - opens the Overseer of the Treasury and = the Chief Overseer.@PW, F and D show the water, fire and damage overlays; the Overlays menu has the rest. Space switches between the normal view and the last overlay.@PB builds roads and X clears land. M, N, U, O, T and G pick up a bazaar, granary, storage yard, apothecary, water supply and gardens; Ctrl+H housing, Ctrl+F firehouse and Ctrl+A architect.@PF11 or Alt+Enter switches between full screen and a window. F2 opens the game rules, F5 saves and F9 loads the saved game for this city; the city is also saved each month while Autosave is on (Options menu), and Continue on the main menu picks up the latest save. Escape backs out of whatever is open, and when nothing is, asks whether to leave for the main menu.";
+const CONTROLS: &str = n_("@PLeft-click a build button, then click or drag on the map to build. Right-click cancels the tool, closes windows, and drags to scroll. The arrow keys scroll the map and the mouse wheel zooms.@PP pauses. [ and ] (or Page Up and Page Down) change the speed, from 10% up to 200 times normal. - opens the Overseer of the Treasury and = the Chief Overseer.@PW, F and D show the water, fire and damage overlays; the Overlays menu has the rest. Space switches between the normal view and the last overlay.@PB builds roads and X clears land. M, N, U, O, T and G pick up a bazaar, granary, storage yard, apothecary, water supply and gardens; Ctrl+H housing, Ctrl+F firehouse and Ctrl+A architect.@PF11 or Alt+Enter switches between full screen and a window. F2 opens the game rules, F5 saves and F9 loads the saved game for this city; the city is also saved each month while Autosave is on (Options menu), and Continue on the main menu picks up the latest save. Escape backs out of whatever is open, and when nothing is, asks whether to leave for the main menu.");
 
-const ABOUT: &str = "@POsiris is an open-source engine for Pharaoh, written in Rust and released under the GNU GPL version 3.@PIt plays the original campaign using your own copy of the game data. Pharaoh and its art, music and text are the work of Impressions Games and Sierra.";
+const ABOUT: &str = n_("@POsiris is an open-source engine for Pharaoh, written in Rust and released under the GNU GPL version 3.@PIt plays the original campaign using your own copy of the game data. Pharaoh and its art, music and text are the work of Impressions Games and Sierra.");
 
 /// Text group with building and menu names, indexed by building type id.
 const TEXT_BUILDING_NAMES: usize = 28;
@@ -777,7 +784,7 @@ impl Game {
                 crate::empire_window::EmpireClick::Close => self.empire = None,
                 crate::empire_window::EmpireClick::Advisor => self.open_advisor(crate::advisors::Advisor::Trade),
                 crate::empire_window::EmpireClick::OpenRoute(c) => match self.world.apply(&Command::OpenTradeRoute(c)) {
-                    Outcome::Invalid(why) => self.say(why),
+                    Outcome::Invalid(why) => self.say(tr(why)),
                     _ => {
                         e.show(Some(crate::empire_window::EmpirePopup::Opened(c)));
                         self.sound("BUTTON.WAV");
@@ -1026,8 +1033,8 @@ impl Game {
             MenuAction::Faster => self.faster(),
             MenuAction::Slower => self.slower(),
             MenuAction::Pause => self.paused = !self.paused,
-            MenuAction::Controls => self.show_text("Controls", CONTROLS),
-            MenuAction::About => self.show_text("About Osiris", ABOUT),
+            MenuAction::Controls => self.show_text(tr("Controls"), tr(CONTROLS)),
+            MenuAction::About => self.show_text(tr("About Osiris"), tr(ABOUT)),
             MenuAction::Overlay(o) => {
                 if let Some(o) = o {
                     self.last_overlay = o;
@@ -1040,6 +1047,16 @@ impl Game {
             MenuAction::MainMenu | MenuAction::Quit => self.ask_to_leave(action),
             other => self.request = Some(other),
         }
+    }
+
+    /// The game's text in another language: the menus are rebuilt in it, and
+    /// everything else reads it as it draws.
+    pub fn set_game_text(&mut self, text: Arc<TextTable>, messages: Arc<MessageTable>, phrases: Arc<osiris_formats::Phrases>) {
+        self.text = text;
+        self.messages = messages;
+        self.phrases = phrases;
+        self.top_menu = TopMenu::new(&self.text);
+        self.set_autosave(self.autosave);
     }
 
     /// Switches the monthly autosave, and the Options menu's label for it.
@@ -1132,7 +1149,7 @@ impl Game {
             self.pick_statue_look(k);
             self.sidebar.open = None;
         } else {
-            self.say("Not available yet");
+            self.say(tr("Not available yet"));
         }
     }
 
@@ -1211,9 +1228,9 @@ impl Game {
             let snapshot = self.world.save().ok();
             self.ghost = None;
             match self.world.apply(&cmd) {
-                Outcome::NotEnoughMoney => self.say("Out of credit!"),
-                Outcome::Blocked => self.say("Can't build there"),
-                Outcome::Invalid(why) => self.say(why),
+                Outcome::NotEnoughMoney => self.say(tr("Out of credit!")),
+                Outcome::Blocked => self.say(tr("Can't build there")),
+                Outcome::Invalid(why) => self.say(tr(why)),
                 Outcome::Done { items, .. } => {
                     if items > 0 {
                         self.map_changed = true;
@@ -1328,9 +1345,9 @@ impl Game {
         self.info = None;
         self.advisors = None;
         let what = match click {
-            ShipClick::Move => "click where to send the ship",
-            ShipClick::Embark => "click the company to take aboard",
-            ShipClick::Disembark => "click where to put the company ashore",
+            ShipClick::Move => tr("click where to send the ship"),
+            ShipClick::Embark => tr("click the company to take aboard"),
+            ShipClick::Disembark => tr("click where to put the company ashore"),
         };
         self.say(&format!("{}: {what}", self.ship_name(ship)));
         self.sound("BUTTON.WAV");
@@ -1389,7 +1406,7 @@ impl Game {
         self.info = None;
         self.advisors = None;
         let name = self.text.get(138, c % 10).unwrap_or("").trim_matches('"').to_owned();
-        self.say(&format!("{name}: click where to send them, or their fort to call them home"));
+        self.say(&trf("{0}: click where to send them, or their fort to call them home", &[&name]));
         self.sound("BUTTON.WAV");
     }
 
@@ -1439,7 +1456,7 @@ impl Game {
     fn run_cheat(&mut self, code: &str) {
         match self.world.apply(&Command::Cheat(code.to_owned())) {
             Outcome::Invalid(_) if code == "Unlock All Missions" => self.cheat_unlock_missions = true,
-            Outcome::Invalid(why) => self.say(why),
+            Outcome::Invalid(why) => self.say(tr(why)),
             _ => {}
         }
     }
@@ -1499,7 +1516,7 @@ impl Game {
                 }
                 let why = match est {
                     Outcome::Invalid(why) => Some(why),
-                    _ => Some("Out of credit!"),
+                    _ => Some(tr("Out of credit!")),
                 };
                 return (rect(x - 1, y - 1, x + 1, y + 1).into_iter().map(|t| mark(t, bad)).collect(), Vec::new(), cost, why);
             }
@@ -1507,7 +1524,7 @@ impl Game {
                 let preview = self.world.placement_preview(k, x, y);
                 // Money only matters once the ground will do.
                 let poor = preview.result.is_ok() && !affordable;
-                let why = preview.result.err().or(poor.then_some("Out of credit!"));
+                let why = preview.result.err().or(poor.then_some(tr("Out of credit!")));
                 if why.is_none() && self.world.has_ghost(k) {
                     let ghost = self.ghost(k, x, y);
                     if !ghost.is_empty() {
@@ -1806,7 +1823,7 @@ impl Game {
     fn draw_overlay(&mut self, r: &mut Renderer, cost: Option<i32>, why: Option<&str>) {
         let t = &self.world.time;
         let month = self.text.get(TEXT_MONTHS, t.month as usize).unwrap_or("?");
-        let year = if t.year < 0 { format!("{} BC", -t.year) } else { format!("{} AD", t.year) };
+        let year = year_text(&self.text, t.year);
         let label = |i: usize, fallback: &str| self.text.get(6, i).unwrap_or(fallback).to_owned();
         let status = [
             (label(0, "Db"), self.world.treasury.to_string()),
@@ -1822,18 +1839,18 @@ impl Game {
         };
         let flood = match self.world.flood_state() {
             _ if !self.world.has_floodplain() => None,
-            osiris_sim::floods::FloodState::Resting | osiris_sim::floods::FloodState::Farmable => Some("Farming"),
-            osiris_sim::floods::FloodState::Imminent => Some("Flood soon"),
-            osiris_sim::floods::FloodState::Flooding => Some("Rising"),
-            osiris_sim::floods::FloodState::Inundated => Some("Flooded"),
-            osiris_sim::floods::FloodState::Contracting => Some("Receding"),
+            osiris_sim::floods::FloodState::Resting | osiris_sim::floods::FloodState::Farmable => Some(tr("Farming")),
+            osiris_sim::floods::FloodState::Imminent => Some(tr("Flood soon")),
+            osiris_sim::floods::FloodState::Flooding => Some(tr("Rising")),
+            osiris_sim::floods::FloodState::Inundated => Some(tr("Flooded")),
+            osiris_sim::floods::FloodState::Contracting => Some(tr("Receding")),
         };
         let mut lines = vec![
-            ("Unemployed".to_owned(), format!("{}%", self.world.unemployment)),
-            ("Workers".to_owned(), format!("{}/{}", self.world.labor.employed, self.world.labor.needed)),
+            (tr("Unemployed").to_owned(), format!("{}%", self.world.unemployment)),
+            (tr("Workers").to_owned(), format!("{}/{}", self.world.labor.employed, self.world.labor.needed)),
         ];
         if let Some(f) = flood {
-            lines.push(("Nile".to_owned(), f.to_owned()));
+            lines.push((tr("Nile").to_owned(), f.to_owned()));
         }
         let text = self.text.clone();
         let tips = move |i: usize| text.get(68, i).map(str::to_owned);
@@ -1875,8 +1892,8 @@ impl Game {
         };
         // Where the held building can't go, say why, as the original's warning would.
         let line = match (why, cost.filter(|&c| c > 0)) {
-            (Some(why), _) => format!("{tool}: {why}"),
-            (None, Some(c)) => format!("{tool}: {c} Db"),
+            (Some(why), _) => format!("{tool}: {}", tr(why)),
+            (None, Some(c)) => format!("{tool}: {c} {}", self.text.get(6, 0).unwrap_or("Db").trim()),
             (None, None) => tool,
         };
         if !line.is_empty() {
@@ -1889,13 +1906,13 @@ impl Game {
         }
         // The cheat box: Ctrl+Alt+C, as in the original (see notes/cheats.md).
         if let Some(buf) = &self.cheat_entry {
-            let line = format!("Cheat: {buf}_");
+            let line = trf("Cheat: {0}_", &[buf]);
             let w = r.screen[0] - crate::sidebar::width();
             let mw = osiris_ui::text_width(r, Font::LargeBlackOnDark, &line) as f32;
             draw_text(r, Font::LargeBlackOnDark, &line, (w - mw) / 2.0, 70.0, font::WHITE);
         }
         let overlay_name = self.view_overlay.and_then(|o| crate::overlay::MENU.iter().find(|(v, _)| *v == o)).and_then(|(_, id)| self.text.get(14, *id));
-        let paused = self.paused.then_some("Paused");
+        let paused = self.paused.then_some(tr("Paused"));
         let label = overlay_name.or(paused);
         self.top_menu.draw(r, &self.images.panels, &status, label);
         if let Some(i) = &mut self.info {
@@ -1914,7 +1931,7 @@ impl Game {
         }
         self.info_sound(r);
         if let Some(p) = &self.rules_panel {
-            p.draw(r, &self.images.panels, &self.world.rules, sidebar::panel_left(r.screen[0]), "Changes apply now, and to every game you play.");
+            p.draw(r, &self.images.panels, &self.world.rules, sidebar::panel_left(r.screen[0]), tr("Changes apply now, and to every game you play."));
         }
         if self.sound_window.is_some() {
             self.draw_sound(r);

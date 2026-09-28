@@ -550,7 +550,7 @@ impl Sidebar {
     fn draw_status(&self, r: &mut Renderer, img: &SidebarImages, s: &SidebarState, ox: f32) {
         panel::inner_panel(r, &img.panels, ox + STATUS_X, STATUS_Y, STATUS_BLOCKS_W, STATUS_BLOCKS_H);
         let f = Font::NormalWhiteOnDark;
-        draw_text(r, f, "Speed", ox + STATUS_TEXT_X, STATUS_Y + 6.0, font::WHITE);
+        draw_text(r, f, crate::lang::tr("Speed"), ox + STATUS_TEXT_X, STATUS_Y + 6.0, font::WHITE);
         for (b, (bx, by), image) in [
             (Button::SpeedDown, SPEED_DOWN, img.arrow_down),
             (Button::SpeedUp, SPEED_UP, img.arrow_up),
@@ -594,7 +594,7 @@ impl Sidebar {
             let tint = if item.enabled { [1.0; 4] } else { [0.55, 0.5, 0.45, 1.0] };
             draw_text_tinted(r, f, &item.label, x + 8.0, iy + 3.0, tint);
             if item.cost > 0 {
-                draw_text_tinted(r, f, &format!("{} Deben", item.cost), x + w - 92.0, iy + 3.0, tint);
+                draw_text_tinted(r, f, &crate::lang::trf("{0} Deben", &[&item.cost]), x + w - 92.0, iy + 3.0, tint);
             }
         }
     }

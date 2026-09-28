@@ -16,6 +16,7 @@
 //! Everything edits `Editor::scenario.empire`, which saving writes back into the
 //! map's empire chunks.
 
+use crate::lang::trf;
 use super::Editor;
 use crate::empire_window::EmpireImages;
 use crate::widgets::{UiImages, inside};
@@ -607,7 +608,7 @@ impl Editor {
                 }
                 self.dirty = true;
             }
-            Err(err) => self.view.say(&format!("Could not read {}: {err}", path.display())),
+            Err(err) => self.view.say(&trf("Could not read {0}: {1}", &[&path.display(), &err])),
         }
     }
 
@@ -1964,7 +1965,7 @@ fn draw_frame(r: &mut Renderer, images: &EmpireImages) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use osiris_formats::{ChunkFile, Layout, Scenario, TextTable};
+    use osiris_formats::{ChunkFile, Layout, Scenario};
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -1984,7 +1985,7 @@ mod tests {
         let Some(data) = data() else { return };
         let lib = ImageLibrary::open(&data.join("Data")).unwrap();
         let defs = Arc::new(osiris_sim::Defs::load(&lib).unwrap());
-        let text = Arc::new(TextTable::parse(&std::fs::read(data.join("Pharaoh_Text.eng")).unwrap()).unwrap());
+        let text = crate::lang::english_text(&data);
         let mut e = Editor::open(&data.join("Maps/Default.map"), defs, text, std::env::temp_dir().join("osiris-kingdom-test")).unwrap();
         e.open_kingdom();
         let run = |e: &mut Editor, a: Scripted| e.run_scripted(&lib, SCREEN, a);
@@ -2080,7 +2081,7 @@ mod tests {
         let Some(data) = data() else { return };
         let lib = ImageLibrary::open(&data.join("Data")).unwrap();
         let defs = Arc::new(osiris_sim::Defs::load(&lib).unwrap());
-        let text = Arc::new(TextTable::parse(&std::fs::read(data.join("Pharaoh_Text.eng")).unwrap()).unwrap());
+        let text = crate::lang::english_text(&data);
         let mut e = Editor::open(&data.join("Maps/Warfare.map"), defs, text, std::env::temp_dir().join("osiris-kingdom-test")).unwrap();
         e.open_kingdom();
         let ours = e.scenario.empire.objects.iter().position(|o| o.in_use && o.kind == object::CITY && o.city_type == city::OURS).unwrap();

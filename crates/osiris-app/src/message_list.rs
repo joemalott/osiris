@@ -1,6 +1,7 @@
 //! The messages window: the city's message log, newest first. Clicking a message
 //! opens it.
 
+use crate::lang::tr;
 use osiris_formats::{MessageTable, TextTable};
 use osiris_render::{Renderer, Space, WHITE};
 use osiris_sim::World;
@@ -61,13 +62,13 @@ impl MessageList {
         let (x, y) = Self::origin(r.screen);
         let w = W_BLOCKS as f32 * 16.0;
         panel::outer_panel(r, panels, x, y, W_BLOCKS, H_BLOCKS);
-        let title = "Messages";
+        let title = tr("Messages");
         let tw = text_width(r, Font::LargeBlackOnLight, title) as f32;
         draw_text(r, Font::LargeBlackOnLight, title, x + (w - tw) / 2.0, y + 14.0, font::BLACK);
         panel::inner_panel(r, panels, x + 16.0, y + 48.0, W_BLOCKS - 2, H_BLOCKS - 6);
         let log = &world.notices.log;
         if log.is_empty() {
-            draw_text(r, Font::NormalBlackOnDark, "No messages", x + 32.0, y + 60.0, font::WHITE);
+            draw_text(r, Font::NormalBlackOnDark, tr("No messages"), x + 32.0, y + 60.0, font::WHITE);
         }
         // As the original's list (FUN_004e1a50): a scroll icon, open once the message is
         // read, then the date and the title, yellow under the mouse and light otherwise.
@@ -79,14 +80,14 @@ impl MessageList {
             }
             let f = if self.hover == Some(i) { Font::NormalYellow } else { Font::NormalWhiteOnDark };
             let month = text.get(TEXT_MONTHS, n.month as usize).unwrap_or("?");
-            let year = if n.year < 0 { format!("{} BC", -n.year) } else { format!("{} AD", n.year) };
+            let year = crate::game::year_text(text, n.year);
             draw_text(r, f, &format!("{month} {year}"), x + 58.0, ry, font::WHITE);
             let title = osiris_sim::missions::message_id(&n.key)
                 .and_then(|id| messages.get(id as usize))
                 .map_or_else(|| n.key.clone(), |m| m.title.clone());
             draw_text(r, f, &title, x + 200.0, ry, font::WHITE);
         }
-        let hint = "Click a message to read it. Right-click or Esc to close.";
+        let hint = tr("Click a message to read it. Right-click or Esc to close.");
         draw_text(r, Font::NormalBlackOnLight, hint, x + 24.0, y + H_BLOCKS as f32 * 16.0 - 30.0, font::BLACK);
     }
 }

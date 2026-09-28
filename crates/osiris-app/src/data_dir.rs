@@ -4,6 +4,7 @@
 //! install places, and the current directory. When none is found it asks for the
 //! folder with the system's folder picker and remembers the answer.
 
+use crate::lang::{tr, trf};
 use std::path::{Path, PathBuf};
 
 /// Where the picked folder is remembered, in the user folder.
@@ -83,28 +84,29 @@ pub fn find(user_dir: &Path) -> Option<PathBuf> {
 /// and remembers it.
 pub fn pick(user_dir: &Path) -> Option<PathBuf> {
     use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
-    let mut text = "Osiris plays from your own copy of Pharaoh (the GOG or Steam \"Pharaoh + Cleopatra\", or the original CD install).\n\nChoose the folder Pharaoh is installed in: the one holding its Data folder and mission1.pak.".to_string();
+    let mut text = format!("{}\n\n{}", tr("Osiris plays from your own copy of Pharaoh (the GOG or Steam \"Pharaoh + Cleopatra\", or the original CD install)."), tr("Choose the folder Pharaoh is installed in: the one holding its Data folder and mission1.pak."));
+    let choose_folder = tr("Choose Folder...").to_owned();
     loop {
         let go = MessageDialog::new()
             .set_level(MessageLevel::Info)
-            .set_title("Find Pharaoh")
+            .set_title(tr("Find Pharaoh"))
             .set_description(&text)
-            .set_buttons(MessageButtons::OkCancelCustom("Choose Folder...".into(), "Quit".into()))
+            .set_buttons(MessageButtons::OkCancelCustom(choose_folder.clone(), tr("Quit").into()))
             .show();
         let choose = match &go {
             MessageDialogResult::Ok => true,
-            MessageDialogResult::Custom(label) => label == "Choose Folder...",
+            MessageDialogResult::Custom(label) => *label == choose_folder,
             _ => false,
         };
         if !choose {
             return None;
         }
-        let dir = rfd::FileDialog::new().set_title("Choose the Pharaoh folder").pick_folder()?;
+        let dir = rfd::FileDialog::new().set_title(tr("Choose the Pharaoh folder")).pick_folder()?;
         if let Some(game) = game_in(&dir) {
             let _ = std::fs::write(user_dir.join(REMEMBERED), game.to_string_lossy().as_bytes());
             return Some(game);
         }
-        text = format!("{} doesn't hold Pharaoh's Data folder.\n\nChoose the folder Pharaoh is installed in: the one holding its Data folder and mission1.pak.", dir.display());
+        text = format!("{}\n\n{}", trf("{0} doesn't hold Pharaoh's Data folder.", &[&dir.display()]), tr("Choose the folder Pharaoh is installed in: the one holding its Data folder and mission1.pak."));
     }
 }
 

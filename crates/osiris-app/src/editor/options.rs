@@ -749,7 +749,7 @@ impl Editor {
             let p = &mut self.scenario.info.burial_provisions_required;
             p.iter_mut().for_each(|v| *v = 0);
             // The right half is otherwise blank while no tomb is chosen: say why.
-            let hint = "Burial provisions appear here once one of the three monuments above is a tomb.";
+            let hint = crate::lang::tr("Burial provisions appear here once one of the three monuments above is a tomb.");
             ui.wrapped(Font::NormalBlackOnLight, hint, x + 300.0, y + 70.0, 260.0);
             return;
         }

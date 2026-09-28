@@ -22,7 +22,8 @@ pub fn set_ui_size(i: u8) {
 
 /// The Options menu's label for the interface size.
 pub fn ui_size_label() -> String {
-    format!("Interface size - {}", UI_SIZES[ui_size() as usize].0)
+    let (name, _) = UI_SIZES[ui_size() as usize];
+    format!("{} - {}", crate::lang::tr("Interface size"), if name == "Auto" { crate::lang::tr("Auto") } else { name })
 }
 
 pub fn load_ui_size() {
@@ -52,7 +53,7 @@ pub fn set_fullscreen(on: bool) {
 /// the original's own "Full screen" (group 42, its display settings) and whether it's on.
 pub fn fullscreen_label(text: &TextTable) -> String {
     let name = text.get(42, 1).map_or("Full screen", |s| s.trim());
-    format!("{name} - {}  (F11)", if fullscreen() { "ON" } else { "OFF" })
+    format!("{name} - {}  (F11)", if fullscreen() { crate::lang::tr("ON") } else { crate::lang::tr("OFF") })
 }
 
 /// Device pixels per interface pixel, for a screen `height` device pixels tall whose
@@ -114,7 +115,7 @@ async fn adapter(
             Err(e) => last = Some(e),
         }
     }
-    Err(anyhow::anyhow!("{}", last.map_or_else(String::new, |e| e.to_string()))).context("Osiris found no graphics adapter it can draw with (DirectX 12, Vulkan, Metal or OpenGL)")
+    Err(anyhow::anyhow!("{}", last.map_or_else(String::new, |e| e.to_string()))).context(crate::lang::tr("Osiris found no graphics adapter it can draw with (DirectX 12, Vulkan, Metal or OpenGL)"))
 }
 
 async fn device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue)> {

@@ -5,6 +5,7 @@
 //! The screens are drawn immediate-mode: a click is held until the next draw, and the
 //! widget it lands on acts on it, so each screen's layout lives in one place.
 
+use crate::lang::{tr, trf};
 use osiris_formats::{ImageLibrary, TextTable};
 use osiris_render::{Renderer, Space, WHITE};
 use osiris_sim::{Command, World};
@@ -638,7 +639,7 @@ fn financial(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Advis
         world.apply(&Command::TaxRate(world.finance.tax_rate + 1));
     }
     let (covered, uncovered) = world.monthly_tax_estimate();
-    let estimate = format!("{}% {} {} Deben", world.finance.tax_rate, ui.t(G, 4), covered * 12);
+    let estimate = format!("{}% {} {} {}", world.finance.tax_rate, ui.t(G, 4), covered * 12, tr("Deben"));
     draw_text(ui.r, Font::NormalWhiteOnDark, &estimate, bx + 240.0, by + 30.0, font::WHITE);
     let pct = world.percentage_taxed();
     let payers = format!("{}% {} ({} {})", pct, ui.t(G, 5), uncovered * 12, ui.t(G, 23));
@@ -1013,7 +1014,7 @@ fn festival_popup(ui: &mut Ui, world: &mut World, god: Option<usize>) -> Festiva
             let name = ui.t(157, g);
             ui.centred(Font::NormalBlackOnLight, &name, x, y + 44.0, w);
             for (i, size) in [osiris_sim::religion::festival::SMALL, osiris_sim::religion::festival::LARGE, osiris_sim::religion::festival::GRAND].into_iter().enumerate() {
-                let label = format!("{} - {} {} Deben", ui.t(58, 31 + i), ui.t(58, 30), world.festival_cost(size));
+                let label = format!("{} - {} {} {}", ui.t(58, 31 + i), ui.t(58, 30), world.festival_cost(size), tr("Deben"));
                 if ui.button([x + 38.0, y + 76.0 + 40.0 * i as f32, 340.0, 28.0], &label, Font::NormalBlackOnLight) {
                     world.apply(&Command::Festival { god: g as u8, size });
                     return FestivalChoice::Close;
@@ -1142,7 +1143,7 @@ fn population(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], graph: &mut us
     *graph %= 3;
     let title = ui.t(G, *graph);
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 17.0);
-    ui.label(Font::NormalBlackOnLight, &format!("Population {}", world.population), px + 450.0, py + 25.0);
+    ui.label(Font::NormalBlackOnLight, &trf("Population {0}", &[&world.population]), px + 450.0, py + 25.0);
     let data: Vec<i32> = match *graph {
         0 => world.ratings.population_history.clone(),
         1 => world.census.at_age.clone(),
@@ -1179,9 +1180,9 @@ fn population(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], graph: &mut us
     let lines: Vec<String> = match *graph {
         1 => {
             let avg = if world.population > 0 { (0..100).map(|a| a as i32 * world.census.at_age[a]).sum::<i32>() / world.population } else { 0 };
-            vec![format!("Average age {avg}"), format!("{}% of the people can work", if world.population > 0 { world.labor.available * 100 / world.population } else { 0 })]
+            vec![trf("Average age {0}", &[&avg]), trf("{0}% of the people can work", &[&if world.population > 0 { world.labor.available * 100 / world.population } else { 0 }])]
         }
-        2 => vec![format!("Housing prosperity {}", world.ratings.prosperity_max)],
+        2 => vec![trf("Housing prosperity {0}", &[&world.ratings.prosperity_max])],
         _ => vec![format!("{} {}", world.food_supply_months(), ui.t(8, 5))],
     };
     // The info strip has its own inset panel (ui_advisor_population.js info_lines_list,
@@ -1195,7 +1196,7 @@ fn population(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], graph: &mut us
 
 fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<Popup>) -> Option<AdvisorAction> {
     const G: usize = 52;
-    ui.label(Font::LargeBlackOnLight, "Political Overseer", px + 60.0, py + 17.0);
+    ui.label(Font::LargeBlackOnLight, tr("Political Overseer"), px + 60.0, py + 17.0);
     let rating = format!("{} {}", ui.t(G, 0), world.ratings.kingdom);
     ui.label(Font::NormalBlackOnLight, &rating, px + 60.0, py + 42.0);
     let advice = ui.t(G, (world.ratings.kingdom / 5).clamp(0, 20) as usize + 22);
@@ -1245,7 +1246,7 @@ fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
     if ui.button([px + 320.0, py + 352.0, 250.0, 20.0], &gift, Font::NormalWhiteOnDark) {
         *popup = Some(Popup::Gift);
     }
-    let savings = format!("{} {} Db", ui.t(G, 1), world.governor.savings);
+    let savings = format!("{} {} {}", ui.t(G, 1), world.governor.savings, ui.t(6, 0).trim());
     ui.label(Font::NormalWhiteOnDark, &savings, px + 72.0, py + 374.0);
     let rank = world.governor.salary_rank as usize;
     let salary = format!("{} {} {}", ui.t(G, 4 + rank), osiris_sim::kingdom::SALARIES[rank], ui.t(G, 3));
@@ -1288,7 +1289,7 @@ fn salary_popup(ui: &mut Ui, world: &mut World) -> bool {
     }
     let note = if world.has_mansion() { ui.t(G, 76) } else { ui.t(G, 78) };
     ui.wrapped(Font::NormalBlackOnLight, &note, x + 16.0, y + 304.0, 352.0);
-    ui.button([x + 112.0, y + 340.0, 160.0, 20.0], "Cancel", Font::NormalBlackOnLight)
+    ui.button([x + 112.0, y + 340.0, 160.0, 20.0], tr("Cancel"), Font::NormalBlackOnLight)
 }
 
 /// Modest, generous and lavish gifts and what they cost.
@@ -1303,7 +1304,7 @@ fn gift_popup(ui: &mut Ui, world: &mut World) -> bool {
     panel::outer_panel(ui.r, ui.panels, x, y, 30, 15);
     let title = ui.t(G, 49);
     ui.centred(Font::LargeBlackOnLight, &title, x, y + 15.0, w);
-    let savings = format!("{} {} Db", ui.t(G, 1), world.governor.savings);
+    let savings = format!("{} {} {}", ui.t(G, 1), world.governor.savings, ui.t(6, 0).trim());
     ui.centred(Font::NormalBlackOnLight, &savings, x, y + 45.0, w);
     panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 70.0, 28, 5);
     for size in 0..3 {
@@ -1311,7 +1312,7 @@ fn gift_popup(ui: &mut Ui, world: &mut World) -> bool {
         let name = ui.t(G, 63 + size);
         ui.label(Font::NormalWhiteOnDark, &name, x + 32.0, ry + 2.0);
         let cost = world.gift_cost(size);
-        let send = format!("{} {} Db", ui.t(G, 66 + size), cost);
+        let send = format!("{} {} {}", ui.t(G, 66 + size), cost, ui.t(6, 0).trim());
         let can = cost <= world.governor.savings;
         if ui.button([x + 116.0, ry, 250.0, 18.0], &send, if can { Font::NormalWhiteOnDark } else { Font::SmallPlain }) && can {
             world.apply(&Command::SendGift(size as u8));
@@ -1322,7 +1323,7 @@ fn gift_popup(ui: &mut Ui, world: &mut World) -> bool {
         let none = ui.t(G, 70);
         ui.wrapped(Font::NormalBlackOnLight, &none, x + 16.0, y + 155.0, 416.0);
     }
-    ui.button([x + 300.0, y + 200.0, 160.0, 20.0], "Cancel", Font::NormalBlackOnLight)
+    ui.button([x + 300.0, y + 200.0, 160.0, 20.0], tr("Cancel"), Font::NormalBlackOnLight)
 }
 
 /// Choosing how much of a burial provision to send. ui_advisor_monuments.js
@@ -1407,14 +1408,14 @@ fn donate_popup(ui: &mut Ui, world: &mut World, amount: i32) -> Option<i32> {
     if ui.arrow(x + 200.0, y + 82.0, true) {
         amount = (amount + 10).clamp(0, savings);
     }
-    let value = format!("{amount} Db");
+    let value = format!("{amount} {}", ui.t(6, 0).trim());
     draw_text(ui.r, Font::NormalWhiteOnDark, &value, x + 256.0, y + 88.0, font::WHITE);
     let give = ui.t(G, 18);
     if ui.button([x + 80.0, y + 123.0, 160.0, 20.0], &give, Font::NormalBlackOnLight) {
         world.apply(&Command::Donate(amount));
         return None;
     }
-    if ui.button([x + 272.0, y + 123.0, 160.0, 20.0], "Cancel", Font::NormalBlackOnLight) {
+    if ui.button([x + 272.0, y + 123.0, 160.0, 20.0], tr("Cancel"), Font::NormalBlackOnLight) {
         return None;
     }
     Some(amount)
@@ -1441,13 +1442,13 @@ fn request_popup(ui: &mut Ui, world: &mut World, i: usize, can: bool) -> bool {
     });
     ui.centred(Font::NormalBlackOnLight, &line, x, y + 60.0, w);
     if can {
-        if ui.button([x + 140.0, y + 110.0, 100.0, 24.0], "Yes", Font::NormalBlackOnLight) {
+        if ui.button([x + 140.0, y + 110.0, 100.0, 24.0], tr("Yes"), Font::NormalBlackOnLight) {
             world.apply(&Command::DispatchRequest(i));
             return true;
         }
-        ui.button([x + 260.0, y + 110.0, 100.0, 24.0], "No", Font::NormalBlackOnLight)
+        ui.button([x + 260.0, y + 110.0, 100.0, 24.0], tr("No"), Font::NormalBlackOnLight)
     } else {
-        ui.button([x + 190.0, y + 110.0, 100.0, 24.0], "OK", Font::NormalBlackOnLight)
+        ui.button([x + 190.0, y + 110.0, 100.0, 24.0], tr("OK"), Font::NormalBlackOnLight)
     }
 }
 

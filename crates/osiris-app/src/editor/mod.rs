@@ -15,6 +15,7 @@ pub mod script;
 pub mod terrain;
 pub mod view;
 
+use crate::lang::n_;
 use anyhow::{Context, Result};
 use osiris_formats::chunks::{ChunkFile, GRID_SIZE, GRID_TILES, Layout};
 use osiris_formats::scenario::TilePoint;
@@ -642,13 +643,13 @@ impl Editor {
         let i = &self.scenario.info;
         let mut v = Vec::new();
         if !i.entry_point.is_valid() {
-            v.push("entry point");
+            v.push(n_("no entry point"));
         }
         if !i.exit_point.is_valid() {
-            v.push("exit point");
+            v.push(n_("no exit point"));
         }
         if !(i.river_entry_point.is_valid() && i.river_exit_point.is_valid()) {
-            v.push("river points");
+            v.push(n_("no river points"));
         }
         v
     }
@@ -704,7 +705,7 @@ mod tests {
     fn editor(data: &Path, map: &str) -> Editor {
         let lib = osiris_formats::ImageLibrary::open(&data.join("Data")).unwrap();
         let defs = Arc::new(Defs::load(&lib).unwrap());
-        let text = Arc::new(TextTable::parse(&std::fs::read(data.join("Pharaoh_Text.eng")).unwrap()).unwrap());
+        let text = crate::lang::english_text(data);
         Editor::open(&data.join("Maps").join(map), defs, text, std::env::temp_dir().join("osiris-editor-test")).unwrap()
     }
 

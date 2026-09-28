@@ -17,7 +17,8 @@ const USAGE: &str = "usage:
                                                      redraw every map's terrain and compare
   osiris-tools check-maps <game dir>                 parse every .map and campaign mission
   osiris-tools text <game dir> <group>               print all strings of a text group
-  osiris-tools message <game dir> <id>               print one Pharaoh_MM.eng entry
+  osiris-tools message <game dir> <id>               print one Pharaoh_MM entry
+  osiris-tools languages <game dir>                  list the string tables found and their languages
   osiris-tools model <game dir> <difficulty>         print buildings/houses/figures for a difficulty
   osiris-tools campaign <game dir>                   print the campaign.txt structure
   osiris-tools empire <game dir> <mission|map path>  print the empire's cities and routes
@@ -46,6 +47,12 @@ fn main() -> Result<()> {
         ["message", dir, id] => message_cmd(Path::new(dir), id),
         ["model", dir, difficulty] => model_cmd(Path::new(dir), difficulty),
         ["campaign", dir] => campaign_cmd(Path::new(dir)),
+        ["languages", dir] => {
+            for set in osiris_formats::language::find_text_sets(Path::new(dir)) {
+                println!("{:?}  {}  {}", set.language, set.text.display(), set.messages.display());
+            }
+            Ok(())
+        }
         ["empire", dir, what] => empire_cmd(Path::new(dir), what),
         ["roundtrip-map", map, out] => roundtrip_map(Path::new(map), Path::new(out)),
         ["replay", dir, files @ ..] if !files.is_empty() => replay(Path::new(dir), files),
@@ -387,8 +394,14 @@ fn goals(game: &Path, what: &str) -> Result<()> {
     Ok(())
 }
 
+/// The game folder's string tables (its own, else the first found in a folder
+/// inside it), whatever their extension and language.
+fn text_set(game: &Path) -> Result<osiris_formats::TextSet> {
+    osiris_formats::language::choose(&osiris_formats::language::find_text_sets(game), None).cloned().with_context(|| format!("no Pharaoh_Text/Pharaoh_MM tables in {}", game.display()))
+}
+
 fn text_cmd(game: &Path, group: &str) -> Result<()> {
-    let data = std::fs::read(game.join("Pharaoh_Text.eng"))?;
+    let data = std::fs::read(text_set(game)?.text)?;
     let table = TextTable::parse(&data)?;
     let group: usize = group.parse().context("group must be a number")?;
     let len = table.group_len(group);
@@ -405,7 +418,7 @@ fn text_cmd(game: &Path, group: &str) -> Result<()> {
 }
 
 fn message_cmd(game: &Path, id: &str) -> Result<()> {
-    let data = std::fs::read(game.join("Pharaoh_MM.eng"))?;
+    let data = std::fs::read(text_set(game)?.messages)?;
     let table = MessageTable::parse(&data)?;
     let id: usize = id.parse().context("id must be a number")?;
     let m = table
@@ -465,7 +478,7 @@ fn model_cmd(game: &Path, difficulty: &str) -> Result<()> {
 }
 
 fn campaign_cmd(game: &Path) -> Result<()> {
-    let text = std::fs::read_to_string(game.join("campaign.txt"))?;
+    let text = osiris_formats::text::decode_cp1252(&std::fs::read(text_set(game)?.companion(game, "campaign.txt"))?);
     let c = Campaign::parse(&text)?;
     println!(
         "{} mission names, {} sections",
@@ -508,7 +521,7 @@ fn empire_cmd(game: &Path, what: &str) -> Result<()> {
         Ok(n) => MissionPak::open(&game.join("mission1.pak"))?.scenario(n)?,
         Err(_) => Scenario::load_map(Path::new(what))?,
     };
-    let text = TextTable::parse(&std::fs::read(game.join("Pharaoh_Text.eng"))?)?;
+    let text = TextTable::parse(&std::fs::read(text_set(game)?.text)?)?;
     let e = &s.info;
     println!("empire id {} ", e.empire_id);
     for (i, o) in s.empire.objects.iter().enumerate().filter(|(_, o)| o.in_use && o.kind == osiris_formats::empire::object::CITY) {

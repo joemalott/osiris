@@ -7,6 +7,7 @@
 //! at the sidebar's left edge and y 24, below the 24-pixel menu bar; positions here
 //! are from its top-left corner.
 
+use crate::lang::{tr, trf};
 use super::terrain::Paint;
 use super::{Editor, Point, Request, Tool};
 use crate::city_view::{self, CityView, Highlight, Overlay, Sprite};
@@ -16,6 +17,13 @@ use crate::top_menu::{Entry, MenuAction, TopMenu};
 use crate::widgets::UiImages;
 use osiris_formats::scenario::TilePoint;
 use osiris_render::{Paint as Tint, Renderer, Space, WHITE};
+
+/// What a warning about missing points asks leave to do.
+#[derive(Clone, Copy)]
+enum Verb {
+    Save,
+    Play,
+}
 use osiris_sim::map::{Map, terrain as bits};
 use osiris_ui::{Font, PanelImages, draw_text, font, panel, text_width};
 
@@ -253,7 +261,7 @@ impl Editor {
             (t(7, 0), vec![e(t(7, 1), 1), e(t(7, 2), 2), e(t(7, 3), 3), e(t(44, 215), 5), e(t(7, 4), 4)]),
             (t(2, 0), vec![off(t(2, 1)), off(t(2, 2)), off(t(2, 3))]),
             (t(3, 0), vec![off(t(3, 8)), off(t(3, 7))]),
-            (t(10, 0), vec![e("Undo".to_owned(), 21), e(t(10, 1), 11), e(t(10, 2), 12), e(t(10, 3), 13), e(t(10, 4), 14), e(t(10, 5), 15), off(t(10, 8)), e(t(10, 10), 20)]),
+            (t(10, 0), vec![e(tr("Undo").to_owned(), 21), e(t(10, 1), 11), e(t(10, 2), 12), e(t(10, 3), 13), e(t(10, 4), 14), e(t(10, 5), 15), off(t(10, 8)), e(t(10, 10), 20)]),
         ])
     }
 
@@ -261,21 +269,25 @@ impl Editor {
     /// something: `verb` names the action ("Play", "Save") in "This map has no
     /// entry point. `verb` anyway?", listing whichever of entry, exit and river
     /// points the black info box is showing in red.
-    fn warn_missing(&self, verb: &str) -> Option<Confirm> {
-        let missing = self.missing_points();
+    fn warn_missing(&self, verb: Verb) -> Option<Confirm> {
+        let missing: Vec<&str> = self.missing_points().into_iter().map(tr).collect();
         let list = match missing.as_slice() {
             [] => return None,
-            [a] => format!("no {a}"),
-            [a, b] => format!("no {a} and no {b}"),
-            [a, b, c] => format!("no {a}, {b} or {c}"),
+            [a] => a.to_string(),
+            [a, b] => trf("{0} and {1}", &[a, b]),
+            [a, b, c] => trf("{0}, {1} and {2}", &[a, b, c]),
             _ => unreachable!("only three kinds of point are checked"),
         };
-        Some(Confirm { title: "Warning".to_owned(), question: format!("This map has {list}. {verb} anyway?") })
+        let question = match verb {
+            Verb::Save => trf("This map has {0}. Save anyway?", &[&list]),
+            Verb::Play => trf("This map has {0}. Play anyway?", &[&list]),
+        };
+        Some(Confirm { title: tr("Warning").to_owned(), question })
     }
 
     /// The question asked before discarding changes the title's "*" says aren't saved.
     fn warn_unsaved(&self) -> Option<Confirm> {
-        self.dirty.then(|| Confirm { title: "Unsaved changes".to_owned(), question: "This map has changes that haven't been saved. Continue anyway?".to_owned() })
+        self.dirty.then(|| Confirm { title: tr("Unsaved changes").to_owned(), question: tr("This map has changes that haven't been saved. Continue anyway?").to_owned() })
     }
 
     /// A choice from the menu bar.
@@ -286,7 +298,7 @@ impl Editor {
                 Some(c) => self.view.confirm = Some((c, ConfirmThen::Open)),
                 None => self.request = Some(Request::Open),
             },
-            3 => match self.warn_missing("Save") {
+            3 => match self.warn_missing(Verb::Save) {
                 Some(c) => self.view.confirm = Some((c, ConfirmThen::SaveName)),
                 None => self.view.popup = Some(Popup::SaveName(self.name.clone())),
             },
@@ -294,7 +306,7 @@ impl Editor {
                 Some(c) => self.view.confirm = Some((c, ConfirmThen::Exit)),
                 None => self.request = Some(Request::Exit),
             },
-            5 => match self.warn_missing("Play") {
+            5 => match self.warn_missing(Verb::Play) {
                 Some(c) => self.view.confirm = Some((c, ConfirmThen::Play)),
                 None => self.run_confirm(ConfirmThen::Play),
             },
@@ -313,7 +325,7 @@ impl Editor {
         match then {
             ConfirmThen::Play => {
                 if let Err(e) = self.play() {
-                    self.view.say(&format!("Could not play the map: {e}"));
+                    self.view.say(&trf("Could not play the map: {0}", &[&e]));
                 }
             }
             ConfirmThen::SaveName => self.view.popup = Some(Popup::SaveName(self.name.clone())),
@@ -382,8 +394,8 @@ impl Editor {
                     if !name.is_empty() {
                         let path = self.path_for(&name);
                         match self.save_as(&path) {
-                            Ok(()) => self.view.say(&format!("Saved {}", path.display())),
-                            Err(e) => self.view.say(&format!("Save failed: {e}")),
+                            Ok(()) => self.view.say(&trf("Saved {0}", &[&path.display()])),
+                            Err(e) => self.view.say(&trf("Save failed: {0}", &[&e])),
                         }
                     }
                     return;

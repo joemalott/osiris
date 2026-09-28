@@ -15,6 +15,7 @@ mod game;
 mod gfx;
 mod hunt_view;
 mod info;
+mod lang;
 mod megacity;
 mod menu;
 mod message_list;
@@ -34,6 +35,7 @@ mod top_menu;
 mod water_view;
 mod widgets;
 
+use crate::lang::{tr, trf};
 use anyhow::{Context, Result, bail};
 use osiris_formats::{Campaign, ImageLibrary, MessageTable, MissionPak, Scenario, TextTable};
 use osiris_sim::{Balance, Defs, World};
@@ -45,7 +47,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
-const USAGE: &str = "usage: osiris [--data DIR] [--map FILE | --mission N | --replay FILE] [--record FILE] [--screenshot OUT.png] [--size WxH] [--script STEPS]";
+const USAGE: &str = "usage: osiris [--data DIR] [--map FILE | --mission N | --replay FILE] [--record FILE] [--screenshot OUT.png] [--size WxH] [--script STEPS] [--lang auto|en|de|fr|es|it]";
 
 struct Args {
     /// The game data from `--data`; otherwise found or asked for at startup.
@@ -61,6 +63,8 @@ struct Args {
     /// A recorded game to play back: checked headless with `--screenshot`,
     /// otherwise watched in the window.
     replay: Option<PathBuf>,
+    /// `--lang`: the language for this run, over the player's saved choice.
+    lang: Option<Option<osiris_formats::Language>>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -73,6 +77,7 @@ fn parse_args() -> Result<Args> {
         size: (1280, 800),
         size_given: false,
         replay: None,
+        lang: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -85,6 +90,14 @@ fn parse_args() -> Result<Args> {
             "--script" => args.script = Some(val()?),
             "--replay" => args.replay = Some(val()?.into()),
             "--record" => recording::record_to(val()?.into()),
+            "--lang" => {
+                let v = val()?;
+                let l = osiris_formats::Language::from_code(&v);
+                if l.is_none() && v != "auto" {
+                    bail!("--lang takes auto, en, de, fr, es or it\n{USAGE}");
+                }
+                args.lang = Some(l);
+            }
             "--size" => {
                 let v = val()?;
                 let (w, h) = v.split_once('x').context("--size WxH")?;
@@ -385,7 +398,7 @@ fn default_family_name() -> String {
             let mut c = u.chars();
             c.next().map(|f| f.to_uppercase().chain(c).collect())
         })
-        .unwrap_or_else(|| "Governor".to_owned())
+        .unwrap_or_else(|| tr("Governor").to_owned())
 }
 
 /// The governor's name for the messages: the active family, else the account's.
@@ -652,7 +665,7 @@ impl App {
                     g.replay_map = Some(path);
                 }
             }
-            Err(e) => self.status = Some((format!("Could not start: {e}"), 5.0)),
+            Err(e) => self.status = Some((trf("Could not start: {0}", &[&e]), 5.0)),
         }
     }
 
@@ -663,7 +676,7 @@ impl App {
                 e.data = self.assets.data.clone();
                 self.screen = Some(Screen::Editor(Box::new(e)));
             }
-            Err(e) => self.status = Some((format!("Could not open the map: {e}"), 5.0)),
+            Err(e) => self.status = Some((trf("Could not open the map: {0}", &[&e]), 5.0)),
         }
     }
 
@@ -761,6 +774,13 @@ impl App {
                 self.sound_window = Some(sound_options::SoundWindow);
                 return;
             }
+            menu::Choice::Language => {
+                self.next_language();
+                let mut menu = self.menu();
+                menu.open_page("main");
+                self.screen = Some(Screen::Menu(menu));
+                return;
+            }
             menu::Choice::Quit => {
                 event_loop.exit();
                 return;
@@ -853,7 +873,7 @@ impl App {
         };
         match result {
             Ok((world, mission)) => self.start(world, mission),
-            Err(e) => self.status = Some((format!("Could not start: {e}"), 5.0)),
+            Err(e) => self.status = Some((trf("Could not start: {0}", &[&e]), 5.0)),
         }
     }
 
@@ -887,7 +907,7 @@ impl App {
     fn restart(&mut self, m: usize) {
         match new_world(&self.assets, &Source::Mission(m), load_difficulty()) {
             Ok(world) => self.start(world, Some(m)),
-            Err(e) => self.status = Some((format!("Could not start: {e}"), 5.0)),
+            Err(e) => self.status = Some((trf("Could not start: {0}", &[&e]), 5.0)),
         }
     }
 
@@ -946,6 +966,20 @@ impl App {
         }
     }
 
+    /// The Options menu's Language entry: the next choice in the cycle, saved, and the
+    /// game's text read again in it (a running city takes it at once).
+    fn next_language(&mut self) {
+        lang::set_choice(lang::next_choice(lang::choice()));
+        lang::save_choice();
+        if let Err(e) = reload_text(&mut self.assets) {
+            self.status = Some((format!("{e:#}"), 5.0));
+            return;
+        }
+        if let Some(Screen::Playing(g, _)) = &mut self.screen {
+            g.set_game_text(self.assets.text.clone(), self.assets.messages.clone(), self.assets.phrases.clone());
+        }
+    }
+
     /// Carries out a File-menu choice made in a running game.
     fn menu_request(&mut self, request: top_menu::MenuAction, event_loop: &ActiveEventLoop) {
         use top_menu::MenuAction;
@@ -954,6 +988,7 @@ impl App {
             _ => (None, None),
         };
         match request {
+            MenuAction::Language => self.next_language(),
             MenuAction::Save => self.quicksave(),
             MenuAction::Quit => event_loop.exit(),
             MenuAction::Load => {
@@ -964,7 +999,7 @@ impl App {
             MenuAction::Replay => match (mission, map) {
                 (Some(n), _) => self.restart(n),
                 (None, Some(p)) if p.exists() => self.start_map(p),
-                _ => self.status = Some(("Only campaign missions and maps can be replayed".into(), 3.0)),
+                _ => self.status = Some((tr("Only campaign missions and maps can be replayed").into(), 3.0)),
             },
             _ => self.back_to_menu(),
         }
@@ -979,8 +1014,8 @@ impl App {
         let path = self.save_path(game);
         let result = game.world.save().map_err(anyhow::Error::msg).and_then(|b| Ok(std::fs::write(&path, b)?));
         let msg = match result {
-            Ok(()) => format!("Saved {}", path.file_stem().unwrap_or_default().to_string_lossy()),
-            Err(e) => format!("Save failed: {e}"),
+            Ok(()) => trf("Saved {0}", &[&path.file_stem().unwrap_or_default().to_string_lossy()]),
+            Err(e) => trf("Save failed: {0}", &[&e]),
         };
         self.status = Some((msg, 3.0));
         self.saved_history(path);
@@ -1006,9 +1041,9 @@ impl App {
             Ok(world) => {
                 let m = world.mission.as_ref().map(|m| m.id as usize);
                 self.start(world, m);
-                self.status = Some(("Loaded".into(), 2.0));
+                self.status = Some((tr("Loaded").into(), 2.0));
             }
-            Err(e) => self.status = Some((format!("Load failed: {e}"), 3.0)),
+            Err(e) => self.status = Some((trf("Load failed: {0}", &[&e]), 3.0)),
         }
     }
 
@@ -1152,7 +1187,7 @@ impl ApplicationHandler for App {
             Ok(v) => v,
             Err(e) => {
                 log::error!("{e:#}");
-                data_dir::show_error(&format!("Osiris could not start its graphics.\n\n{e:#}"));
+                data_dir::show_error(&format!("{}\n\n{e:#}", tr("Osiris could not start its graphics.")));
                 _event_loop.exit();
                 return;
             }
@@ -1337,7 +1372,7 @@ impl ApplicationHandler for App {
                     let mut p = load_progress(&self.assets.campaign, &self.family);
                     unlock_all_missions(&mut p, &self.assets.campaign);
                     save_progress(&p, &self.family);
-                    self.status = Some(("All missions unlocked".to_owned(), 3.0));
+                    self.status = Some((tr("All missions unlocked").to_owned(), 3.0));
                 }
             }
             WindowEvent::CursorEntered { .. } => self.cursor_in = true,
@@ -1639,7 +1674,7 @@ impl App {
         match lost_choice {
             Some((top_menu::MenuAction::Replay, Some(n), _)) => match new_world(&self.assets, &Source::Mission(n), load_difficulty()) {
                 Ok(world) => self.start(world, Some(n)),
-                Err(e) => self.status = Some((format!("Could not start: {e}"), 5.0)),
+                Err(e) => self.status = Some((trf("Could not start: {0}", &[&e]), 5.0)),
             },
             Some((top_menu::MenuAction::Replay, None, Some(p))) => self.start_map(p),
             Some(_) => self.back_to_menu(),
@@ -1734,20 +1769,27 @@ fn load_assets(data: &Path, library: &ImageLibrary) -> Result<Assets> {
     let balances: Vec<Arc<Balance>> = osiris_sim::difficulty::FILE_NAMES.iter().map(|d| load_balance(data, d).map(Arc::new)).collect::<Result<_>>()?;
     let balances: Arc<[Arc<Balance>; 5]> = Arc::new(balances.try_into().expect("five difficulties"));
     let balance = balances[osiris_sim::difficulty::NORMAL as usize].clone();
-    let text = Arc::new(TextTable::parse(&std::fs::read(data.join("Pharaoh_Text.eng"))?)?);
-    let messages = Arc::new(MessageTable::parse(&std::fs::read(data.join("Pharaoh_MM.eng"))?)?);
-    let campaign = std::fs::read(data.join("campaign.txt"))
-        .ok()
-        .and_then(|b| Campaign::parse(&String::from_utf8_lossy(&b)).ok())
-        .unwrap_or_default();
+    let lang::GameText { text, messages, phrases, campaign, .. } = lang::load_game_text(data)?;
     let pak = MissionPak::open(&data.join("mission1.pak"))?;
     let count = (0..pak.slots()).filter(|&i| pak.entry(i).is_some()).count();
     let names = campaign.mission_names.clone();
     let mission_names = (0..count)
-        .map(|i| names.get(i).cloned().unwrap_or_else(|| format!("Mission {}", i + 1)))
+        .map(|i| names.get(i).cloned().unwrap_or_else(|| lang::trf("Mission {0}", &[&(i + 1)])))
         .collect();
-    let phrases = Arc::new(osiris_formats::Phrases::parse(&String::from_utf8_lossy(&std::fs::read(data.join("eventmsg.txt")).unwrap_or_default())));
     Ok(Assets { data: data.to_owned(), defs, balance, balances, text, messages, phrases, mission_names, campaign: Arc::new(campaign) })
+}
+
+/// Reads the game's text again after the player picks another language, keeping
+/// everything else loaded.
+fn reload_text(assets: &mut Assets) -> Result<()> {
+    let lang::GameText { text, messages, phrases, campaign, .. } = lang::load_game_text(&assets.data)?;
+    let count = assets.mission_names.len();
+    assets.mission_names = (0..count).map(|i| campaign.mission_names.get(i).cloned().unwrap_or_else(|| lang::trf("Mission {0}", &[&(i + 1)]))).collect();
+    assets.text = text;
+    assets.messages = messages;
+    assets.phrases = phrases;
+    assets.campaign = Arc::new(campaign);
+    Ok(())
 }
 
 /// The log of the last windowed run, in the user folder: a Windows build has no
@@ -1775,8 +1817,8 @@ fn init_logging(headless: bool) {
         log::error!("crashed{at}: {what}");
         default(info);
         // The game so far, which replays up to the crash.
-        let dump = recording::write_crash_dump(&user_dir()).map_or_else(String::new, |p| format!(" The game up to the crash is in {}; please send it along with the log.", p.display()));
-        data_dir::show_error(&format!("Osiris crashed{at}:\n\n{what}\n\nThe details are in {}.{dump}", log_path().display()));
+        let dump = recording::write_crash_dump(&user_dir()).map_or_else(String::new, |p| format!(" {}", trf("The game up to the crash is in {0}; please send it along with the log.", &[&p.display()])));
+        data_dir::show_error(&format!("{}{at}:\n\n{what}\n\n{}{dump}", tr("Osiris crashed"), trf("The details are in {0}.", &[&log_path().display()])));
     }));
 }
 
@@ -1801,6 +1843,15 @@ fn main() -> Result<()> {
 }
 
 fn run(mut args: Args) -> Result<()> {
+    // Screenshots stay in the data's own language unless --lang asks, so they don't
+    // depend on the player's choice.
+    match args.lang {
+        Some(l) => lang::set_choice(l),
+        None if args.screenshot.is_none() => lang::load_choice(),
+        None => {}
+    }
+    // Until the game's text is read, a chosen language, or English.
+    lang::set_current(lang::choice().unwrap_or(osiris_formats::Language::English));
     let data = match args.data.take() {
         Some(d) => d,
         None => match data_dir::find(&user_dir()) {
@@ -1815,9 +1866,8 @@ fn run(mut args: Args) -> Result<()> {
     let args = Args { data: Some(data.clone()), ..args };
     let library = ImageLibrary::open(&data.join("Data")).with_context(|| {
         format!(
-            "Could not read the Pharaoh game data at {}. Choose the folder Pharaoh is installed in \
-             (the GOG or Steam Pharaoh + Cleopatra), or pass --data <dir>.",
-            data.display()
+            "{}",
+            trf("Could not read the Pharaoh game data at {0}. Choose the folder Pharaoh is installed in (the GOG or Steam Pharaoh + Cleopatra), or pass --data <dir>.", &[&data.display()])
         )
     })?;
     let assets = load_assets(&data, &library)?;

@@ -1,6 +1,7 @@
 //! The menu bar along the top of the city screen (File, Options, Help, Overlays,
 //! Overseers) with its drop-down menus, and the city status on the right.
 
+use crate::lang::{tr, trf};
 use osiris_formats::TextTable;
 use osiris_render::Renderer;
 use osiris_ui::{Font, PanelImages, draw_text, draw_text_tinted, font, panel, text_width};
@@ -19,6 +20,8 @@ pub enum MenuAction {
     Autosave,
     InterfaceSize,
     Fullscreen,
+    /// The next language: the app reads the game's text again.
+    Language,
     /// Out of time: play on at a lower difficulty.
     LowerDifficulty,
     Faster,
@@ -46,6 +49,8 @@ pub struct Header {
     pub entries: Vec<Entry>,
     x: f32,
     w: f32,
+    /// The drop-down's width: the original's 240, or wider for a long entry.
+    drop_w: f32,
 }
 
 pub struct TopMenu {
@@ -96,7 +101,7 @@ impl TopMenu {
                     e(t(1, 2, "Replay mission"), MenuAction::Replay),
                     e(t(1, 3, "Load game"), MenuAction::Load),
                     e(t(1, 4, "Save game"), MenuAction::Save),
-                    e("Exit to main menu".into(), MenuAction::MainMenu),
+                    e(tr("Exit to main menu").into(), MenuAction::MainMenu),
                     e(t(1, 5, "Exit game"), MenuAction::Quit),
                 ],
             ),
@@ -108,14 +113,15 @@ impl TopMenu {
                     e(t(2, 9, "Autosave - ON"), MenuAction::Autosave),
                     e(crate::gfx::ui_size_label(), MenuAction::InterfaceSize),
                     e(crate::gfx::fullscreen_label(text), MenuAction::Fullscreen),
-                    e("Game rules...".into(), MenuAction::Rules),
-                    e("Faster  (Page Up)".into(), MenuAction::Faster),
-                    e("Slower  (Page Down)".into(), MenuAction::Slower),
-                    e("Pause  (P)".into(), MenuAction::Pause),
+                    e(crate::lang::choice_label(), MenuAction::Language),
+                    e(tr("Game rules...").into(), MenuAction::Rules),
+                    e(tr("Faster  (Page Up)").into(), MenuAction::Faster),
+                    e(tr("Slower  (Page Down)").into(), MenuAction::Slower),
+                    e(tr("Pause  (P)").into(), MenuAction::Pause),
                 ],
             ),
-            (t(3, 0, "Help"), vec![e("Controls".into(), MenuAction::Controls), e(t(3, 7, "About"), MenuAction::About)]),
-            ("Overlays".to_owned(), overlays),
+            (t(3, 0, "Help"), vec![e(tr("Controls").into(), MenuAction::Controls), e(t(3, 7, "About"), MenuAction::About)]),
+            (tr("Overlays").to_owned(), overlays),
             (t(4, 0, "Overseers"), overseers),
         ];
         let mut menu = Self::from_headers(headers);
@@ -125,7 +131,7 @@ impl TopMenu {
 
     /// A bar of the given headers and entries, which never fold (the editor's).
     pub fn from_headers(headers: Vec<(String, Vec<Entry>)>) -> Self {
-        let all: Vec<Header> = headers.into_iter().map(|(label, entries)| Header { label, entries, x: 0.0, w: 0.0 }).collect();
+        let all: Vec<Header> = headers.into_iter().map(|(label, entries)| Header { label, entries, x: 0.0, w: 0.0, drop_w: DROP_W }).collect();
         Self {
             headers: all.clone(),
             all,
@@ -155,6 +161,8 @@ impl TopMenu {
         for h in &mut self.headers {
             h.w = text_width(r, Font::NormalBlackOnLight, &h.label) as f32;
             h.x = x;
+            let widest = h.entries.iter().map(|e| text_width(r, Font::NormalYellow, &e.label)).max().unwrap_or(0) as f32;
+            h.drop_w = DROP_W.max(((widest + 24.0) / 16.0).ceil() * 16.0);
             // The original leaves 10 pixels between headers.
             x += h.w + 10.0;
         }
@@ -170,7 +178,7 @@ impl TopMenu {
     fn entry_at(&self, p: [f32; 2]) -> Option<usize> {
         let h = &self.headers[self.open?];
         let top = crate::sidebar::TOP + 4.0;
-        if p[0] < h.x || p[0] >= h.x + DROP_W || p[1] < top + 8.0 {
+        if p[0] < h.x || p[0] >= h.x + h.drop_w || p[1] < top + 8.0 {
             return None;
         }
         let i = ((p[1] - top - 8.0) / ITEM_H) as usize;
@@ -185,7 +193,7 @@ impl TopMenu {
         let Some(open) = self.open else { return false };
         let h = &self.headers[open];
         let bottom = crate::sidebar::TOP + 4.0 + 16.0 + ITEM_H * h.entries.len() as f32;
-        p[0] >= h.x && p[0] < h.x + DROP_W && p[1] < bottom
+        p[0] >= h.x && p[0] < h.x + h.drop_w && p[1] < bottom
     }
 
     pub fn hover(&mut self, p: [f32; 2]) {
@@ -242,7 +250,7 @@ impl TopMenu {
             draw_text(r, f, value, x + lw + 4.0, BAR_Y, font::BLACK);
         }
         if let Some(name) = overlay {
-            let label = format!("Overlay: {name}");
+            let label = trf("Overlay: {0}", &[&name]);
             draw_text(r, Font::SmallOutlined, &label, 10.0, crate::sidebar::TOP + 26.0, font::WHITE);
         }
         let Some(open) = self.open else { return };
@@ -250,7 +258,7 @@ impl TopMenu {
         let top = crate::sidebar::TOP + 4.0;
         let blocks_h = ((ITEM_H * h.entries.len() as f32 + 16.0) / 16.0).ceil() as i32;
         // A drop-down is the window's face with no border (FUN_00425430).
-        panel::unbordered_panel(r, panels, h.x, top, (DROP_W / 16.0) as i32, blocks_h);
+        panel::unbordered_panel(r, panels, h.x, top, (h.drop_w / 16.0) as i32, blocks_h);
         for (i, e) in h.entries.iter().enumerate() {
             let y = top + 8.0 + ITEM_H * i as f32;
             if e.action == MenuAction::Unavailable {

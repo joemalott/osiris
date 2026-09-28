@@ -1,6 +1,7 @@
 //! The front end: main menu, campaign mission list, custom maps, saved games and the
 //! game rules, drawn over the original's background art.
 
+use crate::lang::tr;
 use crate::mission_brief::Brief;
 use crate::rules_panel::{RulesClick, RulesPanel};
 use osiris_formats::{MissionPak, Scenario, TextTable};
@@ -175,6 +176,8 @@ pub struct ChoicePoint {
 pub enum Choice {
     /// The Sound options window, over the menu.
     Sound,
+    /// The next language in the cycle (automatic, then each).
+    Language,
     /// A mission picked on Explore History's list, to brief and play on its own.
     Mission(usize),
     /// The family history's city in play, loaded again.
@@ -607,9 +610,10 @@ impl Menu {
                     Item { label: t(4), enabled: true, action: go(Page::Family) },
                     // The original's title screen has the Mission Editor (text 30/3).
                     Item { label: self.text.get(30, 3).unwrap_or("Mission Editor").trim().to_string(), enabled: true, action: go(Page::Editor) },
-                    Item { label: "Game rules".into(), enabled: true, action: go(Page::Rules) },
+                    Item { label: tr("Game rules").into(), enabled: true, action: go(Page::Rules) },
                     Item { label: self.text.get(46, 0).unwrap_or("Sound options").trim().to_string(), enabled: true, action: Action::Choose(Choice::Sound) },
-                    Item { label: "Quit".into(), enabled: true, action: Action::Choose(Choice::Quit) },
+                    Item { label: crate::lang::choice_label(), enabled: true, action: Action::Choose(Choice::Language) },
+                    Item { label: tr("Quit").into(), enabled: true, action: Action::Choose(Choice::Quit) },
                 ]
             }
             // Every mission of campaign.txt, each playable on its own, as the original
@@ -1209,7 +1213,7 @@ impl Menu {
             Page::Load => self.draw_paged(r, panels, BG_CHOOSE_GAME, Self::draw_load),
             Page::Rules => {
                 Self::background(r, BG_TITLE);
-                self.rules_panel.draw(r, panels, &self.rules, r.screen[0], "These apply to every game you play.");
+                self.rules_panel.draw(r, panels, &self.rules, r.screen[0], tr("These apply to every game you play."));
             }
             Page::Family => self.draw_paged(r, panels, BG_REGISTRY, Self::draw_family),
             Page::NewFamily => self.draw_paged(r, panels, BG_CHOOSE_GAME, Self::draw_new_family),
@@ -1242,9 +1246,9 @@ impl Menu {
         r.screen_frame = None;
         r.smooth = false;
         let [sw, sh] = r.screen;
-        let note = concat!("Osiris ", env!("CARGO_PKG_VERSION"), " - an open-source engine for Pharaoh");
-        draw_text(r, Font::SmallPlain, note, 12.0, sh - 20.0, [0.8, 0.8, 0.8, 1.0]);
-        let credit = "Game data (c) Sierra";
+        let note = format!("Osiris {} - {}", env!("CARGO_PKG_VERSION"), tr("an open-source engine for Pharaoh"));
+        draw_text(r, Font::SmallPlain, &note, 12.0, sh - 20.0, [0.8, 0.8, 0.8, 1.0]);
+        let credit = tr("Game data (c) Sierra");
         let cw = text_width(r, Font::SmallPlain, credit) as f32;
         draw_text(r, Font::SmallPlain, credit, sw - cw - 12.0, sh - 20.0, [0.8, 0.8, 0.8, 1.0]);
     }

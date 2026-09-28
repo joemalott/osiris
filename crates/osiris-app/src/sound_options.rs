@@ -138,7 +138,7 @@ impl SoundWindow {
             ui.label(Font::NormalBlackOnLight, &format!("{}%", c.volume), x + 326.0, ry + 4.0);
         }
         // The movies have no text of their own in the original's tables.
-        let t = if prefs.movies { "Movies are on" } else { "Movies are off" };
+        let t = if prefs.movies { crate::lang::tr("Movies are on") } else { crate::lang::tr("Movies are off") };
         if ui.button([x + 16.0, y + 68.0 + 30.0 * 4.0, 224.0, 20.0], t, Font::NormalBlackOnLight) {
             prefs.movies = !prefs.movies;
         }
