@@ -1886,10 +1886,13 @@ progress_max = 400
 [[building]]
 id = 205
 key = "chariots_workshop"
-size = 2
+# 4x4 (the exe's type table at 0x5d06dc) on its own image, group 120 (the image slot
+# FUN_00470990 case 0xcd places, DAT_00f567dc): 238 wide, with eleven frames of its own.
+# Group 124 is the brick maker's.
+size = 4
 labor = "industry_commerce"
-image = { pack = "Pharaoh_General", group = 124, offset = 0 }
-anims = { preview = { pack = "Pharaoh_General", group = 124, offset = 0 }, work = { pack = "Pharaoh_General", group = 124, offset = 0 } }
+image = { pack = "Pharaoh_General", group = 120, offset = 0 }
+anims = { preview = { pack = "Pharaoh_General", group = 120, offset = 0 }, work = { pack = "Pharaoh_General", group = 120, offset = 1, frames = 11 } }
 # Single input (timber): its stock pile is drawn by osiris-app's PILES table (First,
 # group 202, +166,-23), matching the exe's FUN_00436310 case 0xcd, which never touches
 # the second-good array bricks and the lamp maker draw from.
