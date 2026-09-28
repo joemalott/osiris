@@ -106,7 +106,6 @@ impl World {
             self.update_funerals();
             self.update_invasions();
             self.update_morale_month();
-            self.update_distant_battle();
             self.process_scenario_events();
             self.update_all_roads();
             if roll.year {

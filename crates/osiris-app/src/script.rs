@@ -9,6 +9,10 @@ fn parse_point(s: &str) -> Result<(i32, i32)> {
     Ok((x.trim().parse()?, y.trim().parse()?))
 }
 
+/// Added to both coordinates of an `advclick` point: it marks the point as relative
+/// to the overseer panel's corner, which is placed once the screen size is known.
+pub const ADVISOR_POINT: f32 = 100_000.0;
+
 /// A click (at a screen point) or a wheel turn (in lines) for the menu.
 #[derive(Clone, Copy)]
 pub enum MenuInput {
@@ -62,6 +66,9 @@ pub struct ScriptView {
     pub orders: bool,
     /// Screen point the mouse rests on, for tooltips.
     pub hover: Option<[f32; 2]>,
+    /// Left clicks at screen points, each after a frame is drawn, before the
+    /// screenshot's frame (overseer pages, pop-ups).
+    pub clicks: Vec<[f32; 2]>,
     /// A sidebar slide frozen part-way: collapsing or not, and the step (0-47).
     pub slide: Option<(bool, f32)>,
     /// A building tool held with the cursor on a tile, to show its placement preview.
@@ -199,6 +206,16 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["hover", p] => {
                 let (x, y) = parse_point(p)?;
                 view.hover = Some([x as f32, y as f32]);
+            }
+            // A left click at screen point x,y once the game is drawn; points relative
+            // to the overseer's 640x480 panel with `advclick`.
+            ["click", p] => {
+                let (x, y) = parse_point(p)?;
+                view.clicks.push([x as f32, y as f32]);
+            }
+            ["advclick", p] => {
+                let (x, y) = parse_point(p)?;
+                view.clicks.push([ADVISOR_POINT + x as f32, ADVISOR_POINT + y as f32]);
             }
             ["menu"] => view.menu = true,
             ["menu", page] => {
@@ -521,6 +538,12 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
             }
             ["fireevent", i] =>world.fire_event_now(i.parse()?),
+            // Each Kingdom-map route: its length and the months troops take along it.
+            ["kroutes"] => {
+                for (i, r) in world.trade.routes.iter().enumerate().filter(|(_, r)| !r.points.is_empty()) {
+                    eprintln!("  route {i} sea {} step {} length {} months {}", r.sea, r.step, r.length(), (r.length() / 400).max(1));
+                }
+            }
             ["events"] => {
                 for (i, e) in world.scenario_events.list.iter().enumerate() {
                     eprintln!(
@@ -655,11 +678,19 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["seapoint", p] => world.invasions.sea_points.push(parse_point(p)?),
             ["landpoint", p] => world.invasions.land_points.push(parse_point(p)?),
             // Opens a call for troops against strength N from trade city C (by sea, if
-            // its route is), to be sent with `dispatch`.
-            ["asktroops", n, c] => {
+            // its route is), due in M months (12 if not given), to be sent with
+            // `dispatch`.
+            ["asktroops", n, c, rest @ ..] => {
                 let i = world.scenario_events.request_troops_now(n.parse()?);
-                world.scenario_events.list[i].city = Some(c.parse()?);
-                eprintln!("{step}: request {i} by sea {} ready {}", world.request_by_sea(i), world.troops_ready(i));
+                let c: usize = c.parse()?;
+                let months: i32 = rest.first().map_or(Ok(12), |m| m.parse())?;
+                let (route, due) = (world.trade.cities.get(c).map_or(-1, |t| t.route as i32), world.month_count() + months);
+                let e = &mut world.scenario_events.list[i];
+                e.city = Some(c);
+                e.route = route;
+                e.due = Some(due);
+                e.months_left = months;
+                eprintln!("{step}: request {i} by sea {} ready {} travel {} months", world.request_by_sea(i), world.troops_ready(i), world.request_travel_months(i));
             }
             ["troops", n] => {
                 let i = world.scenario_events.request_troops_now(n.parse()?);
@@ -679,7 +710,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     let t = world.buildings.get(a.target).map(|b| (b.kind, b.x, b.y, b.enemy_damage));
                     eprintln!("  army {i} invader {} nation {} target {} {:?} morale {} fleeing {} {:?}", a.invader, a.nation, a.target, t, a.morale, a.fleeing, alive);
                 }
-                eprintln!("  battle {:?} kingdom {}", world.military.battle, world.ratings.kingdom);
+                eprintln!("  battles {:?} kingdom {}", world.military.battles, world.ratings.kingdom);
                 eprintln!("  points land {:?} sea {:?} landings {:?}", world.invasions.land_points, world.invasions.sea_points, world.invasions.landings);
                 eprintln!("  won {} lost {} limit {:?} survival {:?}", world.won, world.lost, world.time_limit, world.survival);
                 eprintln!("  planned {:?} lost {}", world.invasions.planned.iter().map(|p| (p.invader, p.year, p.month, p.warning, p.done)).collect::<Vec<_>>(), world.invasions.lost);

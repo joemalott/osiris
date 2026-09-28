@@ -142,6 +142,8 @@ enum Popup {
     Donate(i32),
     /// Dispatching a burial provision: the amount so far, in hundreds.
     Burial(u16, i32),
+    /// A message from text group 5, its title and line, with OK.
+    Notice(usize, usize),
 }
 
 impl Advisors {
@@ -160,6 +162,7 @@ impl Advisors {
             ("resource", Some(r)) => Some(Popup::Resource(r as u16)),
             ("priority", Some(c)) => Some(Popup::Priority(c)),
             ("request", Some(i)) => Some(Popup::Request(i, true)),
+            ("destinations", _) => Some(Popup::Notice(102, 103)),
             ("navy", _) => {
                 self.navy = true;
                 None
@@ -274,9 +277,19 @@ impl Advisors {
             Advisor::Population => population(&mut ui, world, [px, py], &mut self.scroll),
             Advisor::Political => political(&mut ui, world, [px, py], &mut self.popup),
             Advisor::Military => {
-                let page = if self.navy { navy(&mut ui, world, [px, py]) } else { military(&mut ui, world, [px, py]) };
+                let (mut several, mut notice) = (false, None);
+                let page = if self.navy { navy(&mut ui, world, [px, py], &mut several, &mut notice) } else { military(&mut ui, world, [px, py], &mut several, &mut notice) };
+                // A Kingdom service mark refused says why (text group 5, 36 to 41).
+                if let Some(title) = notice {
+                    self.popup = Some(Popup::Notice(title, title + 1));
+                }
                 if army_navy_switch(&mut ui, [px, py], self.navy) {
                     self.navy = !self.navy;
+                }
+                // More than one call the marked troops could answer: the Political
+                // Overseer, and a word to choose there (0x40a4ce).
+                if several {
+                    switch_to = Some(Advisor::Political);
                 }
                 page
             }
@@ -298,6 +311,7 @@ impl Advisors {
                     FestivalChoice::Stay => false,
                 },
                 Some(Popup::Request(i, ok)) => request_popup(&mut ui, world, i, ok),
+                Some(Popup::Notice(title, line)) => notice_popup(&mut ui, title, line),
                 Some(Popup::Salary) => salary_popup(&mut ui, world),
                 Some(Popup::Gift) => gift_popup(&mut ui, world),
                 Some(Popup::Burial(r, n)) => match burial_popup(&mut ui, world, r, n) {
@@ -321,8 +335,9 @@ impl Advisors {
             }
         }
         if let Some(a) = switch_to {
+            let several = self.current == Advisor::Military && a == Advisor::Political;
             self.current = a;
-            self.popup = None;
+            self.popup = several.then_some(Popup::Notice(102, 103));
             self.scroll = 0;
         }
         action
@@ -1214,6 +1229,16 @@ fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
     for (row, &(i, r, units, months)) in requests.iter().take(5).enumerate() {
         let (rx, ry) = (px + 38.0, py + 116.0 + 45.0 * row as f32);
         let rect = [rx, ry, 35.0 * 16.0, 45.0];
+        if r == osiris_sim::scenario_events::TROOPS {
+            troop_request_row(ui, world, i, units, [rx, ry]);
+            if ui.hot(rect) {
+                panel::button_border(ui.r, ui.panels, rx + 2.0, ry + 2.0, rect[2] as i32 - 4, rect[3] as i32 - 4, false);
+            }
+            if ui.clicked(rect) {
+                *popup = Some(Popup::Request(i, world.can_send_request(i)));
+            }
+            continue;
+        }
         ui.icon(r, rx + 7.0, ry + 7.0);
         let shown = if r == osiris_sim::scenario_events::DEBEN || r == osiris_sim::scenario_events::TROOPS { units } else { units / 100 };
         let what = format!("{} {}", shown, ui.t(RESOURCE_NAMES, r as usize));
@@ -1423,6 +1448,30 @@ fn donate_popup(ui: &mut Ui, world: &mut World, amount: i32) -> Option<i32> {
     Some(amount)
 }
 
+/// A call for troops in the Political Overseer's list, as the original writes it
+/// (FUN_00520ea0 case 4): the land or sea picture (Pharaoh_General group 221),
+/// "Dispatch troops to protect" or "Dispatch waterborne troops to" and the city,
+/// then how big a force attacks (under 46 small, to 88 average, else large) and in
+/// how many months (FUN_0044c9a0).
+fn troop_request_row(ui: &mut Ui, world: &World, i: usize, enemy: i32, [rx, ry]: [f32; 2]) {
+    const G: usize = 52;
+    let sea = world.request_by_sea(i);
+    if let Ok(id) = ui.r.library.group_id("Pharaoh_General", 221, usize::from(sea)) {
+        ui.image(id, rx + 12.0, ry + 10.0);
+    }
+    let city = world.scenario_events.list.get(i).and_then(|e| e.city).and_then(|c| world.trade.cities.get(c)).map(|c| ui.t(195, c.name_id as usize)).unwrap_or_default();
+    let line = format!("{} {}", ui.t(G, if sea { 80 } else { 72 }), city);
+    ui.label(Font::NormalWhiteOnDark, &line, rx + 42.0, ry + 7.0);
+    let months = world.troop_months_shown(i);
+    let size = match enemy {
+        e if e < 46 => 73,
+        e if e <= 88 => 74,
+        _ => 75,
+    };
+    let when = format!("{} {} {}", ui.t(G, size), months, ui.t(8, if months == 1 { 4 } else { 5 }));
+    ui.label(Font::NormalWhiteOnDark, &when, rx + 42.0, ry + 25.0);
+}
+
 /// "Dispatch goods?" with Yes and No, or "You do not have enough" with OK. True when
 /// it closes.
 fn request_popup(ui: &mut Ui, world: &mut World, i: usize, can: bool) -> bool {
@@ -1432,17 +1481,17 @@ fn request_popup(ui: &mut Ui, world: &mut World, i: usize, can: bool) -> bool {
     let (w, h) = (480.0, 160.0);
     let (x, y) = (((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor());
     panel::outer_panel(ui.r, ui.panels, x, y, 30, 10);
-    let title = ui.t(5, 6);
-    ui.centred(Font::LargeBlackOnLight, &title, x, y + 20.0, w);
     let troops = world.scenario_events.list.get(i).is_some_and(|e| e.resource == osiris_sim::scenario_events::TROOPS);
-    let line = ui.t(5, match (troops, can) {
-        (true, true) => 15,
-        (true, false) if world.military.companies.iter().any(|c| c.fort != 0 && !c.soldiers.is_empty()) => 13,
-        (true, false) => 11,
-        (false, true) => 7,
-        (false, false) => 9,
-    });
-    ui.centred(Font::NormalBlackOnLight, &line, x, y + 60.0, w);
+    // A call for troops says what is missing, by land or by sea (FUN_0044d520).
+    let (title, line) = match (troops, can) {
+        (true, _) => world.troops_status(i).popup(),
+        (false, true) => (6, 7),
+        (false, false) => (6, 9),
+    };
+    let title = ui.t(5, title);
+    ui.centred(Font::LargeBlackOnLight, &title, x, y + 20.0, w);
+    let line = ui.t(5, line);
+    popup_line(ui, &line, x, y + 60.0, w);
     if can {
         if ui.button([x + 140.0, y + 110.0, 100.0, 24.0], tr("Yes"), Font::NormalBlackOnLight) {
             world.apply(&Command::DispatchRequest(i));
@@ -1452,6 +1501,77 @@ fn request_popup(ui: &mut Ui, world: &mut World, i: usize, can: bool) -> bool {
     } else {
         ui.button([x + 190.0, y + 110.0, 100.0, 24.0], tr("OK"), Font::NormalBlackOnLight)
     }
+}
+
+/// A message from text group 5 with OK (the original's FUN_004264d0 with nothing to
+/// do on OK), in the request pop-up's window. True when it closes.
+fn notice_popup(ui: &mut Ui, title: usize, line: usize) -> bool {
+    let screen = ui.r.screen;
+    let (w, h) = (480.0, 160.0);
+    let (x, y) = (((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor());
+    panel::outer_panel(ui.r, ui.panels, x, y, 30, 10);
+    let title = ui.t(5, title);
+    ui.centred(Font::LargeBlackOnLight, &title, x, y + 20.0, w);
+    let line = ui.t(5, line);
+    popup_line(ui, &line, x, y + 60.0, w);
+    ui.button([x + 190.0, y + 110.0, 100.0, 24.0], "OK", Font::NormalBlackOnLight)
+}
+
+/// A pop-up's line, centred in the window `w` wide at `x`, or wrapped inside its
+/// margins when it is too long for one line (the Kingdom service messages are).
+fn popup_line(ui: &mut Ui, line: &str, x: f32, y: f32, w: f32) {
+    if ui.width(Font::NormalBlackOnLight, line) <= w - 64.0 {
+        ui.centred(Font::NormalBlackOnLight, line, x, y, w);
+    } else {
+        ui.wrapped(Font::NormalBlackOnLight, line, x + 32.0, y - 8.0, w - 64.0);
+    }
+}
+
+/// The "Dispatch now" button both military pages show while something at home is
+/// marked for Kingdom service (0x40a450). It sends the marked troops to the first
+/// open call by land and the first by sea, each if something marked can go that
+/// way, among the Political Overseer's five rows. With more than one call open by
+/// a way the marked troops could go it sends nothing and returns true: the player
+/// must choose in the Political Overseer (text group 5 lines 102, 103).
+fn dispatch_now(world: &mut World) -> bool {
+    use osiris_sim::scenario_events::TROOPS;
+    let calls: Vec<(usize, bool)> = world.scenario_events.open_requests().filter(|(_, e)| e.resource == TROOPS).map(|(i, _)| (i, world.request_by_sea(i))).collect();
+    let first = |sea: bool| calls.iter().find(|c| c.1 == sea).map(|c| c.0);
+    let count = |sea: bool| calls.iter().filter(|c| c.1 == sea).count();
+    let land = first(false).filter(|_| world.kingdom_service_marked(false));
+    let sea = first(true).filter(|_| world.kingdom_service_marked(true));
+    if count(false) > 1 && land.is_some() || count(true) > 1 && sea.is_some() {
+        return true;
+    }
+    let rows: Vec<usize> = world.scenario_events.open_requests().map(|(i, _)| i).take(5).collect();
+    for i in rows {
+        if Some(i) == land || Some(i) == sea {
+            world.apply(&Command::DispatchRequest(i));
+        }
+    }
+    false
+}
+
+/// The Kingdom service column's heading, or while something at home is marked the
+/// "Dispatch now" button over it (545,35 to 620,70; FUN_00522a60, FUN_00523bb0).
+/// True when the button sent nothing because more than one call could be meant.
+fn service_heading(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], marked: bool) -> bool {
+    const G: usize = 51;
+    if !marked {
+        for (id, y) in [(5, 43.0), (6, 58.0)] {
+            let s = ui.t(G, id);
+            ui.label(Font::NormalBlackOnLight, &s, px + 550.0, py + y);
+        }
+        return false;
+    }
+    let rect = [px + 545.0, py + 35.0, 75.0, 35.0];
+    let hot = ui.hot(rect);
+    panel::button_border(ui.r, ui.panels, rect[0], rect[1], 75, 35, hot);
+    for (id, y) in [(30, 40.0), (31, 54.0)] {
+        let s = ui.t(G, id);
+        ui.label(Font::NormalBlackOnLight, &s, px + 550.0, py + y);
+    }
+    ui.clicked(rect) && dispatch_now(world)
 }
 
 /// The button in the military overseer's lower right that turns between the army's
@@ -1473,15 +1593,21 @@ fn army_navy_switch(ui: &mut Ui, [px, py]: [f32; 2], navy: bool) -> bool {
 /// or sea (27), a call open by land (13) or sea (26), or none (12).
 fn kingdom_call_line(world: &World) -> usize {
     use osiris_sim::scenario_events::TROOPS;
-    match &world.military.battle {
-        Some(b) if b.fought => return if b.sea { 28 } else { 15 },
-        Some(b) => return if b.sea { 27 } else { 14 },
-        None => {}
-    }
-    let open: Vec<usize> = world.scenario_events.open_requests().filter(|(_, e)| e.resource == TROOPS).map(|(i, _)| i).collect();
-    if open.iter().any(|&i| !world.request_by_sea(i)) {
+    let away = |sea: bool, back: bool| world.military.battles.iter().any(|b| b.sea == sea && b.fought == back);
+    let open = |sea: bool| world.scenario_events.open_requests().any(|(i, e)| e.resource == TROOPS && world.request_by_sea(i) == sea);
+    // The original's order (0x521f40 on): home-coming by land, by sea, marching by
+    // land, sailing, then open calls by land and by sea.
+    if away(false, true) {
+        15
+    } else if away(true, true) {
+        28
+    } else if away(false, false) {
+        14
+    } else if away(true, false) {
+        27
+    } else if open(false) {
         13
-    } else if open.iter().any(|&i| world.request_by_sea(i)) {
+    } else if open(true) {
         26
     } else {
         12
@@ -1496,7 +1622,7 @@ fn kingdom_call_line(world: &World) -> usize {
 /// becomes "Dispatch now", which sends the marked ships to the city calling by sea
 /// (0x40a450). Under the rows: the warships and transports the city has, the
 /// threat, and the Kingdom's calls.
-fn navy(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
+fn navy(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], several: &mut bool, notice: &mut Option<usize>) -> Option<AdvisorAction> {
     use osiris_sim::navy::{ShipOrder, TRANSPORT, WARSHIP};
     const G: usize = 51;
     const SHIP: usize = 184;
@@ -1518,26 +1644,7 @@ fn navy(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAct
     // The Kingdom service column's heading, or the dispatch button when a warship is
     // marked (FUN_00523bb0).
     let marked = warships.iter().any(|&s| world.figures.get(s).and_then(|f| f.ship.as_ref()).is_some_and(|st| st.service && st.abroad.is_none()));
-    if marked {
-        let rect = [px + 545.0, py + 35.0, 75.0, 35.0];
-        let hot = ui.hot(rect);
-        panel::button_border(ui.r, ui.panels, rect[0], rect[1], 75, 35, hot);
-        for (id, y) in [(30, 40.0), (31, 54.0)] {
-            let s = ui.t(G, id);
-            ui.label(Font::NormalBlackOnLight, &s, px + 550.0, py + y);
-        }
-        if ui.clicked(rect) {
-            let ready = world.scenario_events.open_requests().map(|(i, _)| i).find(|&i| world.request_by_sea(i) && world.can_send_request(i));
-            if let Some(i) = ready {
-                world.apply(&Command::DispatchRequest(i));
-            }
-        }
-    } else {
-        for (id, y) in [(5, 43.0), (6, 58.0)] {
-            let s = ui.t(G, id);
-            ui.label(Font::NormalBlackOnLight, &s, px + 550.0, py + y);
-        }
-    }
+    *several = service_heading(ui, world, [px, py], marked);
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 70.0, 36, 17);
     if warships.is_empty() {
         let none = ui.t(G, 25);
@@ -1590,7 +1697,12 @@ fn navy(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAct
         panel::button_border(ui.r, ui.panels, service[0], service[1], 30, 30, hot);
         ui.image(buttons + if st.service { 3 } else { 4 }, service[0] + 3.0, service[1] + 3.0);
         if ui.clicked(service) {
+            // Refused, it says why (0x40a600).
+            let refusal = world.service_refusal(true);
             world.apply(&Command::ShipService(s));
+            if let Some(line) = refusal {
+                *notice = Some(line);
+            }
         }
     }
     let bullet = ui.r.library.group_id("Pharaoh_General", 158, 0).unwrap_or(0);
@@ -1616,16 +1728,20 @@ fn navy(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAct
     action
 }
 
-fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<AdvisorAction> {
+fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], several: &mut bool, notice: &mut Option<usize>) -> Option<AdvisorAction> {
     const G: usize = 51;
     let title = ui.t(G, 0);
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 12.0);
     // The column headings over the company rows (FUN_00520ea0), and Kingdom service's
     // over its own column.
-    for (g, id, x, y) in [(138, 36, 250.0, 58.0), (G, 17, 350.0, 43.0), (G, 18, 330.0, 58.0), (G, 1, 425.0, 43.0), (G, 2, 425.0, 58.0), (G, 3, 490.0, 43.0), (G, 4, 490.0, 58.0), (G, 5, 550.0, 43.0), (G, 6, 550.0, 58.0)] {
+    for (g, id, x, y) in [(138, 36, 250.0, 58.0), (G, 17, 350.0, 43.0), (G, 18, 330.0, 58.0), (G, 1, 425.0, 43.0), (G, 2, 425.0, 58.0), (G, 3, 490.0, 43.0), (G, 4, 490.0, 58.0)] {
         let s = ui.t(g, id);
         ui.label(Font::NormalBlackOnLight, &s, px + x, py + y);
     }
+    // A company at home marked for Kingdom service turns the heading into the
+    // dispatch button (FUN_00522a60).
+    let marked = world.military.companies.iter().enumerate().any(|(c, co)| co.fort != 0 && co.kingdom_service && !world.company_away(c));
+    *several = service_heading(ui, world, [px, py], marked);
     panel::inner_panel(ui.r, ui.panels, px + 32.0, py + 70.0, 36, 17);
     let companies: Vec<(usize, osiris_sim::military::Company)> = world.military.companies.iter().cloned().enumerate().filter(|(_, c)| c.fort != 0).collect();
     if companies.is_empty() {
@@ -1678,12 +1794,18 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2]) -> Option<Adviso
         if ui.clicked(back) && !co.at_fort {
             world.apply(&Command::ReturnCompany(*c));
         }
+        // The mark lights up only while a call it could answer is open: by sea for a
+        // company aboard, by land for one ashore (FUN_00522a60).
         let service = bx(560.0);
-        let hot = ui.hot(service);
+        let refusal = world.service_refusal(world.company_ship(*c).is_some());
+        let hot = refusal.is_none() && ui.hot(service);
         panel::button_border(ui.r, ui.panels, service[0], service[1], 30, 30, hot);
         ui.image(buttons + if co.kingdom_service { 3 } else { 4 }, service[0] + 3.0, service[1] + 3.0);
         if ui.clicked(service) {
             world.apply(&Command::KingdomService(*c));
+            if let Some(line) = refusal {
+                *notice = Some(line);
+            }
         }
     }
     // What the scouts report, a bullet by each line, under the soldiers and companies

@@ -7,8 +7,9 @@ use crate::world::World;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fx {
     /// A building of `size` came down with its top corner at `(x, y)`: the original's
-    /// sixteen dust clouds (and a crash, queued with them).
-    Dust { x: i32, y: i32, size: i32 },
+    /// sixteen dust clouds (and a crash, queued with them). A ship rammed raises the
+    /// first four of them, from its own tile (size 0; FUN_0048c0e0).
+    Dust { x: i32, y: i32, size: i32, pieces: u8 },
     /// A sound from AUDIO/Wavs.
     Sound(&'static str),
     /// A figure of the original's type `kind` at `(x, y)` struck a blow or loosed a
@@ -23,6 +24,9 @@ pub const CRASH: &str = "CRASH.WAV";
 pub const FIRE: &str = "FIRE.WAV";
 /// A building the player pulls down (sound 2).
 pub const DIG: &str = "DIG.WAV";
+/// A ram striking a ship, by the angle of the blow 1 to 5 (sounds 11 to 15,
+/// FUN_004a5880): on the beam, the fore quarter, the aft quarter, the bow, the stern.
+pub const SHIP_COLLISION: [&str; 5] = ["ship_collision_beam.wav", "ship_collision_fore_quarter.wav", "ship_collision_aft_quarter.wav", "ship_collision_bow.wav", "ship_collision_stern.wav"];
 
 /// Effects kept for a screen that isn't looking (headless runs): the oldest go.
 const KEEP: usize = 512;
@@ -50,7 +54,7 @@ impl World {
 
     /// Dust over a fallen building, with its crash.
     pub(crate) fn dust(&mut self, x: i32, y: i32, size: i32) {
-        self.fx(Fx::Dust { x, y, size });
+        self.fx(Fx::Dust { x, y, size, pieces: 16 });
         self.fx(Fx::Sound(CRASH));
     }
 }

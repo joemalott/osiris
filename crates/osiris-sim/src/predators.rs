@@ -53,14 +53,7 @@ pub const CORPSE_TICKS: i32 = 128;
 /// Figures the beasts leave alone: fishing boats, ships and transports.
 const BOATS: [u16; 7] = [25, 77, 78, 92, 93, 100, 101];
 
-/// Sub-steps (fifteen to a tile) a figure of the model's speed `code` goes on `tick`:
-/// the model's speed table, from standing still to three tiles a walker's time.
-fn stride(code: i32, tick: u64) -> u8 {
-    const RATE: [(u64, u64); 19] =
-        [(0, 1), (1, 4), (1, 3), (1, 2), (2, 3), (3, 4), (1, 1), (5, 4), (4, 3), (3, 2), (5, 3), (7, 4), (2, 1), (9, 4), (7, 3), (5, 2), (8, 3), (11, 4), (3, 1)];
-    let (n, d) = RATE[code.clamp(0, 18) as usize];
-    ((tick + 1) * n / d - tick * n / d) as u8
-}
+use crate::figures::stride;
 
 /// The order in which a beast looks round itself: its own tile, then each square
 /// ring out, from the top-left corner along the top, down the right, back along the

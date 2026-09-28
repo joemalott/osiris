@@ -164,6 +164,15 @@ pub struct TradeRoute {
     pub traded: Vec<i32>,
 }
 
+impl TradeRoute {
+    /// The route's length on the Kingdom map as the original keeps it (the count at
+    /// +0x134 of its route record times the step at +0): a dot every `step` pixels
+    /// from each waypoint to the next (FUN_00445d10), times the step.
+    pub fn length(&self) -> i32 {
+        osiris_formats::empire::EmpireRoute { in_use: true, step: self.step, points: self.points.clone(), ..Default::default() }.length()
+    }
+}
+
 /// A trader as older saved games kept it, walking its route on the empire map.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct EmpireTrader {

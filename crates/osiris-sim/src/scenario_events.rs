@@ -160,6 +160,14 @@ pub struct ScenarioEvent {
     pub overdue: bool,
     can_comply_shown: bool,
     announced: bool,
+    /// Requests: the month (counted from the start, twelve to a year) the request
+    /// falls due: its date plus its months (FUN_0044d750 counts down to it).
+    #[serde(default)]
+    pub due: Option<i32>,
+    /// Troop requests: how many months before the last month troops can set out
+    /// and still arrive the first and last reminders come (record bytes 101, 102).
+    #[serde(default)]
+    pub reminder_leads: [u8; 2],
     /// Why this event happened, when another event led to it.
     cause: Option<(usize, Outcome)>,
     /// Months until a follow-up event fires.
@@ -198,6 +206,7 @@ impl ScenarioEvents {
                 on_refusal: e.on_refusal,
                 on_too_late: e.on_too_late,
                 on_defeat: e.on_defeat,
+                reminder_leads: [e.city as u8, e.defeat_link],
                 god: e.god,
                 months_initial: e.months as i32,
                 ..Default::default()
@@ -223,6 +232,7 @@ impl ScenarioEvents {
             on_refusal: -1,
             on_too_late: -1,
             on_defeat: -1,
+            reminder_leads: [6, 1],
             ..Default::default()
         });
         self.list.len() - 1
@@ -291,6 +301,11 @@ impl World {
         self.time.year - self.scenario_events.start_year
     }
 
+    /// Months since the start of the scenario's first year.
+    pub fn month_count(&self) -> i32 {
+        self.years_since_start() * 12 + self.time.month as i32
+    }
+
     /// The empire city with route number `n`.
     fn city_by_route(&self, n: i32) -> Option<usize> {
         self.trade.cities.iter().position(|c| c.route as i32 == n && n > 0)
@@ -339,9 +354,17 @@ impl World {
                 self.fire_event(i);
             }
         }
+        self.adopt_old_battle();
         for i in 0..self.scenario_events.list.len() {
             let e = &self.scenario_events.list[i];
-            if e.kind == event::REQUEST && e.active {
+            if e.kind != event::REQUEST {
+                continue;
+            }
+            if e.resource == TROOPS {
+                if e.active || self.military.battle_for(i).is_some() {
+                    self.update_troop_request(i);
+                }
+            } else if e.active {
                 self.update_request(i);
             }
         }
@@ -370,6 +393,7 @@ impl World {
 
     /// Runs event `i`'s effect and message.
     fn fire_event(&mut self, i: usize) {
+        let now_month = self.month_count();
         let e = self.scenario_events.list[i].clone();
         let resource = self.roll(e.item).max(0) as u16;
         let amount = self.roll(e.amount_pick);
@@ -405,6 +429,7 @@ impl World {
                 let ev = &mut self.scenario_events.list[i];
                 ev.state = state::WAITING;
                 ev.months_left = ev.months_initial;
+                ev.due = Some(now_month + ev.months_initial);
                 ev.active = true;
                 ev.overdue = false;
                 ev.can_comply_shown = false;
@@ -747,7 +772,7 @@ impl World {
         let Some(e) = self.scenario_events.list.get(i) else { return false };
         match e.resource {
             DEBEN => self.treasury >= e.amount,
-            TROOPS => self.military.battle.is_none() && self.troops_ready(i),
+            TROOPS => self.military.battle_for(i).is_none() && self.troops_ready(i),
             r => self.city_stored(r) >= e.units(),
         }
     }
@@ -799,22 +824,123 @@ impl World {
         true
     }
 
-    /// The troops sent for request `i` have fought: a victory meets the request, a
-    /// defeat fails it, and what follows follows.
-    pub(crate) fn settle_troop_request(&mut self, i: usize, won: bool) {
-        let Some(e) = self.scenario_events.list.get_mut(i) else { return };
-        let overdue = e.overdue;
-        e.active = false;
-        if won {
-            e.state = state::RECEIVED;
-            let (next, outcome) = if overdue { (e.on_too_late, Outcome::TooLate) } else { (e.on_completed, Outcome::Completed) };
-            self.ratings.change_kingdom(if overdue { 1 } else { 3 });
+    /// The months troops take to reach the city request `i` concerns, and to come
+    /// back (FUN_0044c110): the length of the city's route on the Kingdom map over
+    /// 400, and at least a month (FUN_004477d0).
+    pub fn request_travel_months(&self, i: usize) -> i32 {
+        let Some(e) = self.scenario_events.list.get(i) else { return 0 };
+        let length = usize::try_from(e.route).ok().and_then(|r| self.trade.routes.get(r)).map_or(0, |r| r.length());
+        (length / 400).max(1)
+    }
+
+    /// The months a call for troops gives to send them (FUN_0044c9a0): the months
+    /// left, less the first reminder's lead and the journey, plus six, so the first
+    /// reminder itself says six; at least one.
+    pub fn troop_months_shown(&self, i: usize) -> i32 {
+        let Some(e) = self.scenario_events.list.get(i) else { return 1 };
+        let left = e.due.map_or(e.months_left, |d| d - self.month_count());
+        let travel = match self.request_travel_months(i) {
+            m if m < 1 => 12,
+            m => m,
+        };
+        (left - e.reminder_leads[0] as i32 - travel + 6).max(1)
+    }
+
+    /// Monthly, for a request for troops (FUN_0044c9e0, which the request loop at
+    /// 0x44cdc0 runs for resource 37 in place of the goods requests' rules). Months
+    /// count down to the due month. Until troops are sent the player is told of the
+    /// call, then reminded twice, each reminder a set number of months before the
+    /// last month troops could leave and still get there. On the due month a call
+    /// no one answered is refused; troops on the way fight if they are within two
+    /// months of the battle, and otherwise are too late. Whatever the outcome, the
+    /// event the scenario ties to it follows; this handler leaves the Kingdom rating
+    /// alone.
+    fn update_troop_request(&mut self, i: usize) {
+        let now = self.month_count();
+        let e = &mut self.scenario_events.list[i];
+        let due = *e.due.get_or_insert(now + e.months_left.max(0));
+        let left = due - now;
+        e.months_left = left.max(0);
+        let travel = match self.request_travel_months(i) {
+            m if m < 1 => 12,
+            m => m,
+        };
+        let sent = self.military.battle_for(i).is_some();
+        if left == 0 {
+            let e = &mut self.scenario_events.list[i];
+            if !sent {
+                // Refused: no troops went.
+                if e.active && e.state <= state::OVERDUE {
+                    e.state = state::FAILED;
+                    e.active = false;
+                    let next = e.on_refusal;
+                    self.follow(next, i, Outcome::Refused);
+                }
+                return;
+            }
+            let (next, outcome) = match self.distant_battle_due(i) {
+                None => (self.scenario_events.list[i].on_too_late, Outcome::TooLate),
+                Some(true) => (self.scenario_events.list[i].on_completed, Outcome::Completed),
+                Some(false) => (self.scenario_events.list[i].on_defeat, Outcome::Defeat),
+            };
+            let e = &mut self.scenario_events.list[i];
+            e.active = false;
+            e.state = if outcome == Outcome::Completed { state::RECEIVED } else { state::FAILED };
             self.follow(next, i, outcome);
-        } else {
-            e.state = state::FAILED;
-            let next = if e.on_defeat >= 0 { e.on_defeat } else { e.on_refusal };
-            self.follow(next, i, Outcome::Defeat);
+            return;
         }
+        if sent {
+            self.distant_battle_month(i);
+            return;
+        }
+        let e = &mut self.scenario_events.list[i];
+        if !e.active {
+            return;
+        }
+        if e.state == state::WAITING {
+            e.state = state::IN_PROGRESS;
+        }
+        let lead = e.reminder_leads;
+        let shown = self.troop_months_shown(i);
+        let e = &mut self.scenario_events.list[i];
+        let body = if !e.announced {
+            e.announced = true;
+            Some("initial_announcement")
+        } else if left - travel == lead[0] as i32 {
+            Some("first_reminder")
+        } else if left - travel == lead[1] as i32 {
+            Some("last_reminder")
+        } else {
+            None
+        };
+        let Some(body) = body else { return };
+        let e = &self.scenario_events.list[i];
+        // Egyptian cities under attack have their own phrases and picture; every other
+        // call for troops reads as a distant battle.
+        let group = if e.subtype == 1 { "egyptian_city_attacked" } else { "distant_battle" };
+        let side = e.side();
+        let mut t = EventText {
+            title: format!("{group}_title_{side}"),
+            body: format!("{group}_{body}_{side}"),
+            reason: format!("{}_no_reason_{side}_A", request_group(e.subtype)),
+            resource: e.resource,
+            amount: e.units(),
+            city_name: e.city.map(|c| self.trade.cities[c].name_id),
+            months: shown,
+            template: match body {
+                "initial_announcement" if e.subtype == 1 => 266,
+                "initial_announcement" => 272,
+                _ => 130,
+            },
+            cause: None,
+            army: None,
+            god: None,
+        };
+        if let Some(reason) = self.reason_phrase(i) {
+            t.reason = reason;
+            t.cause = self.cause_of(i);
+        }
+        self.post_event_text(t);
     }
 
     /// Puts `units` of `r` into storage yards (and granaries, for food) with room;

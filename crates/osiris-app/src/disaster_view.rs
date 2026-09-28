@@ -13,7 +13,8 @@ use osiris_sim::World;
 use osiris_sim::effects::Fx;
 use osiris_sim::plagues::{self, FALL_FRAMES, LOCUST, SHIPWRECK};
 
-/// By a building's size (1-5): how far into it, in tiles and in steps, the clouds start.
+/// By a building's size (1-5; 0 for a ship): how far into it, in tiles and in steps,
+/// the clouds start.
 const CLOUD_TILE: [i32; 6] = [0, 0, 0, 1, 1, 2];
 const CLOUD_STEP: [i32; 6] = [0, 7, 14, 7, 14, 7];
 /// Where each cloud heads, in tiles from where it starts, and its speed in steps a tick.
@@ -73,11 +74,11 @@ impl Disasters {
         let mut sounds = Vec::new();
         for (tick, fx) in world.fx.drain(..) {
             match fx {
-                Fx::Dust { x, y, size } => {
-                    let s = size.clamp(1, 5) as usize;
+                Fx::Dust { x, y, size, pieces } => {
+                    let s = size.clamp(0, 5) as usize;
                     let tile = (x + CLOUD_TILE[s], y + CLOUD_TILE[s]);
                     let at = |t: (i32, i32)| (t.0 * STEPS + CLOUD_STEP[s], t.1 * STEPS + CLOUD_STEP[s]);
-                    for i in 0..16 {
+                    for i in 0..(pieces as usize).min(16) {
                         let speed = CLOUD_SPEED[i];
                         let big = speed < 3;
                         let (hx, hy) = CLOUD_HEADING[i];

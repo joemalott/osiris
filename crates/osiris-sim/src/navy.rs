@@ -92,6 +92,52 @@ const RELOAD: i32 = 30;
 const ENGAGE_SEARCH: i32 = 18;
 const ENGAGE_LEASH: i32 = 10;
 const SEEK_SEARCH: i32 = 228;
+/// The speed-table code a ship of `kind` sails at, its model's speed being `speed`
+/// (FUN_004a5680 for warships, FUN_004a5da0 with the model's speed for transports):
+/// a transport at its speed; a warship at twice it, at most 18, at its speed in
+/// pursuit after its straight run (`rammed_run`), at 40% of it with tired rowers
+/// (`fatigue` 1), and not at all with spent ones (2).
+fn speed_code(kind: u16, speed: i32, fatigue: u8, rammed_run: bool) -> i32 {
+    match kind {
+        WARSHIP | ENEMY_WARSHIP | EGYPT_WARSHIP => match fatigue {
+            2 => 0,
+            1 => speed * 40 / 100,
+            _ if rammed_run => speed,
+            _ => (speed * 2).min(18),
+        },
+        _ => speed,
+    }
+}
+
+/// Why a call for troops can or can't be answered (FUN_0044d520), which decides
+/// the Political Overseer's pop-up (text group 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TroopsStatus {
+    /// Land call, no companies ashore: 10/11.
+    NoCompanies,
+    /// Land call, none of them in Kingdom service: 12/13.
+    NoneMarked,
+    /// Sea call, no warships and no company aboard: 98/99.
+    NoShips,
+    /// Sea call, none of them in Kingdom service: 100/101.
+    NoneMarkedAfloat,
+    /// "Dispatch relief force?": 14/15.
+    Ready,
+}
+
+impl TroopsStatus {
+    /// The pop-up's title and line in text group 5.
+    pub fn popup(self) -> (usize, usize) {
+        match self {
+            TroopsStatus::NoCompanies => (10, 11),
+            TroopsStatus::NoneMarked => (12, 13),
+            TroopsStatus::NoShips => (98, 99),
+            TroopsStatus::NoneMarkedAfloat => (100, 101),
+            TroopsStatus::Ready => (14, 15),
+        }
+    }
+}
+
 /// Ticks between a pursuing warship's fresh routes to its quarry.
 const REPATH_TICKS: i32 = 10;
 /// A warship rams at full force (its model attack) after a straight run of the
@@ -514,20 +560,24 @@ impl World {
         }
     }
 
-    /// Sails a ship on along its route: a warship's exhausted rowers don't row, tired
-    /// ones row at a third of the pace, and in pursuit a warship slows to half pace
-    /// once it has run its model's k tiles straight (FUN_004a5680). Keeps count of the tiles
-    /// run straight, and finds a new way round anything in its path.
+    /// Sails a ship on along its route at its model's speed i, which for an enemy
+    /// ship is its nation's (the speed table of FUN_004a5da0). A transport goes at
+    /// i. A warship rows at twice i, at most 18 (FUN_004a5680); in pursuit it slows
+    /// to i once it has run its model's k tiles straight, tired rowers row at 40% of
+    /// i, and exhausted ones don't row. Keeps count of the tiles run straight, and
+    /// finds a new way round anything in its path.
     fn sail(&mut self, fid: FigureId, chasing: bool) -> Step {
         let ticks = self.time.total_ticks;
-        let run = self.fighter_stats(fid).ram_run.max(1);
+        let stats = self.fighter_stats(fid);
+        let (run, speed) = (stats.ram_run.max(1), stats.speed);
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return Step::Lost };
         let Some((fatigue, straight, heading)) = f.ship.as_deref().map(|s| (s.fatigue, s.straight, s.heading)) else { return Step::Lost };
-        if fatigue == 2 || (fatigue == 1 && ticks % 3 != 0) {
+        let code = speed_code(f.kind, speed, fatigue, chasing && straight >= run);
+        f.speed = crate::figures::stride(code, ticks.wrapping_add(fid as u64));
+        if f.speed == 0 {
             return if f.route.is_empty() && !f.moving { Step::Arrived } else { Step::Moving };
         }
-        f.speed = if fatigue == 1 || (chasing && straight >= run) { 1 } else { 2 };
         let before = (f.x, f.y);
         let step = f.walk(map);
         if (f.x, f.y) != before {
@@ -756,9 +806,15 @@ impl World {
         let force = if straight >= stats.ram_run.max(1) { stats.attack } else { stats.attack * RAM_WEAK_PCT / 100 };
         let force = if braced { force - HOLD_BRACE } else { force };
         let angle = RAM_ANGLE[tdir as usize % 8][dir as usize % 8] as i32;
-        self.figure_sound(fid, 2);
+        // The crash of timbers by the angle of the blow (FUN_004a5880), and four
+        // pieces of wreckage flying from the ship struck (FUN_0048c0e0).
+        self.fx(crate::effects::Fx::Sound(crate::effects::SHIP_COLLISION[(angle.clamp(1, 5) - 1) as usize]));
         if force > 0 {
             self.hurt(target, force / angle.max(1));
+        }
+        if let Some(t) = self.figures.get(target) {
+            let (x, y) = (t.x, t.y);
+            self.fx(crate::effects::Fx::Dust { x, y, size: 0, pieces: 4 });
         }
         let knock = |w: &mut World, d: u8| -> u8 {
             w.rng.next();
@@ -1789,14 +1845,38 @@ impl World {
         })
     }
 
-    /// Whether Kingdom request `i` comes from a city reached by sea.
+    /// Whether Kingdom request `i` comes from a city reached by sea: its route on
+    /// the Kingdom map is a sea route (byte +0x140 of the route record is 2;
+    /// FUN_00521aa0, FUN_0044d520).
     pub fn request_by_sea(&self, i: usize) -> bool {
-        self.scenario_events.list.get(i).and_then(|e| e.city).and_then(|c| self.trade.cities.get(c)).is_some_and(|c| c.sea)
+        self.scenario_events.list.get(i).and_then(|e| usize::try_from(e.route).ok()).and_then(|r| self.trade.routes.get(r)).is_some_and(|r| r.sea)
     }
 
     /// Whether a call for troops from a city reached by sea is open.
     pub fn sea_troops_wanted(&self) -> bool {
-        self.scenario_events.open_requests().any(|(i, e)| e.resource == crate::scenario_events::TROOPS && self.request_by_sea(i))
+        self.troops_wanted(true)
+    }
+
+    /// Whether a call for troops is open from a city reached by sea, or by land
+    /// (FUN_00521a60).
+    pub fn troops_wanted(&self, sea: bool) -> bool {
+        self.scenario_events.open_requests().any(|(i, e)| e.resource == crate::scenario_events::TROOPS && self.request_by_sea(i) == sea)
+    }
+
+    /// Why a company or ship that would go by sea (`sea`), or by land, can't be
+    /// marked for Kingdom service now: the pop-up the overseer shows (text group 5)
+    /// and the mark cleared, as 0x40a390 and 0x40a600 do. By sea it needs a call from
+    /// a city by sea, else "Land Troops Needed" (38) if a land call is open; by land
+    /// a call from a city by land, else "Transport Needed" (36) if a sea call is.
+    /// With no call at all, "No Troops Needed" (40).
+    pub fn service_refusal(&self, sea: bool) -> Option<usize> {
+        if self.troops_wanted(sea) {
+            None
+        } else if self.troops_wanted(!sea) {
+            Some(if sea { 38 } else { 36 })
+        } else {
+            Some(40)
+        }
     }
 
     /// Marks or unmarks warship `fid` for Kingdom service. It can be marked only while
@@ -1825,9 +1905,47 @@ impl World {
     /// reached by land a marked company ashore; for one reached by sea a marked
     /// warship or a marked company aboard a transport.
     pub fn troops_ready(&self, i: usize) -> bool {
-        let sea = self.request_by_sea(i);
-        let company = self.military.companies.iter().enumerate().any(|(c, co)| co.kingdom_service && co.fort != 0 && !co.soldiers.is_empty() && self.company_ship(c).is_some() == sea);
-        company || sea && !self.service_warships().is_empty()
+        self.troops_status(i) == TroopsStatus::Ready
+    }
+
+    /// What stands between request `i` and the troops it wants (FUN_0044d520, whose
+    /// codes -4, -3, -6, -5 and -2 these are, in its order): by land, companies
+    /// ashore and one of them marked; by sea, warships or companies aboard, and one
+    /// of them marked. Companies and ships already away don't count.
+    pub fn troops_status(&self, i: usize) -> TroopsStatus {
+        if !self.request_by_sea(i) {
+            if !self.home_companies(false, false) {
+                TroopsStatus::NoCompanies
+            } else if !self.home_companies(false, true) {
+                TroopsStatus::NoneMarked
+            } else {
+                TroopsStatus::Ready
+            }
+        } else if !self.home_warships(false) && !self.home_companies(true, false) {
+            TroopsStatus::NoShips
+        } else if !self.kingdom_service_marked(true) {
+            TroopsStatus::NoneMarkedAfloat
+        } else {
+            TroopsStatus::Ready
+        }
+    }
+
+    /// Whether the city has a company with men at home (not away for the Kingdom),
+    /// aboard a transport or ashore, and if `marked` in Kingdom service.
+    fn home_companies(&self, aboard: bool, marked: bool) -> bool {
+        self.military.companies.iter().enumerate().any(|(c, co)| co.fort != 0 && !co.soldiers.is_empty() && !self.company_away(c) && !self.military.sent_away(c) && (!marked || co.kingdom_service) && self.company_ship(c).is_some() == aboard)
+    }
+
+    /// Whether the city has a warship at home, and if `marked` in Kingdom service.
+    fn home_warships(&self, marked: bool) -> bool {
+        self.figures.iter().any(|f| f.kind == WARSHIP && !f.dead && f.action != action::CORPSE && f.ship.as_ref().is_some_and(|s| s.abroad.is_none() && (!marked || s.service)))
+    }
+
+    /// Whether anything at home is marked for Kingdom service to go by land (a
+    /// company ashore) or by sea (a company aboard, or a warship): the counts at
+    /// 0xea5ed6, and 0xea5ed9 with 0xea5ed5, that the dispatch button reads.
+    pub fn kingdom_service_marked(&self, sea: bool) -> bool {
+        if sea { self.home_companies(true, true) || self.home_warships(true) } else { self.home_companies(false, true) }
     }
 
     /// Whether company `c` is away at the Kingdom's battle, marched off or aboard a
@@ -2134,11 +2252,19 @@ mod tests {
         soldiers
     }
 
-    /// A call for troops against `enemy` from a city reached by sea.
+    /// A call for troops against `enemy` from a city by sea whose route is 805
+    /// pixels long (two months' sailing), due in three months.
     fn sea_call(world: &mut World, enemy: i32) -> usize {
-        world.trade.cities.push(crate::trade::TradeCity { sea: true, ..Default::default() });
+        let route = world.trade.routes.len();
+        world.trade.routes.push(crate::trade::TradeRoute { points: vec![(0, 0), (800, 0)], step: 5, sea: true, ..Default::default() });
+        world.trade.cities.push(crate::trade::TradeCity { sea: true, route: route as u8, ..Default::default() });
         let i = world.scenario_events.request_troops_now(enemy);
-        world.scenario_events.list[i].city = Some(world.trade.cities.len() - 1);
+        let due = world.month_count() + 3;
+        let e = &mut world.scenario_events.list[i];
+        e.city = Some(world.trade.cities.len() - 1);
+        e.route = route as i32;
+        e.due = Some(due);
+        assert_eq!(world.request_travel_months(i), 2);
         i
     }
 
@@ -2183,7 +2309,7 @@ mod tests {
         assert!(world.can_send_request(i));
         assert!(world.dispatch_request(i));
         // They sail for the river entry and out of sight, taking no orders.
-        for _ in 0..600 {
+        for _ in 0..1500 {
             world.tick();
         }
         for s in [warship, transport] {
@@ -2194,16 +2320,20 @@ mod tests {
         assert!(world.company_away(c));
         // Strength: the archers (4 x 100 / 100) and a tenth of the warship's hull.
         let hull = world.fighter_stats(warship).hp;
-        assert_eq!(world.military.battle.as_ref().map(|b| b.strength), Some(4 + hull / 10));
-        // Two months to the battle, won 34 to 20 (41% ahead: a quarter lost), and two
-        // more home.
-        for _ in 0..(5 * 31 * crate::time::TICKS_PER_DAY) {
+        assert_eq!(world.military.battle_for(i).map(|b| b.strength), Some(4 + hull / 10));
+        // Fought in the request's due month, three months on, won 34 to 20 (41% ahead:
+        // a quarter lost), and two months' sailing home.
+        let mut fought = false;
+        for _ in 0..(8 * 31 * crate::time::TICKS_PER_DAY) {
             world.tick();
-            if world.military.battle.is_none() {
+            fought |= world.military.battle_for(i).is_some_and(|b| b.fought && !b.late);
+            if world.military.battles.is_empty() {
                 break;
             }
         }
-        assert!(world.military.battle.is_none());
+        assert!(fought && world.military.battles.is_empty());
+        assert_eq!(world.scenario_events.list[i].state, crate::scenario_events::state::RECEIVED);
+        assert!(world.notices.log.iter().any(|n| n.key == "message_troops_return_victorious"));
         let f = world.figures.get(warship).expect("warship");
         assert_eq!(f.damage, hull / 10 * 10 * 25 / 100, "the warship takes the battle's losses");
         assert!(!f.ship.as_ref().is_some_and(|s| s.hidden || s.abroad.is_some()));
@@ -2229,11 +2359,73 @@ mod tests {
         world.military.companies[c].kingdom_service = true;
         assert!(world.toggle_ship_service(warship));
         assert!(world.dispatch_request(i));
-        for _ in 0..(3 * 31 * crate::time::TICKS_PER_DAY) {
+        for _ in 0..(5 * 31 * crate::time::TICKS_PER_DAY) {
             world.tick();
         }
-        assert!(world.military.battle.is_none());
+        assert!(world.military.battles.is_empty());
         assert!(world.figures.get(warship).is_none() && world.figures.get(transport).is_none());
         assert!(world.military.companies[c].soldiers.is_empty());
+    }
+
+    #[test]
+    fn warships_sent_too_late_turn_back_without_fighting() {
+        let Some(mut world) = navy_town() else { return };
+        let warship = ship_at_post(&mut world, WARSHIP);
+        let i = sea_call(&mut world, 1);
+        // Five months' sailing (2005 pixels) to a battle due in two.
+        let route = world.scenario_events.list[i].route as usize;
+        world.trade.routes[route].points = vec![(0, 0), (2000, 0)];
+        let due = world.month_count() + 2;
+        world.scenario_events.list[i].due = Some(due);
+        assert_eq!(world.request_travel_months(i), 5);
+        assert!(world.toggle_ship_service(warship));
+        assert!(world.dispatch_request(i));
+        let mut late = None;
+        for _ in 0..(5 * 31 * crate::time::TICKS_PER_DAY) {
+            world.tick();
+            if late.is_none() {
+                late = world.military.battle_for(i).filter(|b| b.late).map(|b| (b.months, world.month_count()));
+            }
+            if world.military.battles.is_empty() {
+                break;
+            }
+        }
+        // At the due month they were still four months out: too late, and a month's
+        // sailing back (five less the four still to go).
+        assert_eq!(late, Some((1, due)));
+        assert!(world.military.battles.is_empty());
+        assert_eq!(world.figures.get(warship).expect("warship").damage, 0, "no battle, no losses");
+        assert!(world.notices.log.iter().any(|n| n.key == "message_troops_return_failed"));
+        assert_eq!(world.scenario_events.list[i].state, crate::scenario_events::state::FAILED);
+    }
+
+    #[test]
+    fn ships_sail_at_their_models_speed() {
+        // The city's warship (speed 6) rows 2 sub-steps a tick, 1 when its run is
+        // made, a third when tired; its transport goes 1.
+        let per_tick = |code: i32| (0..12).map(|t| crate::figures::stride(code, t) as i32).sum::<i32>() as f32 / 12.0;
+        assert_eq!(per_tick(speed_code(WARSHIP, 6, 0, false)), 2.0);
+        assert_eq!(per_tick(speed_code(WARSHIP, 6, 0, true)), 1.0);
+        assert_eq!(per_tick(speed_code(WARSHIP, 6, 1, false)), 1.0 / 3.0);
+        assert_eq!(speed_code(WARSHIP, 6, 2, false), 0);
+        assert_eq!(per_tick(speed_code(TRANSPORT, 6, 0, false)), 1.0);
+        // A Roman warship (4) is slower than a Libyan (7), which is capped at 14.
+        assert_eq!(speed_code(ENEMY_WARSHIP, 4, 0, false), 8);
+        assert_eq!(speed_code(ENEMY_WARSHIP, 7, 0, false), 14);
+        assert_eq!(speed_code(ENEMY_WARSHIP, 10, 0, false), 18);
+        assert_eq!(speed_code(ENEMY_TRANSPORT, 4, 0, false), 4);
+    }
+
+    #[test]
+    fn a_call_no_one_answers_is_refused_on_its_due_month() {
+        let Some(mut world) = navy_town() else { return };
+        let i = sea_call(&mut world, 1);
+        for _ in 0..(4 * 31 * crate::time::TICKS_PER_DAY) {
+            world.tick();
+        }
+        let e = &world.scenario_events.list[i];
+        assert!(!e.active);
+        assert_eq!(e.state, crate::scenario_events::state::FAILED);
+        assert!(!e.overdue, "no grace months for troops");
     }
 }

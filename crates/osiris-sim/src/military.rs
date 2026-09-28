@@ -305,9 +305,15 @@ pub struct DistantBattle {
     pub enemy: i32,
     pub strength: i32,
     pub companies: Vec<usize>,
-    /// Months until the battle, or, once fought, until the survivors are home.
+    /// On the way: the months still to go (never below 1 while they wait for the
+    /// request's due month). Coming home: the months until they are back.
     pub months: i32,
+    /// The request's due month has come: they fought, or came too late, and are on
+    /// the way home.
     pub fought: bool,
+    /// They reached the battle too late to fight it (request state 7).
+    #[serde(default)]
+    pub late: bool,
     /// For a city reached by sea: the troops went by ship.
     #[serde(default)]
     pub sea: bool,
@@ -400,12 +406,26 @@ fn spear(attack: i32, armor: i32) -> i32 {
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Military {
     pub companies: Vec<Company>,
+    /// The troops away for the Kingdom, one entry per request they answer: the
+    /// original can have a land call and a sea call answered at once.
     #[serde(default)]
+    pub battles: Vec<DistantBattle>,
+    /// Older saved games kept a single battle here; it moves to `battles` on load.
+    #[serde(default, skip_serializing)]
     pub battle: Option<DistantBattle>,
 }
 
-/// Months troops take to reach a distant battle, and to come home.
-const TRAVEL_MONTHS: i32 = 2;
+impl Military {
+    /// The troops away for request `request`, if any.
+    pub fn battle_for(&self, request: usize) -> Option<&DistantBattle> {
+        self.battles.iter().find(|b| b.request == request)
+    }
+
+    /// Whether company `c` is one of those sent away for the Kingdom.
+    pub fn sent_away(&self, c: usize) -> bool {
+        self.battles.iter().any(|b| b.companies.contains(&c))
+    }
+}
 
 /// Share of the troops lost in a won battle, by how far they outnumbered the enemy
 /// (their surplus as a percentage of their strength).
@@ -619,12 +639,11 @@ impl World {
     fn company_to_recruit(&self, recruiter: BuildingId) -> Option<usize> {
         let b = self.buildings.get(recruiter)?;
         let has = |res: u16| b.stock.get(res as usize).copied().unwrap_or(0) > 0;
-        let away = self.military.battle.as_ref().map_or(&[][..], |battle| &battle.companies[..]);
         self.military
             .companies
             .iter()
             .enumerate()
-            .filter(|&(i, c)| c.fort != 0 && c.at_fort && c.abroad == 0 && !away.contains(&i))
+            .filter(|&(i, c)| c.fort != 0 && c.at_fort && c.abroad == 0 && !self.military.sent_away(i))
             .filter(|(_, c)| c.soldiers.len() + c.recruits.len() < COMPANY_SIZE)
             .filter(|(_, c)| outfit(c.kind).is_none_or(has))
             .filter_map(|(i, c)| {
@@ -1235,9 +1254,17 @@ impl World {
             .map(|o| (o.id, o.x, o.y))
     }
 
+    /// Marks or unmarks company `company` for Kingdom service (0x40a390). A company
+    /// away takes no change. A company aboard a transport can be marked only while
+    /// a city by sea calls for troops, one ashore only while a city by land does;
+    /// otherwise its mark is cleared.
     pub fn toggle_kingdom_service(&mut self, company: usize) {
+        if self.company_away(company) || self.military.sent_away(company) {
+            return;
+        }
+        let refused = self.service_refusal(self.company_ship(company).is_some()).is_some();
         if let Some(c) = self.military.companies.get_mut(company) {
-            c.kingdom_service = !c.kingdom_service;
+            c.kingdom_service = !refused && !c.kingdom_service;
         }
     }
 
@@ -1245,10 +1272,14 @@ impl World {
     /// the request `request` (FUN_004b84b0). For a city reached by land the marked
     /// companies ashore march out of the city; for one reached by sea only the
     /// marked companies aboard a transport go, their transports with them, and the
-    /// marked warships.
+    /// marked warships. Companies already away for another call stay with it. They
+    /// set out with the months the journey takes (FUN_0044c1a0: FUN_0044c110, or 12
+    /// when that is nothing).
     pub(crate) fn send_to_battle(&mut self, request: usize, enemy: i32) {
         let sea = self.request_by_sea(request);
-        let marked: Vec<usize> = (0..self.military.companies.len()).filter(|&c| self.military.companies[c].kingdom_service && !self.military.companies[c].soldiers.is_empty() && self.company_ship(c).is_some() == sea).collect();
+        let marked: Vec<usize> = (0..self.military.companies.len())
+            .filter(|&c| self.military.companies[c].kingdom_service && !self.military.companies[c].soldiers.is_empty() && !self.military.sent_away(c) && self.company_ship(c).is_some() == sea)
+            .collect();
         let exit = self.exit_point;
         for &c in &marked {
             self.military.companies[c].at_fort = false;
@@ -1276,7 +1307,12 @@ impl World {
             self.ship_to_battle(s, request);
         }
         let strength = self.battle_strength(request, &marked, sea);
-        self.military.battle = Some(DistantBattle { request, enemy, strength, companies: marked, months: TRAVEL_MONTHS, fought: false, sea });
+        let months = match self.request_travel_months(request) {
+            m if m < 1 => 12,
+            m => m,
+        };
+        self.military.battles.retain(|b| b.request != request);
+        self.military.battles.push(DistantBattle { request, enemy, strength, companies: marked, months, fought: false, late: false, sea });
     }
 
     /// The strength the troops away for `request` bring to its battle, reckoned on
@@ -1295,47 +1331,55 @@ impl World {
         men + if sea { self.warship_battle_strength(request) } else { 0 }
     }
 
-    /// Monthly: the troops abroad reach their battle and fight it; the survivors come
-    /// home. A won battle meets the request; a lost one fails it.
-    pub(crate) fn update_distant_battle(&mut self) {
-        let Some(b) = self.military.battle.as_mut() else { return };
+    /// Older saved games kept one battle apart from the list.
+    pub(crate) fn adopt_old_battle(&mut self) {
+        if let Some(b) = self.military.battle.take() {
+            self.military.battles.push(b);
+        }
+    }
+
+    /// A month passes for the troops away for `request` when it is not the request's
+    /// due month (FUN_0044c9e0, states 5 to 7). On the way they draw nearer, but go
+    /// no nearer than a month off until the due month decides it. On the way home
+    /// they come a month closer, and when they arrive the Overseer of the Military
+    /// says so: message 288 after a victory, 287 when they got there too late.
+    pub(crate) fn distant_battle_month(&mut self, request: usize) {
+        let Some(k) = self.military.battles.iter().position(|b| b.request == request) else { return };
+        let b = &mut self.military.battles[k];
         b.months -= 1;
-        if b.months > 0 {
+        if !b.fought {
+            b.months = b.months.max(1);
             return;
         }
-        let b = b.clone();
-        if b.fought {
-            // Home again: the survivors walk back to their forts, and the ships sail
-            // back (FUN_004b8690).
-            self.military.battle = None;
-            let exit = self.exit_point;
-            for &c in &b.companies {
-                if b.sea {
-                    continue;
-                }
-                let n = std::mem::take(&mut self.military.companies[c].abroad);
-                self.military.companies[c].at_fort = true;
-                for _ in 0..n {
-                    let kind = self.military.companies[c].kind;
-                    let used: Vec<u8> = self.military.companies[c].soldiers.iter().chain(&self.military.companies[c].recruits).filter_map(|&s| self.figures.get(s).map(|f| f.slot)).collect();
-                    let slot = (0..COMPANY_SIZE as u8).find(|s| !used.contains(s)).unwrap_or(0);
-                    let fid = self.figures.spawn(kind, exit.0, exit.1, Travel::Land);
-                    if let Some(f) = self.figures.get_mut(fid) {
-                        f.formation = c as u16 + 1;
-                        f.slot = slot;
-                        f.home = self.military.companies[c].fort;
-                    }
-                    self.military.companies[c].recruits.push(fid);
-                    self.send_to_post(fid);
-                }
-            }
-            self.ships_come_home(b.request);
+        if b.months >= 1 {
             return;
+        }
+        let late = b.late;
+        self.post(if late { "message_troops_return_failed" } else { "message_troops_return_victorious" }, None, true);
+        self.troops_come_home(k);
+    }
+
+    /// The request's due month has come with its troops on the way (FUN_0044c9e0):
+    /// if they are within two months of the battle they fight it (FUN_00446260), and
+    /// the winners set out on the whole way home; otherwise they arrived too late and
+    /// turn back, as far from home as they had come. Returns the outcome: `None`
+    /// when they were too late, else whether they won. A lost battle leaves no one
+    /// to come home.
+    pub(crate) fn distant_battle_due(&mut self, request: usize) -> Option<bool> {
+        let k = self.military.battles.iter().position(|b| b.request == request)?;
+        let travel = self.request_travel_months(request);
+        let b = self.military.battles[k].clone();
+        if b.months >= 3 {
+            let bb = &mut self.military.battles[k];
+            bb.fought = true;
+            bb.late = true;
+            bb.months = (travel - b.months).max(1);
+            return None;
         }
         let strength = self.battle_strength(b.request, &b.companies, b.sea);
         // Seth, if he has promised, sees the troops through without loss.
         let protected = std::mem::take(&mut self.religion.seth_protects);
-        let won = protected || strength >= b.enemy && strength > 0;
+        let won = protected || strength >= b.enemy;
         let losses = if protected {
             0
         } else if won {
@@ -1354,16 +1398,51 @@ impl World {
         if b.sea {
             self.warships_take_losses(b.request, losses);
         }
-        let returning = b.companies.iter().any(|&c| self.military.companies[c].abroad > 0) || !self.ships_abroad(b.request).is_empty();
-        if let Some(bb) = self.military.battle.as_mut() {
+        if won {
+            let bb = &mut self.military.battles[k];
             bb.fought = true;
-            bb.months = TRAVEL_MONTHS;
+            bb.months = travel.max(1);
             bb.strength = strength;
+        } else {
+            // No one comes home; the emptied companies wait at their forts for
+            // recruits.
+            self.military.battles.remove(k);
+            for &c in &b.companies {
+                if let Some(co) = self.military.companies.get_mut(c) {
+                    co.abroad = 0;
+                    co.at_fort = co.soldiers.is_empty() || co.at_fort;
+                }
+            }
         }
-        if !returning {
-            self.military.battle = None;
+        Some(won)
+    }
+
+    /// The troops of battle `k` are home (FUN_004b8690): the survivors walk back to
+    /// their forts from the city's exit, and the ships sail back.
+    fn troops_come_home(&mut self, k: usize) {
+        let b = self.military.battles.remove(k);
+        let exit = self.exit_point;
+        for &c in &b.companies {
+            if b.sea {
+                continue;
+            }
+            let n = std::mem::take(&mut self.military.companies[c].abroad);
+            self.military.companies[c].at_fort = true;
+            for _ in 0..n {
+                let kind = self.military.companies[c].kind;
+                let used: Vec<u8> = self.military.companies[c].soldiers.iter().chain(&self.military.companies[c].recruits).filter_map(|&s| self.figures.get(s).map(|f| f.slot)).collect();
+                let slot = (0..COMPANY_SIZE as u8).find(|s| !used.contains(s)).unwrap_or(0);
+                let fid = self.figures.spawn(kind, exit.0, exit.1, Travel::Land);
+                if let Some(f) = self.figures.get_mut(fid) {
+                    f.formation = c as u16 + 1;
+                    f.slot = slot;
+                    f.home = self.military.companies[c].fort;
+                }
+                self.military.companies[c].recruits.push(fid);
+                self.send_to_post(fid);
+            }
         }
-        self.settle_troop_request(b.request, won);
+        self.ships_come_home(b.request);
     }
 
     /// A company that fought from a transport loses `pct` of its men; lost to a man,
