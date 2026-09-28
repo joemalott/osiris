@@ -232,6 +232,7 @@ impl ScenarioEvents {
             on_refusal: -1,
             on_too_late: -1,
             on_defeat: -1,
+            reminder_leads: [6, 1],
             ..Default::default()
         });
         self.list.len() - 1
@@ -832,6 +833,19 @@ impl World {
         (length / 400).max(1)
     }
 
+    /// The months a call for troops gives to send them (FUN_0044c9a0): the months
+    /// left, less the first reminder's lead and the journey, plus six, so the first
+    /// reminder itself says six; at least one.
+    pub fn troop_months_shown(&self, i: usize) -> i32 {
+        let Some(e) = self.scenario_events.list.get(i) else { return 1 };
+        let left = e.due.map_or(e.months_left, |d| d - self.month_count());
+        let travel = match self.request_travel_months(i) {
+            m if m < 1 => 12,
+            m => m,
+        };
+        (left - e.reminder_leads[0] as i32 - travel + 6).max(1)
+    }
+
     /// Monthly, for a request for troops (FUN_0044c9e0, which the request loop at
     /// 0x44cdc0 runs for resource 37 in place of the goods requests' rules). Months
     /// count down to the due month. Until troops are sent the player is told of the
@@ -886,10 +900,9 @@ impl World {
         if e.state == state::WAITING {
             e.state = state::IN_PROGRESS;
         }
-        // The month shown as the time to send them (FUN_0044c9a0): six months from
-        // the first reminder's month, so the first reminder itself says six.
         let lead = e.reminder_leads;
-        let shown = (left - lead[0] as i32 - travel + 6).max(1);
+        let shown = self.troop_months_shown(i);
+        let e = &mut self.scenario_events.list[i];
         let body = if !e.announced {
             e.announced = true;
             Some("initial_announcement")

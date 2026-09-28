@@ -2030,6 +2030,7 @@ fn run(mut args: Args) -> Result<()> {
         }
         let zoom = view.zoom;
         let hover = view.hover;
+        let clicks = view.clicks.clone();
         let shot = gfx::screenshot(library, args.size, out, |r| {
             if let Some(z) = zoom {
                 r.camera.zoom = z;
@@ -2037,6 +2038,23 @@ fn run(mut args: Args) -> Result<()> {
             match at {
                 Some((cx, cy)) => game.view.center_on(r, &game.world.map, cx, cy),
                 None => start_camera(r, &mut game),
+            }
+            // Scripted clicks, each on a drawn frame, as the mouse would give them.
+            for &p in &clicks {
+                game.draw(r);
+                let p = if p[0] >= script::ADVISOR_POINT {
+                    let o = [((r.screen[0] - 640.0) / 2.0).floor(), ((r.screen[1] - 480.0) / 2.0).floor()];
+                    [o[0] + p[0] - script::ADVISOR_POINT, o[1] + p[1] - script::ADVISOR_POINT]
+                } else {
+                    p
+                };
+                game.set_cursor(r, p);
+                game.press_at(r);
+                game.draw(r);
+                let w = &game.world;
+                let marked: Vec<_> = w.figures.iter().filter(|f| f.ship.as_ref().is_some_and(|s| s.service)).map(|f| f.id).collect();
+                let companies: Vec<_> = w.military.companies.iter().map(|c| c.kingdom_service).collect();
+                eprintln!("click {},{}: advisor {:?} ships marked {marked:?} companies marked {companies:?} away {:?}", p[0], p[1], game.advisors.as_ref().map(|a| a.current), w.military.battles.iter().map(|b| (b.request, b.months, b.sea)).collect::<Vec<_>>());
             }
             if let Some(p) = hover {
                 // Negative coordinates count from the right or bottom edge.

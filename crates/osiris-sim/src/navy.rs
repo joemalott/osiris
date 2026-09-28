@@ -1827,7 +1827,29 @@ impl World {
 
     /// Whether a call for troops from a city reached by sea is open.
     pub fn sea_troops_wanted(&self) -> bool {
-        self.scenario_events.open_requests().any(|(i, e)| e.resource == crate::scenario_events::TROOPS && self.request_by_sea(i))
+        self.troops_wanted(true)
+    }
+
+    /// Whether a call for troops is open from a city reached by sea, or by land
+    /// (FUN_00521a60).
+    pub fn troops_wanted(&self, sea: bool) -> bool {
+        self.scenario_events.open_requests().any(|(i, e)| e.resource == crate::scenario_events::TROOPS && self.request_by_sea(i) == sea)
+    }
+
+    /// Why a company or ship that would go by sea (`sea`), or by land, can't be
+    /// marked for Kingdom service now: the pop-up the overseer shows (text group 5)
+    /// and the mark cleared, as 0x40a390 and 0x40a600 do. By sea it needs a call from
+    /// a city by sea, else "Land Troops Needed" (38) if a land call is open; by land
+    /// a call from a city by land, else "Transport Needed" (36) if a sea call is.
+    /// With no call at all, "No Troops Needed" (40).
+    pub fn service_refusal(&self, sea: bool) -> Option<usize> {
+        if self.troops_wanted(sea) {
+            None
+        } else if self.troops_wanted(!sea) {
+            Some(if sea { 38 } else { 36 })
+        } else {
+            Some(40)
+        }
     }
 
     /// Marks or unmarks warship `fid` for Kingdom service. It can be marked only while
@@ -1864,24 +1886,39 @@ impl World {
     /// ashore and one of them marked; by sea, warships or companies aboard, and one
     /// of them marked. Companies and ships already away don't count.
     pub fn troops_status(&self, i: usize) -> TroopsStatus {
-        let home = |c: usize, co: &crate::military::Company| co.fort != 0 && !co.soldiers.is_empty() && !self.company_away(c) && !self.military.sent_away(c);
-        let companies = |aboard: bool, marked: bool| self.military.companies.iter().enumerate().any(|(c, co)| home(c, co) && (!marked || co.kingdom_service) && self.company_ship(c).is_some() == aboard);
-        let warships = |marked: bool| self.figures.iter().any(|f| f.kind == WARSHIP && !f.dead && f.action != action::CORPSE && f.ship.as_ref().is_some_and(|s| s.abroad.is_none() && (!marked || s.service)));
         if !self.request_by_sea(i) {
-            if !companies(false, false) {
+            if !self.home_companies(false, false) {
                 TroopsStatus::NoCompanies
-            } else if !companies(false, true) {
+            } else if !self.home_companies(false, true) {
                 TroopsStatus::NoneMarked
             } else {
                 TroopsStatus::Ready
             }
-        } else if !warships(false) && !companies(true, false) {
+        } else if !self.home_warships(false) && !self.home_companies(true, false) {
             TroopsStatus::NoShips
-        } else if !companies(true, true) && !warships(true) {
+        } else if !self.kingdom_service_marked(true) {
             TroopsStatus::NoneMarkedAfloat
         } else {
             TroopsStatus::Ready
         }
+    }
+
+    /// Whether the city has a company with men at home (not away for the Kingdom),
+    /// aboard a transport or ashore, and if `marked` in Kingdom service.
+    fn home_companies(&self, aboard: bool, marked: bool) -> bool {
+        self.military.companies.iter().enumerate().any(|(c, co)| co.fort != 0 && !co.soldiers.is_empty() && !self.company_away(c) && !self.military.sent_away(c) && (!marked || co.kingdom_service) && self.company_ship(c).is_some() == aboard)
+    }
+
+    /// Whether the city has a warship at home, and if `marked` in Kingdom service.
+    fn home_warships(&self, marked: bool) -> bool {
+        self.figures.iter().any(|f| f.kind == WARSHIP && !f.dead && f.action != action::CORPSE && f.ship.as_ref().is_some_and(|s| s.abroad.is_none() && (!marked || s.service)))
+    }
+
+    /// Whether anything at home is marked for Kingdom service to go by land (a
+    /// company ashore) or by sea (a company aboard, or a warship): the counts at
+    /// 0xea5ed6, and 0xea5ed9 with 0xea5ed5, that the dispatch button reads.
+    pub fn kingdom_service_marked(&self, sea: bool) -> bool {
+        if sea { self.home_companies(true, true) || self.home_warships(true) } else { self.home_companies(false, true) }
     }
 
     /// Whether company `c` is away at the Kingdom's battle, marched off or aboard a
@@ -2188,7 +2225,6 @@ mod tests {
         soldiers
     }
 
-    /// A call for troops against `enemy` from a city reached by sea.
     /// A call for troops against `enemy` from a city by sea whose route is 805
     /// pixels long (two months' sailing), due in three months.
     fn sea_call(world: &mut World, enemy: i32) -> usize {

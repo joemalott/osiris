@@ -1254,9 +1254,17 @@ impl World {
             .map(|o| (o.id, o.x, o.y))
     }
 
+    /// Marks or unmarks company `company` for Kingdom service (0x40a390). A company
+    /// away takes no change. A company aboard a transport can be marked only while
+    /// a city by sea calls for troops, one ashore only while a city by land does;
+    /// otherwise its mark is cleared.
     pub fn toggle_kingdom_service(&mut self, company: usize) {
+        if self.company_away(company) || self.military.sent_away(company) {
+            return;
+        }
+        let refused = self.service_refusal(self.company_ship(company).is_some()).is_some();
         if let Some(c) = self.military.companies.get_mut(company) {
-            c.kingdom_service = !c.kingdom_service;
+            c.kingdom_service = !refused && !c.kingdom_service;
         }
     }
 

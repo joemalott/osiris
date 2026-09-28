@@ -9,6 +9,10 @@ fn parse_point(s: &str) -> Result<(i32, i32)> {
     Ok((x.trim().parse()?, y.trim().parse()?))
 }
 
+/// Added to both coordinates of an `advclick` point: it marks the point as relative
+/// to the overseer panel's corner, which is placed once the screen size is known.
+pub const ADVISOR_POINT: f32 = 100_000.0;
+
 /// A click (at a screen point) or a wheel turn (in lines) for the menu.
 #[derive(Clone, Copy)]
 pub enum MenuInput {
@@ -60,6 +64,9 @@ pub struct ScriptView {
     pub orders: bool,
     /// Screen point the mouse rests on, for tooltips.
     pub hover: Option<[f32; 2]>,
+    /// Left clicks at screen points, each after a frame is drawn, before the
+    /// screenshot's frame (overseer pages, pop-ups).
+    pub clicks: Vec<[f32; 2]>,
     /// A sidebar slide frozen part-way: collapsing or not, and the step (0-47).
     pub slide: Option<(bool, f32)>,
     /// A building tool held with the cursor on a tile, to show its placement preview.
@@ -197,6 +204,16 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["hover", p] => {
                 let (x, y) = parse_point(p)?;
                 view.hover = Some([x as f32, y as f32]);
+            }
+            // A left click at screen point x,y once the game is drawn; points relative
+            // to the overseer's 640x480 panel with `advclick`.
+            ["click", p] => {
+                let (x, y) = parse_point(p)?;
+                view.clicks.push([x as f32, y as f32]);
+            }
+            ["advclick", p] => {
+                let (x, y) = parse_point(p)?;
+                view.clicks.push([ADVISOR_POINT + x as f32, ADVISOR_POINT + y as f32]);
             }
             ["menu"] => view.menu = true,
             ["menu", page] => {
