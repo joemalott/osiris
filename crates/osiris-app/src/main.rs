@@ -780,8 +780,12 @@ impl App {
             menu::Choice::Language => {
                 self.next_language();
                 let mut menu = self.menu();
-                menu.open_page("main");
+                menu.open_page("options");
                 self.screen = Some(Screen::Menu(menu));
+                return;
+            }
+            menu::Choice::Fullscreen => {
+                self.toggle_fullscreen();
                 return;
             }
             menu::Choice::Quit => {
@@ -1064,8 +1068,8 @@ impl App {
     }
 
     /// Alt+Enter, F11, or Ctrl+Cmd+F on macOS: borderless full screen on whichever
-    /// monitor the window is already on, from any screen. The Options menu's own
-    /// Fullscreen entry (only reachable in a running game) goes through
+    /// monitor the window is already on, from any screen. The family menu's Options
+    /// panel comes here too; the city's Options menu entry goes through
     /// `game::Game::fullscreen_changed` instead, since the window lives here, not
     /// with the game.
     fn toggle_fullscreen(&mut self) {
@@ -1080,8 +1084,10 @@ impl App {
         }
         let maximized = gfx.window.is_maximized();
         save_window_state(self.windowed_size, maximized, on);
-        if let Some(Screen::Playing(g, _)) = &mut self.screen {
-            g.sync_fullscreen_label();
+        match &mut self.screen {
+            Some(Screen::Playing(g, _)) => g.sync_fullscreen_label(),
+            Some(Screen::Menu(m)) => m.relabel(),
+            _ => {}
         }
     }
 }

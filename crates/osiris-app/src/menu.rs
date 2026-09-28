@@ -178,6 +178,8 @@ pub enum Choice {
     Sound,
     /// The next language in the cycle (automatic, then each).
     Language,
+    /// Full screen on or off.
+    Fullscreen,
     /// A mission picked on Explore History's list, to brief and play on its own.
     Mission(usize),
     /// The family history's city in play, loaded again.
@@ -202,6 +204,9 @@ pub enum Choice {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Page {
     Main,
+    /// Osiris's own settings, which the original's family menu doesn't have: one
+    /// button on it opens them on a panel of their own.
+    Options,
     /// Explore History's list of individual missions.
     Campaign,
     /// The campaign window as "Begin Family History" opens it: only the period the
@@ -494,11 +499,25 @@ impl Menu {
             "editor" => Page::Editor,
             "load" => Page::Load,
             "rules" => Page::Rules,
+            "options" => Page::Options,
             "family" => Page::Family,
             "newfamily" => Page::NewFamily,
             _ => Page::Main,
         };
         self.go(page);
+    }
+
+    /// The Options button's label and its panel's title.
+    fn options_title(&self) -> String {
+        tr("Options").to_string()
+    }
+
+    /// Relabels the page's buttons, for a setting changed from outside it (the full
+    /// screen key).
+    pub fn relabel(&mut self) {
+        let hover = self.hover;
+        self.build();
+        self.hover = hover;
     }
 
     /// Rereads the family registry and re-selects the active family's row, if any.
@@ -596,9 +615,11 @@ impl Menu {
     fn build(&mut self) {
         let go = |p| Action::Go(p);
         self.items = match self.page {
-            // The family's menu (text group 293): the history's button reads "Resume"
-            // while a city of it is in play, and Load Saved Game shows only when there
-            // are saves. Game rules, Sound and Quit are Osiris's own.
+            // The family's menu (text group 293, FUN_004cb5a0): the history's button
+            // reads "Resume" while a city of it is in play, and Load Saved Game shows
+            // only when there are saves; those five are the original's, in its order.
+            // The Mission Editor and Quit are on the original's title screen (text 30),
+            // which Osiris doesn't have; Options holds Osiris's own settings.
             Page::Main => {
                 let t = |i: usize| self.text.get(293, i).unwrap_or("").trim().to_string();
                 let history = if self.campaign.resume { Item { label: t(0), enabled: true, action: Action::Choose(Choice::Resume) } } else { Item { label: t(7), enabled: true, action: go(Page::Periods) } };
@@ -610,12 +631,17 @@ impl Menu {
                     Item { label: t(4), enabled: true, action: go(Page::Family) },
                     // The original's title screen has the Mission Editor (text 30/3).
                     Item { label: self.text.get(30, 3).unwrap_or("Mission Editor").trim().to_string(), enabled: true, action: go(Page::Editor) },
-                    Item { label: tr("Game rules").into(), enabled: true, action: go(Page::Rules) },
-                    Item { label: self.text.get(46, 0).unwrap_or("Sound options").trim().to_string(), enabled: true, action: Action::Choose(Choice::Sound) },
-                    Item { label: crate::lang::choice_label(), enabled: true, action: Action::Choose(Choice::Language) },
+                    Item { label: self.options_title(), enabled: true, action: go(Page::Options) },
                     Item { label: tr("Quit").into(), enabled: true, action: Action::Choose(Choice::Quit) },
                 ]
             }
+            Page::Options => vec![
+                Item { label: tr("Game rules").into(), enabled: true, action: go(Page::Rules) },
+                Item { label: self.text.get(46, 0).unwrap_or("Sound options").trim().to_string(), enabled: true, action: Action::Choose(Choice::Sound) },
+                Item { label: crate::lang::choice_label(), enabled: true, action: Action::Choose(Choice::Language) },
+                Item { label: crate::gfx::fullscreen_label(&self.text), enabled: true, action: Action::Choose(Choice::Fullscreen) },
+                Item { label: tr("Back").into(), enabled: true, action: go(Page::Main) },
+            ],
             // Every mission of campaign.txt, each playable on its own, as the original
             // lists them (FUN_0041df70).
             Page::Campaign => self
@@ -717,7 +743,7 @@ impl Menu {
 
     fn item_at(&self, screen: [f32; 2], p: [f32; 2]) -> Option<usize> {
         let found = match self.page {
-            Page::Main => {
+            Page::Main | Page::Options => {
                 let b = Self::main_frame(screen).to_bg(p);
                 (0..self.items.len()).find(|&i| self.items[i].enabled && inside4(b, Self::main_button(i)))
             }
@@ -795,6 +821,7 @@ impl Menu {
         }
         match self.page {
             Page::Main => {}
+            Page::Rules => self.go(Page::Options),
             Page::Periods if self.periods_locked => {}
             Page::Briefing if self.briefing.as_ref().is_some_and(|b| b.back) => self.go(Page::CityChoice),
             // Nothing to fall back to until a family exists: the registry is the
@@ -1205,7 +1232,7 @@ impl Menu {
 
     pub fn draw(&self, r: &mut Renderer, panels: &PanelImages) {
         match self.page {
-            Page::Main => self.draw_main(r, panels),
+            Page::Main | Page::Options => self.draw_main(r, panels),
             Page::Campaign | Page::Custom | Page::Editor => self.draw_scenarios(r, panels),
             Page::Periods | Page::HistoryPeriods => self.draw_framed(r, panels, BG_HISTORY, Self::draw_periods),
             Page::Briefing => self.draw_framed(r, panels, BG_BRIEFING, Self::draw_briefing),
@@ -1228,10 +1255,10 @@ impl Menu {
         r.screen_frame = Some((f.o, f.s));
         r.smooth = fractional(r, f.s);
         // The original's panel holds its five buttons; it is drawn taller here for
-        // Osiris's two more.
+        // Osiris's three more.
         let rows = ((FAMILY_BUTTON[1] + 48.0 * self.items.len() as f32 - FAMILY_PANEL[1]) / 16.0).ceil() as i32;
         panel::outer_panel(r, panels, FAMILY_PANEL[0], FAMILY_PANEL[1], 24, rows.max(21));
-        let title = self.text.get(293, 5).unwrap_or("").trim().replace("[player_name]", &self.family);
+        let title = if self.page == Page::Options { self.options_title() } else { self.text.get(293, 5).unwrap_or("").trim().replace("[player_name]", &self.family) };
         bg_centred(r, Font::LargeBlackOnLight, &title, 140.0, 60.0, 368.0);
         for (i, item) in self.items.iter().enumerate() {
             if !item.enabled {
