@@ -1168,6 +1168,14 @@ impl World {
         }
     }
 
+    /// Redraws every sphinx's parts for its stage of carving.
+    pub(crate) fn redraw_sphinxes(&mut self) {
+        let ids: Vec<BuildingId> = self.buildings.iter().filter(|b| monument_def(b.kind).is_some_and(|d| d.style == Style::Sphinx) && b.monument.is_some()).map(|b| b.id).collect();
+        for id in ids {
+            self.refresh_monument_images(id);
+        }
+    }
+
     /// The images a monument shows above its site: (block x, block y, image, lift in
     /// pixels). Lift 0 is drawn on the map; the rest are raised over it.
     pub fn monument_stacks(&self, id: BuildingId) -> Vec<(i32, i32, u32, i32)> {
@@ -3139,6 +3147,38 @@ mod tests {
         assert_eq!(def.jobs(LEVELING_PHASES + 3).len(), 3);
         assert_eq!(def.crew(LEVELING_PHASES + 6), vec![STONEMASON, CARPENTER]);
         assert!(def.jobs(def.phase_count - 1).is_empty());
+    }
+
+    #[test]
+    fn sphinx_parts_draw_as_one_outcrop_and_again_after_loading() {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        if !data.join("mission1.pak").is_file() {
+            return;
+        }
+        let library = osiris_formats::ImageLibrary::open(&data.join("Data")).expect("open image library");
+        let scenario = osiris_formats::MissionPak::open(&data.join("mission1.pak")).expect("pak").scenario(18).expect("mission 18");
+        let defs = std::sync::Arc::new(crate::defs::Defs::load(&library).expect("load defs"));
+        let model_text = std::fs::read(data.join("Pharaoh_Model_Normal.txt")).expect("read model");
+        let model = osiris_formats::Model::parse(&String::from_utf8_lossy(&model_text)).expect("parse model");
+        let balance = std::sync::Arc::new(crate::balance::Balance::from_model(&model));
+        let mut world = World::new(&scenario, defs.clone(), balance.clone());
+        world.start(&scenario);
+        world.load_mission(18);
+        world.treasury = 100_000;
+        if let Some(m) = world.mission.as_mut() {
+            m.allowed.insert(SPHINX);
+        }
+        let (x, y) = (123, 110);
+        assert!(matches!(world.apply(&Command::Build { kind: SPHINX, x, y, x1: x, y1: y }), Outcome::Done { .. }));
+        let anims = &defs.building(SPHINX).expect("sphinx").anims;
+        // Each part's image is drawn from its bottom-left tile, 6 tiles apart along x.
+        let drawn = |world: &World| [0, 1, 2].map(|i| world.map.images.at_or(x + 6 * i, y + 5, 0));
+        let rough = ["s1a", "s1b", "s1c"].map(|k| anims[k].image);
+        assert_eq!(drawn(&world), rough);
+        // A game saved with the wrong images gets the right ones back on loading.
+        world.map.set_footprint(x, y, 6, rough[0] - 1);
+        let loaded = World::load(&world.save().expect("save"), defs.clone(), balance).expect("load");
+        assert_eq!(drawn(&loaded), rough);
     }
 
     #[test]

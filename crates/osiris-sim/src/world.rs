@@ -329,6 +329,9 @@ impl World {
         // Sealed tombs saved while the "Hide cliffs" overlay showed them open are
         // closed again, as the view starts without it.
         world.show_sealed_tombs(false);
+        // A sphinx saved while it drew the wrong image of each part is drawn afresh
+        // (the same images again for any other).
+        world.redraw_sphinxes();
         Ok(world)
     }
 
