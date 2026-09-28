@@ -1935,8 +1935,8 @@ info_sound = "Wavs/prefecture.wav"
 id = 210
 key = "sphinx"
 size = 6
-image = { pack = "sphinx1a", group = 1, offset = 0 }
-anims = { s1a1 = { pack = "sphinx1a", group = 1, offset = 0 }, s1b1 = { pack = "sphinx1b", group = 1, offset = 0 }, s1c1 = { pack = "sphinx1c", group = 1, offset = 0 }, s2a1 = { pack = "sphinx2a", group = 1, offset = 0 }, s2b1 = { pack = "sphinx2b", group = 1, offset = 0 }, s2c1 = { pack = "sphinx2c", group = 1, offset = 0 }, s3a1 = { pack = "sphinx3a", group = 1, offset = 0 }, s3b1 = { pack = "sphinx3b", group = 1, offset = 0 }, s3c1 = { pack = "sphinx3c", group = 1, offset = 0 }, s4a1 = { pack = "sphinx4a", group = 1, offset = 0 }, s4b1 = { pack = "sphinx4b", group = 1, offset = 0 }, s4c1 = { pack = "sphinx4c", group = 1, offset = 0 }, s5a1 = { pack = "sphinx5a", group = 1, offset = 0 }, s5b1 = { pack = "sphinx5b", group = 1, offset = 0 }, s5c1 = { pack = "sphinx5c", group = 1, offset = 0 }, s6a1 = { pack = "sphinx6a", group = 1, offset = 0 }, s6b1 = { pack = "sphinx6b", group = 1, offset = 0 }, s6c1 = { pack = "sphinx6c", group = 1, offset = 0 } }
+image = { pack = "sphinx1a", group = 1, offset = 1 }
+anims = { s1a = { pack = "sphinx1a", group = 1, offset = 1 }, s1b = { pack = "sphinx1b", group = 1, offset = 1 }, s1c = { pack = "sphinx1c", group = 1, offset = 1 }, s2a = { pack = "sphinx2a", group = 1, offset = 1 }, s2b = { pack = "sphinx2b", group = 1, offset = 1 }, s2c = { pack = "sphinx2c", group = 1, offset = 1 }, s3a = { pack = "sphinx3a", group = 1, offset = 1 }, s3b = { pack = "sphinx3b", group = 1, offset = 1 }, s3c = { pack = "sphinx3c", group = 1, offset = 1 }, s4a = { pack = "sphinx4a", group = 1, offset = 1 }, s4b = { pack = "sphinx4b", group = 1, offset = 1 }, s4c = { pack = "sphinx4c", group = 1, offset = 1 }, s5a = { pack = "sphinx5a", group = 1, offset = 1 }, s5b = { pack = "sphinx5b", group = 1, offset = 1 }, s5c = { pack = "sphinx5c", group = 1, offset = 1 }, s6a = { pack = "sphinx6a", group = 1, offset = 1 }, s6b = { pack = "sphinx6b", group = 1, offset = 1 }, s6c = { pack = "sphinx6c", group = 1, offset = 1 } }
 flags = ["is_monument"]
 text_id = 178
 help = "message_building_sphinx"

@@ -1121,11 +1121,16 @@ impl World {
         let site = bdef.image;
         if def.style == Style::Sphinx {
             // Each part shows its stage of carving: the rough outcrop first, the
-            // finished, painted figure at the end.
+            // finished, painted figure at the end. Every pack holds the part twice, one
+            // image for each way the three parts can lie across the screen; along x, as
+            // in the default view, the parts take the second (FUN_00470990 and the
+            // redraw on turning the view, FUN_0046d840, give variant 0/1/2 image +1 at
+            // view 0). The first joins up only with the parts laid along y, so drawn
+            // here it breaks the outcrop into three unmatched rocks.
             let step = if finished { SPHINX_STEPS + 1 } else { phase.saturating_sub(LEVELING_PHASES) + 1 };
             for (part, letter) in ["a", "b", "c"].iter().enumerate() {
                 let stage = sphinx_stage(step, part as u8);
-                let image = bdef.anims.get(&format!("s{stage}{letter}1")).map_or(site, |a| a.image);
+                let image = bdef.anims.get(&format!("s{stage}{letter}")).map_or(site, |a| a.image);
                 self.map.set_footprint(x0 + 6 * part as i32, y0, 6, image);
             }
             return;
