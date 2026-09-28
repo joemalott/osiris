@@ -1593,12 +1593,7 @@ impl Editor {
             let at = k.to_screen(screen, o.x, o.y);
             match o.kind {
                 object::REGION => {
-                    // Its name centred in 90 pixels, a black copy under a brown one.
-                    let s = t(196, o.city_name_id as usize);
-                    let tw = text_width(r, Font::SmallPlain, &s) as f32;
-                    let x = at[0] + ((90.0 - tw) / 2.0).max(0.0).floor();
-                    draw_text(r, Font::SmallPlain, &s, x, at[1], font::BLACK);
-                    draw_text(r, Font::SmallPlain, &s, x - 1.0, at[1] - 1.0, REGION);
+                    crate::empire_window::draw_region_name(r, &t(196, o.city_name_id as usize), at);
                     continue;
                 }
                 object::ORNAMENT | object::CITY | object::BATTLE_ICON => {}
@@ -1612,7 +1607,13 @@ impl Editor {
                 draw_text(r, Font::SmallPlain, &order, at[0] + 16.0, at[1] - 10.0, font::BLACK);
                 draw_text(r, Font::SmallPlain, &order, at[0] + 15.0, at[1] - 9.0, rgb(RED));
             }
-            let image = if o.kind == object::CITY { art.empire.city_image(o.city_type, o.city_name_id, false) } else { o.image_id as u32 };
+            // A picture is drawn by its number, as the original reworks its image on
+            // loading (FUN_00442660); the image id a file holds is the original's.
+            let image = match o.kind {
+                object::CITY => art.empire.city_image(o.city_type, o.city_name_id, false),
+                object::ORNAMENT => art.empire.picture(o.expanded_image_id),
+                _ => o.image_id as u32,
+            };
             if image == 0 {
                 continue;
             }

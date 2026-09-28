@@ -520,7 +520,7 @@ fn empire_cmd(game: &Path, what: &str) -> Result<()> {
         );
     }
     for (i, o) in s.empire.objects.iter().enumerate().filter(|(_, o)| o.in_use && o.kind != osiris_formats::empire::object::CITY) {
-        println!("obj {i:3} kind {} at ({},{}) size {}x{} image {} name {} path {} order {}", o.kind, o.x, o.y, o.width, o.height, o.image_id, o.city_name_id, o.invasion_path, o.invasion_years);
+        println!("obj {i:3} kind {} at ({},{}) size {}x{} image {} picture {} name {} path {} order {}", o.kind, o.x, o.y, o.width, o.height, o.image_id, o.expanded_image_id, o.city_name_id, o.invasion_path, o.invasion_years);
     }
     for (i, r) in s.empire.routes.iter().enumerate().filter(|(_, r)| r.in_use) {
         println!("route {i}: type {} step {} {} points {:?}", r.route_type, r.step, r.points.len(), r.points.first());
