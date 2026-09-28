@@ -255,11 +255,13 @@ impl Art {
     fn load(lib: &ImageLibrary) -> Option<Self> {
         let g = |group| lib.group_id("Pharaoh_General", group, 0).ok();
         let ornaments = g(190)?;
-        let next = g(191)?;
+        let last = g(191)?;
         Some(Self {
             empire: EmpireImages::load(lib).ok()?,
             ornaments,
-            ornament_count: next.saturating_sub(ornaments).max(1),
+            // The original runs from group 190's first image to group 191's, both
+            // included (0x4074e0, FUN_00442660): the fifteenth is the large ruin.
+            ornament_count: last.saturating_sub(ornaments) + 1,
             land_marker: g(178)?,
             sea_marker: g(179)?,
         })
@@ -389,8 +391,10 @@ struct Boxes {
     prices: [f32; 4],
     /// Add object's three kinds.
     kinds: [[f32; 4]; 3],
-    /// A picture's arrows: back and on.
-    arrows: [[f32; 4]; 2],
+    /// A picture's five buttons (table 0x5c8c60, from (223, h-114)): the up arrow
+    /// (back one), the down arrow (on one), and three plain buttons for the first,
+    /// middle and last picture.
+    arrows: [[f32; 4]; 5],
 }
 
 fn boxes(h: f32) -> Boxes {
@@ -409,7 +413,13 @@ fn boxes(h: f32) -> Boxes {
         route_delete: [393.0, h - 29.0, 180.0, 25.0],
         prices: [231.0, h - 34.0, 150.0, 20.0],
         kinds: [[393.0, h - 106.0, 180.0, 20.0], [393.0, h - 81.0, 180.0, 20.0], [393.0, h - 56.0, 180.0, 20.0]],
-        arrows: [[231.0, h - 106.0, 24.0, 24.0], [255.0, h - 106.0, 24.0, 24.0]],
+        arrows: [
+            [231.0, h - 106.0, 24.0, 24.0],
+            [231.0, h - 82.0, 24.0, 24.0],
+            [255.0, h - 106.0, 24.0, 24.0],
+            [255.0, h - 82.0, 24.0, 24.0],
+            [255.0, h - 58.0, 24.0, 24.0],
+        ],
     }
 }
 
@@ -948,10 +958,15 @@ impl Editor {
         let b = boxes(h);
         match k.mode {
             Mode::Add => {
+                let art_last = Art::load(lib).map_or(0, |a| a.ornament_count - 1);
                 for (i, r) in b.kinds.iter().enumerate() {
                     if inside(*r, p) {
                         if let Some(k) = &mut self.view.kingdom {
                             k.add_kind = i as u8;
+                            // Choosing pictures starts at the last one (0x4081f0).
+                            if i == 0 {
+                                k.ornament = art_last;
+                            }
                         }
                         return;
                     }
@@ -1004,18 +1019,21 @@ impl Editor {
         }
     }
 
+    /// The picture buttons (0x4074e0): back one and on one, wrapping round, or
+    /// straight to the first, the middle or the last picture.
     fn ornament_arrows(&mut self, lib: &ImageLibrary, b: &Boxes, p: [f32; 2]) {
         let Some(art) = Art::load(lib) else { return };
         let Some(k) = &mut self.view.kingdom else { return };
-        let n = art.ornament_count;
-        let step = if inside(b.arrows[0], p) {
-            n - 1
-        } else if inside(b.arrows[1], p) {
-            1
-        } else {
-            return;
+        let last = art.ornament_count - 1;
+        let Some(button) = b.arrows.iter().position(|&r| inside(r, p)) else { return };
+        k.ornament = match button {
+            0 => k.ornament.checked_sub(1).unwrap_or(last),
+            1 if k.ornament >= last => 0,
+            1 => k.ornament + 1,
+            2 => 0,
+            3 => last / 2,
+            _ => last,
         };
-        k.ornament = (k.ornament + step) % n;
         let (orn, editing) = (k.ornament, k.mode == Mode::Edit);
         if editing && let Some(o) = self.selected_mut() {
             o.image_id = (art.ornaments + orn) as u16;
@@ -1743,9 +1761,17 @@ impl Editor {
         r.set_clip(None);
         fill(r, [225.0, h - 30.0, 48.0, 20.0], BEIGE);
         centred_in(r, Font::NormalBlackOnLight, &(ornament + 1).to_string(), 225.0, h - 28.0, 48.0, None);
-        if let Ok(img) = UiImages::load(&r.library) {
-            r.image(img.arrow_down, [b.arrows[0][0], b.arrows[0][1]], WHITE, Space::Screen);
-            r.image(img.arrow_up, [b.arrows[1][0], b.arrows[1][1]], WHITE, Space::Screen);
+        if let Ok(img) = UiImages::load(&r.library)
+            && let Ok(plain) = r.library.group_id("Pharaoh_Unloaded", 0, 25)
+        {
+            for (i, a) in b.arrows.iter().enumerate() {
+                let id = match i {
+                    0 => img.arrow_up,
+                    1 => img.arrow_down,
+                    _ => plain,
+                };
+                r.image(id, [a[0], a[1]], WHITE, Space::Screen);
+            }
         }
     }
 
