@@ -2,6 +2,11 @@
 //! the buildings that provide the service stay standing, every other building is
 //! flattened to its footprint, houses get a column whose height shows how well served
 //! they are, and only the matching walkers are shown.
+//!
+//! "Hide cliffs" (the original's overlay 0x33, text 14:51, last in its Overlays
+//! menu) is a view rather than a service: every building stands and every walker
+//! shows, the cliffs lie flat as footprints (FUN_00432620), and sealed royal tombs
+//! are drawn open (see `osiris_sim::royal_tombs`).
 
 use osiris_formats::ImageLibrary;
 use osiris_sim::World;
@@ -20,10 +25,11 @@ pub enum Overlay {
     Bazaar,
     Tax,
     Desirability,
+    HideCliffs,
 }
 
 /// The overlay menu: each overlay and its name in text group 14.
-pub const MENU: [(Overlay, usize); 10] = [
+pub const MENU: [(Overlay, usize); 11] = [
     (Overlay::Water, 2),
     (Overlay::Fire, 8),
     (Overlay::Damage, 9),
@@ -34,6 +40,7 @@ pub const MENU: [(Overlay, usize); 10] = [
     (Overlay::Bazaar, 26),
     (Overlay::Tax, 25),
     (Overlay::Desirability, 27),
+    (Overlay::HideCliffs, 51),
 ];
 
 /// Column colours: offsets into the column group, each colour being capital, shaft
@@ -74,12 +81,22 @@ pub enum TileLook {
     Flat,
     /// Bare ground replaced by an overlay tile.
     Ground(u32),
+    /// A cliff laid flat: the plain footprint tile on each tile it covers.
+    FlatCliff,
 }
 
 /// A column over a house: its colour offset and height (0..=10).
 pub struct Column {
     pub color: u32,
     pub height: i32,
+}
+
+/// Whether tile `(x, y)` is cliff that "Hide cliffs" (or H) lays flat: cliff with
+/// no building on it (FUN_00432620).
+pub fn flat_cliff(world: &World, x: i32, y: i32) -> bool {
+    let t = world.map.terrain.at_or(x, y, 0);
+    let cliff = terrain::CLIFF | terrain::ROCK;
+    t & cliff == cliff && t & terrain::BUILDING == 0
 }
 
 fn key_starts(key: &str, prefixes: &[&str]) -> bool {
@@ -99,7 +116,7 @@ impl Overlay {
             Overlay::Health => &["apothecary", "physician", "dentist", "mortuary"],
             Overlay::Bazaar => &["bazaar", "granary"],
             Overlay::Tax => &["tax_collector", "village_palace", "town_palace", "city_palace"],
-            Overlay::Desirability => &[],
+            Overlay::Desirability | Overlay::HideCliffs => &[],
         }
     }
 
@@ -115,16 +132,22 @@ impl Overlay {
             Overlay::Health => &["dentist", "physician", "herbalist", "embalmer"],
             Overlay::Bazaar => &["market_trader", "market_buyer"],
             Overlay::Tax => &["tax_collector"],
-            Overlay::Desirability => &[],
+            Overlay::Desirability | Overlay::HideCliffs => &[],
         }
     }
 
+    /// Whether this overlay shows the city's own buildings, walkers and animations,
+    /// as "Hide cliffs" does (FUN_00431690 and FUN_004387d0 pass all for 0x33).
+    pub fn shows_everything(self) -> bool {
+        self == Overlay::HideCliffs
+    }
+
     pub fn shows_figure(self, world: &World, kind: u16) -> bool {
-        world.defs.figure(kind).is_some_and(|d| self.walkers().contains(&d.key.as_str()))
+        self.shows_everything() || world.defs.figure(kind).is_some_and(|d| self.walkers().contains(&d.key.as_str()))
     }
 
     fn shows_building(self, world: &World, b: &Building) -> bool {
-        world.defs.building(b.kind).is_some_and(|d| key_starts(&d.key, self.buildings()))
+        self.shows_everything() || world.defs.building(b.kind).is_some_and(|d| key_starts(&d.key, self.buildings()))
     }
 
     /// How tile `(x, y)` should be drawn.
@@ -159,6 +182,7 @@ impl Overlay {
                 };
                 TileLook::Ground(img.water + offset)
             }
+            Overlay::HideCliffs if flat_cliff(world, x, y) => TileLook::FlatCliff,
             _ => TileLook::Normal,
         }
     }

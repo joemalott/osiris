@@ -177,6 +177,10 @@ pub struct OverlayDraw<'a> {
     /// First flattened-footprint image.
     pub flat: u32,
     pub columns: Vec<ColumnMark>,
+    /// With the cliffs laid flat, a cliff top left standing (a sealed tomb's) is
+    /// drawn on its own tile rather than raised to the columns' height, as the
+    /// original's flat pass draws it.
+    pub cliffs_flat: bool,
 }
 
 fn draw_column(r: &mut Renderer, c: &ColumnMark, p: [f32; 2]) {
@@ -267,6 +271,18 @@ impl CityView {
                     }
                     return;
                 }
+                crate::overlay::TileLook::FlatCliff => {
+                    if !flat_pass {
+                        return;
+                    }
+                    let n = r.record(id).filter(|rec| rec.kind == ImageKind::Isometric).map_or(1, |rec| rec.isometric_tiles().max(1));
+                    for dy in 0..n {
+                        for dx in 0..n {
+                            r.image(o.flat, tile_to_world(map, x + dx, y - (n - 1) + dy), WHITE, Space::World);
+                        }
+                    }
+                    return;
+                }
             }
         }
         let id = self.art.frame(id, self.water_step);
@@ -275,7 +291,7 @@ impl CityView {
         let (iw, ih) = (rec.width as f32, rec.height as f32);
         // A raised cliff top goes with the tall images: the columns behind it must not
         // be painted over it.
-        let rise = self.art.rise(id);
+        let rise = if overlay.is_some_and(|o| o.cliffs_flat) { 0.0 } else { self.art.rise(id) };
         let flat = ih <= TILE_H * n as f32 && rise == 0.0;
         // The spread goes under everything, tall ground (grass, trees, rock) too; the
         // exact images are all drawn over it in their own passes.

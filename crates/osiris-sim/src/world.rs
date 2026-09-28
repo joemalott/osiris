@@ -265,6 +265,10 @@ pub struct World {
     /// The build tool's temple complex facing (0 along x, 1 along y; R turns it).
     #[serde(skip)]
     pub complex_facing: u8,
+    /// Whether sealed royal tombs are drawn open, as the "Hide cliffs" overlay shows
+    /// them (see `World::show_sealed_tombs`). A view of the city, not part of it.
+    #[serde(skip)]
+    pub sealed_tombs_open: bool,
     /// Rotating variant counters of the road/earthquake context tables. Saved so a
     /// reloaded game re-images roads exactly as the running one would.
     #[serde(default)]
@@ -322,6 +326,9 @@ impl World {
         if version < SAVE_VERSION {
             world.upgrade();
         }
+        // Sealed tombs saved while the "Hide cliffs" overlay showed them open are
+        // closed again, as the view starts without it.
+        world.show_sealed_tombs(false);
         Ok(world)
     }
 
@@ -420,6 +427,7 @@ impl World {
             statue_facing: 1,
             gatehouse_facing: 1,
             complex_facing: 0,
+            sealed_tombs_open: false,
             exit_point: (info.exit_point.x, info.exit_point.y),
             counters: ContextCounters::default(),
             wind: 0,

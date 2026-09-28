@@ -14,7 +14,10 @@
 //! While being cut the tomb is drawn open, its chambers in their stage (rubble,
 //! plastered, painted, and furnished once the burial provisions are in), dark when
 //! it has no lamps and no one inside. When every chamber is painted and the burial
-//! provisions are delivered, the tomb is sealed: it hides, drawn as plain cliff.
+//! provisions are delivered, the tomb is sealed: it hides, drawn as plain cliff,
+//! except under the "Hide cliffs" overlay, which shows sealed tombs open, painted
+//! and furnished (FUN_005468d0 skips the cliff while overlay 0x33 is on, and every
+//! change of overlay redraws the tombs, FUN_00547a60).
 //!
 //! The four Valley missions share one map, Deir el Medina, and the tombs of the
 //! earlier ones stand in the later ones, sealed (see [`CarriedTomb`]).
@@ -290,6 +293,17 @@ impl World {
         self.buildings.get(id).and_then(|b| b.monument.as_ref()).map_or(0, |m| m.lamps)
     }
 
+    /// Draws sealed tombs open (`open`, the "Hide cliffs" overlay) or hidden in the
+    /// cliff. The original redraws every royal tomb on each change of overlay
+    /// (FUN_00547a60); only the sealed ones look any different.
+    pub fn show_sealed_tombs(&mut self, open: bool) {
+        self.sealed_tombs_open = open;
+        let tombs: Vec<BuildingId> = self.buildings.iter().filter(|b| is_royal_tomb(b.kind) && b.monument.as_ref().is_some_and(|m| m.finished)).map(|b| b.id).collect();
+        for id in tombs {
+            self.refresh_royal_tomb(id);
+        }
+    }
+
     /// Whether a tomb is dark: no lamps, and no one inside.
     fn royal_tomb_dark(&self, id: BuildingId) -> bool {
         let Some(m) = self.buildings.get(id).and_then(|b| b.monument.as_ref()) else { return false };
@@ -309,7 +323,7 @@ impl World {
         let random = |x: i32, y: i32| self.map.random.at_or(x, y, 0) as u32;
         let mut singles: Vec<(i32, i32, u32)> = Vec::new();
         let mut blocks: Vec<(i32, i32, i32, u32)> = Vec::new();
-        if m.finished {
+        if m.finished && !self.sealed_tombs_open {
             for y in y0..y0 + l.size.1 {
                 for x in x0..x0 + l.size.0 {
                     singles.push((x, y, crate::terrain_images::cliff_image(&self.map, &self.defs, x, y)));
@@ -318,7 +332,8 @@ impl World {
             singles.push((ex, ey, rock + (random(ex, ey) & 7)));
         } else {
             let dark = self.royal_tomb_dark(id);
-            let furnished = self.burial_complete() && self.royal_tomb_percent(id) == 100;
+            // A sealed tomb was furnished when its provisions went in.
+            let furnished = m.finished || (self.burial_complete() && self.royal_tomb_percent(id) == 100);
             let bare = |x: i32, y: i32| ground + random(x, y) % 5;
             for (dy, row) in l.rows.iter().enumerate() {
                 for (dx, c) in row.bytes().enumerate() {

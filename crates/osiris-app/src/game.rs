@@ -204,6 +204,10 @@ pub struct Game {
     anim_clock: f32,
     /// The overlay Space switches back to.
     last_overlay: View,
+    /// H: the cliffs lie flat whatever the view (the original's flag at 0x6de515,
+    /// which H toggles at 0x415787). Sealed tombs stay hidden; the "Hide cliffs"
+    /// overlay opens those too.
+    pub hide_cliffs: bool,
     overlay_images: Option<OverlayImages>,
     /// A menu choice for the app to carry out (leave the game, load, save, quit).
     pub request: Option<MenuAction>,
@@ -307,6 +311,7 @@ impl Game {
             view_overlay: None,
             anim_clock: 0.0,
             last_overlay: View::Water,
+            hide_cliffs: false,
             overlay_images: None,
             request: None,
             lost_click: None,
@@ -1577,7 +1582,7 @@ impl Game {
             }
             None => self.motion.clear(),
         }
-        if self.view_overlay.is_none() {
+        if self.view_overlay.is_none_or(|v| v.shows_everything()) {
             out.extend(crate::water_view::fishing_points(&self.world));
             out.extend(self.disasters.cloud_sprites(&self.world, self.world.time.total_ticks));
         }
@@ -1778,20 +1783,32 @@ impl Game {
         let (marks, ghost, cost, why) = self.highlights();
         let marker = self.world.defs.terrain.empty_land;
         let sprites = self.sprites(r);
-        let overlays = if self.view_overlay.is_some() { Vec::new() } else { self.overlays(r) };
+        // Sealed royal tombs show open while "Hide cliffs" is on.
+        let open = self.view_overlay == Some(View::HideCliffs);
+        if self.world.sealed_tombs_open != open {
+            self.world.show_sealed_tombs(open);
+        }
+        let overlays = if self.view_overlay.is_some_and(|v| !v.shows_everything()) { Vec::new() } else { self.overlays(r) };
         self.view.clamp_camera(r, &self.world.map, sidebar::panel_left(r.screen[0]), sidebar::TOP);
         let images = *self.overlay_images.get_or_insert_with(|| OverlayImages::load(&r.library).expect("overlay images"));
         let world = &self.world;
         let view = self.view_overlay;
-        let look = move |x: i32, y: i32| view.map_or(crate::overlay::TileLook::Normal, |v| v.look(world, &images, x, y));
-        let draw = view.map(|v| city_view::OverlayDraw {
+        let hide_cliffs = self.hide_cliffs;
+        let look = move |x: i32, y: i32| {
+            if hide_cliffs && crate::overlay::flat_cliff(world, x, y) {
+                return crate::overlay::TileLook::FlatCliff;
+            }
+            view.map_or(crate::overlay::TileLook::Normal, |v| v.look(world, &images, x, y))
+        };
+        let draw = (view.is_some() || hide_cliffs).then(|| city_view::OverlayDraw {
             look: &look,
             flat: images.flat,
+            cliffs_flat: hide_cliffs || view == Some(View::HideCliffs),
             columns: world
                 .buildings
                 .iter()
                 .filter_map(|b| {
-                    let c = v.column(b)?;
+                    let c = view?.column(b)?;
                     Some(city_view::ColumnMark { x: b.x, y: b.y + b.size - 1, image: images.column + c.color, height: c.height })
                 })
                 .collect(),

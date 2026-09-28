@@ -1707,6 +1707,7 @@ fn key_pressed(g: &mut game::Game, code: KeyCode, ctrl: bool) {
         (KeyCode::KeyB, false) => g.tool = Tool::Road,
         (KeyCode::KeyX, false) | (KeyCode::Delete | KeyCode::Backspace, _) => g.tool = Tool::Clear,
         (KeyCode::KeyH, true) => g.try_tool(kind::VACANT_LOT),
+        (KeyCode::KeyH, false) => g.hide_cliffs = !g.hide_cliffs,
         (KeyCode::KeyG, false) => g.try_tool(kind::GARDENS),
         (KeyCode::KeyF, true) => g.try_tool(kind::FIREHOUSE),
         (KeyCode::KeyA, true) => g.try_tool(kind::ARCHITECT_POST),
@@ -1990,6 +1991,7 @@ fn run(mut args: Args) -> Result<()> {
         if let Some(name) = &view.overlay {
             game.view_overlay = overlay::MENU.iter().map(|(o, _)| *o).find(|o| format!("{o:?}").eq_ignore_ascii_case(name));
         }
+        game.hide_cliffs = view.hide_cliffs;
         if let Some(n) = view.top_menu {
             game.open_top_menu(n);
         }

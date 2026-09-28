@@ -47,6 +47,8 @@ pub struct ScriptView {
     /// Opens the "Leave the Kingdom?" popup.
     pub leave: bool,
     pub overlay: Option<String>,
+    /// Lays the cliffs flat, as the H key does.
+    pub hide_cliffs: bool,
     pub top_menu: Option<usize>,
     pub build_menu: Option<String>,
     /// Camera zoom for the screenshot.
@@ -226,6 +228,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["movie", name, seconds] => view.movie = Some((name.to_string(), seconds.parse()?)),
             ["leave"] => view.leave = true,
             ["overlay", name] => view.overlay = Some(name.to_string()),
+            ["hidecliffs"] => view.hide_cliffs = true,
             ["topmenu", n] => view.top_menu = Some(n.parse()?),
             ["messages"] => view.messages = true,
             ["buildmenu", name] => view.build_menu = Some(name.to_string()),
