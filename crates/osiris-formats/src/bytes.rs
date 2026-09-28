@@ -71,7 +71,7 @@ impl<'a> Reader<'a> {
     pub fn cstr(&mut self, n: usize) -> Result<String> {
         let raw = self.bytes(n)?;
         let end = raw.iter().position(|&b| b == 0).unwrap_or(n);
-        Ok(raw[..end].iter().map(|&b| b as char).collect())
+        Ok(crate::text::decode_cp1252(&raw[..end]))
     }
 }
 
@@ -141,13 +141,13 @@ impl<'a> Writer<'a> {
     }
 
     /// Fixed-size, NUL-padded string field, the mirror of `Reader::cstr`: characters
-    /// are stored as single bytes (Latin-1, `?` for anything beyond), then a NUL when
+    /// are stored as Windows-1252 bytes (`?` for anything beyond), then a NUL when
     /// there is room. Bytes after the NUL are left alone. A string longer than the
     /// field is cut to leave room for its NUL.
     pub fn cstr(&mut self, n: usize, s: &str) {
         let mut raw: Vec<u8> = s
             .chars()
-            .map(|c| u8::try_from(c as u32).unwrap_or(b'?'))
+            .map(crate::text::cp1252_byte)
             .collect();
         if raw.len() > n {
             raw.truncate(n - 1);

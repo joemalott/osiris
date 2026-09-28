@@ -348,7 +348,8 @@ impl Options {
                 }
                 '\n' | '\r' => self.typing = false,
                 // The guide: "there's a limit of 24 characters".
-                c if !c.is_control() && c.is_ascii() && d.len() < 24 => d.push(c),
+                // Any letter the map's Windows-1252 text and the game's font can hold.
+                c if !c.is_control() && osiris_formats::text::cp1252_byte(c) != b'?' && d.chars().count() < 24 => d.push(c),
                 _ => {}
             }
         }
