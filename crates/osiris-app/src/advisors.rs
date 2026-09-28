@@ -437,9 +437,10 @@ fn priority_popup(ui: &mut Ui, world: &mut World, category: usize) -> bool {
 }
 
 /// Resources that belong on the trade list: anything this city can make, store or
-/// trade.
+/// trade, except gold, which goes straight to the palace and is never stored or traded.
 fn trade_resources(world: &World) -> Vec<u16> {
     (1..osiris_sim::trade::RESOURCES as u16)
+        .filter(|&r| r != osiris_sim::economy::resource::GOLD)
         .filter(|&r| {
             let traded = world.trade.cities.iter().any(|c| c.trades() && (c.sells[r as usize] || c.buys[r as usize]));
             let made = world.buildings.iter().any(|b| world.defs.building(b.kind).is_some_and(|d| d.outputs.iter().any(|o| world.resource_id(o) == Some(r))));

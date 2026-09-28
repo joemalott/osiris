@@ -11,6 +11,9 @@ use osiris_ui::{Font, PanelImages, draw_text, font, panel, text_width};
 pub struct UiImages {
     pub arrow_up: u32,
     pub arrow_down: u32,
+    /// The 17px down and up arrows of the storage orders rows (Pharaoh_General
+    /// groups 16 and 212), each normal, hovered and pressed.
+    pub small_arrows: [u32; 2],
     /// Small resource icons, indexed by resource.
     pub resource_icons: u32,
     /// Help, close, worker and people glyphs (Pharaoh_General group 134).
@@ -53,6 +56,7 @@ impl UiImages {
         Ok(Self {
             arrow_up: lib.group_id("Pharaoh_Unloaded", 0, 16)?,
             arrow_down: lib.group_id("Pharaoh_Unloaded", 0, 18)?,
+            small_arrows: [lib.group_id("Pharaoh_General", 16, 0)?, lib.group_id("Pharaoh_General", 212, 0)?],
             resource_icons: lib.group_id("Expansion", 3, 0)?,
             context_icons: lib.group_id("Pharaoh_General", 134, 0)?,
             advisor_buttons: lib.group_id("Pharaoh_General", 106, 0)?,
@@ -153,6 +157,14 @@ impl Ui<'_> {
         let base = if up { self.img.arrow_up } else { self.img.arrow_down };
         self.image(base, x, y);
         self.clicked([x, y, 24.0, 24.0])
+    }
+
+    /// A 17px arrow of the storage orders rows, lit under the pointer.
+    pub fn small_arrow(&mut self, x: f32, y: f32, up: bool) -> bool {
+        let rect = [x, y, 17.0, 17.0];
+        let base = self.img.small_arrows[up as usize] + self.hot(rect) as u32;
+        self.image(base, x, y);
+        self.clicked(rect)
     }
 
     /// An image button (help, close): the image, and a click on it.

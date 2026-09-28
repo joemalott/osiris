@@ -794,15 +794,21 @@ impl InfoPanel {
         } else {
             scenario_resources(world)
         };
-        // The list grows to show every row it can (up to 16, or 10 for a bazaar, then it
-        // scrolls), and the window grows round it with the buttons below the list, so
-        // nothing overlaps. The original's fixed 29x17 window let the empty and accept-none
-        // buttons cover the last rows of a long storage yard list.
-        let rows = list.len().clamp(4, if bazaar { 10 } else { 16 });
-        let list_blocks = ((rows as f32 * 25.0 + 12.0) / 16.0).ceil() as i32;
-        let list_bottom = 42.0 + list_blocks as f32 * 16.0;
-        let buttons = if bazaar { 1.0 } else { 2.0 };
-        let hb = ((list_bottom + 14.0 + buttons * 30.0 + 18.0) / 16.0).ceil() as i32;
+        // As the original's (FUN_00502990): 20px rows in a sunken panel that grows
+        // with the list, up to as many rows as the screen allows (10, 15, 21 or 24 by
+        // resolution, FUN_00502780), past which a scroll bar runs down its right side.
+        let most = match ui.r.screen[1] {
+            h if h >= 1024.0 => 24,
+            h if h >= 768.0 => 21,
+            h if h >= 600.0 => 15,
+            _ => 10,
+        };
+        let rows = list.len().clamp(1, most);
+        let blocks = (rows as i32 * 4 + 2) / 3;
+        let scrolls = list.len() > rows;
+        // The original has only Accept None below a storage yard's list; the granary
+        // has its emptying button above it, which Osiris gives the yard too.
+        let hb = blocks + 7;
         let (w, h) = (29.0 * 16.0, hb as f32 * 16.0);
         // The orders window keeps the parent building window's left edge, and its
         // bottom edge lines up with the parent's, rather than recentring on its own,
@@ -811,23 +817,23 @@ impl InfoPanel {
         let (x, y) = (px, (py + ph - h).min(ui.r.screen[1] - h).max(24.0).floor());
         panel::outer_panel(ui.r, ui.panels, x, y, 29, hb);
         let title = if bazaar { ui.t(TEXT_BAZAAR, 7) } else if granary { ui.t(TEXT_GRANARY, 6) } else { ui.t(TEXT_YARD, 3) };
-        ui.centred(Font::LargeBlackOnLight, &title, x, y + 12.0, w);
-        panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 42.0, 27, list_blocks);
+        ui.centred(Font::LargeBlackOnLight, &title, x, y + 10.0, w);
+        panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 42.0, 27, blocks);
         self.scroll = self.scroll.min(list.len().saturating_sub(rows));
         for (i, &r) in list.iter().skip(self.scroll).take(rows).enumerate() {
-            let ry = y + 50.0 + 25.0 * i as f32;
-            let row = [x + 20.0, ry - 2.0, w - 136.0, 22.0];
-            // Hover draws a border round the row, as in the original.
+            let ry = y + 51.0 + 20.0 * i as f32;
+            // The status is the button; under the pointer a border goes round it.
+            let row = [x + 180.0, ry - 5.0, 230.0, 20.0];
             if ui.hot(row) {
                 panel::button_border(ui.r, ui.panels, row[0], row[1], row[2] as i32, row[3] as i32, true);
             }
-            ui.icon(r, x + 36.0, ry);
+            ui.icon(r, x + 25.0, ry - 5.0);
             let name = ui.t(TEXT_RESOURCES, r as usize);
-            ui.label(Font::NormalWhiteOnDark, &name, x + 76.0, ry + 2.0);
+            ui.label(Font::NormalWhiteOnDark, &name, x + 60.0, ry - 1.0);
             let b = world.buildings.get(id).expect("present");
             if bazaar {
                 let (s, f) = if b.bazaar_buys(r) { (ui.t(TEXT_BAZAAR, 8), Font::NormalWhiteOnDark) } else { (ui.t(TEXT_BAZAAR, 9), Font::NormalYellow) };
-                ui.label(f, &s, x + 300.0, ry + 2.0);
+                ui.label(f, &s, x + 240.0, ry);
                 if ui.clicked(row) {
                     world.apply(&Command::BazaarBuys { building: id, resource: r });
                 }
@@ -842,12 +848,13 @@ impl InfoPanel {
                 order::EMPTY => (ui.t(TEXT_YARD, 21), Font::NormalYellow),
                 _ => (ui.t(TEXT_YARD, 8), Font::NormalYellow),
             };
-            ui.label(f, &s, x + 196.0, ry + 2.0);
+            ui.label(f, &s, x + 240.0, ry);
+            // Less and more, left of the status (FUN_00502990's buttons at +200).
             if matches!(o, order::ACCEPT | order::GET) {
-                if ui.arrow(x + w - 112.0, ry - 3.0, false) {
+                if ui.small_arrow(x + 200.0, ry - 3.0, false) {
                     world.apply(&Command::OrderTier { building: id, resource: r, up: false });
                 }
-                if ui.arrow(x + w - 88.0, ry - 3.0, true) {
+                if ui.small_arrow(x + 217.0, ry - 3.0, true) {
                     world.apply(&Command::OrderTier { building: id, resource: r, up: true });
                 }
             }
@@ -855,28 +862,42 @@ impl InfoPanel {
                 world.apply(&Command::CycleOrder { building: id, resource: r });
             }
         }
+        if scrolls {
+            // Arrows at the ends and the stone between them, on a sunken track; a
+            // click on the track moves the stone there (FUN_0040d1b0, FUN_00502840).
+            let (bx, top, bottom) = (x + 414.0, y + 50.0, y + 16.0 * blocks as f32 + 2.0);
+            let (track_top, travel) = (y + 74.0, (16 * (blocks - 6)).max(0) as f32);
+            let track_blocks = ((bottom - track_top) / 16.0).floor() as i32;
+            panel::inner_panel(ui.r, ui.panels, x + 411.0, track_top, 2, track_blocks);
+            let max = list.len() - rows;
+            let stone = track_top + (travel * self.scroll as f32 / max as f32).floor();
+            ui.image(ui.panels.panel_button + 39, bx, stone);
+            if ui.arrow(bx, top, true) {
+                self.scroll = self.scroll.saturating_sub(1);
+            }
+            if ui.arrow(bx, bottom, false) {
+                self.scroll = (self.scroll + 1).min(max);
+            }
+            if let Some(c) = ui.click.filter(|&c| inside([bx, track_top, 32.0, travel + 16.0], c)) {
+                ui.click = None;
+                self.scroll = (((c[1] - track_top).min(travel) / travel.max(1.0)) * max as f32).round() as usize;
+            }
+        }
         let b = world.buildings.get(id).expect("present");
+        let buttons_y = y + 16.0 * blocks as f32 + 80.0;
         if !bazaar {
             let empty = if granary {
                 ui.t(TEXT_GRANARY, if b.empty_all { 8 } else { 7 })
             } else {
                 ui.t(TEXT_YARD, if b.empty_all { 5 } else { 4 })
             };
-            if ui.button([x + 64.0, y + list_bottom + 14.0, w - 128.0, 24.0], &empty, Font::NormalBlackOnLight) {
+            if ui.button([x + 80.0, buttons_y - 24.0, w - 160.0, 20.0], &empty, Font::NormalBlackOnLight) {
                 world.apply(&Command::EmptyAll(id));
             }
         }
         let none = ui.t(TEXT_YARD, 7);
-        if ui.button([x + 64.0, y + list_bottom + 14.0 + (buttons - 1.0) * 30.0, w - 128.0, 24.0], &none, Font::NormalBlackOnLight) {
+        if ui.button([x + 80.0, buttons_y, w - 160.0, 20.0], &none, Font::NormalBlackOnLight) {
             world.apply(&Command::AcceptNone(id));
-        }
-        if list.len() > rows {
-            if self.scroll > 0 && ui.arrow(x + w - 46.0, y + 46.0, true) {
-                self.scroll -= 1;
-            }
-            if self.scroll + rows < list.len() && ui.arrow(x + w - 46.0, y + 46.0 + 25.0 * (rows - 1) as f32, false) {
-                self.scroll += 1;
-            }
         }
         if ui.click.take().is_some_and(|c| !inside([x, y, w, h], c)) {
             self.orders = false;
@@ -970,9 +991,10 @@ fn city_foods(world: &World) -> Vec<u16> {
 }
 
 /// Resources that belong in a storage yard's orders: whatever the scenario can make or
-/// trade.
+/// trade, except gold, which the mines' carts take straight to the palace.
 fn scenario_resources(world: &World) -> Vec<u16> {
     (1..osiris_sim::trade::RESOURCES as u16)
+        .filter(|&r| r != resource::GOLD)
         .filter(|&r| {
             let made = world.defs.buildings.iter().flatten().any(|d| world.is_allowed(d.id) && d.outputs.iter().any(|o| world.resource_id(o) == Some(r)));
             let traded = world.trade.cities.iter().any(|c| c.trades() && (c.sells[r as usize] || c.buys[r as usize]));
