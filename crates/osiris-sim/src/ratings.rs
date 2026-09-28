@@ -64,7 +64,9 @@ pub const PHYSICIAN: u16 = 206;
 const SENET_HOUSE: u16 = 32;
 const ZOO_BUILDING: u16 = 226;
 
-/// Worth of each monument toward the rating, by its title (text group 198).
+/// Worth of each monument toward the rating, by its title (text group 198): the
+/// exe's monument table at 0x5d19c8, 16 bytes a title, the worth at +0xc. The royal
+/// tombs (33-36) are worth 4, 12, 26 and 48.
 const MONUMENT_WORTH: [i32; 38] = [
     0, 4, 10, 4, 12, 26, 48, 80, 3, 9, 20, 36, 60, 4, 12, 26, 48, 80, 2, 3, 11, 10, 1, 3, 4, 5, 5, 5, 8, 12, 10, 5, 5, 4, 12, 26,
     48, 48,
