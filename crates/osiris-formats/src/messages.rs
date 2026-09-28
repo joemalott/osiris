@@ -34,7 +34,7 @@
 //! strings are NUL-terminated Windows-1252, decoded with [`crate::text`]'s decoder.
 
 use crate::bytes::Reader;
-use crate::text::decode_cp1252;
+use crate::text::{decode_cp1252, encode_cp1252};
 use crate::{Error, Result};
 
 const MAGIC: &[u8; 16] = b"Pharaoh MM file.";
@@ -161,6 +161,59 @@ impl MessageTable {
     pub fn get(&self, id: usize) -> Option<&Message> {
         self.messages.get(id)
     }
+
+    /// A table of `messages`, entry `i` being message `i` (their own `id`s are
+    /// ignored); at most 1000 are kept.
+    pub fn from_messages(mut messages: Vec<Message>) -> Self {
+        messages.truncate(SLOTS);
+        for (i, m) in messages.iter_mut().enumerate() {
+            m.id = i as u16;
+        }
+        Self { messages }
+    }
+
+    /// The table in the file's own layout, strings encoded as Windows-1252. The
+    /// fields the parser skips (19-27, 29) are written as zero, as the shipped
+    /// English file has them.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut blob = vec![0u8];
+        let mut push = |s: &str| -> u32 {
+            if s.is_empty() {
+                return 0;
+            }
+            let at = blob.len() as u32;
+            blob.extend_from_slice(&encode_cp1252(s));
+            blob.push(0);
+            at
+        };
+        let mut slots = vec![[0u16; FIELDS]; SLOTS];
+        for (m, f) in self.messages.iter().zip(slots.iter_mut()) {
+            let head = [
+                m.kind, m.category, m.data, m.pos.0 as u16, m.pos.1 as u16, m.size.0 as u16, m.size.1 as u16,
+                m.image1.id, m.image1.x as u16, m.image1.y as u16, m.image2.id, m.image2.x as u16, m.image2.y as u16,
+                m.title_pos.0 as u16, m.title_pos.1 as u16, m.subtitle_pos.0 as u16, m.subtitle_pos.1 as u16,
+                m.content_pos.0 as u16, m.content_pos.1 as u16,
+            ];
+            f[..head.len()].copy_from_slice(&head);
+            f[28] = m.delay;
+            for (at, s) in [(30, &m.video), (32, &m.sound), (34, &m.title), (36, &m.subtitle), (38, &m.content)] {
+                let o = push(s);
+                f[at] = o as u16;
+                f[at + 1] = (o >> 16) as u16;
+            }
+        }
+        let mut data = Vec::with_capacity(MAGIC.len() + 8 + SLOTS * FIELDS * 2 + blob.len());
+        data.extend_from_slice(MAGIC);
+        data.extend_from_slice(&(SLOTS as u32).to_le_bytes());
+        data.extend_from_slice(&(self.messages.len() as u32).to_le_bytes());
+        for f in &slots {
+            for v in f {
+                data.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        data.extend_from_slice(&blob);
+        data
+    }
 }
 
 #[cfg(test)]
@@ -227,6 +280,29 @@ mod tests {
         let data = build(&[(0, "Title", "", "Body")]);
         let t = MessageTable::parse(&data).unwrap();
         assert_eq!(t.get(0).unwrap().subtitle, "");
+    }
+
+    #[test]
+    fn writes_what_it_reads() {
+        let m = Message {
+            kind: 3,
+            pos: (-4, 20),
+            size: (30, 28),
+            image1: ImageRef { id: 7, x: 12, y: -3 },
+            delay: 5,
+            title: "Nubt".into(),
+            subtitle: "Ein Dorf wird geboren".into(),
+            content: "Willkommen im alten Ägypten, Gouverneur. «Größe» ¿Sí?".into(),
+            ..Default::default()
+        };
+        let t = MessageTable::from_messages(vec![Message::default(), m]);
+        let back = MessageTable::parse(&t.to_bytes()).unwrap();
+        assert_eq!(back.len(), 2);
+        let b = back.get(1).unwrap();
+        assert_eq!((b.kind, b.pos, b.size, b.image1, b.delay), (3, (-4, 20), (30, 28), ImageRef { id: 7, x: 12, y: -3 }, 5));
+        assert_eq!(b.content, "Willkommen im alten Ägypten, Gouverneur. «Größe» ¿Sí?");
+        assert_eq!(b.subtitle, "Ein Dorf wird geboren");
+        assert_eq!(back.get(0).unwrap().title, "");
     }
 
     #[test]

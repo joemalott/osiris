@@ -79,6 +79,51 @@ impl TextTable {
     pub fn get(&self, group: usize, index: usize) -> Option<&str> {
         self.groups.get(group)?.get(index).map(String::as_str)
     }
+
+    /// Every string of `group`, in order.
+    pub fn group(&self, group: usize) -> &[String] {
+        self.groups.get(group).map_or(&[], Vec::as_slice)
+    }
+
+    /// Replaces `group`'s strings (a group past the 1000 slots is ignored).
+    pub fn set_group(&mut self, group: usize, strings: Vec<String>) {
+        if self.groups.len() < GROUP_SLOTS {
+            self.groups.resize(GROUP_SLOTS, Vec::new());
+        }
+        if let Some(g) = self.groups.get_mut(group) {
+            *g = strings;
+        }
+    }
+
+    /// The table in the file's own layout, strings encoded as Windows-1252 (a
+    /// character it lacks becomes `?`). [`TextTable::parse`] reads it back.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut blob = Vec::new();
+        let mut slots = vec![(0u32, false); GROUP_SLOTS];
+        let mut strings = 0u32;
+        for (group, list) in self.groups.iter().enumerate().take(GROUP_SLOTS) {
+            if list.is_empty() {
+                continue;
+            }
+            slots[group] = (blob.len() as u32, true);
+            for s in list {
+                blob.extend_from_slice(&encode_cp1252(s));
+                blob.push(0);
+                strings += 1;
+            }
+        }
+        let mut data = Vec::with_capacity(MAGIC.len() + 12 + GROUP_SLOTS * 8 + blob.len());
+        data.extend_from_slice(MAGIC);
+        data.extend_from_slice(&(slots.iter().filter(|s| s.1).count() as u32).to_le_bytes());
+        data.extend_from_slice(&strings.to_le_bytes());
+        data.extend_from_slice(&0u32.to_le_bytes());
+        for (offset, in_use) in slots {
+            data.extend_from_slice(&offset.to_le_bytes());
+            data.extend_from_slice(&(in_use as u32).to_le_bytes());
+        }
+        data.extend_from_slice(&blob);
+        data
+    }
 }
 
 /// Splits a NUL-terminated, NUL-packed span into decoded strings. The final NUL
@@ -92,10 +137,24 @@ fn split_strings(span: &[u8]) -> Vec<String> {
     parts
 }
 
-/// Decodes a Windows-1252 byte string. Shared with `messages.rs`, which uses the
-/// same encoding for its title/subtitle/content strings.
-pub(crate) fn decode_cp1252(bytes: &[u8]) -> String {
+/// Decodes a Windows-1252 byte string: the encoding of every text file the game
+/// reads (its string tables, `eventmsg.txt`, `campaign.txt`), whatever its language.
+pub fn decode_cp1252(bytes: &[u8]) -> String {
     bytes.iter().map(|&b| cp1252_char(b)).collect()
+}
+
+/// Encodes `s` as Windows-1252, a character outside it becoming `?`.
+pub fn encode_cp1252(s: &str) -> Vec<u8> {
+    s.chars().map(cp1252_byte).collect()
+}
+
+/// The Windows-1252 byte for `c`, or `?` if it has none.
+pub fn cp1252_byte(c: char) -> u8 {
+    let u = c as u32;
+    if u < 0x80 || (0xA0..=0xFF).contains(&u) {
+        return u as u8;
+    }
+    (0x80u8..=0x9F).find(|&b| cp1252_char(b) == c).unwrap_or(b'?')
 }
 
 fn cp1252_char(b: u8) -> char {
@@ -164,6 +223,31 @@ mod tests {
         let data = build(&[(5, &[&[0x80, 0xE9]])]);
         let t = TextTable::parse(&data).unwrap();
         assert_eq!(t.get(5, 0), Some("\u{20AC}\u{00E9}"));
+    }
+
+    #[test]
+    fn writes_what_it_reads() {
+        let mut t = TextTable::default();
+        t.set_group(1, vec!["Datei".into(), "Neues Spiel".into()]);
+        t.set_group(28, vec!["Straße".into(), "Überfluß".into(), "Élite «Ñ» ¿¡".into(), "Œuvre – €".into()]);
+        let bytes = t.to_bytes();
+        assert!(bytes.windows(6).any(|w| w == b"Stra\xDFe"));
+        let back = TextTable::parse(&bytes).unwrap();
+        assert_eq!(back.get(1, 1), Some("Neues Spiel"));
+        assert_eq!(back.get(28, 2), Some("Élite «Ñ» ¿¡"));
+        assert_eq!(back.get(28, 3), Some("Œuvre – €"));
+        assert_eq!(back.group_count(), 2);
+    }
+
+    #[test]
+    fn encodes_cp1252() {
+        assert_eq!(encode_cp1252("aé€\u{3b1}"), vec![b'a', 0xE9, 0x80, b'?']);
+        for b in 0x20..=0xFFu8 {
+            let c = cp1252_char(b);
+            if !matches!(b, 0x81 | 0x8D | 0x8F | 0x90 | 0x9D) {
+                assert_eq!(cp1252_byte(c), b);
+            }
+        }
     }
 
     #[test]
