@@ -545,6 +545,10 @@ pub struct Monument {
     /// A royal tomb whose completion has been announced.
     #[serde(default)]
     pub announced: bool,
+    /// A royal tomb an earlier mission left, standing sealed: it is none of this
+    /// scenario's monuments.
+    #[serde(default)]
+    pub carried: bool,
 }
 
 impl Monument {

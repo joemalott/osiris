@@ -15,6 +15,9 @@
 //! plastered, painted, and furnished once the burial provisions are in), dark when
 //! it has no lamps and no one inside. When every chamber is painted and the burial
 //! provisions are delivered, the tomb is sealed: it hides, drawn as plain cliff.
+//!
+//! The four Valley missions share one map, Deir el Medina, and the tombs of the
+//! earlier ones stand in the later ones, sealed (see [`CarriedTomb`]).
 
 use crate::buildings::{BuildingId, kind};
 use crate::figures::{FigureId, Step, Travel};
@@ -106,6 +109,44 @@ pub fn phrase(k: u16) -> &'static str {
     }
 }
 
+/// A tomb a campaign mission leaves for the next ones in the Valley: its type and
+/// its corner. When a family history's mission whose flags (text group 307) end in
+/// 1 is won, the original notes where each small, medium and large tomb stands, one
+/// place per size, overwriting the last (FUN_004188f0, from the win, FUN_00418640);
+/// a size with no tomb keeps the place noted before. A mission played on its own
+/// notes only Seti's large tomb, when Seti in the Valley is won (FUN_00418640). A
+/// mission whose third field is V puts them back when it starts (FUN_00418bf0): the
+/// small tomb always, the medium from mission 40 on and the large from mission 41
+/// on, each built where it stood and sealed at once (FUN_00547ad0: every chamber
+/// done, 400 lamps). The grand tomb is cut in the last Valley mission and never
+/// noted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CarriedTomb {
+    pub kind: u16,
+    pub x: i32,
+    pub y: i32,
+}
+
+/// The missions whose tombs are noted when they are won (text group 307: the
+/// fourth field is 1): the Valley's first three, and the two Alexandrias, which
+/// have no tombs.
+const NOTES_TOMBS: [i32; 5] = [38, 39, 40, 48, 49];
+/// The missions that put noted tombs back (the third field is V).
+const VALLEY: [i32; 3] = [39, 40, 44];
+/// Lamps a carried tomb is given.
+const CARRIED_LAMPS: i32 = 400;
+
+/// The first mission each size is put back in: the medium tomb only after
+/// mission 39, the large only after 40.
+fn carried_from(k: u16) -> Option<i32> {
+    match k {
+        SMALL_ROYAL_TOMB => Some(0),
+        MEDIUM_ROYAL_TOMB => Some(40),
+        LARGE_ROYAL_TOMB => Some(41),
+        _ => None,
+    }
+}
+
 /// A tile a tomb would take, and the placement rule it breaks, if any.
 pub(crate) type TileRule = ((i32, i32), Option<&'static str>);
 
@@ -116,6 +157,51 @@ const ENTRANCE: &str = "The tomb's entrance must open onto clear land";
 const IN_THE_WAY: &str = "People are in the way";
 
 impl World {
+    fn mission_id(&self) -> Option<i32> {
+        self.mission.as_ref().map(|m| m.id)
+    }
+
+    /// The tombs this mission, just won, leaves for the next: every small, medium
+    /// and large tomb standing, if the mission notes them and is played as part of
+    /// a family history (`history`); played on its own, only Seti's large tomb.
+    pub fn tombs_to_carry(&self, history: bool) -> Vec<CarriedTomb> {
+        let Some(mission) = self.mission_id() else { return Vec::new() };
+        let noted = |k: u16| if history { NOTES_TOMBS.contains(&mission) && carried_from(k).is_some() } else { mission == 40 && k == LARGE_ROYAL_TOMB };
+        self.buildings.iter().filter(|b| noted(b.kind) && b.monument.is_some()).map(|b| CarriedTomb { kind: b.kind, x: b.x, y: b.y }).collect()
+    }
+
+    /// At a Valley mission's start, the tombs noted before: each size the mission
+    /// takes is built where it stood, sealed. Returns how many were.
+    pub fn carry_in_tombs(&mut self, tombs: &[CarriedTomb]) -> usize {
+        let Some(mission) = self.mission_id().filter(|m| VALLEY.contains(m)) else { return 0 };
+        let mut placed = 0;
+        for t in tombs {
+            if !carried_from(t.kind).is_some_and(|from| mission >= from) || self.buildings.iter().any(|b| b.kind == t.kind) {
+                continue;
+            }
+            let Some(l) = layout(t.kind) else { continue };
+            let (ex, ey) = (t.x + l.entrance.0, t.y + l.entrance.1);
+            let inside = |x: i32, y: i32| x >= 0 && y >= 0 && x < self.map.width && y < self.map.height;
+            if !inside(t.x, t.y) || !inside(t.x + l.size.0 - 1, t.y + l.size.1 - 1) || !inside(ex, ey) {
+                continue;
+            }
+            let id = self.create_building(t.kind, t.x, t.y);
+            if let Some(m) = self.buildings.get_mut(id).and_then(|b| b.monument.as_mut()) {
+                for c in &mut m.chambers {
+                    *c = ChamberState { progress: 4, left: 0, worker: 0 };
+                }
+                m.lamps = CARRIED_LAMPS;
+                m.finished = true;
+                m.announced = true;
+                m.funeral_done = true;
+                m.carried = true;
+            }
+            self.refresh_royal_tomb(id);
+            placed += 1;
+        }
+        placed
+    }
+
     /// A tomb's entrance tile.
     pub fn royal_tomb_entrance(&self, id: BuildingId) -> Option<(i32, i32)> {
         let b = self.buildings.get(id)?;

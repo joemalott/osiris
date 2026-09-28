@@ -300,6 +300,21 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 eprintln!("tombsite {k}: {site:?} {why:?}");
             }
+            // The royal tombs a win now would leave for the next Valley missions, as a
+            // family history notes them and as a mission played on its own does.
+            ["carrytombs"] => eprintln!("{step}: history {:?} single {:?}", world.tombs_to_carry(true), world.tombs_to_carry(false)),
+            // Puts back tombs a family noted, as a Valley mission's start does:
+            // "carryin K x,y K x,y ...".
+            ["carryin", rest @ ..] => {
+                let tombs = rest
+                    .chunks(2)
+                    .map(|c| {
+                        let (x, y) = c.get(1).context("carryin K x,y")?.split_once(',').context("carryin K x,y")?;
+                        Ok(osiris_sim::royal_tombs::CarriedTomb { kind: c[0].parse()?, x: x.parse()?, y: y.parse()? })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                eprintln!("{step}: {} put back", world.carry_in_tombs(&tombs));
+            }
             // Every royal tomb's state: percent, lamps, and each chamber's stage/work/man.
             ["tombs"] => {
                 for b in world.buildings.iter().filter(|b| osiris_sim::royal_tombs::is_royal_tomb(b.kind)) {

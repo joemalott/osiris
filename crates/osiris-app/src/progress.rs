@@ -30,6 +30,10 @@ pub struct Progress {
     /// The last save of the family history's city in play, which "Resume Family
     /// History" loads, as the original keeps one in the player file.
     pub save: Option<PathBuf>,
+    /// Where the family's royal tombs stand, by tomb type, for the Valley missions
+    /// that follow (see `osiris_sim::royal_tombs::CarriedTomb`); the original keeps
+    /// these in the player file too.
+    pub tombs: BTreeMap<u16, (i32, i32)>,
 }
 
 /// A campaign entry, with the sections run together.
@@ -75,7 +79,7 @@ impl Progress {
     /// The start of period `k`: its first mission, or the choice it opens with. Explore
     /// History plays a period this way, from its beginning.
     pub fn at_period(c: &Campaign, k: usize) -> Self {
-        let mut p = Self { done: Vec::new(), path: 0, next: Next::End, results: BTreeMap::new(), save: None };
+        let mut p = Self { done: Vec::new(), path: 0, next: Next::End, results: BTreeMap::new(), save: None, tombs: BTreeMap::new() };
         let from = c.sections.iter().take(k).map(|s| s.entries.len()).sum();
         p.next = p.scan(c, from, true);
         p
@@ -140,6 +144,19 @@ impl Progress {
         }
     }
 
+    /// Notes where the tombs a won mission leaves stand, each over the last place
+    /// noted for its type.
+    pub fn note_tombs(&mut self, tombs: &[osiris_sim::royal_tombs::CarriedTomb]) {
+        for t in tombs {
+            self.tombs.insert(t.kind, (t.x, t.y));
+        }
+    }
+
+    /// The tombs noted, for a Valley mission starting.
+    pub fn carried_tombs(&self) -> Vec<osiris_sim::royal_tombs::CarriedTomb> {
+        self.tombs.iter().map(|(&kind, &(x, y))| osiris_sim::royal_tombs::CarriedTomb { kind, x, y }).collect()
+    }
+
     /// The pending choice screen, with its choices.
     pub fn choice<'a>(&self, c: &'a Campaign) -> Option<(&'a ChoiceScreen, &'a [Choice])> {
         let Next::Choice(i) = self.next else { return None };
@@ -198,6 +215,12 @@ impl Progress {
                         _ => Next::End,
                     };
                 }
+                (Some("tomb"), Some(k)) => {
+                    let v: Vec<i32> = words.by_ref().filter_map(|w| w.parse().ok()).collect();
+                    if let (Ok(k), &[x, y]) = (k.parse::<u16>(), v.as_slice()) {
+                        p.tombs.insert(k, (x, y));
+                    }
+                }
                 (Some("result"), Some(m)) => {
                     let v: Vec<i32> = words.by_ref().filter_map(|w| w.parse().ok()).collect();
                     if let (Ok(m), &[culture, prosperity, kingdom, population, funds, months, score, difficulty]) = (m.parse::<usize>(), v.as_slice()) {
@@ -222,6 +245,9 @@ impl Progress {
         if let Some(save) = &self.save {
             text += &format!("save {}\n", save.display());
         }
+        for (k, (x, y)) in &self.tombs {
+            text += &format!("tomb {k} {x} {y}\n");
+        }
         for (m, r) in &self.results {
             text += &format!("result {m} {} {} {} {} {} {} {} {}\n", r.culture, r.prosperity, r.kingdom, r.population, r.funds, r.months, r.score, r.difficulty);
         }
@@ -234,6 +260,18 @@ mod tests {
     use super::*;
 
     const CAMPAIGN: &str = "[MISSION_NAMES]\nA\nB\nC\nD\nE\nF\n\n[ONE]\nmission=0,200,0,0\nmission=1,201,1,0\nchoicescreen= 0,19\nchoice= 1,10,10,20\nchoice= 2,20,20,21\nmission=2,202,2,1\nchoicescreen= 1,22\nchoice= 3,1,1,23\nchoice= 4,2,2,24\nmission=3,203,3,2\nchoicescreen= 1,22\nchoice= 3,1,1,23\nchoice= 4,2,2,24\n[TWO]\nmission=4,204,4,3\nmission=5,205,5,0\n";
+
+    /// Noted tombs keep one place per type, the last noted, and survive the file.
+    #[test]
+    fn keeps_noted_tombs() {
+        use osiris_sim::royal_tombs::CarriedTomb;
+        let c = Campaign::parse(CAMPAIGN).unwrap();
+        let mut p = Progress::new(&c);
+        p.note_tombs(&[CarriedTomb { kind: 229, x: 46, y: 133 }]);
+        p.note_tombs(&[CarriedTomb { kind: 234, x: 60, y: 70 }, CarriedTomb { kind: 229, x: 40, y: 120 }]);
+        let back = Progress::parse(&c, &p.to_text());
+        assert_eq!(back.carried_tombs(), vec![CarriedTomb { kind: 229, x: 40, y: 120 }, CarriedTomb { kind: 234, x: 60, y: 70 }]);
+    }
 
     #[test]
     fn follows_the_chosen_path() {

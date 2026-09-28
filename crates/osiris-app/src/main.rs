@@ -556,6 +556,9 @@ struct App {
     /// The window's logical size when neither maximized nor full screen, kept so
     /// leaving either state (and the next launch) has a size to come back to.
     windowed_size: (u32, u32),
+    /// The royal tombs the mission just won leaves for the Valley missions after it:
+    /// as a family history notes them, and as a mission played on its own does.
+    won_tombs: [Vec<osiris_sim::royal_tombs::CarriedTomb>; 2],
 }
 
 impl App {
@@ -810,7 +813,7 @@ impl App {
                         Run::Single => {}
                     }
                 }
-                new_world(&self.assets, &Source::Mission(*m), load_difficulty()).map(|w| (w, Some(*m)))
+                self.new_mission(*m).map(|w| (w, Some(*m)))
             }
             menu::Choice::Family(name) => {
                 self.family = name.clone();
@@ -885,10 +888,21 @@ impl App {
 
     /// The mission is played again from its start, as the same kind of play.
     fn restart(&mut self, m: usize) {
-        match new_world(&self.assets, &Source::Mission(m), load_difficulty()) {
+        match self.new_mission(m) {
             Ok(world) => self.start(world, Some(m)),
             Err(e) => self.status = Some((format!("Could not start: {e}"), 5.0)),
         }
+    }
+
+    /// Campaign mission `m` from its start, with the family's royal tombs standing
+    /// in it if it is a Valley mission that takes them back (FUN_00418bf0).
+    fn new_mission(&self, m: usize) -> Result<World> {
+        let mut world = new_world(&self.assets, &Source::Mission(m), load_difficulty())?;
+        if !self.family.is_empty() {
+            let p = load_progress(&self.assets.campaign, &self.family);
+            world.carry_in_tombs(&p.carried_tombs());
+        }
+        Ok(world)
     }
 
     /// The victory has been read. As in the original (FUN_00418640), the family keeps
@@ -906,6 +920,8 @@ impl App {
         };
         let mut p = load_progress(&c, &self.family);
         p.record(m, result);
+        let [history_tombs, single_tombs] = std::mem::take(&mut self.won_tombs);
+        p.note_tombs(if matches!(self.run, Run::History) { &history_tombs } else { &single_tombs });
         if !self.family.is_empty() {
             if matches!(self.run, Run::History) {
                 let before = p.period(&c);
@@ -1582,6 +1598,7 @@ impl App {
                 // Once the victory message has been read, go on to the next mission.
                 if game.world.won && game.idle() {
                     finished = Some(mission.map(|m| (m, game.world.mission_result())));
+                    self.won_tombs = [game.world.tombs_to_carry(true), game.world.tombs_to_carry(false)];
                 }
                 // A lost mission waits on its screen's New Game or Replay mission.
                 if game.world.lost
@@ -1637,7 +1654,7 @@ impl App {
         }
         self.editor_request();
         match lost_choice {
-            Some((top_menu::MenuAction::Replay, Some(n), _)) => match new_world(&self.assets, &Source::Mission(n), load_difficulty()) {
+            Some((top_menu::MenuAction::Replay, Some(n), _)) => match self.new_mission(n) {
                 Ok(world) => self.start(world, Some(n)),
                 Err(e) => self.status = Some((format!("Could not start: {e}"), 5.0)),
             },
@@ -2084,6 +2101,7 @@ fn run(mut args: Args) -> Result<()> {
         family: load_current_family(),
         run: Run::Single,
         pending_path: None,
+        won_tombs: Default::default(),
         editor_waiting: None,
         // Replaced in `resumed`, once the window (and its monitor) exists.
         windowed_size: initial_size,
