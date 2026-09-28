@@ -78,6 +78,14 @@ If it finds none, it asks you to choose the Pharaoh folder and remembers it.
 
 Or pass it directly: `osiris --data /path/to/PharaohData`.
 
+Osiris plays in the language of your copy. It reads the game's text from whichever
+`Pharaoh_Text` and `Pharaoh_MM` files the install holds, and tells their language from
+their words, so a German, French, Spanish or Italian edition plays in its own language.
+To keep a second language beside the first, copy that edition's `Pharaoh_Text.*`,
+`Pharaoh_MM.*`, `eventmsg.txt` and `campaign.txt` into a folder inside the install
+(`Deutsch/`, say) and pick the language under Options (or on the main menu). Osiris's
+own menus and messages come in English, German, French, Spanish and Italian.
+
 Builds for macOS (Apple Silicon), Windows and Linux are linked under
 [Download](#download). They are unsigned.
 On macOS, right-click `Osiris.app` and choose Open the first time. On Windows,
