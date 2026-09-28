@@ -780,6 +780,12 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 bytes.hash(&mut h);
                 eprintln!("hash {:016x}: {:?} map {}x{} pop {} figures {} buildings {} save {} bytes", h.finish(), world.time, world.map.width, world.map.height, world.population, world.figures.len(), world.buildings.iter().count(), bytes.len());
             }
+            // Every farm's crop and the farmer it shows: his work, crop tile and facing.
+            ["farmers"] => {
+                for b in world.buildings.iter().filter(|b| world.is_farm(b.kind)) {
+                    eprintln!("  farm {} kind {} at ({},{}) workers {} labor days {} crop {} farmer {:?}", b.id, b.kind, b.x, b.y, b.workers, b.labor_days, b.progress, world.farm_worker(b.id));
+                }
+            }
             // Where the buildings of kind K stand, with their road tile and staff.
             ["where", k] => {
                 let k: u16 = k.parse()?;

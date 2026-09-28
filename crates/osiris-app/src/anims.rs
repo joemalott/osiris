@@ -1,5 +1,5 @@
-//! Animations drawn over buildings: staff at work, performers at venues, and the
-//! grain heaps in granaries.
+//! Animations drawn over buildings: staff at work, farmers among their crops,
+//! performers at venues, and the grain heaps in granaries.
 //!
 //! The original's building pass (FUN_00436b60) animates a building only when the
 //! image on its draw tile has frames of its own (`num_animation_sprites`), and runs
@@ -104,7 +104,11 @@ impl AnimContext<'_> {
 /// Appends every building animation to `out`.
 pub fn building_animations(cx: &AnimContext, out: &mut Vec<Overlay>) {
     for b in cx.world.buildings.iter() {
-        if b.is_house() || cx.world.is_farm(b.kind) {
+        if b.is_house() {
+            continue;
+        }
+        if cx.world.is_farm(b.kind) {
+            farm(cx, b, out);
             continue;
         }
         if cx.world.is_road_venue(b.kind) {
@@ -146,6 +150,38 @@ pub fn building_animations(cx: &AnimContext, out: &mut Vec<Overlay>) {
         let active = if b.kind == kind::BURNING_RUIN { b.progress > 0 } else { b.kind == kind::WELL || (b.workers > 0 && has_materials(cx.world, b)) };
         if active {
             working(cx, b, out);
+        }
+    }
+}
+
+/// A farm's crops, and a floodplain farm's farmer among them. Floodplain farms crop
+/// every tile, meadow farms only the front edge. The farmer's frame is the farm's own
+/// animation (its farmland image has eleven frames, which the original steps on the
+/// draw tile), his image that frame's row of eight facings in his work's group, and
+/// he stands over the crop of his tile, drawn just after it, at the tile's middle
+/// less his anchor, 40 pixels down from the top of that crop (FUN_00488840).
+fn farm(cx: &AnimContext, b: &Building, out: &mut Vec<Overlay>) {
+    let crops = cx.world.crop_overlays(b.id);
+    let n = crops.len();
+    let worker = cx.world.farm_worker(b.id).and_then(|w| {
+        let frames = cx.world.farm_image(b.id).and_then(|i| cx.r.record(i)).and_then(|rec| cx.native_frame(rec, b.id as u64 * 7))?;
+        let first = cx.anim(b, w.work.anim_key())?.image;
+        Some((w.tile, first + w.direction + 8 * (frames - 1)))
+    });
+    let top = city_view::tile_to_world(&cx.world.map, b.x, b.y);
+    let point = [top[0] - (b.size - 1) as f32 * city_view::TILE_W / 2.0, top[1]];
+    for (i, image) in crops {
+        let (dx, dy) = if n == 9 { ((i % 3) as i32, (i / 3) as i32) } else { [(0, 2), (1, 2), (2, 2), (2, 1), (2, 0)][i] };
+        let (ox, oy) = (((dx - dy) * 30 + (b.size - 1) * 30) as f32, ((dx + dy) * 15) as f32);
+        let h = cx.r.record(image).map_or(30.0, |rec| rec.height as f32);
+        let pos = [point[0] + ox, point[1] + oy + city_view::TILE_H - h];
+        out.push(Overlay { x: b.x + dx, y: b.y + dy, pos, image });
+        if let Some((tile, man)) = worker
+            && tile == i
+            && n == 9
+        {
+            let (ax, ay) = cx.r.record(man).map_or((0, 0), |rec| (rec.sprite_offset_x as i32, rec.sprite_offset_y as i32));
+            out.push(Overlay { x: b.x + dx, y: b.y + dy, pos: [pos[0] + (30 - ax) as f32, pos[1] + (40 - ay) as f32], image: man });
         }
     }
 }

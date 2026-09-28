@@ -61,6 +61,7 @@ impl World {
             34 => self.update_ferries(),
             31 => {
                 self.generate_walkers();
+                self.harvest_farms();
                 self.send_carts();
                 self.bazaar_walkers();
                 self.lodge_walkers();

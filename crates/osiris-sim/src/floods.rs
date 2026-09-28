@@ -323,9 +323,6 @@ impl World {
             }
         }
 
-        if new_state == FloodState::Imminent && old_state != FloodState::Imminent {
-            self.harvest_floodplain_farms();
-        }
         if new_state == FloodState::Farmable && old_state != FloodState::Farmable {
             self.reset_floodplain_farms();
         }
@@ -577,9 +574,9 @@ impl World {
         self.ditch_images_in(x - r, y - r, x + r, y + r);
     }
 
-    // `harvest_floodplain_farms` and `reset_floodplain_farms`, called above on the
-    // Farmable->Imminent and ->Farmable transitions, are already implemented over in
-    // farms.rs (concurrently with this module); they're not declared here too, since two
+    // `reset_floodplain_farms`, called above on the ->Farmable transition (the harvest
+    // runs from the daily building pass while the flood is coming), is implemented over in
+    // farms.rs (concurrently with this module); it's not declared here too, since two
     // `impl World` methods with the same name would be a duplicate definition.
 }
 

@@ -1765,34 +1765,9 @@ impl Game {
         Some(at)
     }
 
-    /// Images drawn over buildings: growing crops on farms.
+    /// Images drawn over buildings: farms' crops and farmers, staff at work and the like.
     fn overlays(&self, r: &Renderer) -> Vec<Overlay> {
         let mut out = Vec::new();
-        for b in self.world.buildings.iter() {
-            if !self.world.is_farm(b.kind) {
-                continue;
-            }
-            let crops = self.world.crop_overlays(b.id);
-            let n = crops.len();
-            let top = city_view::tile_to_world(&self.world.map, b.x, b.y);
-            let point = [top[0] - (b.size - 1) as f32 * city_view::TILE_W / 2.0, top[1]];
-            for (i, image) in crops {
-                // Floodplain farms crop every tile; meadow farms only the front edge.
-                let (dx, dy) = if n == 9 {
-                    ((i % 3) as i32, (i / 3) as i32)
-                } else {
-                    [(0, 2), (1, 2), (2, 2), (2, 1), (2, 0)][i]
-                };
-                let (ox, oy) = (((dx - dy) * 30 + (b.size - 1) * 30) as f32, ((dx + dy) * 15) as f32);
-                let h = r.record(image).map_or(30.0, |rec| rec.height as f32);
-                out.push(Overlay {
-                    x: b.x + dx,
-                    y: b.y + dy,
-                    pos: [point[0] + ox, point[1] + oy + city_view::TILE_H - h],
-                    image,
-                });
-            }
-        }
         let cx = crate::anims::AnimContext { world: &self.world, r, millis: (self.anim_clock * 1000.0) as u64 };
         crate::anims::building_animations(&cx, &mut out);
         out

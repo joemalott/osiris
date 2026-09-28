@@ -1,8 +1,9 @@
 //! Farms. Floodplain farms have no staff of their own: work camps send peasants who
 //! tend a farm for 96 days, during which it counts as fully staffed. A farm's crop
 //! grows each day at tick 20 by fertility x 0.16 / 99 x workers x 10 (at least 1), toward 2000.
-//! Floodplain crops are harvested when the flood approaches, meadow crops on the first
-//! day of their harvest months; a harvest yields 8 per percent of the crop grown.
+//! Floodplain crops are harvested on the first day 0 or 7 after the flood is
+//! reported coming, meadow crops on the first day of their harvest months; a harvest
+//! yields 8 per percent of the crop grown.
 
 use crate::buildings::{BuildingId, kind};
 use crate::economy::LOAD;
@@ -29,6 +30,37 @@ const SITE_TOUCHES: i32 = 4;
 /// A laborer standing before he heads home.
 pub const PAUSE: u16 = 9;
 const TILE_WORK: u16 = crate::pyramids::TILE_WORK;
+
+/// What a floodplain farm's farmer is doing, which picks his frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FarmWork {
+    /// Sowing seed from a pot (SprMain 119).
+    Seeding,
+    /// Hoeing between the rows (SprMain 118).
+    Tilling,
+    /// Cutting the crop with a sickle (SprMain 120).
+    Harvesting,
+}
+
+impl FarmWork {
+    /// The farm's anim holding this work's frames.
+    pub fn anim_key(self) -> &'static str {
+        match self {
+            FarmWork::Seeding => "seeding",
+            FarmWork::Tilling => "tiling",
+            FarmWork::Harvesting => "harvesting",
+        }
+    }
+}
+
+/// A floodplain farm's farmer: his work, the crop tile he stands on (0-8, row by row
+/// from the farm's north corner, as `crop_overlays` numbers them) and his facing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FarmWorker {
+    pub work: FarmWork,
+    pub tile: usize,
+    pub direction: u32,
+}
 
 impl World {
     pub fn is_farm(&self, k: u16) -> bool {
@@ -74,8 +106,7 @@ impl World {
         }
     }
 
-    /// Tick 33: floodplain farms use up a day of labor, and meadow crops are brought
-    /// in on the first day of their harvest months.
+    /// Tick 33: floodplain farms use up a day of labor.
     pub(crate) fn update_farms(&mut self) {
         for id in self.buildings.ids() {
             if self.is_floodplain_farm(id)
@@ -84,8 +115,20 @@ impl World {
                 b.labor_days = (b.labor_days - 1).max(0);
             }
         }
-        // Meadow crops are brought in on the first day of their harvest months.
-        if self.time.day == 0 {
+    }
+
+    /// Tick 31, in the daily building pass before the carts go out (FUN_00488400 from
+    /// FUN_00462180): on days 0 and 7 of a month, floodplain crops are brought in while
+    /// the flood is coming, and meadow crops on the first day of their harvest months.
+    pub(crate) fn harvest_farms(&mut self) {
+        let day = self.time.day;
+        if day != 0 && day != 7 {
+            return;
+        }
+        if self.flood_state() == FloodState::Imminent {
+            self.harvest_floodplain_farms();
+        }
+        if day == 0 {
             let month = self.time.month;
             for id in self.buildings.ids() {
                 let due = self.buildings.get(id).is_some_and(|b| HARVEST_MONTHS.iter().any(|&(k, m)| k == b.kind && m.contains(&month)));
@@ -131,8 +174,8 @@ impl World {
         }
     }
 
-    /// Flood hook: harvest every floodplain farm before the water arrives.
-    /// Osiris's doubled harvest is spent on the first floodplain harvest.
+    /// Harvests every floodplain farm before the water arrives. Osiris's doubled
+    /// harvest is spent on the first floodplain harvest.
     pub(crate) fn harvest_floodplain_farms(&mut self) {
         let mut any = false;
         for id in self.buildings.ids() {
@@ -436,6 +479,33 @@ impl World {
         (0..n)
             .map(|i| (i, crops + ((b.progress - i as i32 * step) / 100).clamp(0, 5) as u32))
             .collect()
+    }
+
+    /// The farmer a floodplain farm shows at work, drawn over one of its nine crop
+    /// tiles (the original's FUN_00488840). He shows while the farm has workers and no
+    /// locusts are eating: sowing on the middle tile until a fifth of the crop has
+    /// grown, turning round every eight ticks; then hoeing, moving across the tiles as
+    /// the crop grows; and cutting the crop, on a tile that changes each day, while
+    /// the flood is coming. Meadow farms show nobody (FUN_00488690).
+    pub fn farm_worker(&self, id: BuildingId) -> Option<FarmWorker> {
+        let b = self.buildings.get(id)?;
+        if b.workers <= 0 || self.plagues.locusts > 0 || !self.is_floodplain_farm(id) {
+            return None;
+        }
+        // The farm's draw tile and its map random byte.
+        let (dx, dy) = (b.x, b.y + b.size - 1);
+        let random = self.map.random.at_or(dx, dy, 0) as u32;
+        // The crop in tens, as the original hands it to the drawing.
+        let grown = b.progress / 10 * 10;
+        Some(if grown < PROGRESS_MAX / 5 {
+            FarmWorker { work: FarmWork::Seeding, tile: 4, direction: ((self.time.tick >> 3) + id) & 7 }
+        } else if self.flood_state() == FloodState::Imminent {
+            let tile = self.map.random.at_or(dx + self.time.day as i32, dy, 0) as usize % 7;
+            FarmWorker { work: FarmWork::Harvesting, tile, direction: random % 7 }
+        } else {
+            let tile = (grown as f64 / (PROGRESS_MAX + 1) as f64 * 9.0) as usize;
+            FarmWorker { work: FarmWork::Tilling, tile, direction: (random + tile as u32) % 7 }
+        })
     }
 
     /// Farm field image for the footprint: fertile-looking farmland on the floodplain.
