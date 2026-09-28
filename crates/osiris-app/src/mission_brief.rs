@@ -4,7 +4,7 @@
 
 use osiris_formats::events::EventRecord;
 use osiris_formats::scenario::{ScenarioInfo, WinCriteria};
-use osiris_formats::Scenario;
+use osiris_formats::{Scenario, TextTable};
 
 const REQUEST: u8 = 1;
 const INVASION: u8 = 2;
@@ -120,6 +120,59 @@ fn mark(ev: &[EventRecord], seen: &mut [bool], i: usize, depth: u32) {
             return;
         }
     }
+}
+
+/// What a briefing's Objectives panel lists. The original's briefing (FUN_0041a180)
+/// reads the scenario's goals (0x784c24 to 0x784c5c): the population, the houses of a
+/// level, then the culture, prosperity, monument and kingdom ratings, each on its own
+/// label. It names no time limit or years to survive (only the city's corner counts
+/// them down, FUN_0051f790); Osiris adds them after the goals, worded as Custom
+/// Missions words them (text 44, lines 134 and 135).
+#[derive(Debug, Clone, Default)]
+pub struct Objectives {
+    pub goals: osiris_sim::missions::Goals,
+    pub time_limit: Option<i32>,
+    pub survival: Option<i32>,
+}
+
+impl Objectives {
+    pub fn from_win(w: &WinCriteria) -> Self {
+        let years = |g: &osiris_formats::scenario::Goal| g.enabled.then_some(g.value).filter(|&y| y > 0);
+        Self { goals: osiris_sim::missions::Goals::from_scenario(w), time_limit: years(&w.time_limit), survival: years(&w.survival_time) }
+    }
+
+    /// The panel's lines, in the original's order.
+    pub fn lines(&self, text: &TextTable) -> Vec<String> {
+        let t = |g: usize, i: usize| text.get(g, i).unwrap_or("").trim().to_string();
+        let g = &self.goals;
+        let mut lines = Vec::new();
+        if g.population.enabled {
+            lines.push(format!("{} {}", t(62, 11), g.population.value));
+        }
+        if g.housing_count.value != 0 {
+            lines.push(format!("{} {}", g.housing_count.value, t(29, g.housing_level.value.max(0) as usize + 20)));
+        }
+        for (goal, id) in [(&g.culture, 12), (&g.prosperity, 13), (&g.monuments, 14), (&g.kingdom, 15)] {
+            if goal.enabled {
+                lines.push(format!("{} {}", t(62, id), goal.value));
+            }
+        }
+        if let Some(y) = self.time_limit {
+            lines.push(format!("{y} {}", t(44, 134)));
+        }
+        if let Some(y) = self.survival {
+            lines.push(format!("{y} {}", t(44, 135)));
+        }
+        lines
+    }
+}
+
+/// The first five missions teach the game, and their briefings name the tutorial's
+/// goal (text 62, FUN_004e2530). Osiris doesn't keep the tutorial's steps as the
+/// original does, so it is always the first step's goal, as before the mission.
+pub fn tutorial_goal(text: &TextTable, mission: usize) -> Option<String> {
+    const GOALS: [usize; 5] = [21, 24, 28, 33, 31];
+    GOALS.get(mission).and_then(|&i| text.get(62, i)).map(|s| s.trim().to_owned())
 }
 
 /// Invasions that aren't part of a chain begun by a chain-root event.
