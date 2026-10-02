@@ -326,7 +326,7 @@ impl World {
         if m.finished && !self.sealed_tombs_open {
             for y in y0..y0 + l.size.1 {
                 for x in x0..x0 + l.size.0 {
-                    singles.push((x, y, crate::terrain_images::cliff_image(&self.map, &self.defs, x, y)));
+                    singles.push((x, y, crate::terrain_images::cliff_image(&self.map, &self.defs, x, y, &|x, y| self.cut_in_cliffs(x, y))));
                 }
             }
             singles.push((ex, ey, rock + (random(ex, ey) & 7)));
@@ -382,6 +382,35 @@ impl World {
         }
         for (x, y, n, image) in blocks {
             self.map.set_footprint(x, y, n, image);
+        }
+        self.refresh_cliffs_around(x0, y0, l.size);
+    }
+
+    /// Whether tile `(x, y)` is cut out of the cliffs: an open royal tomb's. Its tiles
+    /// keep their cliff bits, but the original counts a tomb as cliff around it only
+    /// once sealed (FUN_00475fd0), so the cliffs about an open tomb face into it.
+    fn cut_in_cliffs(&self, x: i32, y: i32) -> bool {
+        let id = self.map.building.at_or(x, y, 0);
+        self.buildings.get(id).is_some_and(|b| is_royal_tomb(b.kind) && !b.monument.as_ref().is_some_and(|m| m.finished && !self.sealed_tombs_open))
+    }
+
+    /// Redraws the cliff tiles in a ring around a tomb's bulk, whose shapes depend on
+    /// whether the tomb counts as cliff.
+    fn refresh_cliffs_around(&mut self, x0: i32, y0: i32, (w, h): (i32, i32)) {
+        let cliff = terrain::CLIFF | terrain::ROCK;
+        let mut images = Vec::new();
+        for y in y0 - 1..=y0 + h {
+            for x in x0 - 1..=x0 + w {
+                let inside = (x0..x0 + w).contains(&x) && (y0..y0 + h).contains(&y);
+                let t = self.map.terrain.at_or(x, y, 0);
+                if inside || !self.map.contains(x, y) || t & cliff != cliff || t & terrain::BUILDING != 0 {
+                    continue;
+                }
+                images.push((x, y, crate::terrain_images::cliff_image(&self.map, &self.defs, x, y, &|x, y| self.cut_in_cliffs(x, y))));
+            }
+        }
+        for (x, y, image) in images {
+            self.map.set_single_image(x, y, image);
         }
     }
 
@@ -777,10 +806,11 @@ impl World {
         self.map.set_single_image(ex, ey, 0);
         for yy in y..y + l.size.1 {
             for xx in x..x + l.size.0 {
-                let image = crate::terrain_images::cliff_image(&self.map, &self.defs, xx, yy);
+                let image = crate::terrain_images::cliff_image(&self.map, &self.defs, xx, yy, &|x, y| self.cut_in_cliffs(x, y));
                 self.map.set_single_image(xx, yy, image);
             }
         }
+        self.refresh_cliffs_around(x, y, l.size);
     }
 }
 

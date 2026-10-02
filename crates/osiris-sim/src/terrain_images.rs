@@ -647,7 +647,7 @@ impl<'a> Pass<'a> {
                 p.outcrop(map, x, y, ore, p.defs.terrain.ore_rock);
             } else if t & cliff == cliff {
                 let r = Self::random(map, x, y);
-                let image = match cliff_offset(map, x, y, r) {
+                let image = match cliff_offset(map, x, y, r, &|_, _| false) {
                     Some(offset) => p.defs.terrain.cliff + offset,
                     None => p.defs.terrain.rock + (r & 7),
                 };
@@ -1264,10 +1264,11 @@ fn only_rocks_trees_in_ring(map: &Map, x: i32, y: i32, distance: i32) -> bool {
 }
 
 /// The image of cliff tile `(x, y)`, as the original draws it on every start (a royal
-/// tomb, sealed or removed, goes back to it).
-pub(crate) fn cliff_image(map: &Map, defs: &Defs, x: i32, y: i32) -> u32 {
+/// tomb, sealed or removed, goes back to it). `cut` says which tiles are cut out of
+/// the cliffs: an open royal tomb's, which keep their cliff bits here.
+pub(crate) fn cliff_image(map: &Map, defs: &Defs, x: i32, y: i32, cut: &dyn Fn(i32, i32) -> bool) -> u32 {
     let r = map.random.at_or(x, y, 0) as u32;
-    cliff_offset(map, x, y, r).map_or(defs.terrain.rock + (r & 7), |o| defs.terrain.cliff + o)
+    cliff_offset(map, x, y, r, cut).map_or(defs.terrain.rock + (r & 7), |o| defs.terrain.cliff + o)
 }
 
 /// Cliff images at these offsets from the cliff group are the flat tops of a plateau:
@@ -1283,12 +1284,12 @@ pub const CLIFF_TOP_RISE: i32 = 150;
 /// offsets 9..12, 15..18 and 36..48 turn their face away from the camera: only their
 /// top, their foot and a 1 px outline are drawn, and the raised plateau tops in front
 /// of them hide the outline.
-fn cliff_offset(map: &Map, x: i32, y: i32, r: u32) -> Option<u32> {
+fn cliff_offset(map: &Map, x: i32, y: i32, r: u32, cut: &dyn Fn(i32, i32) -> bool) -> Option<u32> {
     let cliff = terrain::CLIFF | terrain::ROCK;
     let m: [bool; 8] = std::array::from_fn(|i| {
         let (dx, dy) = NEIGHBOURS[i];
         let t = map.terrain_around(x + dx, y + dy, OUTSIDE);
-        t & cliff == cliff && t & terrain::DIKE == 0
+        t & cliff == cliff && t & terrain::DIKE == 0 && !cut(x + dx, y + dy)
     });
     let n = m.iter().filter(|&&c| c).count();
     let (r3, r6) = (r % 3, r % 6);
