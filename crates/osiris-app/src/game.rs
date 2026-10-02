@@ -900,7 +900,10 @@ impl Game {
         }
         if let Some(l) = &self.message_list {
             if let Some(i) = l.click(&self.world, screen, self.cursor) {
+                // A message about a place also takes the camera there.
+                let tile = self.world.notices.log.get(i).and_then(|n| n.tile);
                 self.open_notice(i);
+                return tile;
             } else if !l.contains(screen, self.cursor) {
                 self.message_list = None;
             }

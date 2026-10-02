@@ -2185,7 +2185,9 @@ fn run(mut args: Args) -> Result<()> {
                     p
                 };
                 game.set_cursor(r, p);
-                game.press_at(r);
+                if let Some((x, y)) = game.press_at(r) {
+                    game.view.center_on(r, &game.world.map, x, y);
+                }
                 game.draw(r);
                 let w = &game.world;
                 let marked: Vec<_> = w.figures.iter().filter(|f| f.ship.as_ref().is_some_and(|s| s.service)).map(|f| f.id).collect();
