@@ -108,6 +108,15 @@ fn site_cap(k: u16) -> i32 {
     }
 }
 
+/// What keeps a building from working (see `World::trouble_spots`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trouble {
+    NoRoad,
+    Unstaffed,
+    /// An industry without enough of this resource on site.
+    MissingInput(u16),
+}
+
 impl World {
     pub fn resource_id(&self, key: &str) -> Option<u16> {
         self.defs.resources.iter().position(|k| k == key).map(|i| i as u16)
@@ -140,6 +149,31 @@ impl World {
     /// load of each, but the brickworks only a quarter load of straw.
     fn input_need(k: u16, r: u16) -> i32 {
         if k == BRICKWORKS && r == resource::STRAW { LOAD / 4 } else { LOAD }
+    }
+
+    /// Buildings that are not doing their work, for a player looking for what is wrong
+    /// with the city (not in the original): those with no road to send walkers from,
+    /// then those without a single worker, then industries short of an input. Each
+    /// building is listed once, with the first of those that applies, in building order.
+    pub fn trouble_spots(&self) -> Vec<(BuildingId, Trouble)> {
+        let mut out = Vec::new();
+        for b in self.buildings.iter() {
+            if b.is_house() || b.monument.is_some() || self.workers_needed(b.kind) <= 0 {
+                continue;
+            }
+            let short = |r: &u16| b.stock.get(*r as usize).copied().unwrap_or(0) < Self::input_need(b.kind, *r);
+            let trouble = if b.road.is_none() {
+                Trouble::NoRoad
+            } else if b.workers <= 0 {
+                Trouble::Unstaffed
+            } else if let Some(&r) = self.inputs_of(b.kind).iter().find(|r| short(r)).filter(|_| self.is_industry(b.kind)) {
+                Trouble::MissingInput(r)
+            } else {
+                continue;
+            };
+            out.push((b.id, trouble));
+        }
+        out
     }
 
     /// Whether Ptah speeds building type `k` by half: his complex the mines, clay pits,
@@ -928,6 +962,26 @@ impl World {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    /// A building with no road is reported before its lack of workers, and an industry
+    /// that has workers and a road but no inputs is reported as short of one.
+    #[test]
+    fn trouble_spots_name_what_a_building_lacks() {
+        use crate::world::{Command, Outcome};
+        let Some(mut world) = mission(4) else { return };
+        for cmd in [Command::Road { start: (94, 78), end: (94, 95) }, Command::Build { kind: 112, x: 95, y: 86, x1: 95, y1: 86 }, Command::Build { kind: 72, x: 100, y: 70, x1: 100, y1: 70 }] {
+            assert!(matches!(world.apply(&cmd), Outcome::Done { .. }), "{cmd:?}");
+        }
+        let id_of = |w: &World, k: u16| w.buildings.iter().find(|b| b.kind == k).expect("built").id;
+        let (smith, yard) = (id_of(&world, 112), id_of(&world, 72));
+        world.buildings.get_mut(smith).unwrap().workers = world.workers_needed(112);
+        world.buildings.get_mut(yard).unwrap().workers = 0;
+        let spots = world.trouble_spots();
+        assert!(spots.contains(&(smith, Trouble::MissingInput(29))), "{spots:?}");
+        assert!(spots.iter().any(|&(id, t)| id == yard && matches!(t, Trouble::NoRoad | Trouble::Unstaffed)), "{spots:?}");
+        world.buildings.get_mut(smith).unwrap().stock[29] = 400;
+        assert!(!world.trouble_spots().iter().any(|s| s.0 == smith));
+    }
 
     #[test]
     fn brickworks_use_a_quarter_load_of_straw() {

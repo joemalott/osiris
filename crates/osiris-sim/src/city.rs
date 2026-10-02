@@ -7,7 +7,7 @@ use crate::houses;
 use crate::world::World;
 
 /// Radius around a well within which houses count as having water.
-const WELL_RADIUS: i32 = 2;
+pub const WELL_RADIUS: i32 = 2;
 
 impl World {
     pub(crate) fn run_tick(&mut self) {
