@@ -1422,6 +1422,11 @@ impl ApplicationHandler for App {
                                 g.toggle_cheat_entry();
                             } else {
                                 key_pressed(g, code, ctrl);
+                                if let Some((x, y)) = g.look_at.take()
+                                    && let Some(gfx) = &mut self.gfx
+                                {
+                                    g.view.center_on(&mut gfx.renderer, &g.world.map, x, y);
+                                }
                             }
                         }
                         _ => {}
@@ -1782,6 +1787,7 @@ fn key_pressed(g: &mut game::Game, code: KeyCode, ctrl: bool) {
         (KeyCode::Escape, _) => g.cancel(),
         (KeyCode::F2, _) => g.open_rules(),
         (KeyCode::KeyP, _) => g.paused = !g.paused,
+        (KeyCode::Tab, _) => g.next_trouble(),
         (KeyCode::BracketRight | KeyCode::PageDown, false) => g.faster(),
         (KeyCode::BracketLeft | KeyCode::PageUp, false) => g.slower(),
         (KeyCode::Minus, false) => g.open_advisor(advisors::Advisor::Financial),
@@ -2160,6 +2166,7 @@ fn run(mut args: Args) -> Result<()> {
         let zoom = view.zoom;
         let hover = view.hover;
         let clicks = view.clicks.clone();
+        let keys = view.keys.clone();
         let shot = gfx::screenshot(library, args.size, out, |r| {
             if let Some(z) = zoom {
                 r.camera.zoom = z;
@@ -2184,6 +2191,23 @@ fn run(mut args: Args) -> Result<()> {
                 let marked: Vec<_> = w.figures.iter().filter(|f| f.ship.as_ref().is_some_and(|s| s.service)).map(|f| f.id).collect();
                 let companies: Vec<_> = w.military.companies.iter().map(|c| c.kingdom_service).collect();
                 eprintln!("click {},{}: advisor {:?} ships marked {marked:?} companies marked {companies:?} away {:?}", p[0], p[1], game.advisors.as_ref().map(|a| a.current), w.military.battles.iter().map(|b| (b.request, b.months, b.sea)).collect::<Vec<_>>());
+            }
+            for name in &keys {
+                let code = match name.as_str() {
+                    "tab" => KeyCode::Tab,
+                    "space" => KeyCode::Space,
+                    "p" => KeyCode::KeyP,
+                    "w" => KeyCode::KeyW,
+                    "f" => KeyCode::KeyF,
+                    "d" => KeyCode::KeyD,
+                    "[" => KeyCode::BracketLeft,
+                    "]" => KeyCode::BracketRight,
+                    _ => continue,
+                };
+                key_pressed(&mut game, code, false);
+                if let Some((x, y)) = game.look_at.take() {
+                    game.view.center_on(r, &game.world.map, x, y);
+                }
             }
             if let Some(p) = hover {
                 // Negative coordinates count from the right or bottom edge.

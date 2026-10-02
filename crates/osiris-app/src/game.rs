@@ -54,12 +54,13 @@ pub fn speed_label(speed: u32) -> String {
     if speed <= 100 { format!("{speed}%") } else { format!("{}x", speed / 100) }
 }
 
-const CONTROLS: &str = n_("@PLeft-click a build button, then click or drag on the map to build. Right-click cancels the tool, closes windows, and drags to scroll. The arrow keys scroll the map and the mouse wheel zooms.@PP pauses. [ and ] (or Page Up and Page Down) change the speed, from 10% up to 200 times normal. - opens the Overseer of the Treasury and = the Chief Overseer.@PW, F and D show the water, fire and damage overlays; the Overlays menu has the rest. Space switches between the normal view and the last overlay.@PB builds roads and X clears land. M, N, U, O, T and G pick up a bazaar, granary, storage yard, apothecary, water supply and gardens; Ctrl+H housing, Ctrl+F firehouse and Ctrl+A architect.@PF11 or Alt+Enter switches between full screen and a window. F2 opens the game rules, F5 saves and F9 loads the saved game for this city; the city is also saved each month while Autosave is on (Options menu), and Continue on the main menu picks up the latest save. Escape backs out of whatever is open, and when nothing is, asks whether to leave for the main menu.");
+const CONTROLS: &str = n_("@PLeft-click a build button, then click or drag on the map to build. Right-click cancels the tool, closes windows, and drags to scroll. The arrow keys scroll the map and the mouse wheel zooms.@PP pauses. [ and ] (or Page Up and Page Down) change the speed, from 10% up to 200 times normal. - opens the Overseer of the Treasury and = the Chief Overseer.@PW, F and D show the water, fire and damage overlays; the Overlays menu has the rest. Space switches between the normal view and the last overlay. Tab goes to the next building that is not working: no road, no workers or short of goods.@PB builds roads and X clears land. M, N, U, O, T and G pick up a bazaar, granary, storage yard, apothecary, water supply and gardens; Ctrl+H housing, Ctrl+F firehouse and Ctrl+A architect.@PF11 or Alt+Enter switches between full screen and a window. F2 opens the game rules, F5 saves and F9 loads the saved game for this city; the city is also saved each month while Autosave is on (Options menu), and Continue on the main menu picks up the latest save. Escape backs out of whatever is open, and when nothing is, asks whether to leave for the main menu.");
 
 const ABOUT: &str = n_("@POsiris is an open-source engine for Pharaoh, written in Rust and released under the GNU GPL version 3.@PIt plays the original campaign using your own copy of the game data. Pharaoh and its art, music and text are the work of Impressions Games and Sierra.");
 
 /// Text group with building and menu names, indexed by building type id.
 const TEXT_BUILDING_NAMES: usize = 28;
+const TEXT_RESOURCES: usize = 23;
 /// Text group with short month names.
 const TEXT_MONTHS: usize = 25;
 
@@ -227,6 +228,10 @@ pub struct Game {
     lost_click: Option<[f32; 2]>,
     /// Next entry of the problem list to jump to.
     problem_cursor: usize,
+    /// The building the trouble-spot key (Tab) last went to.
+    trouble_last: u32,
+    /// A tile for the camera to move to, set by keys and taken by the app.
+    pub look_at: Option<(i32, i32)>,
     /// Build categories with nothing to build, refreshed daily.
     empty: Vec<Category>,
     empty_day: Option<(u32, u32)>,
@@ -330,6 +335,8 @@ impl Game {
             request: None,
             lost_click: None,
             problem_cursor: 0,
+            trouble_last: 0,
+            look_at: None,
             empty: Vec::new(),
             empty_day: None,
             disasters: Default::default(),
@@ -1462,6 +1469,28 @@ impl Game {
         let name = self.text.get(138, c % 10).unwrap_or("").trim_matches('"').to_owned();
         self.say(&trf("{0}: click where to send them, or their fort to call them home", &[&name]));
         self.sound("BUTTON.WAV");
+    }
+
+    /// Tab: takes the camera to the next building that is not working (no road, no
+    /// workers, or short of an input), after the one it went to last, and says which.
+    pub fn next_trouble(&mut self) {
+        use osiris_sim::economy::Trouble;
+        let spots = self.world.trouble_spots();
+        let Some(&(id, why)) = spots.iter().find(|(id, _)| *id > self.trouble_last).or(spots.first()) else {
+            self.say(tr("No building is in trouble"));
+            return;
+        };
+        self.trouble_last = id;
+        let Some(b) = self.world.buildings.get(id) else { return };
+        let (at, kind) = ((b.x + b.size / 2, b.y + b.size / 2), b.kind);
+        let name = self.building_name(kind);
+        let line = match why {
+            Trouble::NoRoad => trf("{0}: no road access", &[&name]),
+            Trouble::Unstaffed => trf("{0}: no workers", &[&name]),
+            Trouble::MissingInput(r) => trf("{0}: needs {1}", &[&name, &self.text.get(TEXT_RESOURCES, r as usize).unwrap_or("goods").to_lowercase()]),
+        };
+        self.say(&format!("{line} ({}/{})", spots.iter().position(|s| s.0 == id).map_or(0, |i| i + 1), spots.len()));
+        self.look_at = Some(at);
     }
 
     fn say(&mut self, text: &str) {

@@ -75,6 +75,8 @@ pub struct ScriptView {
     pub slide: Option<(bool, f32)>,
     /// A building tool held with the cursor on a tile, to show its placement preview.
     pub hold: Option<(u16, (i32, i32))>,
+    /// Keys pressed in the city once it is drawn, by name (`tab`, `p`, ...).
+    pub keys: Vec<String>,
     /// A movie to show instead, and how many seconds into it.
     pub movie: Option<(String, f64)>,
 }
@@ -205,6 +207,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["sidebar", "collapse"] => crate::sidebar::set_collapsed(true),
             ["sidebar", "expand"] => crate::sidebar::set_collapsed(false),
             ["sidebar", "slide", dir, step] => view.slide = Some((*dir == "collapse", step.parse()?)),
+            ["key", name] => view.keys.push(name.to_string()),
             ["hover", p] => {
                 let (x, y) = parse_point(p)?;
                 view.hover = Some([x as f32, y as f32]);
