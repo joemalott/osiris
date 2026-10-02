@@ -1196,7 +1196,8 @@ impl World {
         m.blocks = fresh;
         m.progress = vec![0; m.blocks.len() * 4 + 1];
         m.delivered.clear();
-        m.phase = stage.min(POLISH);
+        // Tombs without a casing finish straight from raising (advance_tomb).
+        m.phase = stage.min(if polished(style) { POLISH } else { RAISE });
         m.finished = stage > POLISH;
         for (i, b) in m.blocks.iter_mut().enumerate() {
             match stage {

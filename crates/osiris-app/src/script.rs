@@ -199,6 +199,16 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 eprintln!("  tile {x},{y}: terrain {:#x} building {id} kind {:?} image {} edges {:#x} moisture {} fertility {}", world.map.terrain.at_or(x, y, 0), world.buildings.get(id).map(|b| b.kind), world.map.images.at_or(x, y, 0), world.map.edges.at_or(x, y, 0), world.map.moisture.at_or(x, y, 0), world.map.fertility.at_or(x, y, 0));
             }
             ["view", p] => view.centre = Some(parse_point(p)?),
+            // Looks at the middle of the first building of type K's tiles.
+            ["viewkind", k] => {
+                let k: u16 = k.parse()?;
+                let id = world.buildings.iter().find(|b| b.kind == k).context("no such building")?.id;
+                let tiles: Vec<(i32, i32)> = (0..world.map.height).flat_map(|y| (0..world.map.width).map(move |x| (x, y))).filter(|&(x, y)| world.map.building.at_or(x, y, 0) == id).collect();
+                let n = tiles.len().max(1) as i32;
+                view.centre = Some((tiles.iter().map(|t| t.0).sum::<i32>() / n, tiles.iter().map(|t| t.1).sum::<i32>() / n));
+                let span = |f: fn(&(i32, i32)) -> i32| tiles.iter().map(f).max().unwrap_or(0) - tiles.iter().map(f).min().unwrap_or(0) + 1;
+                eprintln!("{step}: building {id} spans {}x{} tiles", span(|t| t.0), span(|t| t.1));
+            }
             ["info", p] => view.info = Some(parse_point(p)?),
             ["dialogs"] => view.keep_dialogs = true,
             ["zoom", z] => view.zoom = Some(z.parse()?),
