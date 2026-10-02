@@ -1611,13 +1611,23 @@ impl Game {
                 // Money only matters once the ground will do.
                 let poor = preview.result.is_ok() && !affordable;
                 let why = preview.result.err().or(poor.then_some(tr("Out of credit!")));
+                // A well waters the houses within a couple of tiles (the sim's own
+                // radius): show them in blue while the spot is good.
+                let reach: Vec<Highlight> = if k == kind::WELL && why.is_none() {
+                    let r = osiris_sim::city::WELL_RADIUS;
+                    let tint = |(x, y): (i32, i32)| Highlight { x, y, color: [0.3, 0.6, 1.0, 0.3], paint: Paint::Silhouette };
+                    rect(x - r, y - r, x + r, y + r).into_iter().filter(|&(tx, ty)| self.world.map.contains(tx, ty)).map(tint).collect()
+                } else {
+                    Vec::new()
+                };
                 if why.is_none() && self.world.has_ghost(k) {
                     let ghost = self.ghost(k, x, y);
                     if !ghost.is_empty() {
-                        return (Vec::new(), ghost, cost, None);
+                        return (reach, ghost, cost, None);
                     }
                 }
-                let marks = preview.tiles.iter().map(|t| mark((t.x, t.y), if t.red || poor { bad } else { ok })).collect();
+                let mut marks: Vec<Highlight> = preview.tiles.iter().map(|t| mark((t.x, t.y), if t.red || poor { bad } else { ok })).collect();
+                marks.splice(0..0, reach);
                 return (marks, Vec::new(), cost, why);
             }
             _ => Vec::new(),
