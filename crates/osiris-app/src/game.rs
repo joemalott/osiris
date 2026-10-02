@@ -1970,12 +1970,21 @@ impl Game {
         };
         // Where the held building can't go, say why, as the original's warning would.
         let line = match (why, cost.filter(|&c| c > 0)) {
-            (Some(why), _) => format!("{tool}: {}", tr(why)),
+            (Some(_), _) => tool.clone(),
             (None, Some(c)) => format!("{tool}: {c} {}", self.text.get(6, 0).unwrap_or("Db").trim()),
             (None, None) => tool,
         };
         if !line.is_empty() {
             draw_text(r, Font::SmallOutlined, &line, 10.0, 38.0, font::WHITE);
+        }
+        // The reason sits beside the cursor, where the player is looking (kept inside
+        // the city view).
+        if let Some(why) = why {
+            let why = tr(why);
+            let tw = osiris_ui::text_width(r, Font::SmallOutlined, why) as f32;
+            let x = (self.cursor[0] + 18.0).min(r.screen[0] - crate::sidebar::width() - tw - 6.0).max(4.0);
+            let y = (self.cursor[1] + 30.0).min(r.screen[1] - 8.0);
+            draw_text(r, Font::SmallOutlined, why, x, y, font::WHITE);
         }
         if let Some((m, _)) = &self.message {
             let w = r.screen[0] - crate::sidebar::width();
