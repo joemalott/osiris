@@ -546,6 +546,12 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 }
                 eprintln!("  finance {:?} entry {:?} exit {:?}", world.finance.this_year, world.entry_point, world.exit_point);
             }
+            // Storage yards: where, staff, and what each space holds.
+            ["yards"] => {
+                for b in world.buildings.iter().filter(|b| b.kind == osiris_sim::buildings::kind::STORAGE_YARD) {
+                    eprintln!("  yard #{} at {},{} workers {} spaces {:?}", b.id, b.x, b.y, b.workers, b.spaces);
+                }
+            }
             // Caravans and trade ships in the city: where they are, what they're doing,
             // the yard or dock they deal with, and loads bought and sold.
             ["traders"] => {
