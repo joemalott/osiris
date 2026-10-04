@@ -36,45 +36,70 @@ const CREATED_WAIT: i32 = 20;
 const DEAL_TICKS: i32 = 11;
 /// Loads a caravan buys at most, and sells at most.
 const CARAVAN_LOADS: i32 = 8;
-/// Default prices (buy, sell) per load, used when a scenario has none.
+/// Default prices (buy, sell) per load, used when a scenario has none: the exe's own
+/// table at 0x5d2c48, which a scenario's prices overwrite.
 const DEFAULT_PRICES: [(i32, i32); RESOURCES] = [
     (0, 0),
-    (28, 21),
-    (47, 35),
-    (33, 25),
-    (33, 25),
-    (33, 25),
-    (33, 25),
-    (42, 33),
-    (44, 34),
-    (21, 16),
-    (325, 275),
-    (38, 29),
-    (150, 120),
-    (140, 105),
-    (48, 37),
-    (185, 140),
-    (54, 42),
-    (210, 160),
-    (120, 92),
-    (310, 150),
-    (225, 170),
-    (0, 0),
-    (31, 23),
-    (200, 165),
-    (38, 29),
-    (46, 35),
-    (60, 45),
-    (0, 0),
-    (375, 315),
-    (240, 185),
-    (40, 32),
+    (28, 22),
+    (44, 36),
+    (38, 30),
+    (38, 30),
+    (38, 30),
+    (38, 30),
+    (44, 36),
+    (44, 36),
+    (44, 36),
+    (250, 180),
+    (40, 30),
+    (200, 150),
+    (180, 140),
+    (44, 36),
+    (215, 160),
+    (42, 34),
+    (180, 140),
+    (60, 40),
+    (200, 150),
+    (50, 35),
+    (60, 40),
+    (44, 36),
+    (215, 160),
+    (200, 140),
+    (200, 140),
+    (200, 140),
+    (200, 140),
+    (250, 180),
+    (60, 40),
+    (200, 140),
     (110, 85),
     (40, 30),
     (155, 116),
     (250, 190),
     (72, 54),
 ];
+
+/// trade_recommends.txt, which the original reads at start (FUN_00541310): by
+/// population under 1000, 2500, 5000 and more, the stock the overseer keeps of food,
+/// then of each of `RECOMMENDED_GOODS`.
+const RECOMMENDED: [[i32; 6]; 4] = [[600, 400, 400, 400, 300, 200], [1200, 800, 800, 800, 600, 400], [2400, 1600, 1600, 1600, 1200, 800], [4000, 3000, 3000, 3000, 2000, 1500]];
+/// Pottery, beer, linen, papyrus, luxury goods.
+const RECOMMENDED_GOODS: [u16; 5] = [13, 15, 17, 23, 19];
+/// Straw, clay, barley, flax, gems, timber, reeds, copper, henna: kept by the
+/// industries using them.
+const RAW_MATERIALS: [u16; 9] = [9, 11, 14, 16, 18, 20, 22, 29, 32];
+/// Bricks, stone, limestone, granite, sandstone.
+const BUILDING_MATERIALS: [u16; 5] = [12, 24, 25, 26, 30];
+
+/// The most a trade level or a set import or export amount of `r` can be
+/// (FUN_00559c60): 10000 weapons or chariots, 30000 bricks or stone, 15000 of anything
+/// else, and nothing below 0.
+fn trade_level_cap(r: u16, n: i32) -> i32 {
+    let most = match r {
+        10 | 28 => 10000,
+        _ if BUILDING_MATERIALS.contains(&r) => 30000,
+        _ => 15000,
+    };
+    n.clamp(0, most)
+}
 
 /// The luxury good each empire city sells, by city name id: the group 23 text id of
 /// its name (38 jewelry, 40 wine, 42 ivory, 44 ebony, 46 incense, 48 olive oil,
@@ -338,26 +363,34 @@ impl World {
         self.trade.mothballed.get(r as usize).copied().unwrap_or(false)
     }
 
-    /// The stock the overseer aims for when importing as needed or exporting surpluses:
-    /// food and drink by population, raw materials by the industries using them, and
-    /// so on.
+    /// The stock the overseer aims for when importing as needed or exporting surpluses
+    /// (FUN_00443330, run at tick 2 of each day): food, pottery, beer, linen, papyrus
+    /// and luxury goods by the city's size from trade_recommends.txt; 200 of a raw
+    /// material and 200 more for each staffed building using it; 500 of bricks and
+    /// stone; 1000 of anything else. What open requests ask for and the burial
+    /// provisions still to send come on top, and the level is at most 10000 weapons or
+    /// chariots, 30000 bricks or stone, 15000 of anything else.
     pub fn trade_level(&self, r: u16) -> i32 {
-        use crate::economy::resource as res;
-        let pop = self.population;
-        let active = |k: u16| self.buildings.iter().filter(|b| b.kind == k && b.workers > 0).count() as i32;
         let users = |r: u16| {
             self.buildings.iter().filter(|b| b.workers > 0 && self.defs.building(b.kind).is_some_and(|d| d.inputs.iter().any(|i| self.resource_id(i) == Some(r)))).count() as i32
         };
-        match r {
-            res::GRAIN | res::MEAT | res::LETTUCE | res::GAMEMEAT | 31 | res::BEER => (pop / 100 * 100).max(100),
-            35 | 10 => 10,
-            11 | res::STRAW | 14 | 29 | 16 => 200 + 200 * users(r),
-            res::TIMBER => active(crate::buildings::kind::SHIPWRIGHT) * 200,
-            12 => (pop / 100 * 100).max(100),
-            res::POTTERY | res::LUXURY_GOODS => (pop / 100 * 50).max(100),
-            23 => (active(51) + active(53)).max(1) * 100,
-            _ => 100,
-        }
+        let band = match self.population {
+            p if p < 1000 => 0,
+            p if p < 2500 => 1,
+            p if p < 5000 => 2,
+            _ => 3,
+        };
+        let recommended = RECOMMENDED_GOODS.iter().position(|&g| g == r);
+        let base = match r {
+            1..=8 => RECOMMENDED[band][0],
+            _ if recommended.is_some() => RECOMMENDED[band][recommended.unwrap_or(0) + 1],
+            _ if RAW_MATERIALS.contains(&r) => 200 * (users(r) + 1),
+            _ if BUILDING_MATERIALS.contains(&r) => 500,
+            _ => 1000,
+        };
+        let asked: i32 = self.scenario_events.open_requests().filter(|(_, e)| e.resource == r).map(|(_, e)| e.units()).sum();
+        let burial = self.burial.get(r as usize).map_or(0, |&(need, sent)| need - sent);
+        trade_level_cap(r, base + asked + burial)
     }
 
     /// Whether traders from `city` would buy `r` from us now.
@@ -402,13 +435,15 @@ impl World {
         kinds.iter().filter(|&&k| k).count() as i32
     }
 
-    /// Whether any trading city sells (or buys) `r`, and whether its route is open.
+    /// Whether any trading city sells (or buys) `r` with an allowance this year, and
+    /// whether its route is open (FUN_004439c0, FUN_00443950 and their buying
+    /// counterparts).
     pub fn trade_partners(&self, r: u16, buying: bool) -> (bool, bool) {
         let mut any = false;
         let mut open = false;
-        for c in self.trade.cities.iter().filter(|c| c.trades()) {
+        for (i, c) in self.trade.cities.iter().enumerate().filter(|(_, c)| c.trades()) {
             let list = if buying { &c.sells } else { &c.buys };
-            if list.get(r as usize).copied().unwrap_or(false) {
+            if list.get(r as usize).copied().unwrap_or(false) && self.trade_limit(i, r) > 0 {
                 any = true;
                 open |= c.open;
             }
@@ -417,43 +452,59 @@ impl World {
     }
 
     /// Clicking a resource's import button: as needed, then to a set amount, then off.
+    /// The set amount starts at the overseer's level, in whole loads (the original's
+    /// handler at 0x559a60).
     pub fn cycle_import(&mut self, r: u16) {
         if !self.trade_partners(r, true).1 {
             return;
         }
+        let level = self.trade_level(r) / LOAD * LOAD;
         let s = &mut self.trade.status[r as usize];
         *s = match *s {
             status::IMPORT_AS_NEEDED => status::IMPORT,
             status::IMPORT => status::NONE,
             _ => status::IMPORT_AS_NEEDED,
         };
+        if *s == status::IMPORT {
+            self.trade.amount[r as usize] = level;
+        }
     }
 
     /// Clicking a resource's export button: surpluses, then over a set amount, then off.
+    /// The set amount starts at the overseer's level, in whole loads (0x559b50).
     pub fn cycle_export(&mut self, r: u16) {
         if !self.trade_partners(r, false).1 {
             return;
         }
+        let level = self.trade_level(r) / LOAD * LOAD;
         let s = &mut self.trade.status[r as usize];
         *s = match *s {
             status::EXPORT_SURPLUS => status::EXPORT,
             status::EXPORT => status::NONE,
             _ => status::EXPORT_SURPLUS,
         };
+        if *s == status::EXPORT {
+            self.trade.amount[r as usize] = level;
+        }
         if *s != status::NONE {
             self.trade.stockpiled[r as usize] = false;
         }
     }
 
+    /// The import or export amount's arrows: a load up or down, kept within the
+    /// resource's cap (0x559cd0).
     pub fn change_trade_amount(&mut self, r: u16, delta: i32) {
         if let Some(a) = self.trade.amount.get_mut(r as usize) {
-            *a = (*a + delta).clamp(0, 10000);
+            *a = trade_level_cap(r, *a + delta);
         }
     }
 
+    /// Stockpiling a resource stops its export (0x559d70).
     pub fn toggle_stockpiled(&mut self, r: u16) {
-        if let Some(s) = self.trade.stockpiled.get_mut(r as usize) {
-            *s = !*s;
+        let Some(s) = self.trade.stockpiled.get_mut(r as usize) else { return };
+        *s = !*s;
+        if *s && matches!(self.trade.status[r as usize], status::EXPORT | status::EXPORT_SURPLUS) {
+            self.trade.status[r as usize] = status::NONE;
         }
     }
 
@@ -903,10 +954,13 @@ impl World {
         f.walk(map);
     }
 
-    /// Yearly: each route's traded amounts start again.
+    /// Yearly: the traded amounts of each open route start again (FUN_004448e0); a
+    /// closed route keeps its counts until it is open at a year's end.
     pub(crate) fn reset_trade_year(&mut self) {
-        for r in &mut self.trade.routes {
-            r.traded.iter_mut().for_each(|t| *t = 0);
+        for c in self.trade.cities.iter().filter(|c| c.open) {
+            if let Some(r) = self.trade.routes.get_mut(c.route as usize) {
+                r.traded.iter_mut().for_each(|t| *t = 0);
+            }
         }
     }
 }
@@ -1097,6 +1151,80 @@ mod tests {
         assert_eq!(w.stored(a, 12), 400);
         assert_eq!(w.treasury - treasury, 8 * w.sell_price(12));
         assert_eq!(w.figures.get(fid).unwrap().action, action::LEAVING, "full up, it goes");
+    }
+
+    #[test]
+    fn the_overseers_levels_follow_the_city_size_its_industry_and_its_debts() {
+        let Some(mut w) = sandbox() else { return };
+        w.buildings.iter_mut().for_each(|b| b.workers = 0);
+        w.population = 900;
+        assert_eq!((w.trade_level(1), w.trade_level(13), w.trade_level(19)), (600, 400, 200));
+        w.population = 2500;
+        assert_eq!((w.trade_level(8), w.trade_level(23)), (2400, 1200), "2500 is the third band");
+        w.population = 5000;
+        assert_eq!((w.trade_level(5), w.trade_level(15), w.trade_level(17)), (4000, 3000, 3000));
+        assert_eq!(w.trade_level(11), 200, "clay with no potter or brickworks");
+        assert_eq!((w.trade_level(24), w.trade_level(12)), (500, 500));
+        assert_eq!((w.trade_level(10), w.trade_level(35), w.trade_level(31)), (1000, 1000, 1000));
+        // A staffed potter adds 200 of clay.
+        let potter = w.create_building(114, 40, 40);
+        w.buildings.get_mut(potter).unwrap().workers = 4;
+        assert_eq!(w.trade_level(11), 400);
+        // Burial provisions still to send come on top, up to the cap.
+        w.burial = vec![(0, 0); RESOURCES];
+        w.burial[10] = (20000, 5000);
+        assert_eq!(w.trade_level(10), 10000, "weapons are capped at 10000");
+        w.burial[13] = (1000, 200);
+        assert_eq!(w.trade_level(13), 3800);
+    }
+
+    #[test]
+    fn set_amounts_start_at_the_level_and_keep_within_the_cap() {
+        let Some(mut w) = sandbox() else { return };
+        w.population = 1200;
+        // City 0 sells pomegranates (5) and buys figs (6).
+        w.cycle_import(5);
+        assert_eq!(w.trade.status[5], status::IMPORT_AS_NEEDED);
+        w.cycle_import(5);
+        assert_eq!((w.trade.status[5], w.trade.amount[5]), (status::IMPORT, 1200));
+        w.change_trade_amount(5, -100);
+        assert_eq!(w.trade.amount[5], 1100);
+        w.trade.amount[5] = 14950;
+        w.change_trade_amount(5, 100);
+        assert_eq!(w.trade.amount[5], 15000);
+        w.trade.amount[5] = 0;
+        w.change_trade_amount(5, -100);
+        assert_eq!(w.trade.amount[5], 0);
+        w.cycle_export(6);
+        w.cycle_export(6);
+        assert_eq!((w.trade.status[6], w.trade.amount[6]), (status::EXPORT, 1200));
+        // Stockpiling stops the export; exporting again stops the stockpile.
+        w.toggle_stockpiled(6);
+        assert_eq!(w.trade.status[6], status::NONE);
+        w.cycle_export(6);
+        assert_eq!(w.trade.status[6], status::EXPORT_SURPLUS);
+        assert!(!w.is_stockpiled(6));
+    }
+
+    #[test]
+    fn a_good_with_no_allowance_has_no_partner() {
+        let Some(mut w) = sandbox() else { return };
+        assert_eq!(w.trade_partners(5, true), (true, true));
+        w.trade.routes[0].limit[5] = 0;
+        w.trade.routes[1].limit[5] = 0;
+        assert_eq!(w.trade_partners(5, true), (false, false));
+        w.cycle_import(5);
+        assert_eq!(w.trade.status[5], status::NONE, "nothing to import it from");
+    }
+
+    #[test]
+    fn only_open_routes_start_the_year_afresh() {
+        let Some(mut w) = sandbox() else { return };
+        w.trade.cities[1].open = false;
+        w.trade.routes[0].traded[5] = 800;
+        w.trade.routes[1].traded[5] = 300;
+        w.reset_trade_year();
+        assert_eq!((w.trade.routes[0].traded[5], w.trade.routes[1].traded[5]), (0, 300));
     }
 
     #[test]
