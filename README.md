@@ -55,6 +55,31 @@ What is in:
 Some numbers the original never documented are placeholders, and the code says so
 where they are.
 
+### Known differences
+
+These are the places we know still differ from the original, or haven't been checked
+against it yet:
+
+- Scenario events: a follow-up event runs the original event again, where the original
+  runs a copy of it. Some of the original's request messages (frames 262–278, 275, 276
+  and 330) and the troops-return messages are not shown yet. Deben sent to the Kingdom
+  are not added to that year's finance totals.
+- Older scenario files: event resources are converted on load as in the original, but
+  its other conversion steps for old map versions, such as price slots, haven't been
+  checked.
+- Gifts: when the yards have room for the whole gift, it measures room a little more
+  strictly than the original. The original's per-good flag set on accepting a gift has
+  no counterpart, and a gift shows its forfeited message once where the original shows
+  it twice.
+- Trade: the Overseer of Commerce's stone and brick levels for mastabas and stepped
+  pyramids can come out up to 400 above the original's. Clicking a row while prices are
+  shown is assumed to work as in the normal view. The normal view's stock and status
+  columns sit slightly off the original's positions. A ship's twelfth load doesn't count
+  toward its route's yearly amount in the original but does here, and the original leaves
+  some storage yards out of its stock totals.
+- The yearly trade allowance and its reset are tested with caravans on a land route but
+  not with ships.
+
 ### Game rules
 
 The in-game Rules window (F2) can switch off gods, floods, disasters, fire, disease and
