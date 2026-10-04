@@ -994,6 +994,7 @@ impl World {
 mod tests {
     use super::*;
     use crate::religion::ra_allowance;
+    use crate::{Command, Outcome};
 
     /// The sandbox map with an open land route (allowances 2500 and 4000, so three
     /// traders at a time) and an open sea route, when the game data is present.
@@ -1250,6 +1251,56 @@ mod tests {
         w.trade.routes[1].traded[5] = 300;
         w.reset_trade_year();
         assert_eq!((w.trade.routes[0].traded[5], w.trade.routes[1].traded[5]), (0, 300));
+    }
+
+    /// Real caravans from the land route trade at a staffed yard on a road from the
+    /// entry point, across a year's end: trading of each good stops at the route's
+    /// allowance, the counts start again in January, and trading resumes.
+    #[test]
+    fn caravans_trade_to_the_allowance_and_again_after_the_year_rolls() {
+        let Some(mut w) = sandbox() else { return };
+        w.trade.cities[1].open = false;
+        w.test_full_staff = true;
+        w.rules.global_labor_pool = true;
+        w.rules.fire = false;
+        w.rules.collapse = false;
+        w.treasury = 1_000_000;
+        // The route sells good 5 to us and buys good 6, with small allowances.
+        w.trade.routes[0].limit[5] = 500;
+        w.trade.routes[0].limit[6] = 400;
+        w.set_trade(5, status::IMPORT, 100_000);
+        w.set_trade(6, status::EXPORT, 0);
+        let (ex, ey) = w.entry_point;
+        // The sandbox's road from the entry point runs straight north; the yard stands
+        // beside it.
+        let build = Command::Build { kind: kind::STORAGE_YARD, x: ex - 3, y: ey - 10, x1: ex - 3, y1: ey - 10 };
+        assert!(matches!(w.apply(&build), Outcome::Done { items: 1, .. }), "yard");
+        let yard = w.buildings.iter().find(|b| b.kind == kind::STORAGE_YARD).map(|b| b.id).expect("yard");
+        w.add_stored(yard, 6, 2000);
+        // A new yard refuses food, and both goods are food.
+        w.buildings.get_mut(yard).expect("yard").orders.resize(7, crate::storage::order::ACCEPT);
+        let traded = |w: &World| (w.trade.routes[0].traded[5], w.trade.routes[0].traded[6]);
+        // Year one: trading climbs to the allowance and stops there.
+        let year = w.time.year;
+        let mut at_year_end = (0, 0);
+        while w.time.year == year {
+            at_year_end = traded(&w);
+            w.tick();
+            let now = traded(&w);
+            assert!(now.0 <= 500 && now.1 <= 400, "allowance exceeded: {now:?}");
+        }
+        assert_eq!(at_year_end, (500, 400), "each good trades up to its allowance, no further");
+        // The year rolled on the last tick: January starts with nothing traded.
+        assert_eq!(traded(&w), (0, 0), "the counts start again in January");
+        // Year two: both goods trade again, up to the allowance.
+        let mut seen = (0, 0);
+        while w.time.year == year + 1 && seen != (500, 400) {
+            w.tick();
+            let now = traded(&w);
+            assert!(now.0 <= 500 && now.1 <= 400, "allowance exceeded: {now:?}");
+            seen = (seen.0.max(now.0), seen.1.max(now.1));
+        }
+        assert_eq!(seen, (500, 400), "trading starts again after the rollover");
     }
 
     #[test]
