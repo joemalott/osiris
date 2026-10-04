@@ -501,19 +501,18 @@ impl World {
                     phrases = Some((f("wage_change_title"), f("wage_change_initial_announcement"), f("wage_change_no_reason") + "_A"));
                 }
             }
+            // However small the city (FUN_0044c660 has no check on its size).
             event::CONTAMINATED_WATER => {
-                if self.population > 200 {
-                    let health = self.ratings.health;
-                    let change = if health > 80 {
-                        -50
-                    } else if health > 60 {
-                        -40
-                    } else {
-                        -25
-                    };
-                    self.ratings.health = (health + change).clamp(0, 100);
-                    phrases = Some(("bad_water_title".into(), "bad_water_initial_announcement".into(), "bad_water_no_reason_A".into()));
-                }
+                let health = self.ratings.health;
+                let change = if health > 80 {
+                    -50
+                } else if health > 60 {
+                    -40
+                } else {
+                    -25
+                };
+                self.ratings.health = (health + change).clamp(0, 100);
+                phrases = Some(("bad_water_title".into(), "bad_water_initial_announcement".into(), "bad_water_no_reason_A".into()));
             }
             event::GOLD_MINE_COLLAPSE | event::CLAY_PIT_FLOOD => {
                 let target = if e.kind == event::GOLD_MINE_COLLAPSE { kind::GOLD_MINE } else { kind::CLAY_PIT };
