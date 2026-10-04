@@ -92,6 +92,33 @@ pub mod state {
     pub const SENT_LATE: u8 = 6;
 }
 
+/// Gift states (the original's numbers, FUN_0044c660's gift branch). Each month a
+/// gift waiting for room looks again, and offers itself once there is room for at
+/// least half; the third look is the last.
+pub mod gift_state {
+    /// Offered with room for at least half: waiting for the player's answer.
+    pub const OFFERED: u8 = 1;
+    /// Too little room; looks again next month.
+    pub const WAITING: u8 = 2;
+    /// Offered on the second look.
+    pub const OFFERED_AGAIN: u8 = 3;
+    /// Too little room twice; the next look is the last.
+    pub const LAST_TRY: u8 = 4;
+    /// Offered on the last look: postponing now forfeits it.
+    pub const LAST_CHANCE: u8 = 5;
+    /// Too little room on the last look: forfeit, and what follows comes next month.
+    pub const FORFEIT: u8 = 8;
+    /// Accepted, refused or forfeit.
+    pub const DONE: u8 = 9;
+}
+
+/// The buttons a gift's message offers (the original's flags at 0xd3b186).
+pub mod gift_choice {
+    pub const REFUSE: u8 = 1;
+    pub const POSTPONE: u8 = 2;
+    pub const ACCEPT: u8 = 4;
+}
+
 /// Event kinds whose item is a resource (the table at 0x5d9c78).
 fn item_is_resource(kind: u8) -> bool {
     matches!(kind, event::REQUEST | event::DEMAND_INCREASE | event::DEMAND_DECREASE | event::PRICE_INCREASE | event::PRICE_DECREASE | event::GIFT)
@@ -139,6 +166,9 @@ pub struct EventText {
     /// The god a festival is for.
     #[serde(default)]
     pub god: Option<u8>,
+    /// The gift event whose offer this is, for its Accept, Refuse and Postpone.
+    #[serde(default)]
+    pub gift: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -201,6 +231,9 @@ pub struct ScenarioEvent {
     /// Requests: the month the request opened, which doesn't count against it.
     #[serde(default)]
     pub opened: Option<i32>,
+    /// Gifts: the answers the player may give now (`gift_choice` flags).
+    #[serde(default)]
+    pub choices: u8,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -429,6 +462,10 @@ impl World {
         let month = self.month_count();
         for i in 0..self.scenario_events.list.len() {
             let e = &self.scenario_events.list[i];
+            if e.kind == event::GIFT && e.active && e.opened != Some(month) {
+                self.update_gift(i);
+                continue;
+            }
             if e.kind != event::REQUEST {
                 continue;
             }
@@ -507,8 +544,9 @@ impl World {
             }
         }
         // A recurring event comes again the years its year picks after this one
-        // (FUN_0044bc20); a request only once it has been met, counted from then.
-        if e.trigger == trigger::RECURRING && e.kind != event::REQUEST {
+        // (FUN_0044bc20); a request only once it has been met, and a gift once it is
+        // accepted, refused or forfeit, counted from then.
+        if e.trigger == trigger::RECURRING && e.kind != event::REQUEST && e.kind != event::GIFT {
             self.repeat_event(i);
         }
         if e.trigger == trigger::FIRED {
@@ -665,25 +703,14 @@ impl World {
                 self.adjust_next_flood_quality(q);
                 phrases = Some(("perfect_flood_title".into(), "perfect_flood_initial_announcement".into(), "perfect_flood_no_reason_A".into()));
             }
+            // The gift is offered, or waits for room (see `gift_look`).
             event::GIFT => {
-                let side = e.side();
-                if resource == DEBEN {
-                    self.treasury += amount;
-                    self.finance.this_year.donated += amount;
-                    phrases = Some((format!("gift_title_{side}"), format!("gift_cash_granted_{side}"), format!("gift_no_reason_{side}_A")));
-                } else if resource > 0 && amount > 0 {
-                    // Goods are given in loads of 100 (FUN_0045afe0).
-                    let units = amount * 100;
-                    let left = self.deliver_to_storage(resource, units);
-                    let body = if left == 0 {
-                        "gift_granted"
-                    } else if left < units {
-                        "gift_partial_space"
-                    } else {
-                        "gift_insufficient_space"
-                    };
-                    phrases = Some((format!("gift_title_{side}"), format!("{body}_{side}"), format!("gift_no_reason_{side}_A")));
-                }
+                let ev = &mut self.scenario_events.list[i];
+                ev.state = 0;
+                ev.choices = 0;
+                ev.active = true;
+                ev.opened = Some(now_month);
+                self.gift_look(i);
             }
             // Locusts will come before the next flood, as when Osiris sends them.
             event::LOCUSTS => {
@@ -713,9 +740,9 @@ impl World {
             text.reason = self.reason_phrase(i).unwrap_or(no_reason);
             self.post_event_text(text);
         }
-        // Everything but a request leads straight on to what follows it; an invasion
-        // does when the army arrives.
-        if e.kind != event::REQUEST && e.kind != event::INVASION {
+        // Everything but a request or a gift leads straight on to what follows it; an
+        // invasion does when the army arrives.
+        if !matches!(e.kind, event::REQUEST | event::INVASION | event::GIFT) {
             let on = self.scenario_events.list[i].on_completed;
             self.follow(on, i, Outcome::Completed);
         }
@@ -769,6 +796,14 @@ impl World {
     fn reason_phrase(&self, i: usize) -> Option<String> {
         let (parent, outcome) = self.scenario_events.list[i].cause?;
         let p = self.scenario_events.list.get(parent)?;
+        if p.kind == event::GIFT {
+            let what = match outcome {
+                Outcome::Completed => "accepted",
+                Outcome::Refused => "refused",
+                Outcome::TooLate | Outcome::Defeat => "forfeited",
+            };
+            return Some(format!("gift_{what}_reason_{}_A", p.side()));
+        }
         if p.kind != event::REQUEST {
             return None;
         }
@@ -814,6 +849,7 @@ impl World {
             cause: None,
             army: None,
             god: (0..5).contains(&e.god).then_some(e.god as u8),
+            gift: None,
         };
         if let Some(reason) = self.reason_phrase(i) {
             t.reason = reason;
@@ -1077,6 +1113,7 @@ impl World {
             cause: None,
             army: None,
             god: None,
+            gift: None,
         };
         if let Some(reason) = self.reason_phrase(i) {
             t.reason = reason;
@@ -1085,12 +1122,22 @@ impl World {
         self.post_event_text(t);
     }
 
-    /// Puts `units` of `r` into storage yards with room (FUN_0045afe0 fills only
-    /// yards); returns what did not fit.
+    /// The buildings a gift of `r` goes to, in the order it fills them: storage
+    /// yards, and for food granaries too (FUN_0045afe0, types 0x48 and 0x47).
+    fn gift_stores(&self, r: u16) -> Vec<u32> {
+        self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD || resource::is_food(r) && b.kind == kind::GRANARY).map(|b| b.id).collect()
+    }
+
+    /// Room for `r` in the buildings a gift goes to, in units.
+    fn gift_room(&self, r: u16) -> i32 {
+        self.gift_stores(r).into_iter().map(|id| self.storage_room(id, r)).sum()
+    }
+
+    /// Puts `units` of `r` into storage yards, and food into granaries too, as far
+    /// as there is room (FUN_0045afe0); returns what did not fit.
     fn deliver_to_storage(&mut self, r: u16, units: i32) -> i32 {
         let mut left = units;
-        let stores: Vec<u32> = self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD).map(|b| b.id).collect();
-        for id in stores {
+        for id in self.gift_stores(r) {
             if left <= 0 {
                 break;
             }
@@ -1100,6 +1147,146 @@ impl World {
             }
         }
         left
+    }
+
+    /// A gift's message (template 132): its title and `body`, both by who sends it,
+    /// offering `choices`.
+    fn gift_text(&self, i: usize, body: &str, units: i32, choices: u8) -> EventText {
+        let e = &self.scenario_events.list[i];
+        let side = e.side();
+        let mut t = EventText {
+            title: format!("gift_title_{side}"),
+            body: format!("{body}_{side}"),
+            reason: format!("gift_no_reason_{side}_A"),
+            resource: e.resource,
+            amount: units,
+            city_name: e.city.map(|c| self.trade.cities[c].name_id),
+            template: 132,
+            gift: (choices != 0).then_some(i),
+            ..Default::default()
+        };
+        if let Some(reason) = self.reason_phrase(i) {
+            t.reason = reason;
+            t.cause = self.cause_of(i);
+        }
+        t
+    }
+
+    /// Gift `i` looks at the room for it (the gift branch of FUN_0044c660, at
+    /// 0x44e890): with room for all of it the player may accept or refuse it; with
+    /// room for at least half, also postpone it; with less it waits a month and looks
+    /// again. A deben gift always has room. The first look comes when it fires; on
+    /// the third, a gift with too little room is forfeit and an offer can no longer
+    /// wait.
+    fn gift_look(&mut self, i: usize) {
+        use gift_choice::*;
+        use gift_state::*;
+        let e = &self.scenario_events.list[i];
+        let (state, amount, resource) = (e.state, e.amount, e.resource);
+        let room = if resource == DEBEN { amount } else { self.gift_room(resource) / 100 };
+        let last = state == LAST_TRY;
+        let (body, choices) = if room >= amount {
+            (if resource == DEBEN { "gift_cash_granted" } else { "gift_granted" }, ACCEPT | REFUSE)
+        } else if room >= amount / 2 {
+            (if last { "gift_last_chance" } else { "gift_partial_space" }, ACCEPT | REFUSE | POSTPONE)
+        } else {
+            (if last { "gift_forfeited" } else { "gift_insufficient_space" }, 0)
+        };
+        let offered = choices != 0;
+        let next = match state {
+            WAITING => if offered { OFFERED_AGAIN } else { LAST_TRY },
+            LAST_TRY => if offered { LAST_CHANCE } else { FORFEIT },
+            _ => if offered { OFFERED } else { WAITING },
+        };
+        let e = &mut self.scenario_events.list[i];
+        e.state = next;
+        e.choices = choices;
+        let units = if resource == DEBEN { amount } else { amount * 100 };
+        let t = self.gift_text(i, body, units, choices);
+        self.post_event_text(t);
+    }
+
+    /// Monthly, from the month after it fires: a gift waiting for room looks again,
+    /// and a forfeit one leads on to the event for that. An offer waits for the
+    /// player's answer however long that takes.
+    fn update_gift(&mut self, i: usize) {
+        match self.scenario_events.list[i].state {
+            gift_state::WAITING | gift_state::LAST_TRY => self.gift_look(i),
+            // The original says again here that the gift is forfeit; once is enough.
+            gift_state::FORFEIT => self.finish_gift(i, Outcome::TooLate),
+            _ => {}
+        }
+    }
+
+    /// The gift event whose offer is waiting for the player's answer, if `t` is one.
+    pub fn gift_offer(&self, t: &EventText) -> Option<(usize, u8)> {
+        let i = t.gift?;
+        let e = self.scenario_events.list.get(i)?;
+        (e.kind == event::GIFT && e.active && e.choices != 0).then_some((i, e.choices))
+    }
+
+    /// The player's answer to gift `i`'s offer (a `gift_choice`; the message's
+    /// buttons, at 0x44ee30, 0x44eea0 and 0x44eef0). Accepting puts what fits of the
+    /// goods into storage, or the deben into the treasury; refusing turns the gift
+    /// away; postponing has it look again next month, or forfeits it on its last
+    /// chance. False when the gift isn't offering that.
+    pub fn answer_gift(&mut self, i: usize, choice: u8) -> bool {
+        use gift_choice::*;
+        let Some(e) = self.scenario_events.list.get(i) else { return false };
+        if e.kind != event::GIFT || !e.active || e.choices & choice == 0 || choice.count_ones() != 1 {
+            return false;
+        }
+        let (state, amount, resource) = (e.state, e.amount, e.resource);
+        self.scenario_events.list[i].choices = 0;
+        match choice {
+            ACCEPT => {
+                let t = if resource == DEBEN {
+                    self.treasury += amount;
+                    self.finance.this_year.donated += amount;
+                    self.gift_text(i, "gift_cash_accepted", amount, 0)
+                } else {
+                    let units = amount * 100;
+                    let given = units - self.deliver_to_storage(resource, units);
+                    self.gift_text(i, "gift_accepted", given, 0)
+                };
+                self.post_event_text(t);
+                self.finish_gift(i, Outcome::Completed);
+            }
+            REFUSE => {
+                let t = self.gift_text(i, "gift_refused", amount * 100, 0);
+                self.post_event_text(t);
+                self.finish_gift(i, Outcome::Refused);
+            }
+            _ => match state {
+                gift_state::OFFERED => self.scenario_events.list[i].state = gift_state::WAITING,
+                gift_state::OFFERED_AGAIN => self.scenario_events.list[i].state = gift_state::LAST_TRY,
+                _ => {
+                    let t = self.gift_text(i, "gift_forfeited", amount * 100, 0);
+                    self.post_event_text(t);
+                    self.finish_gift(i, Outcome::TooLate);
+                }
+            },
+        }
+        true
+    }
+
+    /// Gift `i` is over: the event the scenario ties to how it ended follows, and a
+    /// recurring gift sets the year it comes again (FUN_0044bc20).
+    fn finish_gift(&mut self, i: usize, outcome: Outcome) {
+        let e = &mut self.scenario_events.list[i];
+        e.state = gift_state::DONE;
+        e.choices = 0;
+        e.active = false;
+        let next = match outcome {
+            Outcome::Completed => e.on_completed,
+            Outcome::Refused => e.on_refusal,
+            _ => e.on_too_late,
+        };
+        let recurring = e.trigger == trigger::RECURRING;
+        self.follow(next, i, outcome);
+        if recurring {
+            self.repeat_event(i);
+        }
     }
 
     /// Daily: storms and sandstorms blow over.
@@ -1290,5 +1477,156 @@ mod tests {
             next_month(&mut world);
         }
         assert_eq!(world.scenario_events.list[i].year, world.years_since_start() + 1);
+    }
+
+    /// A gift of `loads` of `r` from Pharaoh, waiting to be fired, with a reward of
+    /// 2, 3 or 4 Kingdom rating tied to accepting, refusing or forfeiting it.
+    fn add_gift(world: &mut World, r: u16, loads: i16) -> usize {
+        let rewards = [2, 3, 4].map(|n| add_reward(world, n) as i16);
+        world.scenario_events.list.push(ScenarioEvent {
+            kind: event::GIFT,
+            trigger: trigger::ONLY_VIA_EVENT,
+            pharaoh: true,
+            item: Pick { value: r as i16, fixed: r as i16, min: -1, max: -1 },
+            amount_pick: Pick { value: loads, fixed: loads, min: -1, max: -1 },
+            on_completed: rewards[0],
+            on_refusal: rewards[1],
+            on_too_late: rewards[2],
+            on_defeat: -1,
+            ..Default::default()
+        });
+        world.scenario_events.list.len() - 1
+    }
+
+    /// A staffed storage yard with `full` of its eight spaces full of something else.
+    fn yard(world: &mut World, full: usize) -> u32 {
+        let id = world.create_building(kind::STORAGE_YARD, 60, 60);
+        let b = world.buildings.get_mut(id).unwrap();
+        b.road = Some((60, 59));
+        b.workers = 6;
+        for s in b.spaces.iter_mut().take(full) {
+            *s = (12, 400);
+        }
+        id
+    }
+
+    /// The gift's last message.
+    fn last_gift_text(world: &World) -> EventText {
+        world.notices.log.iter().rev().filter_map(|n| n.text.clone()).find(|t| t.title.starts_with("gift_")).unwrap_or_default()
+    }
+
+    fn last_body(world: &World) -> String {
+        last_gift_text(world).body
+    }
+
+    const BRICKS: u16 = 13;
+
+    /// With no room the gift waits, looks again each month, and on the third look is
+    /// forfeit; what is tied to forfeiting it follows the month after.
+    #[test]
+    fn gifts_with_full_yards_wait_then_are_forfeit() {
+        let Some(mut world) = mission(14) else { return };
+        let y = yard(&mut world, 8);
+        let i = add_gift(&mut world, BRICKS, 10);
+        let kingdom = world.ratings.kingdom;
+        world.fire_event_now(i);
+        assert_eq!(last_body(&world), "gift_insufficient_space_P");
+        assert_eq!((world.scenario_events.list[i].state, world.scenario_events.list[i].choices), (gift_state::WAITING, 0));
+        assert!(!world.answer_gift(i, gift_choice::ACCEPT), "nothing to accept yet");
+        next_month(&mut world);
+        assert_eq!(world.scenario_events.list[i].state, gift_state::LAST_TRY);
+        assert_eq!(last_body(&world), "gift_insufficient_space_P");
+        next_month(&mut world);
+        assert_eq!(world.scenario_events.list[i].state, gift_state::FORFEIT);
+        assert_eq!(last_body(&world), "gift_forfeited_P");
+        assert_eq!(world.ratings.kingdom, kingdom);
+        next_month(&mut world);
+        assert_eq!(world.scenario_events.list[i].state, gift_state::DONE);
+        assert!(!world.scenario_events.list[i].active);
+        assert_eq!(world.ratings.kingdom, kingdom + 4);
+        assert_eq!(world.stored(y, BRICKS), 0);
+    }
+
+    /// Accepted once room is made: room for all of it offers Accept and Refuse, and
+    /// accepting fills the yard. Room for half also offers Postpone, which waits a
+    /// month; postponing the last chance forfeits it.
+    #[test]
+    fn gifts_are_accepted_once_there_is_room() {
+        let Some(mut world) = mission(14) else { return };
+        let y = yard(&mut world, 8);
+        let i = add_gift(&mut world, BRICKS, 10);
+        let kingdom = world.ratings.kingdom;
+        world.fire_event_now(i);
+        world.buildings.get_mut(y).unwrap().spaces[..3].fill((0, 0));
+        next_month(&mut world);
+        assert_eq!(last_body(&world), "gift_granted_P");
+        let offer = last_gift_text(&world);
+        assert_eq!(world.gift_offer(&offer), Some((i, gift_choice::ACCEPT | gift_choice::REFUSE)));
+        assert!(!world.answer_gift(i, gift_choice::POSTPONE));
+        // Nothing comes of waiting for an answer.
+        next_month(&mut world);
+        assert_eq!(world.scenario_events.list[i].state, gift_state::OFFERED_AGAIN);
+        assert_eq!(world.apply(&crate::world::Command::AnswerGift { event: i, choice: gift_choice::ACCEPT }), crate::world::Outcome::Done { items: 1, cost: 0 });
+        assert_eq!(world.stored(y, BRICKS), 1000);
+        assert_eq!(last_body(&world), "gift_accepted_P");
+        assert_eq!(world.ratings.kingdom, kingdom + 2);
+        assert_eq!(world.gift_offer(&offer), None, "answered");
+
+        // Room for 8 of 10 loads: postponed once, then accepted in part on the last look.
+        let mut world = mission(14).unwrap();
+        let y = yard(&mut world, 6);
+        let i = add_gift(&mut world, BRICKS, 10);
+        world.fire_event_now(i);
+        assert_eq!(last_body(&world), "gift_partial_space_P");
+        assert!(world.answer_gift(i, gift_choice::POSTPONE));
+        assert_eq!(world.scenario_events.list[i].state, gift_state::WAITING);
+        next_month(&mut world);
+        assert_eq!(world.scenario_events.list[i].choices, 7);
+        assert!(world.answer_gift(i, gift_choice::POSTPONE));
+        next_month(&mut world);
+        assert_eq!(last_body(&world), "gift_last_chance_P");
+        assert!(world.answer_gift(i, gift_choice::ACCEPT));
+        assert_eq!(world.stored(y, BRICKS), 800, "what fits");
+        assert_eq!(last_gift_text(&world).amount, 800);
+
+        // Postponing the last chance forfeits the gift at once.
+        let mut world = mission(14).unwrap();
+        yard(&mut world, 6);
+        let i = add_gift(&mut world, BRICKS, 10);
+        let kingdom = world.ratings.kingdom;
+        world.fire_event_now(i);
+        for _ in 0..2 {
+            assert!(world.answer_gift(i, gift_choice::POSTPONE));
+            next_month(&mut world);
+        }
+        assert!(world.answer_gift(i, gift_choice::POSTPONE));
+        assert_eq!(last_body(&world), "gift_forfeited_P");
+        assert_eq!(world.ratings.kingdom, kingdom + 4);
+    }
+
+    /// Refused, nothing is delivered and the event tied to refusing it follows; a
+    /// deben gift accepted goes into the treasury.
+    #[test]
+    fn gifts_can_be_refused() {
+        let Some(mut world) = mission(14) else { return };
+        let y = yard(&mut world, 0);
+        let i = add_gift(&mut world, BRICKS, 10);
+        let kingdom = world.ratings.kingdom;
+        world.fire_event_now(i);
+        assert_eq!(last_body(&world), "gift_granted_P");
+        assert!(world.answer_gift(i, gift_choice::REFUSE));
+        assert_eq!(last_body(&world), "gift_refused_P");
+        assert_eq!(world.stored(y, BRICKS), 0);
+        assert_eq!(world.ratings.kingdom, kingdom + 3);
+        assert!(!world.answer_gift(i, gift_choice::ACCEPT), "once only");
+
+        let i = add_gift(&mut world, DEBEN, 500);
+        world.treasury = 100;
+        world.fire_event_now(i);
+        assert_eq!(last_body(&world), "gift_cash_granted_P");
+        assert_eq!(world.treasury, 100, "not until accepted");
+        assert!(world.answer_gift(i, gift_choice::ACCEPT));
+        assert_eq!(world.treasury, 600);
+        assert_eq!(last_body(&world), "gift_cash_accepted_P");
     }
 }
