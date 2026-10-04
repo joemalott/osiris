@@ -85,6 +85,23 @@ pub mod state {
     pub const FAILED: u8 = 4;
 }
 
+/// Event kinds whose item is a resource (the table at 0x5d9c78).
+fn item_is_resource(kind: u8) -> bool {
+    matches!(kind, event::REQUEST | event::DEMAND_INCREASE | event::DEMAND_DECREASE | event::PRICE_INCREASE | event::PRICE_DECREASE | event::GIFT)
+}
+
+/// Scenarios saved before version 152 number deben and troops 31 and 32, from before
+/// the five resources Cleopatra added at 31. On loading them the original moves every
+/// resource past 30 that an event names up by five, and packs the item's choices so
+/// the ones in use come first, which makes a range of items a choice between its two
+/// ends (FUN_004d40c0, run for files older than 0x98).
+fn upgrade_item(v: EventValue) -> EventValue {
+    let up = |r: i16| if r > 30 { r + 5 } else { r };
+    let mut choices = [up(v.fixed), up(v.min), up(v.max)].into_iter().filter(|&r| r >= 0);
+    let mut next = || choices.next().unwrap_or(-1);
+    EventValue { value: up(v.value), fixed: next(), min: next(), max: next() }
+}
+
 /// Months of grace after a request's deadline.
 const GRACE_MONTHS: i32 = 24;
 /// Days trade stops for after a storm or sandstorm.
@@ -184,7 +201,8 @@ pub struct ScenarioEvents {
 }
 
 impl ScenarioEvents {
-    pub fn from_records(records: &[EventRecord], start_year: i32) -> Self {
+    /// The scenario's events, from a file of version `version`.
+    pub fn from_records(records: &[EventRecord], start_year: i32, version: i32) -> Self {
         let list = records
             .iter()
             .map(|e| ScenarioEvent {
@@ -198,7 +216,7 @@ impl ScenarioEvents {
                 // for a recurring event the years between (FUN_0044bc20 re-rolls it).
                 delay: (e.year_fixed, e.time.min, e.time.max),
                 interval: repeat_interval(e),
-                item: e.item.into(),
+                item: if version < 152 && item_is_resource(e.kind) { upgrade_item(e.item) } else { e.item }.into(),
                 amount_pick: e.amount.into(),
                 cities: (e.location[0], e.location[1]),
                 location: Some(Pick { value: e.location[0], fixed: e.location[1], min: e.location[2], max: e.location[3] }),
@@ -965,5 +983,29 @@ impl World {
         let s = &mut self.scenario_events;
         s.sea_problem_days = (s.sea_problem_days - 1).max(0);
         s.land_problem_days = (s.land_problem_days - 1).max(0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::economy::tests::mission;
+
+    #[test]
+    fn old_files_number_deben_and_troops_after_cleopatras_goods() {
+        let v = |fixed, min, max| EventValue { value: fixed, fixed, min, max };
+        assert_eq!(upgrade_item(v(31, -1, -1)), v(36, -1, -1));
+        assert_eq!(upgrade_item(EventValue { value: 3, fixed: -1, min: 31, max: 32 }), EventValue { value: 3, fixed: 36, min: 37, max: -1 });
+        assert_eq!(upgrade_item(v(1, -1, 4)), EventValue { value: 1, fixed: 1, min: 4, max: -1 });
+        // Version 147 and 149 campaign missions: a call for troops, and deben.
+        if let Some(mut world) = mission(8) {
+            world.fire_event_now(8);
+            assert_eq!(world.scenario_events.list[8].resource, TROOPS);
+        }
+        if let Some(mut world) = mission(14) {
+            world.fire_event_now(2);
+            assert_eq!(world.scenario_events.list[2].resource, DEBEN);
+            assert_eq!(world.scenario_events.list[2].units(), 500);
+        }
     }
 }
