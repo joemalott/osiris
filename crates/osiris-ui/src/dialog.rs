@@ -7,7 +7,8 @@
 //! frame, so it stays centered across a resize) and reports clicks/scroll back to the
 //! caller; it does not own "is this dialog open" state — callers keep an
 //! `Option<MessageDialog>` (or similar) and drop it when [`MessageDialog::click`]
-//! reports the OK button was pressed.
+//! reports the OK button was pressed. A dialog given choices (a gift's Accept, Refuse
+//! and Postpone) shows their buttons in place of OK and reports which was pressed.
 
 use crate::font::{self, Font, draw_text, text_width};
 use crate::panel::{self, PanelImages};
@@ -36,6 +37,23 @@ const REPEAT: Duration = Duration::from_millis(60);
 /// The body's font: the original sets message text light on the dark sunken panel
 /// (FUN_004c5e60), as it does the mission briefing's.
 const BODY_FONT: Font = Font::NormalWhiteOnDark;
+
+/// A button offered in place of OK: its label, what `click` reports for it, and its
+/// rectangle (x, y, width, height) from the dialog's top left corner.
+#[derive(Clone, Debug)]
+pub struct Choice {
+    pub label: String,
+    pub value: u8,
+    pub rect: (f32, f32, f32, f32),
+}
+
+/// What a click on the dialog did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Click {
+    Nothing,
+    Ok,
+    Choice(u8),
+}
 
 /// What the left button is holding down on the scroll bar.
 #[derive(Clone, Copy)]
@@ -72,6 +90,7 @@ pub struct MessageDialog {
     arrows: Option<u32>,
     held: Option<Held>,
     cursor: [f32; 2],
+    choices: Vec<Choice>,
 }
 
 impl MessageDialog {
@@ -125,7 +144,22 @@ impl MessageDialog {
             arrows,
             held: None,
             cursor: [0.0; 2],
+            choices: Vec::new(),
         }
+    }
+
+    /// Offers `choices` in place of the OK button.
+    pub fn with_choices(mut self, choices: Vec<Choice>) -> Self {
+        self.choices = choices;
+        self
+    }
+
+    /// The choice under `p`, if any.
+    fn choice_at(&self, p: [f32; 2], g: &Geometry) -> Option<&Choice> {
+        self.choices.iter().find(|c| {
+            let (x, y, w, h) = (g.x + c.rect.0, g.y + c.rect.1, c.rect.2, c.rect.3);
+            p[0] >= x && p[0] < x + w && p[1] >= y && p[1] < y + h
+        })
     }
 
     /// Height of the sunken body in blocks: what the title, subtitle, OK row and
@@ -188,9 +222,9 @@ impl MessageDialog {
         }
     }
 
-    /// Handles a left click at `p`. Returns `true` if it landed on the OK button (the
-    /// caller should then close the dialog).
-    pub fn click(&mut self, p: [f32; 2], screen: [f32; 2]) -> bool {
+    /// Handles a left click at `p`: on the OK button (the caller should then close the
+    /// dialog), on one of the choices, or elsewhere.
+    pub fn click(&mut self, p: [f32; 2], screen: [f32; 2]) -> Click {
         let g = self.geometry(screen);
         let (bx, by, bh) = g.bar;
         if self.arrows.is_some() && p[0] >= bx && p[0] < bx + ARROW_W && p[1] >= by && p[1] < by + bh {
@@ -204,10 +238,13 @@ impl MessageDialog {
                 self.held = Some(Held::Dot);
                 self.drag_dot(p[1], &g, screen);
             }
-            return false;
+            return Click::Nothing;
+        }
+        if !self.choices.is_empty() {
+            return self.choice_at(p, &g).map_or(Click::Nothing, |c| Click::Choice(c.value));
         }
         let (ox, oy, ow, oh) = g.ok;
-        p[0] >= ox && p[0] < ox + ow && p[1] >= oy && p[1] < oy + oh
+        if p[0] >= ox && p[0] < ox + ow && p[1] >= oy && p[1] < oy + oh { Click::Ok } else { Click::Nothing }
     }
 
     /// The left button came up: stops a held arrow or a dragged stone.
@@ -282,6 +319,16 @@ impl MessageDialog {
             self.draw_bar(r, &g, arrows);
         }
 
+        if !self.choices.is_empty() {
+            let over = self.choice_at(self.cursor, &g).map(|c| c.value);
+            for c in &self.choices {
+                let (x, y, w, h) = (g.x + c.rect.0, g.y + c.rect.1, c.rect.2, c.rect.3);
+                panel::button_border(r, &self.panels, x, y, w as i32, h as i32, over == Some(c.value));
+                let lw = text_width(r, Font::NormalBlackOnLight, &c.label) as f32;
+                draw_text(r, Font::NormalBlackOnLight, &c.label, x + (w - lw) / 2.0, y + (h - 11.0) / 2.0, font::BLACK);
+            }
+            return;
+        }
         let (ox, oy, ow, oh) = g.ok;
         panel::button_border(r, &self.panels, ox, oy, ow as i32, oh as i32, self.ok_hover);
         let label = "OK";

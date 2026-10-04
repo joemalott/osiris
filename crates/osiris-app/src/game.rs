@@ -15,7 +15,7 @@ use osiris_render::{Paint, Renderer};
 use osiris_sim::buildings::kind;
 use osiris_sim::placement::GhostImage;
 use osiris_sim::{Command, Outcome, World};
-use osiris_ui::dialog::MessageDialog;
+use osiris_ui::dialog::{self, MessageDialog};
 use osiris_ui::{Font, draw_text, font};
 use std::sync::Arc;
 
@@ -180,6 +180,8 @@ pub struct Game {
     ui_images: Option<crate::widgets::UiImages>,
     empire_images: Option<crate::empire_window::EmpireImages>,
     custom_dialog: Option<Message>,
+    /// The gift event whose offer the open dialog shows, for its buttons.
+    gift_dialog: Option<usize>,
     pub rules_panel: Option<RulesPanel>,
     /// Set when the player changes the rules, so the caller can store them.
     pub rules_changed: bool,
@@ -310,6 +312,7 @@ impl Game {
             ui_images: None,
             empire_images: None,
             custom_dialog: None,
+            gift_dialog: None,
             rules_panel: None,
             confirm: None,
             confirm_click: None,
@@ -395,6 +398,7 @@ impl Game {
         if self.dialog.is_some() {
             return;
         }
+        self.gift_dialog = None;
         if let Some(msg) = self.custom_dialog.take() {
             self.dialog = Some(MessageDialog::new(r, &msg, &self.text));
             return;
@@ -416,7 +420,13 @@ impl Game {
             }
         } else if matches!(key.as_str(), "message_template_request" | "message_template_general") {
             let Some(t) = self.world.message_texts.pop_front() else { return };
-            self.event_message(&t)
+            let msg = self.event_message(&t);
+            if let Some((i, choices)) = self.world.gift_offer(&t) {
+                self.gift_dialog = Some(i);
+                self.dialog = Some(MessageDialog::new(r, &msg, &self.text).with_choices(self.gift_choices(choices)));
+                return;
+            }
+            msg
         } else {
             let Some(m) = osiris_sim::missions::message_id(&key).and_then(|id| self.messages.get(id as usize)) else {
                 return;
@@ -855,9 +865,19 @@ impl Game {
     fn press(&mut self, screen: [f32; 2]) -> Option<(i32, i32)> {
         let screen_w = screen[0];
         if let Some(d) = &mut self.dialog {
-            if d.click(self.cursor, screen) {
-                self.dialog = None;
-                self.sound("BUTTON.WAV");
+            match d.click(self.cursor, screen) {
+                dialog::Click::Ok => {
+                    self.dialog = None;
+                    self.sound("BUTTON.WAV");
+                }
+                dialog::Click::Choice(choice) => {
+                    if let Some(event) = self.gift_dialog.take() {
+                        self.world.apply(&Command::AnswerGift { event, choice });
+                    }
+                    self.dialog = None;
+                    self.sound("BUTTON.WAV");
+                }
+                dialog::Click::Nothing => {}
             }
             return None;
         }
@@ -1224,6 +1244,18 @@ impl Game {
         self.drag_start = None;
         self.review = Some(crate::menu::Briefing::new(view));
         self.sound("BUTTON.WAV");
+    }
+
+    /// A gift offer's buttons (the table at 0x5e02c0): Refuse, Postpone and Accept
+    /// (text 44:208, 209, 207) along the foot of the message, each where it always
+    /// stands, the ones not offered left out.
+    fn gift_choices(&self, choices: u8) -> Vec<dialog::Choice> {
+        use osiris_sim::scenario_events::gift_choice::*;
+        [(REFUSE, 208, 38.0), (POSTPONE, 209, 172.0), (ACCEPT, 207, 306.0)]
+            .into_iter()
+            .filter(|&(value, _, _)| choices & value != 0)
+            .map(|(value, label, x)| dialog::Choice { label: self.text.get(44, label).unwrap_or("").trim().to_owned(), value, rect: (x, 280.0, 130.0, 25.0) })
+            .collect()
     }
 
     /// A scenario event's message: the template's frame, written from its phrases with
