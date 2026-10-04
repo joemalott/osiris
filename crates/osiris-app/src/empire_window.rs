@@ -277,27 +277,31 @@ impl EmpireWindow {
         self.drag = None;
     }
 
-    /// The screen's horizontal centre: the trade panel's buttons and columns are laid
-    /// out from here, not from a fixed-width box (ui_empire_trade_panel.js
-    /// `empire_window_layout_ui`, which positions everything from `centerX`).
+    /// The left edge of the trade panel's 500-pixel block, centred on the screen
+    /// (FUN_0052db10: x0 = (width - 500) / 2).
     fn panel_x(screen: [f32; 2]) -> f32 {
-        (screen[0] / 2.0).floor()
+        ((screen[0] - 500.0) / 2.0).floor()
     }
 
+    /// The "N Deben to open ... trade route" button (FUN_0052db10 draws it 400x20 at
+    /// x0 + 50, height - 40).
     fn open_button(screen: [f32; 2]) -> [f32; 4] {
-        [Self::panel_x(screen) - 220.0, screen[1] - 40.0, 440.0, 20.0]
+        [Self::panel_x(screen) + 50.0, screen[1] - 40.0, 400.0, 20.0]
     }
 
+    /// Help, close and Overseer of Commerce buttons: the window-0x14 branch of
+    /// FUN_004d8310 puts them at (20, height - 44), (width - 44, height - 44) and
+    /// (20, height - 110).
     fn help_button(screen: [f32; 2]) -> [f32; 4] {
-        [16.0, screen[1] - 40.0, 27.0, 27.0]
+        [20.0, screen[1] - 44.0, 27.0, 27.0]
     }
 
     fn close_button(screen: [f32; 2]) -> [f32; 4] {
-        [screen[0] - 40.0, screen[1] - 40.0, 24.0, 24.0]
+        [screen[0] - 44.0, screen[1] - 44.0, 24.0, 24.0]
     }
 
     fn advisor_button(screen: [f32; 2]) -> [f32; 4] {
-        [16.0, screen[1] - 121.0, 28.0, 28.0]
+        [20.0, screen[1] - 110.0, 28.0, 28.0]
     }
 
     /// The top-left of the original's 640x480 layout, centred on the screen.
@@ -598,7 +602,9 @@ impl EmpireWindow {
             return;
         };
         let name = text.get(CITY_NAMES, c.name_id as usize).unwrap_or("?");
-        centre(r, Font::LargeBlackOnLight, name, sh - 122.0);
+        // The name at height - 118 (FUN_0052d940); what a city that doesn't trade is,
+        // at height - 46.
+        centre(r, Font::LargeBlackOnLight, name, sh - 118.0);
         if !c.trades() {
             let what = match c.city_type {
                 city::OURS => 1,
@@ -606,7 +612,7 @@ impl EmpireWindow {
                 city::EGYPTIAN => 13,
                 _ => 0,
             };
-            centre(r, Font::NormalBlackOnLight, &t(what), sh - 60.0);
+            centre(r, Font::NormalBlackOnLight, &t(what), sh - 46.0);
             return;
         }
         let cx = Self::panel_x(screen);
@@ -629,22 +635,23 @@ impl EmpireWindow {
             r.rect([x, y + h - 1.0], [w, 1.0], font::WHITE, Space::Screen);
         };
         if !c.open {
-            // Not yet open: what the city would sell and buy, stacked
-            // (city_want_sell_title/items at centerX-220/-170, y sellItemsTop = sh-90;
-            // city_want_buy_title/items at the same x, y buyItemsTop+20 = sh-70).
-            label(r, Font::NormalBlackOnLight, &t(5), cx - 220.0, sh - 90.0);
+            // Not yet open: what the city would sell and buy, stacked (FUN_0052db10):
+            // "Sells" at (x0 + 50, height - 75) with its goods 32 pixels apart from
+            // x0 + 100, boxed at height - 80; "Buys" 20 pixels lower, boxed at
+            // height - 58.
+            label(r, Font::NormalBlackOnLight, &t(5), cx + 50.0, sh - 75.0);
             for (k, &res) in goods(false).iter().enumerate() {
-                let x = cx - 170.0 + 32.0 * k as f32;
-                bevel(r, x, sh - 95.0);
-                img(r, images.icon(res as u16), x + 1.0, sh - 94.0);
-                tier_badge(r, res, x + 13.0, sh - 94.0);
+                let x = cx + 100.0 + 32.0 * k as f32;
+                bevel(r, x, sh - 80.0);
+                img(r, images.icon(res as u16), x + 1.0, sh - 79.0);
+                tier_badge(r, res, x + 13.0, sh - 79.0);
             }
-            label(r, Font::NormalBlackOnLight, &t(4), cx - 220.0, sh - 70.0);
+            label(r, Font::NormalBlackOnLight, &t(4), cx + 50.0, sh - 55.0);
             for (k, &res) in goods(true).iter().enumerate() {
-                let x = cx - 170.0 + 32.0 * k as f32;
-                bevel(r, x, sh - 73.0);
-                img(r, images.icon(res as u16), x + 1.0, sh - 73.0);
-                tier_badge(r, res, x + 13.0, sh - 73.0);
+                let x = cx + 100.0 + 32.0 * k as f32;
+                bevel(r, x, sh - 58.0);
+                img(r, images.icon(res as u16), x + 1.0, sh - 58.0);
+                tier_badge(r, res, x + 13.0, sh - 58.0);
             }
             let b = Self::open_button(screen);
             panel::button_border(r, panels, b[0], b[1], b[2] as i32, b[3] as i32, Self::inside(b, self.cursor));
@@ -652,7 +659,7 @@ impl EmpireWindow {
             // then the unit, each followed by a blank.
             let unit = text.get(8, if c.cost == 1 { 0 } else { 1 }).unwrap_or("");
             let cost = c.cost.to_string();
-            let x = cx - 220.0 + 10.0;
+            let x = cx + 60.0;
             let x = x + label(r, Font::NormalBlackOnLight, &cost, x, sh - 35.0) + 6.0;
             let x = x + label(r, Font::NormalBlackOnLight, unit, x, sh - 35.0) + 6.0;
             label(r, Font::NormalBlackOnLight, &raw(if c.sea { 7 } else { 6 }), x, sh - 35.0);
@@ -675,31 +682,31 @@ impl EmpireWindow {
             draw_text(r, Font::SmallPlain, &of, x + 24.0 + wa, y, font::BLACK);
             draw_text(r, Font::SmallPlain, &b, x + 26.0 + wa + wof, y, font::BLACK);
         };
-        // The city's sales (what we buy from it) sit on the right, its purchases (what
-        // we sell it) on the left: city_sell_title/items (text group 47 id
-        // 11, city.city_sells_resource) are at centerX+250/+100, and city_buy_title/
-        // items (id 10, city.city_buys_resource) at centerX-300/-430; both titles sit
-        // at infoTop = sh-121, both item blocks at sellItemsTop = buyItemsTop = sh-90.
-        r.rect([cx, sh - 90.0], [1.0, 76.0], font::BLACK, Space::Screen);
-        label(r, Font::NormalBlackOnLight, &t(10), cx - 300.0, sh - 121.0);
-        for (k, &res) in goods(true).iter().enumerate() {
-            let (x, y) = (cx - 430.0 + 135.0 * (k % 2) as f32, sh - 90.0 + 20.0 * (k / 2) as f32);
+        // FUN_0052db10: on the left "Sold" (text 47/11) at (x0 + 30, height - 108)
+        // over what the city sells, on the right "Bought" (47/10) at (x0 + 380, ...)
+        // over what it buys; two goods a row, 135 pixels apart and 20 down, from x0
+        // and x0 + 280, with a line at x0 + 240 between them. The left column's
+        // boxes sit a pixel lower than the right's.
+        r.rect([cx + 240.0, sh - 93.0], [1.0, 75.0], font::BLACK, Space::Screen);
+        label(r, Font::NormalBlackOnLight, &t(11), cx + 30.0, sh - 108.0);
+        for (k, &res) in goods(false).iter().enumerate() {
+            let (x, y) = (cx + 135.0 * (k % 2) as f32, sh - 93.0 + 20.0 * (k / 2) as f32);
             bevel(r, x, y + 1.0);
             img(r, images.icon(res as u16), x + 1.0, y + 2.0);
             tier_badge(r, res, x + 13.0, y);
-            amount(r, res, x, y + 8.0);
-        }
-        label(r, Font::NormalBlackOnLight, &t(11), cx + 250.0, sh - 121.0);
-        for (k, &res) in goods(false).iter().enumerate() {
-            let (x, y) = (cx + 100.0 + 135.0 * (k % 2) as f32, sh - 90.0 + 20.0 * (k / 2) as f32);
-            bevel(r, x, y);
-            img(r, images.icon(res as u16), x + 1.0, y + 1.0);
-            tier_badge(r, res, x + 13.0, y);
             // A good the city both sells and buys has its amount in the Bought column
-            // (the left-hand one, above) only.
+            // only (FUN_0052dac0).
             if !c.buys[res] {
                 amount(r, res, x, y + 8.0);
             }
+        }
+        label(r, Font::NormalBlackOnLight, &t(10), cx + 380.0, sh - 108.0);
+        for (k, &res) in goods(true).iter().enumerate() {
+            let (x, y) = (cx + 280.0 + 135.0 * (k % 2) as f32, sh - 93.0 + 20.0 * (k / 2) as f32);
+            bevel(r, x, y);
+            img(r, images.icon(res as u16), x + 1.0, y + 1.0);
+            tier_badge(r, res, x + 13.0, y);
+            amount(r, res, x, y + 8.0);
         }
     }
 }
