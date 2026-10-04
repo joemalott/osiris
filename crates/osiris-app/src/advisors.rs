@@ -1288,7 +1288,7 @@ fn political(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Opt
         let held = if r == osiris_sim::scenario_events::DEBEN {
             format!("{} {}", world.treasury, ui.t(G, 44))
         } else {
-            format!("{} {}", world.city_stored(r) / 100, ui.t(G, 43))
+            format!("{} {}", world.yards_stored(r) / 100, ui.t(G, 43))
         };
         ui.label(Font::NormalWhiteOnDark, &held, rx + 30.0, ry + 25.0);
         let status = ui.t(G, if can { 47 } else { 48 });

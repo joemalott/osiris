@@ -5,9 +5,12 @@
 //! refused, the event it points to for that outcome follows (after its own delay).
 //!
 //! A request gives the player a number of months to send the goods (from the
-//! Political Overseer); a reminder comes six months before the deadline. Sending on
-//! time raises the kingdom rating by 3. Missing the deadline costs 3 and starts a
-//! 24-month grace period: sending then earns back 1, letting it pass costs 2 more.
+//! Political Overseer); a reminder comes six months before the deadline. Missing the
+//! deadline costs 3 kingdom rating and starts a 24-month grace period; letting that
+//! pass too is a refusal. Goods sent take one to four months to arrive, and only then
+//! does the event tied to the outcome follow (FUN_0044c660, FUN_0044c1a0). The rating
+//! changes nothing else here: the scenario rewards or punishes through the events it
+//! ties to each outcome.
 
 use crate::buildings::kind;
 use crate::economy::resource;
@@ -83,6 +86,27 @@ pub mod state {
     pub const OVERDUE: u8 = 2;
     pub const RECEIVED: u8 = 3;
     pub const FAILED: u8 = 4;
+    /// Goods sent in time, still on their way (the original's state 2).
+    pub const SENT: u8 = 5;
+    /// Goods sent during the grace months, on their way (state 3).
+    pub const SENT_LATE: u8 = 6;
+}
+
+/// Event kinds whose item is a resource (the table at 0x5d9c78).
+fn item_is_resource(kind: u8) -> bool {
+    matches!(kind, event::REQUEST | event::DEMAND_INCREASE | event::DEMAND_DECREASE | event::PRICE_INCREASE | event::PRICE_DECREASE | event::GIFT)
+}
+
+/// Scenarios saved before version 152 number deben and troops 31 and 32, from before
+/// the five resources Cleopatra added at 31. On loading them the original moves every
+/// resource past 30 that an event names up by five, and packs the item's choices so
+/// the ones in use come first, which makes a range of items a choice between its two
+/// ends (FUN_004d40c0, run for files older than 0x98).
+fn upgrade_item(v: EventValue) -> EventValue {
+    let up = |r: i16| if r > 30 { r + 5 } else { r };
+    let mut choices = [up(v.fixed), up(v.min), up(v.max)].into_iter().filter(|&r| r >= 0);
+    let mut next = || choices.next().unwrap_or(-1);
+    EventValue { value: up(v.value), fixed: next(), min: next(), max: next() }
 }
 
 /// Months of grace after a request's deadline.
@@ -127,10 +151,9 @@ pub struct ScenarioEvent {
     /// Fires in this month (0 = January) of this many years after the start.
     pub month: i32,
     pub year: i32,
-    /// For events that follow others: (fixed, min, max) of the months to wait.
+    /// The year's pick (fixed, min, max): for an event that follows another the months
+    /// it waits, for a recurring one the years until it comes again.
     delay: (i16, i16, i16),
-    /// For recurring events: years between occurrences.
-    interval: (i16, i16),
     item: Pick,
     amount_pick: Pick,
     /// Route numbers of the cities the event may concern (older saved games).
@@ -170,8 +193,14 @@ pub struct ScenarioEvent {
     pub reminder_leads: [u8; 2],
     /// Why this event happened, when another event led to it.
     cause: Option<(usize, Outcome)>,
-    /// Months until a follow-up event fires.
+    /// Months until a follow-up event fires (games saved before `fire_at`).
     pub wait: i32,
+    /// The month (counted as `World::month_count`) a follow-up event fires in.
+    #[serde(default)]
+    pub fire_at: Option<i32>,
+    /// Requests: the month the request opened, which doesn't count against it.
+    #[serde(default)]
+    pub opened: Option<i32>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -181,10 +210,14 @@ pub struct ScenarioEvents {
     /// Days left of storms at sea and trouble on land routes.
     pub sea_problem_days: i32,
     pub land_problem_days: i32,
+    /// Set while events are being run, so a follow-up waits for the pass to reach it.
+    #[serde(skip)]
+    busy: bool,
 }
 
 impl ScenarioEvents {
-    pub fn from_records(records: &[EventRecord], start_year: i32) -> Self {
+    /// The scenario's events, from a file of version `version`.
+    pub fn from_records(records: &[EventRecord], start_year: i32, version: i32) -> Self {
         let list = records
             .iter()
             .map(|e| ScenarioEvent {
@@ -197,8 +230,7 @@ impl ScenarioEvents {
                 // The year's pick (bytes 26-30): for a follow-up the months it waits,
                 // for a recurring event the years between (FUN_0044bc20 re-rolls it).
                 delay: (e.year_fixed, e.time.min, e.time.max),
-                interval: repeat_interval(e),
-                item: e.item.into(),
+                item: if version < 152 && item_is_resource(e.kind) { upgrade_item(e.item) } else { e.item }.into(),
                 amount_pick: e.amount.into(),
                 cities: (e.location[0], e.location[1]),
                 location: Some(Pick { value: e.location[0], fixed: e.location[1], min: e.location[2], max: e.location[3] }),
@@ -250,6 +282,29 @@ pub fn repeat_interval(e: &EventRecord) -> (i16, i16) {
     if e.time.min < 0 && e.year_fixed >= 0 { (e.year_fixed, e.year_fixed) } else { (e.time.min, e.time.max) }
 }
 
+/// A pick among the scenario's choices (FUN_004487f0): with `fixed` set, it or one of
+/// `min` and `max` that are set (`min` first); without, anything from `min` up to but
+/// not including `max`.
+fn pick(rng: &mut crate::rng::Rng, v: Pick) -> i32 {
+    let (fixed, min, max) = (v.fixed as i32, v.min as i32, v.max as i32);
+    if fixed < 0 {
+        if min > -1 && max > -1 && max == min {
+            return fixed;
+        }
+        let range = max - min;
+        // The original divides by a range of nothing; no scenario sets one.
+        return if range <= 0 { v.value as i32 } else { rng.below(range) + min };
+    }
+    if min < 0 {
+        return fixed;
+    }
+    match rng.below(if max > -1 { 3 } else { 2 }) {
+        0 => fixed,
+        1 => min,
+        _ => max,
+    }
+}
+
 /// The phrase group a request's messages come from, by its reason.
 fn request_group(subtype: i8) -> &'static str {
     match subtype {
@@ -268,32 +323,33 @@ impl ScenarioEvent {
         if self.pharaoh { "P" } else { "C" }
     }
 
-    /// Units the request or gift is for: amounts under 100 are loads of 100.
+    /// Units the request is for: deben and troops as they are, goods in loads of 100
+    /// (FUN_0044c660 and FUN_0044c1a0 multiply every goods amount).
     pub fn units(&self) -> i32 {
-        if self.resource == DEBEN || self.resource == TROOPS || self.amount >= 100 { self.amount } else { self.amount * 100 }
+        if self.resource == DEBEN || self.resource == TROOPS { self.amount } else { self.amount * 100 }
     }
 }
 
 impl World {
-    /// A pick among the scenario's choices: a fixed value, one of up to three values,
-    /// or anything in a range.
+    /// A pick among the scenario's choices (see `pick`).
     pub(crate) fn roll(&mut self, v: Pick) -> i32 {
-        let (fixed, min, max) = (v.fixed as i32, v.min as i32, v.max as i32);
-        if fixed == -1 && min > -1 && max > -1 && max == min {
-            return fixed;
-        }
-        if max == -1 {
-            return fixed;
-        }
-        if fixed < 0 {
-            let range = max - min;
-            return if range <= 0 { v.value as i32 } else { self.rng.below(range) + min };
-        }
-        let choices = if min < 0 { 1 } else if max > -1 { 3 } else { 2 };
-        match self.rng.below(choices) {
-            0 => fixed,
-            1 => min,
-            _ => max,
+        pick(&mut self.rng, v)
+    }
+
+    /// When the city starts, every event's year is picked from its choices, and a call
+    /// for troops picks how many months before the last month to send them its two
+    /// reminders come: four to eight, and none or one (FUN_00448a90, run on each event
+    /// by FUN_004d5980). The picks come from their own generator, seeded from the
+    /// map's, so the rest of the game draws what it did before.
+    pub(crate) fn start_scenario_events(&mut self, seed: [u32; 2]) {
+        let mut rng = crate::rng::Rng::from_seed(seed[1], seed[0]);
+        for e in &mut self.scenario_events.list {
+            let (fixed, min, max) = e.delay;
+            let year = pick(&mut rng, Pick { value: e.year as i16, fixed, min, max });
+            if matches!(e.trigger, trigger::ONCE | trigger::RECURRING) {
+                e.year = year;
+            }
+            e.reminder_leads = [4 + rng.below(5) as u8, rng.below(2) as u8];
         }
     }
 
@@ -337,24 +393,40 @@ impl World {
         self.roll(loc)
     }
 
-    /// Monthly: events whose time has come fire, and open requests move on.
+    /// Whether follow-up event `i` is due this month.
+    fn follow_up_due(&mut self, i: usize) -> bool {
+        let now = self.month_count();
+        let e = &mut self.scenario_events.list[i];
+        if e.trigger != trigger::FIRED || e.cause.is_none() {
+            return false;
+        }
+        match e.fire_at {
+            Some(at) => at <= now,
+            None => {
+                e.wait -= 1;
+                e.wait < 0
+            }
+        }
+    }
+
+    /// Monthly (FUN_0044ba90): events whose time has come fire, and open requests move
+    /// on. A request handles its first month when it opens, so its clock starts the
+    /// month after. Follow-ups another event called on with no wait fire this month.
     pub(crate) fn process_scenario_events(&mut self) {
         let now = (self.years_since_start(), self.time.month as i32);
+        self.scenario_events.busy = true;
         for i in 0..self.scenario_events.list.len() {
-            let e = &mut self.scenario_events.list[i];
+            let e = &self.scenario_events.list[i];
             let due = match e.trigger {
                 trigger::ONCE | trigger::RECURRING => !e.active && (e.year, e.month) == now,
-                trigger::FIRED if e.cause.is_some() => {
-                    e.wait -= 1;
-                    e.wait < 0
-                }
-                _ => false,
+                _ => self.follow_up_due(i),
             };
             if due {
                 self.fire_event(i);
             }
         }
         self.adopt_old_battle();
+        let month = self.month_count();
         for i in 0..self.scenario_events.list.len() {
             let e = &self.scenario_events.list[i];
             if e.kind != event::REQUEST {
@@ -364,24 +436,49 @@ impl World {
                 if e.active || self.military.battle_for(i).is_some() {
                     self.update_troop_request(i);
                 }
-            } else if e.active {
+            } else if e.active && e.opened != Some(month) {
                 self.update_request(i);
             }
         }
+        self.scenario_events.busy = false;
+        self.fire_due_follow_ups();
     }
 
-    /// The event `i` follows another: it fires after its delay.
+    /// Fires the follow-up events whose month has come, and those they lead to with no
+    /// wait. Outside the monthly pass this is what makes a follow-up with no wait fire
+    /// at once, as the original's FUN_0044c490 does.
+    fn fire_due_follow_ups(&mut self) {
+        if self.scenario_events.busy {
+            return;
+        }
+        self.scenario_events.busy = true;
+        // A chain of events that call on each other with no wait would never end.
+        for _ in 0..self.scenario_events.list.len() * 2 {
+            let Some(i) = (0..self.scenario_events.list.len()).find(|&i| self.scenario_events.list[i].fire_at.is_some() && self.follow_up_due(i)) else { break };
+            self.fire_event(i);
+        }
+        self.scenario_events.busy = false;
+    }
+
+    /// The event `i` follows another (FUN_0044c490): it fires after the months its year
+    /// picks, in this month when that is none. Only an event that waits for others
+    /// follows, and never itself.
     pub(crate) fn follow(&mut self, i: i16, parent: usize, outcome: Outcome) {
-        let Some(e) = usize::try_from(i).ok().and_then(|i| self.scenario_events.list.get(i)) else { return };
+        let Some(e) = usize::try_from(i).ok().filter(|&i| i != parent).and_then(|i| self.scenario_events.list.get(i)) else { return };
         if e.trigger != trigger::ONLY_VIA_EVENT && !(e.trigger == trigger::FIRED && e.cause.is_some()) {
             return;
         }
         let (fixed, min, max) = e.delay;
         let wait = self.roll(Pick { value: 0, fixed, min, max }).max(0);
+        let (first, last) = (4 + self.rng.below(5) as u8, self.rng.below(2) as u8);
+        let at = self.month_count() + wait;
         let e = &mut self.scenario_events.list[i as usize];
         e.trigger = trigger::FIRED;
         e.cause = Some((parent, outcome));
         e.wait = wait;
+        e.fire_at = Some(at);
+        e.reminder_leads = [first, last];
+        self.fire_due_follow_ups();
     }
 
     /// Fires event `i` now, whatever its trigger (for scripted tests).
@@ -409,10 +506,10 @@ impl World {
                 ev.trigger = trigger::FIRED;
             }
         }
-        if e.trigger == trigger::RECURRING {
-            let (min, max) = (e.interval.0 as i32, e.interval.1 as i32);
-            let years = if min >= 0 && max > min { min + self.rng.below(max - min + 1) } else { min.max(max) };
-            self.scenario_events.list[i].year += years.max(1);
+        // A recurring event comes again the years its year picks after this one
+        // (FUN_0044bc20); a request only once it has been met, counted from then.
+        if e.trigger == trigger::RECURRING && e.kind != event::REQUEST {
+            self.repeat_event(i);
         }
         if e.trigger == trigger::FIRED {
             // A follow-up is spent until another event calls on it again.
@@ -434,6 +531,10 @@ impl World {
                 ev.overdue = false;
                 ev.can_comply_shown = false;
                 ev.announced = false;
+                ev.opened = Some(now_month);
+                if resource != TROOPS {
+                    self.open_request(i);
+                }
             }
             event::SEA_TRADE_PROBLEM => {
                 if self.trade.cities.iter().any(|c| c.open && c.sea) {
@@ -460,19 +561,18 @@ impl World {
                     phrases = Some((f("wage_change_title"), f("wage_change_initial_announcement"), f("wage_change_no_reason") + "_A"));
                 }
             }
+            // However small the city (FUN_0044c660 has no check on its size).
             event::CONTAMINATED_WATER => {
-                if self.population > 200 {
-                    let health = self.ratings.health;
-                    let change = if health > 80 {
-                        -50
-                    } else if health > 60 {
-                        -40
-                    } else {
-                        -25
-                    };
-                    self.ratings.health = (health + change).clamp(0, 100);
-                    phrases = Some(("bad_water_title".into(), "bad_water_initial_announcement".into(), "bad_water_no_reason_A".into()));
-                }
+                let health = self.ratings.health;
+                let change = if health > 80 {
+                    -50
+                } else if health > 60 {
+                    -40
+                } else {
+                    -25
+                };
+                self.ratings.health = (health + change).clamp(0, 100);
+                phrases = Some(("bad_water_title".into(), "bad_water_initial_announcement".into(), "bad_water_no_reason_A".into()));
             }
             event::GOLD_MINE_COLLAPSE | event::CLAY_PIT_FLOOD => {
                 let target = if e.kind == event::GOLD_MINE_COLLAPSE { kind::GOLD_MINE } else { kind::CLAY_PIT };
@@ -572,7 +672,8 @@ impl World {
                     self.finance.this_year.donated += amount;
                     phrases = Some((format!("gift_title_{side}"), format!("gift_cash_granted_{side}"), format!("gift_no_reason_{side}_A")));
                 } else if resource > 0 && amount > 0 {
-                    let units = if amount >= 100 { amount } else { amount * 100 };
+                    // Goods are given in loads of 100 (FUN_0045afe0).
+                    let units = amount * 100;
                     let left = self.deliver_to_storage(resource, units);
                     let body = if left == 0 {
                         "gift_granted"
@@ -695,85 +796,126 @@ impl World {
         self.message_texts.push_back(text);
     }
 
-    /// Monthly: a request's clock runs; the player hears of it, is reminded, and is
-    /// told when the deadline passes.
-    fn update_request(&mut self, i: usize) {
-        let can_send = self.can_send_request(i);
-        let e = &mut self.scenario_events.list[i];
-        if e.months_left > 0 {
-            e.months_left -= 1;
-        }
-        if e.state == state::WAITING {
-            e.state = state::IN_PROGRESS;
-        }
+    /// A goods request's message (`body` from its reason's phrases), with the months
+    /// it has left.
+    fn request_text(&self, i: usize, body: &str) -> EventText {
+        let e = &self.scenario_events.list[i];
         let group = request_group(e.subtype);
         let side = e.side();
-        let text = |this: &ScenarioEvent, body: &str| EventText {
+        let mut t = EventText {
             title: format!("{group}_title_{side}"),
             body: format!("{group}_{body}_{side}"),
             reason: format!("{group}_no_reason_{side}_A"),
-            resource: this.resource,
-            amount: this.units(),
-            city_name: None,
-            months: this.months_left,
+            resource: e.resource,
+            amount: e.units(),
+            city_name: e.city.map(|c| self.trade.cities[c].name_id),
+            months: e.months_left,
             template: 130,
             cause: None,
             army: None,
-            god: (0..5).contains(&this.god).then_some(this.god as u8),
+            god: (0..5).contains(&e.god).then_some(e.god as u8),
         };
-        let mut posts: Vec<EventText> = Vec::new();
-        let mut comply_ready = false;
+        if let Some(reason) = self.reason_phrase(i) {
+            t.reason = reason;
+            t.cause = self.cause_of(i);
+        }
+        t
+    }
+
+    /// Whether the city holds enough for request `i` to say it can be met: stock in
+    /// the storage yards, or for deben the treasury.
+    fn request_covered(&self, i: usize) -> bool {
+        let e = &self.scenario_events.list[i];
+        if e.resource == DEBEN { self.treasury >= e.amount } else { self.yards_stored(e.resource) >= e.units() }
+    }
+
+    /// A goods request opens (FUN_0044c660): the player hears of it at once, with all
+    /// its months to go. A city that already holds enough isn't told again that it can.
+    fn open_request(&mut self, i: usize) {
+        self.scenario_events.list[i].state = state::IN_PROGRESS;
+        self.scenario_events.list[i].announced = true;
+        self.scenario_events.list[i].can_comply_shown = self.request_covered(i);
+        let t = self.request_text(i, "initial_announcement");
+        self.post_event_text(t);
+    }
+
+    /// Monthly, from the month after it opens (FUN_0044c660): a request's clock runs
+    /// down; the player is reminded six months before the deadline. On it the Kingdom
+    /// rating drops by 3 and 24 months of grace start, after which the request is
+    /// refused. While it is open the player is told once when the city holds enough.
+    /// Goods sent are on their way for a few months; when they arrive the event tied
+    /// to sending them in time, or late, follows.
+    fn update_request(&mut self, i: usize) {
+        let e = &mut self.scenario_events.list[i];
+        e.months_left -= 1;
+        let left = e.months_left;
         match e.state {
-            state::IN_PROGRESS => {
-                if !e.can_comply_shown && can_send {
-                    e.can_comply_shown = true;
-                    comply_ready = true;
-                } else if !e.announced {
-                    e.announced = true;
-                    posts.push(text(e, "initial_announcement"));
-                }
-                if e.months_left == 6 {
-                    posts.push(text(e, "reminder"));
-                }
-                if e.months_left == 0 {
+            state::WAITING | state::IN_PROGRESS => {
+                e.state = state::IN_PROGRESS;
+                if left == 6 {
+                    let t = self.request_text(i, "reminder");
+                    self.post_event_text(t);
+                } else if left < 1 {
+                    let e = &mut self.scenario_events.list[i];
                     e.state = state::OVERDUE;
                     e.overdue = true;
                     e.months_left = GRACE_MONTHS;
-                    posts.push(text(e, "overdue"));
+                    let t = self.request_text(i, "overdue");
+                    self.post_event_text(t);
                     self.ratings.change_kingdom(-3);
                 }
             }
-            state::OVERDUE if e.months_left == 0 => {
-                e.state = state::FAILED;
-                e.active = false;
-                self.ratings.change_kingdom(-2);
-                let next = e.on_refusal;
-                self.follow(next, i, Outcome::Refused);
+            state::OVERDUE => {
+                if left < 1 {
+                    e.state = state::FAILED;
+                    e.active = false;
+                    let next = e.on_refusal;
+                    self.follow(next, i, Outcome::Refused);
+                    return;
+                }
             }
-            _ => {}
+            state::SENT | state::SENT_LATE => {
+                if left > 0 {
+                    return;
+                }
+                let late = e.state == state::SENT_LATE;
+                e.state = state::RECEIVED;
+                e.active = false;
+                let (next, outcome) = if late { (e.on_too_late, Outcome::TooLate) } else { (e.on_completed, Outcome::Completed) };
+                let recurring = e.trigger == trigger::RECURRING;
+                self.follow(next, i, outcome);
+                if recurring {
+                    self.repeat_event(i);
+                }
+                return;
+            }
+            _ => return,
         }
-        let city_name = self.scenario_events.list[i].city.map(|c| self.trade.cities[c].name_id);
-        if comply_ready {
+        if !self.scenario_events.list[i].can_comply_shown && self.request_covered(i) {
+            self.scenario_events.list[i].can_comply_shown = true;
             let deben = self.scenario_events.list[i].resource == DEBEN;
             self.post(if deben { "message_compliance_now_possible" } else { "message_storage_yards_ready_to_fulfill_request" }, None, true);
         }
-        for mut t in posts {
-            t.city_name = city_name;
-            if let Some(reason) = self.reason_phrase(i) {
-                t.reason = reason;
-                t.cause = self.cause_of(i);
-            }
-            self.post_event_text(t);
-        }
     }
 
-    /// Whether the city holds what request `i` asks for.
+    /// A recurring event sets its next year: the years its year picks after this one
+    /// (FUN_0044bc20).
+    fn repeat_event(&mut self, i: usize) {
+        let (fixed, min, max) = self.scenario_events.list[i].delay;
+        let years = self.roll(Pick { value: 1, fixed, min, max });
+        let now = self.years_since_start();
+        self.scenario_events.list[i].year = now + years;
+    }
+
+    /// Whether the city holds what request `i` asks for, as the Political Overseer
+    /// checks before sending (FUN_0044d520): the goods in its storage yards, or more
+    /// deben in the treasury than asked for.
     pub fn can_send_request(&self, i: usize) -> bool {
         let Some(e) = self.scenario_events.list.get(i) else { return false };
         match e.resource {
-            DEBEN => self.treasury >= e.amount,
+            DEBEN => self.treasury > e.amount,
             TROOPS => self.military.battle_for(i).is_none() && self.troops_ready(i),
-            r => self.city_stored(r) >= e.units(),
+            r => self.yards_stored(r) >= e.units(),
         }
     }
 
@@ -786,7 +928,9 @@ impl World {
             .sum()
     }
 
-    /// The player sends what request `i` asks for. The goods leave storage at once.
+    /// The player sends what request `i` asks for (FUN_0044c1a0). Goods leave the
+    /// storage yards and deben the treasury at once; they take one to four months to
+    /// arrive.
     pub fn dispatch_request(&mut self, i: usize) -> bool {
         if !self.can_send_request(i) {
             return false;
@@ -807,20 +951,18 @@ impl World {
             self.treasury -= units;
         } else {
             let mut left = units;
-            let stores: Vec<u32> = self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD || resource::is_food(r) && b.kind == kind::GRANARY).map(|b| b.id).collect();
-            for id in stores {
+            let yards: Vec<u32> = self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD).map(|b| b.id).collect();
+            for id in yards {
                 if left <= 0 {
                     break;
                 }
                 left -= self.take_stored(id, r, left);
             }
         }
+        let months = 1 + self.rng.below(4);
         let e = &mut self.scenario_events.list[i];
-        e.state = state::RECEIVED;
-        e.active = false;
-        let (next, outcome) = if overdue { (e.on_too_late, Outcome::TooLate) } else { (e.on_completed, Outcome::Completed) };
-        self.ratings.change_kingdom(if overdue { 1 } else { 3 });
-        self.follow(next, i, outcome);
+        e.state = if overdue { state::SENT_LATE } else { state::SENT };
+        e.months_left = months;
         true
     }
 
@@ -943,11 +1085,11 @@ impl World {
         self.post_event_text(t);
     }
 
-    /// Puts `units` of `r` into storage yards (and granaries, for food) with room;
-    /// returns what did not fit.
+    /// Puts `units` of `r` into storage yards with room (FUN_0045afe0 fills only
+    /// yards); returns what did not fit.
     fn deliver_to_storage(&mut self, r: u16, units: i32) -> i32 {
         let mut left = units;
-        let stores: Vec<u32> = self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD || resource::is_food(r) && b.kind == kind::GRANARY).map(|b| b.id).collect();
+        let stores: Vec<u32> = self.buildings.iter().filter(|b| b.kind == kind::STORAGE_YARD).map(|b| b.id).collect();
         for id in stores {
             if left <= 0 {
                 break;
@@ -965,5 +1107,188 @@ impl World {
         let s = &mut self.scenario_events;
         s.sea_problem_days = (s.sea_problem_days - 1).max(0);
         s.land_problem_days = (s.land_problem_days - 1).max(0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::economy::tests::mission;
+
+    /// A request for `amount` of `r` with `months` to send it, waiting to be fired.
+    fn add_request(world: &mut World, r: i16, amount: i16, months: i32) -> usize {
+        world.scenario_events.list.push(ScenarioEvent {
+            kind: event::REQUEST,
+            trigger: trigger::ONLY_VIA_EVENT,
+            item: Pick { value: r, fixed: r, min: -1, max: -1 },
+            amount_pick: Pick { value: amount, fixed: amount, min: -1, max: -1 },
+            months_initial: months,
+            on_completed: -1,
+            on_refusal: -1,
+            on_too_late: -1,
+            on_defeat: -1,
+            ..Default::default()
+        });
+        world.scenario_events.list.len() - 1
+    }
+
+    /// An event that raises the Kingdom rating by `amount` when another leads to it.
+    fn add_reward(world: &mut World, amount: i16) -> usize {
+        world.scenario_events.list.push(ScenarioEvent {
+            kind: event::REPUTATION_INCREASE,
+            trigger: trigger::ONLY_VIA_EVENT,
+            amount_pick: Pick { value: amount, fixed: amount, min: -1, max: -1 },
+            delay: (0, -1, -1),
+            on_completed: -1,
+            ..Default::default()
+        });
+        world.scenario_events.list.len() - 1
+    }
+
+    /// Runs the monthly event pass for the next month, without the rest of the month.
+    fn next_month(world: &mut World) {
+        world.time.month += 1;
+        if world.time.month >= 12 {
+            world.time.month = 0;
+            world.time.year += 1;
+        }
+        world.process_scenario_events();
+    }
+
+    #[test]
+    fn picks_follow_the_original() {
+        let mut rng = crate::rng::Rng::from_seed(1234, 5678);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..200 {
+            seen.insert(pick(&mut rng, Pick { value: 0, fixed: 1, min: 4, max: -1 }));
+            assert_eq!(pick(&mut rng, Pick { value: 0, fixed: 5, min: -1, max: 9 }), 5);
+            assert_eq!(pick(&mut rng, Pick { value: 0, fixed: -1, min: 2, max: 3 }), 2, "a range stops short of its end");
+            assert!((8..12).contains(&pick(&mut rng, Pick { value: 0, fixed: -1, min: 8, max: 12 })));
+        }
+        assert_eq!(seen.into_iter().collect::<Vec<_>>(), vec![1, 4], "a fixed value and a minimum are two choices");
+    }
+
+    #[test]
+    fn old_files_number_deben_and_troops_after_cleopatras_goods() {
+        let v = |fixed, min, max| EventValue { value: fixed, fixed, min, max };
+        assert_eq!(upgrade_item(v(31, -1, -1)), v(36, -1, -1));
+        assert_eq!(upgrade_item(EventValue { value: 3, fixed: -1, min: 31, max: 32 }), EventValue { value: 3, fixed: 36, min: 37, max: -1 });
+        assert_eq!(upgrade_item(v(1, -1, 4)), EventValue { value: 1, fixed: 1, min: 4, max: -1 });
+        // Version 147 and 149 campaign missions: a call for troops, and deben.
+        if let Some(mut world) = mission(8) {
+            world.fire_event_now(8);
+            assert_eq!(world.scenario_events.list[8].resource, TROOPS);
+        }
+        if let Some(mut world) = mission(14) {
+            world.fire_event_now(2);
+            assert_eq!(world.scenario_events.list[2].resource, DEBEN);
+            assert_eq!(world.scenario_events.list[2].units(), 500);
+        }
+    }
+
+    /// FUN_0044c660 and FUN_0044c1a0: a request is told with all its months to go, the
+    /// reminder comes at six, sending costs or earns no rating, and what follows waits
+    /// until the goods arrive.
+    #[test]
+    fn requests_run_on_the_originals_clock() {
+        let Some(mut world) = mission(14) else { return };
+        let i = add_request(&mut world, DEBEN as i16, 500, 12);
+        let reward = add_reward(&mut world, 4);
+        world.scenario_events.list[i].on_completed = reward as i16;
+        world.treasury = 100;
+        let before = world.notices.log.len();
+        world.fire_event_now(i);
+        let told: Vec<i32> = world.notices.log[before..].iter().filter_map(|n| n.text.as_ref()).map(|t| t.months).collect();
+        assert_eq!(told, vec![12]);
+        next_month(&mut world);
+        assert_eq!(world.scenario_events.list[i].months_left, 11);
+        for _ in 0..5 {
+            next_month(&mut world);
+        }
+        assert!(world.notices.log.iter().filter_map(|n| n.text.as_ref()).any(|t| t.body.ends_with("_reminder_C") && t.months == 6));
+        // Short of deben, then exactly enough: the treasury must hold more than asked.
+        assert!(!world.can_send_request(i));
+        world.treasury = 500;
+        assert!(!world.can_send_request(i));
+        world.treasury = 1000;
+        let kingdom = world.ratings.kingdom;
+        assert!(world.dispatch_request(i));
+        assert_eq!(world.treasury, 500);
+        assert_eq!(world.ratings.kingdom, kingdom);
+        assert_eq!(world.scenario_events.open_requests().count(), 0);
+        let mut months = 0;
+        while world.scenario_events.list[i].state != state::RECEIVED {
+            assert_eq!(world.ratings.kingdom, kingdom);
+            next_month(&mut world);
+            months += 1;
+            assert!(months <= 4, "goods arrive within four months");
+        }
+        assert_eq!(world.ratings.kingdom, kingdom + 4, "only the event the scenario ties to it rewards the city");
+    }
+
+    /// Missing the deadline costs 3 once; letting the 24 months of grace pass too
+    /// costs nothing more and refuses the request, and what is tied to refusing it
+    /// follows in that month.
+    #[test]
+    fn missed_requests_cost_three() {
+        let Some(mut world) = mission(14) else { return };
+        let reward = add_reward(&mut world, 2);
+        let i = add_request(&mut world, 13, 5, 3);
+        world.scenario_events.list[i].on_refusal = reward as i16;
+        world.fire_event_now(i);
+        let kingdom = world.ratings.kingdom;
+        for _ in 0..3 {
+            next_month(&mut world);
+        }
+        assert_eq!(world.scenario_events.list[i].state, state::OVERDUE);
+        assert_eq!(world.ratings.kingdom, kingdom - 3);
+        for _ in 0..23 {
+            next_month(&mut world);
+        }
+        assert_eq!(world.scenario_events.list[i].state, state::OVERDUE);
+        next_month(&mut world);
+        assert_eq!(world.scenario_events.list[i].state, state::FAILED);
+        assert_eq!(world.ratings.kingdom, kingdom - 3 + 2, "the follow-up, which comes before it in the list, fires at once");
+    }
+
+    /// Requests are met from the storage yards only; grain in a granary doesn't count
+    /// (FUN_0045aae0, FUN_0045b4d0).
+    #[test]
+    fn granaries_dont_meet_requests() {
+        use crate::world::{Command, Outcome};
+        let Some(mut world) = mission(4) else { return };
+        assert!(matches!(world.apply(&Command::Build { kind: kind::GRANARY, x: 100, y: 70, x1: 100, y1: 70 }), Outcome::Done { .. }));
+        let granary = world.buildings.iter().find(|b| b.kind == kind::GRANARY).expect("granary").id;
+        world.buildings.get_mut(granary).unwrap().stock[resource::GRAIN as usize] = 2000;
+        let i = add_request(&mut world, resource::GRAIN as i16, 10, 12);
+        world.fire_event_now(i);
+        assert_eq!(world.scenario_events.list[i].units(), 1000);
+        assert!(!world.can_send_request(i));
+    }
+
+    /// A recurring request comes again only once it has been met, the years its year
+    /// picks after the year it was met.
+    #[test]
+    fn recurring_requests_wait_until_met() {
+        let Some(mut world) = mission(14) else { return };
+        let i = add_request(&mut world, DEBEN as i16, 5, 12);
+        let now = world.years_since_start();
+        let e = &mut world.scenario_events.list[i];
+        e.trigger = trigger::RECURRING;
+        e.delay = (1, -1, -1);
+        e.year = now;
+        e.month = world.time.month as i32;
+        world.fire_event_now(i);
+        assert_eq!(world.scenario_events.list[i].year, now, "not yet");
+        world.treasury = 1000;
+        for _ in 0..13 {
+            next_month(&mut world);
+        }
+        assert!(world.scenario_events.list[i].active, "still open when its month comes round");
+        assert!(world.dispatch_request(i));
+        while world.scenario_events.list[i].state != state::RECEIVED {
+            next_month(&mut world);
+        }
+        assert_eq!(world.scenario_events.list[i].year, world.years_since_start() + 1);
     }
 }

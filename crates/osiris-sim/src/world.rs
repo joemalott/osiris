@@ -406,7 +406,7 @@ impl World {
             invasions,
             scenario_monuments: info.monuments,
             burial: info.burial_provisions_required.iter().map(|&r| (r as i32 * 100, 0)).collect(),
-            scenario_events: crate::scenario_events::ScenarioEvents::from_records(&scenario.events, info.start_year as i32),
+            scenario_events: crate::scenario_events::ScenarioEvents::from_records(&scenario.events, info.start_year as i32, scenario.version),
             message_texts: VecDeque::new(),
             earthquakes: crate::earthquakes::Earthquakes::from_scenario(scenario),
             won: false,
@@ -447,6 +447,7 @@ impl World {
         let points = |list: &[osiris_formats::scenario::TilePoint]| list.iter().filter(|p| p.is_valid()).map(|p| (p.x, p.y)).collect::<Vec<_>>();
         self.create_herds(&points(&scenario.info.predator_herd_points), &points(&scenario.info.prey_herd_points));
         self.init_floods(&scenario.floodplain_settings);
+        self.start_scenario_events(scenario.random_iv);
     }
 
     pub fn cost_of(&self, building_type: usize) -> i32 {
