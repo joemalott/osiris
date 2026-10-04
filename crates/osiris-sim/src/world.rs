@@ -447,6 +447,7 @@ impl World {
         let points = |list: &[osiris_formats::scenario::TilePoint]| list.iter().filter(|p| p.is_valid()).map(|p| (p.x, p.y)).collect::<Vec<_>>();
         self.create_herds(&points(&scenario.info.predator_herd_points), &points(&scenario.info.prey_herd_points));
         self.init_floods(&scenario.floodplain_settings);
+        self.start_scenario_events(scenario.random_iv);
     }
 
     pub fn cost_of(&self, building_type: usize) -> i32 {

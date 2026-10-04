@@ -268,6 +268,29 @@ pub fn repeat_interval(e: &EventRecord) -> (i16, i16) {
     if e.time.min < 0 && e.year_fixed >= 0 { (e.year_fixed, e.year_fixed) } else { (e.time.min, e.time.max) }
 }
 
+/// A pick among the scenario's choices (FUN_004487f0): with `fixed` set, it or one of
+/// `min` and `max` that are set (`min` first); without, anything from `min` up to but
+/// not including `max`.
+fn pick(rng: &mut crate::rng::Rng, v: Pick) -> i32 {
+    let (fixed, min, max) = (v.fixed as i32, v.min as i32, v.max as i32);
+    if fixed < 0 {
+        if min > -1 && max > -1 && max == min {
+            return fixed;
+        }
+        let range = max - min;
+        // The original divides by a range of nothing; no scenario sets one.
+        return if range <= 0 { v.value as i32 } else { rng.below(range) + min };
+    }
+    if min < 0 {
+        return fixed;
+    }
+    match rng.below(if max > -1 { 3 } else { 2 }) {
+        0 => fixed,
+        1 => min,
+        _ => max,
+    }
+}
+
 /// The phrase group a request's messages come from, by its reason.
 fn request_group(subtype: i8) -> &'static str {
     match subtype {
@@ -293,25 +316,25 @@ impl ScenarioEvent {
 }
 
 impl World {
-    /// A pick among the scenario's choices: a fixed value, one of up to three values,
-    /// or anything in a range.
+    /// A pick among the scenario's choices (see `pick`).
     pub(crate) fn roll(&mut self, v: Pick) -> i32 {
-        let (fixed, min, max) = (v.fixed as i32, v.min as i32, v.max as i32);
-        if fixed == -1 && min > -1 && max > -1 && max == min {
-            return fixed;
-        }
-        if max == -1 {
-            return fixed;
-        }
-        if fixed < 0 {
-            let range = max - min;
-            return if range <= 0 { v.value as i32 } else { self.rng.below(range) + min };
-        }
-        let choices = if min < 0 { 1 } else if max > -1 { 3 } else { 2 };
-        match self.rng.below(choices) {
-            0 => fixed,
-            1 => min,
-            _ => max,
+        pick(&mut self.rng, v)
+    }
+
+    /// When the city starts, every event's year is picked from its choices, and a call
+    /// for troops picks how many months before the last month to send them its two
+    /// reminders come: four to eight, and none or one (FUN_00448a90, run on each event
+    /// by FUN_004d5980). The picks come from their own generator, seeded from the
+    /// map's, so the rest of the game draws what it did before.
+    pub(crate) fn start_scenario_events(&mut self, seed: [u32; 2]) {
+        let mut rng = crate::rng::Rng::from_seed(seed[1], seed[0]);
+        for e in &mut self.scenario_events.list {
+            let (fixed, min, max) = e.delay;
+            let year = pick(&mut rng, Pick { value: e.year as i16, fixed, min, max });
+            if matches!(e.trigger, trigger::ONCE | trigger::RECURRING) {
+                e.year = year;
+            }
+            e.reminder_leads = [4 + rng.below(5) as u8, rng.below(2) as u8];
         }
     }
 
@@ -990,6 +1013,19 @@ impl World {
 mod tests {
     use super::*;
     use crate::economy::tests::mission;
+
+    #[test]
+    fn picks_follow_the_original() {
+        let mut rng = crate::rng::Rng::from_seed(1234, 5678);
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..200 {
+            seen.insert(pick(&mut rng, Pick { value: 0, fixed: 1, min: 4, max: -1 }));
+            assert_eq!(pick(&mut rng, Pick { value: 0, fixed: 5, min: -1, max: 9 }), 5);
+            assert_eq!(pick(&mut rng, Pick { value: 0, fixed: -1, min: 2, max: 3 }), 2, "a range stops short of its end");
+            assert!((8..12).contains(&pick(&mut rng, Pick { value: 0, fixed: -1, min: 8, max: 12 })));
+        }
+        assert_eq!(seen.into_iter().collect::<Vec<_>>(), vec![1, 4], "a fixed value and a minimum are two choices");
+    }
 
     #[test]
     fn old_files_number_deben_and_troops_after_cleopatras_goods() {
