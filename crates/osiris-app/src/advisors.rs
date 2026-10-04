@@ -450,6 +450,29 @@ fn trade_resources(world: &World) -> Vec<u16> {
         .collect()
 }
 
+/// Stone, limestone, granite, sandstone and marble: the overseer counts them in
+/// blocks of 100 units, "N Blocks".
+const BLOCK_GOODS: [u16; 5] = [24, 25, 26, 30, 35];
+
+/// How the Overseer of Commerce writes `n` units of `r` (FUN_0055a0e0): blocks of
+/// stone as "N Blocks" (text group 8), weapons and chariots by the piece (100 units
+/// each), anything else in units.
+fn trade_units(ui: &Ui, r: u16, n: i32) -> String {
+    if BLOCK_GOODS.contains(&r) {
+        let n = n / 100;
+        format!("{n} {}", ui.t(8, if n == 1 { 56 } else { 57 }))
+    } else if matches!(r, 10 | 28) {
+        (n / 100).to_string()
+    } else {
+        n.to_string()
+    }
+}
+
+/// The stock column: the units, or the blocks or pieces, with no word after them.
+fn trade_count(r: u16, n: i32) -> i32 {
+    if BLOCK_GOODS.contains(&r) || matches!(r, 10 | 28) { n / 100 } else { n }
+}
+
 fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<Popup>, scroll: &mut usize) -> Option<AdvisorAction> {
     const G: usize = 54;
     let title = ui.t(G, 0);
@@ -468,7 +491,7 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
         let hot = ui.hot(rect);
         let nf = if world.is_mothballed(r) || hot { Font::NormalYellow } else { Font::NormalWhiteOnDark };
         draw_text(ui.r, nf, &name, px + 52.0, y, font::WHITE);
-        draw_text(ui.r, Font::NormalWhiteOnDark, &world.yards_stored(r).to_string(), px + 206.0, y, font::WHITE);
+        draw_text(ui.r, Font::NormalWhiteOnDark, &trade_count(r, world.yards_stored(r)).to_string(), px + 206.0, y, font::WHITE);
         if world.is_stockpiled(r) {
             let s = ui.t(G, 3);
             draw_text(ui.r, Font::NormalWhiteOnDark, &s, px + 304.0, y, font::WHITE);
@@ -478,9 +501,17 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
         }
         let st = world.trade.status[r as usize];
         let amount = world.trade.amount[r as usize];
+        // Luxury goods name the kind the routes bring in, or "multiple".
+        let kinds = if r == osiris_sim::economy::resource::LUXURY_GOODS { world.imported_luxury_kinds() } else { Vec::new() };
+        let kind = match kinds.as_slice() {
+            [] => String::new(),
+            [k] => format!(" {}", ui.t(23, *k as usize + 1)),
+            _ => format!(" {}", ui.t(G, 45)),
+        };
         let (s, dull) = match st {
-            status::IMPORT => (format!("{} {}", ui.t(G, 5), amount), false),
-            status::EXPORT => (format!("{} {}", ui.t(G, 6), amount), false),
+            status::IMPORT => (format!("{} {}{kind}", ui.t(G, 5), trade_units(ui, r, amount)), false),
+            status::IMPORT_AS_NEEDED if !kind.is_empty() => (format!("{}{kind}", ui.t(G, 37)), false),
+            status::EXPORT => (format!("{} {}", ui.t(G, 6), trade_units(ui, r, amount)), false),
             status::IMPORT_AS_NEEDED => (ui.t(G, 37), false),
             status::EXPORT_SURPLUS => (ui.t(G, 38), false),
             _ => {
@@ -578,22 +609,29 @@ fn resource_popup(ui: &mut Ui, world: &mut World, r: u16) -> bool {
     let name = ui.t(RESOURCE_NAMES, r as usize);
     let nw = ui.width(Font::LargeBlackOnLight, &name);
     ui.label(Font::LargeBlackOnLight, &name, x + (w - nw) / 2.0, y + 16.0);
-    let stored = format!("{} {}", world.yards_stored(r), ui.t(G, 15));
+    let stored = format!("{} {}", trade_units(ui, r, world.yards_stored(r)), ui.t(G, 15));
     ui.centred(Font::NormalBlackOnLight, &stored, x + 48.0, y + 62.0, 128.0);
     let st = world.trade.status[r as usize];
     let amount = world.trade.amount[r as usize];
     // Import on the left, export on the right.
     for (col, buying) in [(0.0, true), (w / 2.0, false)] {
         let rect = [x + 32.0 + col, y + 92.0, 256.0, 30.0];
-        let (_, open) = world.trade_partners(r, buying);
+        let (any, open) = world.trade_partners(r, buying);
+        // FUN_0055ad30: with no open route, "Open trade route to import/export" if a
+        // closed one would carry it, else "No sellers/buyers".
         let label = if !open {
-            ui.t(G, if buying { 41 } else { 42 })
+            ui.t(G, match (buying, any) {
+                (true, true) => 34,
+                (false, true) => 35,
+                (true, false) => 41,
+                (false, false) => 42,
+            })
         } else {
             match (buying, st) {
-                (true, status::IMPORT) => format!("{} {}", ui.t(G, 19), amount),
-                (true, status::IMPORT_AS_NEEDED) => ui.t(G, 37),
-                (false, status::EXPORT) => format!("{} {}", ui.t(G, 20), amount),
-                (false, status::EXPORT_SURPLUS) => ui.t(G, 38),
+                (true, status::IMPORT) => format!("{} {}", ui.t(G, 19), trade_units(ui, r, amount)),
+                (true, status::IMPORT_AS_NEEDED) => ui.t(G, 43),
+                (false, status::EXPORT) => format!("{} {}", ui.t(G, 20), trade_units(ui, r, amount)),
+                (false, status::EXPORT_SURPLUS) => ui.t(G, 44),
                 (true, _) => ui.t(G, 39),
                 (false, _) => ui.t(G, 40),
             }
