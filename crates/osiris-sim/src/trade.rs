@@ -305,12 +305,23 @@ impl Trade {
                 ..Default::default()
             };
             c.refresh_goods();
+            // As the scenario loads (FUN_00444a80), a city other than ours with no
+            // demand set at all takes the middle tier for every good, and a good it
+            // neither sells nor buys has none (so the tiers the old file format gives
+            // goods 32-35 count only where the city lists them).
+            let tier = |r: usize| o.demand.get(r).copied().filter(|&d| d < 0x29 && o.city_type != city::OURS).unwrap_or(0);
+            let unset = (1..RESOURCES).all(|r| tier(r) == 0);
+            let demand = |r: usize| match (c.listed_sells[r] || c.listed_buys[r], unset && o.city_type != city::OURS) {
+                (false, _) => 0,
+                (true, true) => 2,
+                (true, false) => tier(r),
+            };
             // Every city's route gets its yearly allowances, trading or not, so a city
             // that becomes a trade partner later brings its goods with it.
             if let Some(route) = t.routes.get_mut(o.trade_route_id as usize) {
                 c.sea = route.sea;
                 for r in 1..RESOURCES {
-                    route.limit[r] = match o.demand.get(r).copied().unwrap_or(0) {
+                    route.limit[r] = match demand(r) {
                         1 => 1500,
                         2 => 2500,
                         3 => 4000,
@@ -421,18 +432,32 @@ impl World {
     /// luxury goods are imported and the route's allowance is not nil. Cities selling
     /// the same kind (and jewelry from a city) count once.
     pub fn luxury_sources(&self) -> i32 {
+        let mut kinds = self.imported_luxury_kinds();
+        if self.buildings.iter().any(|b| b.kind == kind::JEWELER) && !kinds.contains(&38) {
+            kinds.push(38);
+        }
+        kinds.len() as i32
+    }
+
+    /// The kinds of luxury good the open routes bring in while luxury goods are
+    /// imported (FUN_00559fc0), each once, as their text ids in group 23 (38 jewelry,
+    /// 40 wine, ...; the next line is the plain name).
+    pub fn imported_luxury_kinds(&self) -> Vec<u8> {
         let lux = crate::economy::resource::LUXURY_GOODS;
-        let mut kinds = [false; 16];
-        kinds[0] = self.buildings.iter().any(|b| b.kind == kind::JEWELER);
-        if matches!(self.trade.status.get(lux as usize), Some(&status::IMPORT) | Some(&status::IMPORT_AS_NEEDED)) {
-            for (i, c) in self.trade.cities.iter().enumerate() {
-                if c.open && c.sells.get(lux as usize).copied().unwrap_or(false) && self.trade_limit(i, lux) > 0 {
-                    let k = LUXURY_KIND.get(c.name_id as usize).copied().unwrap_or(38);
-                    kinds[(k - 38) as usize] = true;
+        let mut kinds = Vec::new();
+        if !matches!(self.trade.status.get(lux as usize), Some(&status::IMPORT) | Some(&status::IMPORT_AS_NEEDED)) {
+            return kinds;
+        }
+        for (i, c) in self.trade.cities.iter().enumerate() {
+            if c.open && c.sells.get(lux as usize).copied().unwrap_or(false) && self.trade_limit(i, lux) > 0 {
+                let k = LUXURY_KIND.get(c.name_id as usize).copied().unwrap_or(38);
+                if !kinds.contains(&k) {
+                    kinds.push(k);
                 }
             }
         }
-        kinds.iter().filter(|&&k| k).count() as i32
+        kinds.sort_unstable();
+        kinds
     }
 
     /// Whether any trading city sells (or buys) `r` with an allowance this year, and
@@ -1225,6 +1250,23 @@ mod tests {
         w.trade.routes[1].traded[5] = 300;
         w.reset_trade_year();
         assert_eq!((w.trade.routes[0].traded[5], w.trade.routes[1].traded[5]), (0, 300));
+    }
+
+    #[test]
+    fn only_listed_goods_get_allowances() {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        let Some(mut s) = osiris_formats::MissionPak::open(&data.join("mission1.pak")).ok().and_then(|p| p.scenario(4).ok()) else { return };
+        // Perwadjyt (route 1) sells 6, 11, 12, 13 and 22; the old format gives every
+        // city the middle tier of 32-35.
+        let t = Trade::from_scenario(&s);
+        let limit = &t.routes[1].limit;
+        assert_eq!((limit[12], limit[11], limit[32], limit[35], limit[5]), (4000, 2500, 0, 0, 0));
+        // A city with no demand set takes the middle tier of what it lists.
+        let o = s.empire.objects.iter_mut().find(|o| o.in_use && o.kind == fmt::object::CITY && o.trade_route_id == 1).expect("Perwadjyt");
+        o.demand.iter_mut().for_each(|d| *d = 0);
+        let t = Trade::from_scenario(&s);
+        let limit = &t.routes[1].limit;
+        assert_eq!((limit[12], limit[22], limit[32], limit[5]), (2500, 2500, 0, 0));
     }
 
     #[test]
