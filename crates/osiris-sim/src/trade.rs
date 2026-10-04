@@ -378,9 +378,11 @@ impl World {
     /// (FUN_00443330, run at tick 2 of each day): food, pottery, beer, linen, papyrus
     /// and luxury goods by the city's size from trade_recommends.txt; 200 of a raw
     /// material and 200 more for each staffed building using it; 500 of bricks and
-    /// stone; 1000 of anything else. What open requests ask for and the burial
-    /// provisions still to send come on top, and the level is at most 10000 weapons or
-    /// chariots, 30000 bricks or stone, 15000 of anything else.
+    /// stone and what the scenario's monuments still need of them
+    /// ([`World::monument_material_needed`]); 1000 of anything else. What open
+    /// requests ask for and the burial provisions still to send come on top, and the
+    /// level is at most 10000 weapons or chariots, 30000 bricks or stone, 15000 of
+    /// anything else.
     pub fn trade_level(&self, r: u16) -> i32 {
         let users = |r: u16| {
             self.buildings.iter().filter(|b| b.workers > 0 && self.defs.building(b.kind).is_some_and(|d| d.inputs.iter().any(|i| self.resource_id(i) == Some(r)))).count() as i32
@@ -396,7 +398,7 @@ impl World {
             1..=8 => RECOMMENDED[band][0],
             _ if recommended.is_some() => RECOMMENDED[band][recommended.unwrap_or(0) + 1],
             _ if RAW_MATERIALS.contains(&r) => 200 * (users(r) + 1),
-            _ if BUILDING_MATERIALS.contains(&r) => 500,
+            _ if BUILDING_MATERIALS.contains(&r) => 500 + self.monument_material_needed(r),
             _ => 1000,
         };
         let asked: i32 = self.scenario_events.open_requests().filter(|(_, e)| e.resource == r).map(|(_, e)| e.units()).sum();

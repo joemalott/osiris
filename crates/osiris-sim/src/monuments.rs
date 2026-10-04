@@ -477,6 +477,45 @@ pub fn monument_for_title(t: usize) -> Option<&'static MonumentDef> {
     MONUMENTS.iter().find(|m| m.title == t)
 }
 
+/// What a scenario monument not yet placed needs of `r`, by title (FUN_004f57b0): the
+/// whole of its courses, its granite, or its sandstone with what placing it takes.
+fn unplaced_need(title: usize, r: u16) -> i32 {
+    // (titles, bricks, stone, limestone, granite, sandstone)
+    const NEEDS: [(&[usize], i32, i32, i32, i32, i32); 22] = [
+        (&[1, 13], 0, 4800, 19200, 0, 0),
+        (&[2, 14], 0, 21600, 43200, 0, 0),
+        (&[3], 4800, 0, 19200, 0, 0),
+        (&[4], 21600, 0, 43200, 0, 0),
+        (&[5], 67200, 0, 76800, 0, 0),
+        (&[6], 144000, 0, 120000, 0, 0),
+        (&[7], 264000, 0, 160000, 0, 0),
+        (&[8], 0, 4800, 0, 0, 0),
+        (&[9], 0, 21600, 0, 0, 0),
+        (&[10], 0, 67200, 0, 0, 0),
+        (&[11], 0, 144000, 0, 0, 0),
+        (&[12], 0, 264000, 0, 0, 0),
+        (&[15], 0, 67200, 76800, 0, 0),
+        (&[16], 0, 144000, 120000, 0, 0),
+        (&[17], 0, 264000, 160000, 0, 0),
+        (&[18], 10800, 0, 0, 0, 0),
+        (&[19], 24000, 0, 0, 0, 0),
+        (&[20], 42000, 0, 0, 0, 0),
+        (&[22], 0, 0, 0, 10000, 0),
+        (&[23], 0, 0, 0, 20000, 0),
+        (&[24], 0, 0, 0, 0, 38000),
+        (&[25, 26, 27], 0, 0, 0, 0, 49600),
+    ];
+    let Some(&(_, bricks, stone, limestone, granite, sandstone)) = NEEDS.iter().find(|n| n.0.contains(&title)) else { return 0 };
+    match r {
+        BRICKS => bricks,
+        STONE => stone,
+        LIMESTONE => limestone,
+        GRANITE => granite,
+        SANDSTONE => sandstone,
+        _ => 0,
+    }
+}
+
 /// What a monument takes from storage when it is placed: (resource, units).
 pub fn placement_cost(k: u16) -> Option<(u16, i32)> {
     match monument_def(k)?.style {
@@ -2917,6 +2956,45 @@ impl World {
         ((m.phase as i32 * 100 + within) / (def.phase_count as i32 - 1).max(1)).min(99)
     }
 
+    /// What the scenario's monuments still need of `r` (FUN_004f57b0), which the
+    /// overseer of commerce keeps in stock on top of 500 (bricks, stone, limestone,
+    /// granite, sandstone). A monument not yet placed counts in full, by title; a
+    /// pyramid or mastaba the units of its courses not yet laid, two to a load of 400
+    /// (odd units left over count for nothing); a mausoleum or sun temple its sleds of
+    /// sandstone not yet worked. Other monuments take theirs when placed, or none.
+    pub fn monument_material_needed(&self, r: u16) -> i32 {
+        let mut total = 0;
+        for (title, b) in self.scenario_monument_slots() {
+            let Some(id) = b else {
+                total += unplaced_need(title, r);
+                continue;
+            };
+            let (Some(def), Some(m)) = (self.buildings.get(id).and_then(|b| monument_def(b.kind)), self.buildings.get(id).and_then(|b| b.monument.as_ref())) else { continue };
+            if m.finished {
+                continue;
+            }
+            if crate::pyramids::blockwise(def.style) {
+                let units: i32 = self.tomb_remaining(id).iter().filter(|e| e.0 == r).map(|e| e.1 / crate::pyramids::UNIT_MATERIAL).sum();
+                total += units / 2 * SLED_LOAD;
+            } else if matches!(def.style, Style::Mausoleum | Style::SunTemple) {
+                for p in m.phase..def.phase_count {
+                    let want = Monument::amount(&def.phase(p), r);
+                    if want == 0 {
+                        continue;
+                    }
+                    if p > m.phase {
+                        total += want;
+                        continue;
+                    }
+                    let units = def.units(p).max(1);
+                    let open = (0..units).filter(|&i| m.progress.get(i).is_none_or(|&w| w < def.work_of(p, i))).count();
+                    total += want * open as i32 / units as i32;
+                }
+            }
+        }
+        total
+    }
+
     /// Burial provisions the scenario asks for: (resource, units needed, units sent).
     pub fn burial_needs(&self) -> Vec<(u16, i32, i32)> {
         self.burial.iter().enumerate().filter(|(_, p)| p.0 > 0).map(|(r, &(need, sent))| (r as u16, need, sent)).collect()
@@ -3059,6 +3137,35 @@ mod tests {
         let id = world.buildings.iter().find(|b| b.kind == SMALL_PYRAMID).map(|b| b.id).expect("pyramid");
         world.set_tomb_stage(id, crate::pyramids::RAISE);
         Some((world, id))
+    }
+
+    /// The overseer of commerce keeps what the scenario's monuments still need of
+    /// building materials on top of 500 (FUN_004f57b0): a monument not placed counts
+    /// in full, a pyramid partly built its units not yet laid, two to a load of 400.
+    #[test]
+    fn trade_level_counts_monument_needs() {
+        let Some((mut world, id)) = pyramid_town(false) else { return };
+        let full = (world.monument_material_needed(STONE), world.monument_material_needed(LIMESTONE));
+        assert_eq!(full, (4800, 19200), "a small pyramid not begun needs all of it");
+        assert_eq!(world.trade_level(STONE), 500 + 4800);
+        assert_eq!(world.monument_material_needed(GRANITE), 0);
+        // Block 0 laid in full, and three units of block 1's first course.
+        let m = world.buildings.get_mut(id).and_then(|b| b.monument.as_mut()).expect("pyramid");
+        let top = m.blocks[0].top;
+        m.blocks[0].state = 1;
+        m.blocks[0].level = top;
+        m.blocks[1].counter = 3;
+        let left = world.tomb_remaining(id);
+        let units = |r: u16| left.iter().find(|e| e.0 == r).map_or(0, |e| e.1) / crate::pyramids::UNIT_MATERIAL;
+        assert_eq!(units(STONE) % 2, 1, "an odd unit left over");
+        assert_eq!(world.monument_material_needed(STONE), units(STONE) / 2 * SLED_LOAD);
+        assert!(world.monument_material_needed(STONE) < 4800 - 6 * 200);
+        assert_eq!(world.monument_material_needed(LIMESTONE), units(LIMESTONE) / 2 * SLED_LOAD);
+        assert_eq!(world.trade_level(LIMESTONE), 500 + world.monument_material_needed(LIMESTONE));
+        // Not placed: a second scenario monument counts in full.
+        world.scenario_monuments = [13, 23, 0];
+        assert_eq!(world.monument_material_needed(GRANITE), 20000);
+        assert_eq!(world.trade_level(GRANITE), 20500);
     }
 
     #[test]
