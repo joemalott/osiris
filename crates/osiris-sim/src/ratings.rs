@@ -348,15 +348,19 @@ impl World {
     /// each: one of its type not taken by an earlier one. A royal tomb carried from an
     /// earlier Valley mission is none of them.
     fn scenario_monument_buildings(&self) -> Vec<(usize, crate::buildings::BuildingId)> {
-        let mut out: Vec<(usize, crate::buildings::BuildingId)> = Vec::new();
+        self.scenario_monument_slots().into_iter().filter_map(|(t, b)| Some((t, b?))).collect()
+    }
+
+    /// Each of the scenario's monuments by title, with the building standing for it if
+    /// one has been placed.
+    pub(crate) fn scenario_monument_slots(&self) -> Vec<(usize, Option<crate::buildings::BuildingId>)> {
+        let mut out: Vec<(usize, Option<crate::buildings::BuildingId>)> = Vec::new();
         for &t in self.scenario_monuments.iter().filter(|&&t| t > 0) {
             let want = crate::monuments::monument_for_title(t as usize).map(|d| d.title);
             let b = self.buildings.iter().find(|b| {
-                b.monument.as_ref().is_some_and(|m| !m.carried) && crate::monuments::monument_def(b.kind).map(|d| d.title) == want && out.iter().all(|&(_, id)| id != b.id)
+                b.monument.as_ref().is_some_and(|m| !m.carried) && crate::monuments::monument_def(b.kind).map(|d| d.title) == want && out.iter().all(|&(_, id)| id != Some(b.id))
             });
-            if let Some(b) = b {
-                out.push((t as usize, b.id));
-            }
+            out.push((t as usize, b.map(|b| b.id)));
         }
         out
     }
