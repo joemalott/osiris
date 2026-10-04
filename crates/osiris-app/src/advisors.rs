@@ -128,8 +128,6 @@ enum Popup {
     Resource(u16),
     /// Priority for one labor category.
     Priority(usize),
-    /// The price list.
-    Prices,
     /// Choosing a festival: its god, then its size.
     Festival(Option<usize>),
     /// Asking before sending what a request wants, or saying there is not enough.
@@ -156,7 +154,10 @@ impl Advisors {
             ("gift", _) => Some(Popup::Gift),
             ("donate", _) => Some(Popup::Donate(0)),
             ("burial", _) => Some(Popup::Burial(13, 0)),
-            ("prices", _) => Some(Popup::Prices),
+            ("prices", _) => {
+                self.show_prices = true;
+                None
+            }
             ("festival", None) => Some(Popup::Festival(None)),
             ("festival", Some(g)) => Some(Popup::Festival(Some(g))),
             ("resource", Some(r)) => Some(Popup::Resource(r as u16)),
@@ -180,11 +181,14 @@ pub struct Advisors {
     scroll: usize,
     /// The military overseer shows the navy's page.
     navy: bool,
+    /// The Overseer of Commerce lists prices in place of trade status (the
+    /// original's flag at 0xea623c, cleared each time the overseers open).
+    show_prices: bool,
 }
 
 impl Advisors {
     pub fn new(current: Advisor) -> Self {
-        Self { current, popup: None, click: None, cursor: [0.0; 2], scroll: 0, navy: false }
+        Self { current, popup: None, click: None, cursor: [0.0; 2], scroll: 0, navy: false, show_prices: false }
     }
 
     fn panel_origin(screen: [f32; 2]) -> [f32; 2] {
@@ -266,7 +270,7 @@ impl Advisors {
         ui.image(img.icons + self.current.index() as u32, px + 10.0, py + 10.0);
         let from_screen = match self.current {
             Advisor::Labor => labor(&mut ui, img.lock, world, [px, py], &mut self.popup),
-            Advisor::Trade => trade(&mut ui, world, [px, py], &mut self.popup, &mut self.scroll),
+            Advisor::Trade => trade(&mut ui, world, [px, py], &mut self.popup, &mut self.scroll, &mut self.show_prices),
             Advisor::Financial => financial(&mut ui, world, [px, py]),
             Advisor::Chief => chief(&mut ui, world, [px, py]),
             Advisor::Ratings => ratings(&mut ui, world, [px, py], &mut self.scroll),
@@ -301,7 +305,6 @@ impl Advisors {
             let closed = match self.popup {
                 Some(Popup::Resource(r)) => resource_popup(&mut ui, world, r),
                 Some(Popup::Priority(c)) => priority_popup(&mut ui, world, c),
-                Some(Popup::Prices) => prices_popup(&mut ui, world),
                 Some(Popup::Festival(god)) => match festival_popup(&mut ui, world, god) {
                     FestivalChoice::Close => true,
                     FestivalChoice::God(g) => {
@@ -473,12 +476,24 @@ fn trade_count(r: u16, n: i32) -> i32 {
     if BLOCK_GOODS.contains(&r) || matches!(r, 10 | 28) { n / 100 } else { n }
 }
 
-fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<Popup>, scroll: &mut usize) -> Option<AdvisorAction> {
+/// The Overseer of Commerce (FUN_00559e10 and FUN_0055a0e0). "Show prices" switches
+/// the list in place to the price of a load of each good: the hint line gives way to
+/// "Buyers pay" and "Sellers receive" over two columns 100 pixels wide at 175 and 275,
+/// each price centred in its column, and at 425 what the price is for (per block of
+/// stone, per weapon, per chariot, per 100 pieces of anything else); the button then
+/// reads "Return to trade status". Rows still open a good's trade settings.
+fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<Popup>, scroll: &mut usize, show_prices: &mut bool) -> Option<AdvisorAction> {
     const G: usize = 54;
     let title = ui.t(G, 0);
     ui.label(Font::LargeBlackOnLight, &title, px + 60.0, py + 17.0);
-    let hint = ui.t(G, 1);
-    ui.label(Font::NormalBlackOnLight, &hint, px + 60.0, py + 40.0);
+    if *show_prices {
+        let (buy, sell) = (ui.t(G, 22), ui.t(G, 23));
+        ui.label(Font::NormalBlackOnLight, &buy, px + 175.0, py + 40.0);
+        ui.label(Font::NormalBlackOnLight, &sell, px + 275.0, py + 40.0);
+    } else {
+        let hint = ui.t(G, 1);
+        ui.label(Font::NormalBlackOnLight, &hint, px + 60.0, py + 40.0);
+    }
     panel::inner_panel(ui.r, ui.panels, px + 17.0, py + 60.0, 36, 21);
     let list = trade_resources(world);
     const ROWS: usize = 15;
@@ -491,6 +506,24 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
         let hot = ui.hot(rect);
         let nf = if world.is_mothballed(r) || hot { Font::NormalYellow } else { Font::NormalWhiteOnDark };
         draw_text(ui.r, nf, &name, px + 52.0, y, font::WHITE);
+        if ui.clicked(rect) {
+            *popup = Some(Popup::Resource(r));
+        }
+        if *show_prices {
+            // The table's own prices, before any blessing of Ra.
+            let (buy, sell) = world.trade.prices.get(r as usize).copied().unwrap_or_default();
+            ui.centred(Font::NormalWhiteOnDark, &buy.to_string(), px + 175.0, y, 100.0);
+            ui.centred(Font::NormalWhiteOnDark, &sell.to_string(), px + 275.0, y, 100.0);
+            let per = match r {
+                _ if BLOCK_GOODS.contains(&r) => 49,
+                10 => 47,
+                28 => 48,
+                _ => 50,
+            };
+            let per = ui.t(G, per);
+            draw_text(ui.r, Font::NormalWhiteOnDark, &per, px + 425.0, y, font::WHITE);
+            continue;
+        }
         draw_text(ui.r, Font::NormalWhiteOnDark, &trade_count(r, world.yards_stored(r)).to_string(), px + 206.0, y, font::WHITE);
         if world.is_stockpiled(r) {
             let s = ui.t(G, 3);
@@ -537,9 +570,6 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
         } else {
             draw_text(ui.r, Font::NormalWhiteOnDark, &s, sx, y - 2.0, font::WHITE);
         }
-        if ui.clicked(rect) {
-            *popup = Some(Popup::Resource(r));
-        }
     }
     if list.len() > ROWS {
         if *scroll > 0 && ui.arrow(px + 596.0, py + 64.0, true) {
@@ -553,48 +583,11 @@ fn trade(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], popup: &mut Option<
     if ui.button([px + 48.0, py + 396.0, 200.0, 24.0], &goto, Font::NormalBlackOnLight) {
         return Some(AdvisorAction::OpenEmpire);
     }
-    let prices = ui.t(G, 2);
+    let prices = ui.t(G, if *show_prices { 46 } else { 2 });
     if ui.button([px + 368.0, py + 396.0, 200.0, 24.0], &prices, Font::NormalBlackOnLight) {
-        *popup = Some(Popup::Prices);
+        *show_prices = !*show_prices;
     }
     None
-}
-
-/// Prices throughout Egypt: what buyers pay and sellers receive for each good.
-///
-/// The trade_prices_window is 56x16 tiles, with up to 18 icons a row 42
-/// pixels apart starting at (156, 44), a 90-pixel row pitch, buy/sell prices 30 and
-/// 50 pixels under each icon, and the "Buyers pay"/"Sellers receive" labels at a
-/// fixed x of 26 (28 and 48 pixels under the row, level with the numbers).
-fn prices_popup(ui: &mut Ui, world: &World) -> bool {
-    const G: usize = 54;
-    let screen = ui.r.screen;
-    let list: Vec<u16> = (1..osiris_sim::trade::RESOURCES as u16).filter(|&r| world.buy_price(r) > 0).collect();
-    let per_row = 18;
-    let (w, h) = (896.0, 256.0);
-    let (x, y) = (((screen[0] - w) / 2.0).floor(), ((screen[1] - h) / 2.0).floor());
-    panel::outer_panel(ui.r, ui.panels, x, y, 56, 16);
-    let title = ui.t(G, 21);
-    let tw = ui.width(Font::LargeBlackOnLight, &title);
-    ui.label(Font::LargeBlackOnLight, &title, x + (w - tw) / 2.0, y + 12.0);
-    for (row, chunk) in list.chunks(per_row).enumerate() {
-        let ry = y + 44.0 + 90.0 * row as f32;
-        let (buy, sell) = (ui.t(G, 22), ui.t(G, 23));
-        ui.label(Font::NormalBlackOnLight, &buy, x + 26.0, ry + 28.0);
-        ui.label(Font::NormalBlackOnLight, &sell, x + 26.0, ry + 48.0);
-        for (i, &r) in chunk.iter().enumerate() {
-            let cx = x + 156.0 + 42.0 * i as f32;
-            ui.icon(r, cx, ry);
-            let (b, s) = (world.buy_price(r).to_string(), world.sell_price(r).to_string());
-            // Right-aligned to the next icon's column so a 3-digit price never runs
-            // into it (the original's plain left-aligned label can, at this pitch).
-            let bw = ui.width(Font::NormalBlackOnLight, &b);
-            ui.label(Font::NormalBlackOnLight, &b, cx + 38.0 - bw, ry + 30.0);
-            let sw = ui.width(Font::NormalBlackOnLight, &s);
-            ui.label(Font::NormalBlackOnLight, &s, cx + 38.0 - sw, ry + 50.0);
-        }
-    }
-    ui.click.take().is_some()
 }
 
 /// The trade settings of one resource: import and export, industry on or off, and
