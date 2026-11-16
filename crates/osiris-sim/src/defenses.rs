@@ -316,9 +316,15 @@ impl World {
         }
     }
 
-    /// The first staffed tower without a sentry, if any.
-    pub(crate) fn tower_wanting_sentry(&self) -> Option<BuildingId> {
-        self.buildings.iter().find(|b| is_tower(b.kind) && b.workers > 0 && b.walkers[0] == 0).map(|b| b.id)
+    /// The first staffed tower without a sentry that `recruiter` can send one to: the
+    /// original sends sentries only to towers on the recruiter's road network
+    /// (FUN_004b7400 compares the buildings' network numbers).
+    pub(crate) fn tower_wanting_sentry(&self, recruiter: BuildingId) -> Option<BuildingId> {
+        let from = self.buildings.get(recruiter)?.road?;
+        self.buildings
+            .iter()
+            .find(|b| is_tower(b.kind) && b.workers > 0 && b.walkers[0] == 0 && b.road.is_some_and(|r| self.same_road_network(from, r)))
+            .map(|b| b.id)
     }
 
     /// When its turn to enlist comes, a recruiter sends a sentry to a staffed tower
@@ -326,7 +332,7 @@ impl World {
     /// sent one.
     pub(crate) fn man_a_tower(&mut self, recruiter: BuildingId) -> bool {
         let Some(from) = self.buildings.get(recruiter).and_then(|b| b.road) else { return false };
-        let Some(tower) = self.tower_wanting_sentry() else { return false };
+        let Some(tower) = self.tower_wanting_sentry(recruiter) else { return false };
         let Some((tx, ty)) = self.buildings.get(tower).map(|b| (b.x, b.y)) else { return false };
         let fid = self.figures.spawn(TOWER_SENTRY, from.0, from.1, Travel::Land);
         let map = &self.map;

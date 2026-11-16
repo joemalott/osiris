@@ -712,10 +712,25 @@ impl World {
         }
     }
 
+    /// Whether two road tiles are on one road network, as the original's buildings
+    /// keep a network number (+0x14) that its recruiter compares before sending a
+    /// sentry or taking a delivery.
+    pub(crate) fn same_road_network(&self, a: (i32, i32), b: (i32, i32)) -> bool {
+        a == b || crate::figures::find_route(&self.map, Travel::Roads, a, b).is_some()
+    }
+
+    /// Whether a cart with weapons or chariots on the road at `from` may take them
+    /// to recruiter `b` (FUN_0045f7b0 for workshops' carts, FUN_0045bf00 for storage
+    /// yards'): the recruiter is staffed, the city has a fort, and the recruiter's
+    /// road is on the cart's road network.
+    pub(crate) fn recruiter_takes_from(&self, b: &crate::buildings::Building, from: (i32, i32)) -> bool {
+        b.workers > 0 && self.military.companies.iter().any(|c| c.fort != 0) && b.road.is_some_and(|r| self.same_road_network(from, r))
+    }
+
     /// Whether this recruiter would enlist anyone: some fort is short of men it
     /// can outfit, or a tower lacks a sentry.
     pub fn recruits_wanted(&self, recruiter: BuildingId) -> bool {
-        self.company_to_recruit(recruiter).is_some() || self.tower_wanting_sentry().is_some()
+        self.company_to_recruit(recruiter).is_some() || self.tower_wanting_sentry(recruiter).is_some()
     }
 
     /// The company a recruiter enlists for next: of the companies at their forts
@@ -2320,5 +2335,37 @@ mod tests {
         w.update_morale_month();
         let c = &w.military.companies[0];
         assert_eq!((c.routed, c.broken), (0, 0));
+    }
+
+    /// A recruiter serves only its own road network (FUN_004b7400, FUN_0045f7b0):
+    /// a tower on a road of its own gets no sentry from it, and weapons made on
+    /// another network go to a storage yard there instead of waiting on the
+    /// recruiter. Joining the roads puts both within its reach.
+    #[test]
+    fn a_recruiter_serves_only_its_road_network() {
+        use crate::world::{Command, Outcome};
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        let needed = w.workers_needed(RECRUITER);
+        w.buildings.get_mut(recruiter).expect("recruiter").workers = needed;
+        let o = w.apply(&Command::Road { start: (44, 62), end: (64, 62) });
+        assert!(matches!(o, Outcome::Done { items: 1.., .. }), "{o:?}");
+        let tower = w.create_building(crate::defenses::TOWER, 47, 63);
+        let yard = w.create_building(crate::buildings::kind::STORAGE_YARD, 54, 63);
+        for b in [tower, yard] {
+            let needed = w.workers_needed(w.buildings.get(b).expect("built").kind);
+            let b = w.buildings.get_mut(b).expect("built");
+            assert!(b.road.is_some_and(|r| r.1 == 62), "{:?}", b.road);
+            b.workers = needed;
+        }
+        assert_eq!(w.tower_wanting_sentry(recruiter), None);
+        assert_eq!(w.cart_destination(WEAPONS, (62, 62)), Some(yard));
+        assert!(matches!(w.apply(&Command::Road { start: (44, 63), end: (44, 69) }), Outcome::Done { items: 1.., .. }));
+        assert_eq!(w.tower_wanting_sentry(recruiter), Some(tower));
+        assert_eq!(w.cart_destination(WEAPONS, (62, 62)), Some(recruiter));
+        // With no fort the recruiter takes none.
+        let fort = w.military.companies[0].fort;
+        w.demolish(fort);
+        assert_eq!(w.cart_destination(WEAPONS, (62, 62)), Some(yard));
     }
 }

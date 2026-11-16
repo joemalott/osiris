@@ -392,12 +392,14 @@ impl World {
 
     /// The building using `r` that a load of it should go to: the one holding least,
     /// then with least on its way, then the nearest by road. It must have room for a
-    /// whole load beyond what it holds, and more than what is on its way.
+    /// whole load beyond what it holds, and more than what is on its way. The
+    /// recruiter takes its weapons and chariots only on its own road network.
     fn user_for(&self, r: u16, from: (i32, i32), staffed: bool) -> Option<BuildingId> {
         let users: Vec<((i32, i32), BuildingId)> = self
             .buildings
             .iter()
             .filter(|b| !storage::is_storage(b.kind) && (!staffed || b.workers > 0) && self.inputs_of(b.kind).contains(&r) && b.road.is_some())
+            .filter(|b| b.kind != crate::military::RECRUITER || self.recruiter_takes_from(b, from))
             .filter_map(|b| {
                 let (stock, cap) = (b.stock[r as usize], site_cap(b.kind));
                 let coming = self.incoming(b.id, r);
