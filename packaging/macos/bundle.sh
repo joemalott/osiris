@@ -3,7 +3,7 @@
 # ~/Library/Application Support/Osiris/) to play.
 set -eu
 cd "$(dirname "$0")/../.."
-. "$HOME/.cargo/env" 2>/dev/null || true
+if [ -f "$HOME/.cargo/env" ]; then . "$HOME/.cargo/env"; fi
 
 cargo build --release -p osiris-app
 
