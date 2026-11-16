@@ -530,6 +530,20 @@ fn layout(order: Order, turned: bool) -> usize {
     }
 }
 
+/// The tiles round a soldier's place he tries when he can't stand on it, ring by
+/// ring out to six (168 tiles), each ring from due north clockwise: the original's
+/// table at 0x5ca506.
+fn alternative_tiles() -> impl Iterator<Item = (i32, i32)> {
+    (1..=6).flat_map(|k: i32| {
+        let top = (0..=k).map(move |x| (x, -k));
+        let right = (-k + 1..=k).map(move |y| (k, y));
+        let bottom = (-k..k).rev().map(move |x| (x, k));
+        let left = (-k..k).rev().map(move |y| (-k, y));
+        let back = (-k + 1..0).map(move |x| (x, -k));
+        top.chain(right).chain(bottom).chain(left).chain(back)
+    })
+}
+
 /// Where a soldier stands around his company's standard.
 fn slot_offset(slot: u8, order: Order, turned: bool) -> (i32, i32) {
     let (dx, dy) = LAYOUTS[layout(order, turned)][slot as usize % COMPANY_SIZE];
@@ -798,19 +812,42 @@ impl World {
         }
     }
 
+    /// Sends a soldier to his place, or, when he can't stand there or get there
+    /// (a building, water, a wall in the way), to the nearest tile round it he can,
+    /// trying them ring by ring out to six tiles as the original does (its
+    /// alternative tiles at 0x5ca506, taken in turn each time the route fails).
     fn send_to_post(&mut self, fid: FigureId) {
         let Some(post) = self.post_of(fid) else { return };
         let at_fort = self.figures.get(fid).and_then(|f| self.military.companies.get(f.formation as usize - 1)).is_some_and(|c| c.at_fort);
+        // A tile another man of the company is bound for, or has as his place, is
+        // taken: unlike the original's men, Osiris's don't stack on one another.
+        let others: Vec<FigureId> = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map(|c| c.soldiers.iter().chain(&c.recruits).copied().filter(|&s| s != fid).collect()).unwrap_or_default();
+        let taken: Vec<(i32, i32)> = others.iter().flat_map(|&s| [self.figures.get(s).and_then(|o| o.destination), self.post_of(s)]).flatten().collect();
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return };
         f.action = if at_fort { action::GOING_TO_FORT } else { action::GOING_TO_STANDARD };
-        // Routed from where his step ends, or a man turned mid-step stops a tile off.
-        if (f.x, f.y) == post && !f.moving {
-            f.action = if at_fort { action::AT_REST } else { action::AT_STANDARD };
-        } else if !f.reroute(map, post) {
-            // Nowhere to stand there: stay put.
-            f.action = if at_fort { action::AT_REST } else { action::AT_STANDARD };
+        let tiles = std::iter::once((0, 0)).chain(alternative_tiles()).map(|(dx, dy)| (post.0 + dx, post.1 + dy));
+        for (i, tile) in tiles.enumerate() {
+            if !crate::figures::passable(map, f.travel, tile.0, tile.1) || i > 0 && taken.contains(&tile) {
+                continue;
+            }
+            // Routed from where his step ends, or a man turned mid-step stops a
+            // tile off.
+            if (f.x, f.y) == tile && !f.moving {
+                f.destination = Some(tile);
+                f.route.clear();
+                f.action = if at_fort { action::AT_REST } else { action::AT_STANDARD };
+                return;
+            }
+            if f.reroute(map, tile) {
+                return;
+            }
         }
+        // Nowhere near to stand: he stays put. (The original's man, out of tiles to
+        // try, is struck off.)
+        f.destination = Some((f.x, f.y));
+        f.route.clear();
+        f.action = if at_fort { action::AT_REST } else { action::AT_STANDARD };
     }
 
     /// Orders a company out to form up around `tile`. False, and nothing done, when
@@ -953,7 +990,13 @@ impl World {
                 let f = self.figures.get_mut(fid).expect("present");
                 match f.walk(map) {
                     Step::Moving => {}
-                    _ => f.action = if act == action::GOING_TO_FORT { action::AT_REST } else { action::AT_STANDARD },
+                    Step::Arrived => f.action = if act == action::GOING_TO_FORT { action::AT_REST } else { action::AT_STANDARD },
+                    // Something built across his way: he finds another (route
+                    // result 9, 0x48e9e0).
+                    Step::Blocked | Step::Lost => {
+                        f.route.clear();
+                        self.send_to_post(fid);
+                    }
                 }
                 if act == action::GOING_TO_STANDARD {
                     self.engage(fid, 1);
@@ -1819,6 +1862,19 @@ mod tests {
     }
 
     #[test]
+    fn alternative_tiles_spiral_out_as_the_originals() {
+        let tiles: Vec<(i32, i32)> = alternative_tiles().collect();
+        assert_eq!(tiles.len(), 168);
+        assert_eq!(&tiles[..10], &[(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -2), (1, -2)]);
+        assert_eq!(&tiles[22..25], &[(-2, -2), (-1, -2), (0, -3)]);
+        assert_eq!(tiles[167], (-1, -6));
+        let mut seen = tiles.clone();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(seen.len(), 168);
+    }
+
+    #[test]
     fn formations_place_every_man_once() {
         for (i, row) in LAYOUTS.iter().enumerate() {
             let mut seen = row.to_vec();
@@ -2044,6 +2100,32 @@ mod tests {
         }
         assert_eq!(w.military.companies[0].soldiers.len(), 12, "{:?}", w.military.companies[0]);
         assert_in_formation(&w, action::AT_REST);
+    }
+
+    #[test]
+    fn men_whose_places_are_built_on_stand_beside_them() {
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 16 * crate::economy::LOAD);
+        muster(&mut w);
+        // A tight line formed at the recruiter's west edge would put half the men on
+        // it: they stand round it instead, each on his own tile.
+        assert!(w.move_company(0, (41, 72)));
+        for _ in 0..10 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        let c = &w.military.companies[0];
+        let mut tiles = Vec::new();
+        for &s in &c.soldiers {
+            let f = w.figures.get(s).expect("soldier");
+            assert_eq!(f.action, action::AT_STANDARD, "{:?}", (f.x, f.y));
+            assert!(crate::figures::passable(&w.map, Travel::Land, f.x, f.y), "soldier on {:?}", (f.x, f.y));
+            assert!(w.map.building.at_or(f.x, f.y, 0) != recruiter);
+            tiles.push((f.x, f.y));
+        }
+        tiles.sort();
+        tiles.dedup();
+        assert_eq!(tiles.len(), COMPANY_SIZE, "men share a tile");
     }
 
     #[test]
