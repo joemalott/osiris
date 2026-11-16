@@ -956,7 +956,9 @@ impl World {
         }
     }
 
-    /// Fallen invaders lie a while; an army with none left standing is beaten.
+    /// Fallen invaders lie a while, then are gone. Beating an army changes no
+    /// rating: none of the original's writers of the kingdom rating (FUN_004e96c0)
+    /// is tied to a battle.
     fn update_invader_corpse(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get_mut(fid) else { return };
         f.counter += 1;
@@ -967,10 +969,6 @@ impl World {
         let army = f.formation.saturating_sub(1000) as usize;
         if let Some(a) = self.invasions.armies.get_mut(army) {
             a.figures.retain(|&g| g != fid);
-            if a.figures.is_empty() && a.invader == invader::PHARAOH && self.ratings.kingdom < 35 {
-                // Beating back Pharaoh's army earns grudging respect.
-                self.ratings.change_kingdom(10);
-            }
         }
     }
 
