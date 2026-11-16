@@ -142,6 +142,15 @@ pub struct Figure {
     /// The city's warships and transports: their orders and state (see `navy.rs`).
     #[serde(default)]
     pub ship: Option<Box<crate::navy::Ship>>,
+    /// Soldiers: turned to take aim at a target since last arriving at a place (the
+    /// original's direction byte left on the target, not "at destination"), which
+    /// keeps his company from counting as halted.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub aimed: bool,
+    /// Soldiers: the place in the company's ranks they were last sent to, which they
+    /// may stand beside when it is built on or out of reach.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post: Option<(i32, i32)>,
 }
 
 impl Figure {
@@ -187,6 +196,8 @@ impl Figure {
             yard: 0,
             band: 0,
             ship: None,
+            aimed: false,
+            post: None,
         }
     }
 

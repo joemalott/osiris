@@ -550,10 +550,7 @@ impl World {
             &Command::DispatchBurial { resource, units } => Outcome::Done { items: self.dispatch_burial(resource, units), cost: 0 },
             &Command::DispatchRequest(i) => done_if(self.dispatch_request(i)),
             &Command::AnswerGift { event, choice } => done_if(self.answer_gift(event, choice)),
-            &Command::ReturnCompany(c) => {
-                self.return_company(c);
-                DONE
-            }
+            &Command::ReturnCompany(c) => done_if(self.return_company(c)),
             &Command::MoveCompany { company, x, y } => done_if(self.move_company(company, (x, y))),
             &Command::CompanyOrder { company, order } => {
                 self.set_order(company, order);
