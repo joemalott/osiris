@@ -276,7 +276,7 @@ pub struct Company {
     /// spent at the fort.
     /// The orders it had before it was sent to mop up, which it takes again once
     /// no enemy is left.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_hold_tight")]
     pub before_mop_up: Order,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub routed: u8,
@@ -286,6 +286,10 @@ pub struct Company {
 
 fn is_zero(n: &u8) -> bool {
     *n == 0
+}
+
+fn is_hold_tight(o: &Order) -> bool {
+    *o == Order::HoldTight
 }
 
 impl Company {
