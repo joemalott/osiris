@@ -29,6 +29,14 @@ pub const OLD_TOWER: u16 = 59;
 /// stand (they cannot become the five-tile gatehouse), but no longer built.
 pub const OLD_GATEHOUSE: u16 = 58;
 pub const TOWER_SENTRY: u16 = 42;
+/// The bolt thrower a manned tower works (the original's figure type 62).
+pub const BALLISTA: u16 = 62;
+/// Ticks between the ballista's looks for a mark while it has none (0x49aeb0).
+const BALLISTA_LOOK: i32 = 21;
+/// Ticks into its shot the ballista looses (0x49aeb0), and the ticks of a whole
+/// shot: 24 of winding and loosing, then 100 at rest.
+const BALLISTA_LOOSE: u16 = 10;
+const BALLISTA_CYCLE: u16 = 124;
 pub const ROADBLOCK: u16 = 138;
 
 /// The patron god's gatehouse towers, by god (Osiris, Ra, Ptah, Seth, Bast).
@@ -373,7 +381,75 @@ impl World {
             }
             return;
         }
+        // A staffed tower with its sentry works a ballista (the tower's building
+        // update, which spawns figure 62 on it).
+        if self.time.total_ticks.is_multiple_of(crate::time::TICKS_PER_DAY as u64) && b.workers > 0 && !self.figures.iter().any(|o| o.kind == BALLISTA && o.home == tower && !o.dead) {
+            let bid = self.figures.spawn(BALLISTA, tx, ty, Travel::Any);
+            if let Some(o) = self.figures.get_mut(bid) {
+                o.home = tower;
+            }
+        }
         self.shoot_at_foes(fid);
+    }
+
+    /// A tower's ballista (0x49aeb0): it stands on its tower while the tower is
+    /// staffed and has its sentry. With no mark it looks every 21 ticks for one in
+    /// its range (13 tiles by the figure model), chosen as an archer's is; with one,
+    /// it winds and looses a javelin of its missile attack (60) ten ticks into each
+    /// shot of 124 ticks, and goes back to looking once no mark is left in range.
+    pub(crate) fn update_ballista(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let tower = f.home;
+        let manned = self.buildings.get(tower).is_some_and(|b| is_tower(b.kind) && b.workers > 0 && self.figures.get(b.walkers[0]).is_some_and(|s| s.kind == TOWER_SENTRY && !s.dead));
+        if !manned {
+            self.figures.get_mut(fid).expect("present").dead = true;
+            return;
+        }
+        let stats = self.fighter_stats(fid);
+        let (x, y) = (f.x, f.y);
+        let f = self.figures.get_mut(fid).expect("present");
+        if f.action == 0 {
+            f.counter += 1;
+            if f.counter < BALLISTA_LOOK {
+                return;
+            }
+            f.counter = 0;
+            if self.missile_target((x, y), stats.missile_range, false).is_some() {
+                let f = self.figures.get_mut(fid).expect("present");
+                f.action = 1;
+                f.attack_tick = 0;
+            }
+            return;
+        }
+        f.attack_tick += 1;
+        let t = f.attack_tick;
+        if t >= BALLISTA_CYCLE {
+            f.attack_tick = 0;
+        }
+        // At rest between shots it neither looks nor looses.
+        if t > 24 {
+            return;
+        }
+        let Some((target, ox, oy)) = self.missile_target((x, y), stats.missile_range, false) else {
+            let f = self.figures.get_mut(fid).expect("present");
+            f.action = 0;
+            f.attack_tick = 0;
+            return;
+        };
+        if let Some(f) = self.figures.get_mut(fid) {
+            f.direction = crate::figures::direction_to((x, y), (ox, oy)).unwrap_or(f.direction);
+        }
+        if t != BALLISTA_LOOSE {
+            return;
+        }
+        self.figure_sound(fid, 2);
+        let missile = self.figures.spawn(crate::military::JAVELIN, x, y, Travel::Land);
+        if let Some(m) = self.figures.get_mut(missile) {
+            m.foe = target;
+            m.amount = stats.missile_attack;
+            m.destination = Some((ox, oy));
+            m.direction = crate::figures::direction_to((x, y), (ox, oy)).unwrap_or(0);
+        }
     }
 }
 
@@ -475,6 +551,42 @@ mod tests {
         assert!(matches!(build(&mut world, TOWER, (163, 140), (163, 140)), Outcome::Done { .. }));
         assert!(world.warnings.contains(&39));
         assert_eq!((hit_points(WALL), hit_points(TOWER), hit_points(GATEHOUSE), hit_points(70)), (Some(200), Some(400), Some(400), None));
+    }
+
+    #[test]
+    fn a_manned_towers_ballista_looses_at_invaders_in_range() {
+        let Some(mut world) = sandbox() else { return };
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        world.balance = crate::balance::Balance::load_all(&data).expect("model")[crate::difficulty::NORMAL as usize].clone();
+        assert!(matches!(build(&mut world, TOWER, (163, 140), (163, 140)), Outcome::Done { .. }));
+        let tower = world.map.building.at_or(163, 140, 0);
+        let sentry = world.figures.spawn(TOWER_SENTRY, 163, 140, Travel::Land);
+        world.figures.get_mut(sentry).expect("sentry").action = crate::military::action::AT_STANDARD;
+        {
+            let b = world.buildings.get_mut(tower).expect("tower");
+            b.workers = 6;
+            b.walkers[0] = sentry;
+        }
+        let ballista = world.figures.spawn(BALLISTA, 163, 140, Travel::Any);
+        world.figures.get_mut(ballista).expect("ballista").home = tower;
+        assert_eq!((world.fighter_stats(ballista).missile_range, world.fighter_stats(ballista).missile_attack), (13, 60));
+        // An invader 12 tiles off, in its range of 13.
+        world.figures.spawn(crate::invasions::ENEMY_INFANTRY, 175, 140, Travel::Hostile);
+        let mut shots = Vec::new();
+        for t in 1..=300 {
+            world.update_ballista(ballista);
+            let new: Vec<_> = world.figures.iter().filter(|f| f.kind == crate::military::JAVELIN && f.counter == 0).map(|f| (f.id, f.amount)).collect();
+            for (id, amount) in new {
+                world.figures.get_mut(id).expect("javelin").counter = 1;
+                shots.push((t, amount));
+            }
+        }
+        // It sees him on its 21st tick, looses ten ticks later and every 124 after.
+        assert_eq!(shots, vec![(31, 60), (155, 60), (279, 60)]);
+        // Without its sentry the tower's ballista is gone.
+        world.figures.get_mut(sentry).expect("sentry").dead = true;
+        world.update_ballista(ballista);
+        assert!(world.figures.get(ballista).is_none_or(|f| f.dead));
     }
 
     #[test]

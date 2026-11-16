@@ -1705,7 +1705,7 @@ impl World {
     /// (FUN_00499b50, FUN_00499e50). So the first of the best kind found is kept even
     /// if another of that kind is nearer, and a better mark farther off than a
     /// lesser one is passed over.
-    fn missile_target(&self, at: (i32, i32), range: i32, invader: bool) -> Option<(FigureId, i32, i32)> {
+    pub(crate) fn missile_target(&self, at: (i32, i32), range: i32, invader: bool) -> Option<(FigureId, i32, i32)> {
         let few_soldiers = invader && self.figures.iter().filter(|o| is_soldier(o.kind) && !o.dead).count() < 4;
         let (mut best, mut worth, mut near) = (None, 0, range);
         for o in self.figures.iter().filter(|o| !o.dead && o.action != action::CORPSE) {
