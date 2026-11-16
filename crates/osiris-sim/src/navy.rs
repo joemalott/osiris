@@ -1548,6 +1548,40 @@ impl World {
         })
     }
 
+    /// Once the flood has gone back into the river, every boat it left on water that
+    /// is no longer open (by the floodplain's edge, where the flood had made the river
+    /// open) is moved to the nearest open water with no one on it, and heads on from
+    /// there (FUN_004be580 and FUN_004be4a0, which the flood's update FUN_004be770 runs
+    /// the cycle after the flood ends; Osiris runs it as the last flooded row dries).
+    /// A trade ship moored at its dock and a fishing boat at its wharf are left be.
+    pub(crate) fn free_stranded_boats(&mut self) {
+        let stranded: Vec<FigureId> = self
+            .figures
+            .iter()
+            .filter(|f| !f.dead && f.action != action::CORPSE && !f.ship.as_ref().is_some_and(|s| s.hidden))
+            .filter(|f| match f.kind {
+                crate::docks::TRADE_SHIP => f.action != crate::docks::ship_action::MOORED,
+                FISHING_BOAT => f.action != crate::fishing::action::AT_WHARF,
+                k => is_city_ship(k) || is_enemy_ship(k),
+            })
+            .filter(|f| !crate::water::navigable(&self.map, f.x, f.y))
+            .map(|f| f.id)
+            .collect();
+        for fid in stranded {
+            let Some(at) = self.figures.get(fid).map(|f| (f.x, f.y)) else { continue };
+            let Some(to) = self.free_water(at) else { continue };
+            let map = &self.map;
+            let f = self.figures.get_mut(fid).expect("present");
+            (f.x, f.y) = to;
+            f.moving = false;
+            f.progress = 0;
+            f.route.clear();
+            if let Some(d) = f.destination {
+                f.go_to(map, d);
+            }
+        }
+    }
+
     /// The nearest open water to `p`.
     fn nearest_water(&self, p: (i32, i32)) -> Option<(i32, i32)> {
         (0..30).find_map(|r| {
@@ -2713,5 +2747,23 @@ mod tests {
         assert!(landed, "it put its men ashore");
         assert!(world.figures.get(t).is_none_or(|f| f.dead), "it is gone");
         assert_eq!(last, exit, "gone by the exit");
+    }
+    #[test]
+    fn a_ship_left_off_open_water_when_the_flood_goes_down_moves_to_the_nearest() {
+        let Some(mut world) = navy_town() else { return };
+        let ours = ship_at_post(&mut world, WARSHIP);
+        let f = world.figures.get(ours).expect("warship");
+        let at = (f.x, f.y);
+        let shut = (-6..=6)
+            .flat_map(|dy| (-6..=6).map(move |dx| (at.0 + dx, at.1 + dy)))
+            .filter(|&(x, y)| world.map.contains(x, y) && !crate::water::navigable(&world.map, x, y))
+            .min_by_key(|&q| distance(q, at))
+            .expect("a tile off open water");
+        let f = world.figures.get_mut(ours).expect("warship");
+        (f.x, f.y) = shut;
+        world.free_stranded_boats();
+        let f = world.figures.get(ours).expect("warship");
+        assert!(crate::water::navigable(&world.map, f.x, f.y), "back on open water");
+        assert!(distance((f.x, f.y), shut) <= 2, "nearby: {:?} from {shut:?}", (f.x, f.y));
     }
 }

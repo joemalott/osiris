@@ -347,6 +347,11 @@ impl World {
         let new_progress = self.floods.flood_progress;
         if new_progress != old_progress {
             self.apply_flood_progress(old_progress, new_progress);
+            // The last of the water has gone: boats left by the floodplain's edge
+            // move out to open water.
+            if new_progress == MAX_ROWS {
+                self.free_stranded_boats();
+            }
         }
         self.grow_floodplain_crops(cycle, subcycle);
     }
