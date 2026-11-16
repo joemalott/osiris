@@ -862,18 +862,21 @@ impl World {
             let (x, y) = (t.x, t.y);
             self.fx(crate::effects::Fx::Dust { x, y, size: 0, pieces: 4 });
         }
-        let knock = |w: &mut World, d: u8| -> u8 {
-            w.rng.next();
-            let turn = if w.rng.byte() & 1 == 0 { -1 } else { 1 };
-            (d as i32 + turn).clamp(0, 7) as u8
-        };
-        let own = knock(self, dir);
-        let theirs = knock(self, tdir);
-        if let Some(t) = self.figures.get_mut(target) {
-            t.direction = theirs;
+        // The rammer swings a point one way and the ship struck the other (a ship
+        // part-way across a tile keeps its heading till it is across, lest it step
+        // aside onto the bank).
+        self.rng.next();
+        let turn = if self.rng.byte() & 1 == 0 { -1 } else { 1 };
+        let knock = |d: u8, turn: i32| (d as i32 + turn).clamp(0, 7) as u8;
+        if let Some(t) = self.figures.get_mut(target)
+            && !t.moving
+        {
+            t.direction = knock(tdir, -turn);
         }
         let f = self.figures.get_mut(fid).expect("present");
-        f.direction = own;
+        if !f.moving {
+            f.direction = knock(dir, turn);
+        }
         f.foe = 0;
         f.route.clear();
         if let Some(s) = f.ship.as_deref_mut() {
