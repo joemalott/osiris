@@ -1189,7 +1189,11 @@ impl World {
         if self.invasions.lost {
             return;
         }
-        let invaders = self.figures.iter().filter(|f| is_invader_kind(f.kind) && f.action != action::CORPSE).count() as i32;
+        // The original counts every invader figure its update runs for, the fallen
+        // lying on the field included, and every enemy ship, afloat or sinking
+        // (FUN_004991a0, FUN_004adf60 and FUN_004aee10 each add one to the count
+        // FUN_004ea2c0 weighs).
+        let invaders = self.figures.iter().filter(|f| !f.dead && (is_invader_kind(f.kind) || crate::navy::is_enemy_ship(f.kind))).count() as i32;
         if invaders == 0 {
             return;
         }
@@ -1441,6 +1445,21 @@ mod tests {
         // The 46th update of its formation (FUN_004b8cf0 calls FUN_004b9f90).
         world.update_armies();
         assert_eq!((fallen(&world), world.religion.seth_crush), (10, 0));
+    }
+
+    #[test]
+    fn the_fallen_and_enemy_ships_count_as_invaders_in_a_siege() {
+        for k in [ENEMY_INFANTRY, crate::navy::ENEMY_TRANSPORT] {
+            let Some(mut world) = mission(1) else { return };
+            world.population = 0;
+            world.invasions.peak_population = 100;
+            world.check_siege();
+            assert!(!world.invasions.lost);
+            let f = world.figures.spawn(k, 5, 5, Travel::Hostile);
+            world.figures.get_mut(f).expect("figure").action = action::CORPSE;
+            world.check_siege();
+            assert!(world.invasions.lost, "{k}");
+        }
     }
 
     #[test]
