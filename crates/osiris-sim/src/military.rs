@@ -2103,7 +2103,7 @@ impl World {
         let Some((target, tx, ty)) = self.missile_target((x, y), stats.missile_range, mine) else { return };
         if let Some(f) = self.figures.get_mut(fid) {
             f.direction = crate::figures::direction_to((x, y), (tx, ty)).unwrap_or(f.direction);
-            f.aimed = true;
+            f.aimed = is_soldier(f.kind);
         }
         if let Some(c) = self.company_of(fid).and_then(|c| self.military.companies.get_mut(c)) {
             c.shot = REFORM_WAIT;
