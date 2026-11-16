@@ -1090,7 +1090,7 @@ impl World {
     fn chase(&mut self, fid: FigureId, reach: i32) {
         let Some(f) = self.figures.get(fid) else { return };
         let (x, y, heading) = (f.x, f.y, f.direction);
-        let target = self.nearest_foe(false, (x, y), reach).map(|o| (o.1, o.2));
+        let mut target = self.nearest_foe(false, (x, y), reach).map(|o| (o.1, o.2));
         let charioteer = f.kind == CHARIOTEER && self.company_of(fid).and_then(|c| self.military.companies.get(c)).is_some_and(|c| c.order == Order::Charge);
         let fresh = self.charging(fid);
         if charioteer && target.is_some() {
@@ -1099,12 +1099,21 @@ impl World {
         let spent = charioteer && !fresh && self.time.total_ticks % 2 == 1;
         let map = &self.map;
         let f = self.figures.get_mut(fid).expect("present");
+        // One he can't get at (a beast across the water, say) he leaves be, and goes
+        // back to his place, as the original's man whose route fails does.
+        if let Some(to) = target
+            && !f.moving
+            && f.destination != Some(to)
+        {
+            let before = f.destination;
+            if !f.go_to(map, to) {
+                f.destination = before;
+                target = None;
+            }
+        }
         match target {
             Some(to) => {
                 f.action = action::CHASING;
-                if !f.moving && f.destination != Some(to) {
-                    f.go_to(map, to);
-                }
                 f.speed = if fresh { 2 } else { 1 };
                 if !spent {
                     f.walk(map);
@@ -1807,6 +1816,45 @@ mod tests {
         tiles.sort();
         tiles.dedup();
         assert_eq!(tiles.len(), c.soldiers.len(), "men share a tile");
+    }
+
+    #[test]
+    fn a_company_musters_beats_an_army_and_goes_home() {
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 16 * crate::economy::LOAD);
+        muster(&mut w);
+        // A load of weapons went with each man.
+        assert_eq!(w.stored(recruiter, WEAPONS), 0);
+        assert_in_formation(&w, action::AT_REST);
+
+        // Twenty raiders come; the company is sent to mop them up.
+        w.invade_now(crate::invasions::invader::BEDOUIN, 20, 1);
+        for _ in 0..100 {
+            w.tick();
+        }
+        w.set_order(0, Order::MopUp);
+        assert!(w.move_company(0, (40, 60)));
+        let mut over = false;
+        for _ in 0..60 * crate::time::TICKS_PER_DAY {
+            w.tick();
+            let fighting = w.invasions.armies.iter().any(|a| a.figures.iter().any(|&f| w.figures.get(f).is_some_and(|f| !f.dead && f.action != action::CORPSE && !a.fleeing)));
+            if !fighting && w.military.companies[0].soldiers.iter().all(|&s| w.figures.get(s).is_some_and(|f| f.action == action::AT_STANDARD)) {
+                over = true;
+                break;
+            }
+        }
+        assert!(over, "the battle never ended: {:?} men {:?} armies {:?}", w.military.companies[0], w.military.companies[0].soldiers.iter().filter_map(|&s| w.figures.get(s)).map(|f| (f.x, f.y, f.action, f.slot, f.destination, f.route.len())).collect::<Vec<_>>(), w.invasions.armies.iter().map(|a| (a.fleeing, a.figures.iter().filter_map(|&f| w.figures.get(f)).map(|f| (f.x, f.y, f.action)).collect::<Vec<_>>())).collect::<Vec<_>>());
+        let c = &w.military.companies[0];
+        assert!(c.experience > 0 && !c.soldiers.is_empty(), "{c:?}");
+        // Back in its lines, each man in his own place.
+        assert_in_formation(&w, action::AT_STANDARD);
+
+        w.return_company(0);
+        for _ in 0..10 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_in_formation(&w, action::AT_REST);
     }
 
     #[test]
