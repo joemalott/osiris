@@ -1010,7 +1010,10 @@ impl World {
             }
             action::AT_STANDARD => {
                 self.breathe(fid, false);
-                if kind == ARCHER {
+                // Archers, and charioteers not at the charge, throw at enemies in
+                // range (0x48fb05: types 11 and 13 by their figure model's missile
+                // attack, range and rate: a charioteer's 10, 8 tiles, every 120 ticks).
+                if kind == ARCHER || kind == CHARIOTEER && !self.charging(fid) {
                     self.shoot_at_foes(fid);
                 }
                 // Charging charioteers ride at the enemy rather than stand and fight.
@@ -1784,7 +1787,8 @@ impl World {
         let target = if mine {
             self.nearest_foe(true, (x, y), range).or_else(|| self.nearest_city_ship((x, y), range))
         } else {
-            let near = |list: &[(FigureId, i32, i32)]| list.iter().filter(|o| (o.1 - x).abs() <= range && (o.2 - y).abs() <= range).min_by_key(|o| (o.1 - x).abs() + (o.2 - y).abs()).copied();
+            // Within the range, not at it (0x499b50).
+            let near = |list: &[(FigureId, i32, i32)]| list.iter().filter(|o| (o.1 - x).abs() < range && (o.2 - y).abs() < range).min_by_key(|o| (o.1 - x).abs() + (o.2 - y).abs()).copied();
             near(&self.combatants.invaders).or_else(|| near(&self.combatants.predators))
         };
         let Some((target, tx, ty)) = target else { return };
@@ -1947,6 +1951,9 @@ mod tests {
         use crate::world::{Command, Outcome};
         let mut w = crate::irrigation::tests::mission_world(2)?;
         w.invasions.planned.clear();
+        // The fighters' stats come from the difficulty's figure model.
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        w.balance = crate::balance::Balance::load_all(&data).ok()?[crate::difficulty::NORMAL as usize].clone();
         let mut steps = vec![Command::Road { start: (40, 70), end: (66, 70) }, Command::Build { kind: RECRUITER, x: 42, y: 71, x1: 42, y1: 71 }, Command::Build { kind: fort, x: 44, y: 75, x1: 44, y1: 75 }];
         if academy {
             steps.push(Command::Build { kind: ACADEMIES[0], x: 60, y: 71, x1: 60, y1: 71 });
@@ -2169,6 +2176,39 @@ mod tests {
         tiles.sort();
         tiles.dedup();
         assert_eq!(tiles.len(), COMPANY_SIZE, "men share a tile");
+    }
+
+    #[test]
+    fn charioteers_throw_javelins() {
+        let Some(mut w) = barracks_of(FORT_CHARIOTEERS, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, CHARIOTS, crate::economy::LOAD);
+        for _ in 0..30 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_eq!(w.military.companies[0].soldiers.len(), 1);
+        assert_eq!(w.stored(recruiter, CHARIOTS), 0);
+        assert!(w.move_company(0, (40, 60)));
+        for _ in 0..5 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        let man = w.military.companies[0].soldiers[0];
+        let (x, y) = w.figures.get(man).map(|f| (f.x, f.y)).expect("charioteer");
+        // An invader six tiles off, inside his range of 8.
+        w.invade_now(crate::invasions::invader::BEDOUIN, 1, 1);
+        let them = w.invasions.armies[0].figures[0];
+        let mut thrown = false;
+        for _ in 0..200 {
+            if let Some(f) = w.figures.get_mut(them) {
+                (f.x, f.y, f.action) = (x - 6, y, 0);
+                f.route.clear();
+                f.moving = false;
+            }
+            w.gather_combatants();
+            w.update_soldier(man);
+            thrown |= w.figures.iter().any(|f| f.kind == JAVELIN && f.formation == 1);
+        }
+        assert!(thrown, "{:?} {:?}", w.figures.get(man).map(|f| (f.action, f.attack_tick, f.x, f.y)), w.fighter_stats(man));
     }
 
     #[test]
