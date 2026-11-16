@@ -32,6 +32,7 @@ mod script;
 mod sidebar;
 mod tomb_view;
 mod top_menu;
+mod ui_steps;
 mod water_view;
 mod widgets;
 
@@ -2164,6 +2165,7 @@ fn run(mut args: Args) -> Result<()> {
         let hover = view.hover;
         let clicks = view.clicks.clone();
         let keys = view.keys.clone();
+        let ui = view.ui.clone();
         let shot = gfx::screenshot(library, args.size, out, |r| {
             if let Some(z) = zoom {
                 r.camera.zoom = z;
@@ -2206,6 +2208,12 @@ fn run(mut args: Args) -> Result<()> {
                 key_pressed(&mut game, code, false);
                 if let Some((x, y)) = game.look_at.take() {
                     game.view.center_on(r, &game.world.map, x, y);
+                }
+            }
+            // Scripted player input (`ui ...` steps), in order.
+            for step in &ui {
+                if let Err(e) = ui_steps::run(&mut game, r, step) {
+                    eprintln!("ui {step:?}: {e}");
                 }
             }
             if let Some(p) = hover {

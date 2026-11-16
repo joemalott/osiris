@@ -79,6 +79,8 @@ pub struct ScriptView {
     pub keys: Vec<String>,
     /// A movie to show instead, and how many seconds into it.
     pub movie: Option<(String, f64)>,
+    /// Player input given once the city is drawn (`ui ...`; see ui_steps.rs).
+    pub ui: Vec<crate::ui_steps::UiStep>,
 }
 
 /// Runs `--script` steps against the world.
@@ -218,6 +220,11 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["sidebar", "expand"] => crate::sidebar::set_collapsed(false),
             ["sidebar", "slide", dir, step] => view.slide = Some((*dir == "collapse", step.parse()?)),
             ["key", name] => view.keys.push(name.to_string()),
+            // Player input through the game's own handlers, once the city is drawn:
+            // ui tile X,Y | inspect X,Y | ship S | shipinfo S (an id, warship or transport) | button N | back |
+            // key K | ticks N | overseer NAME | armynavy | navyrow R go|back|service |
+            // dispatch | report.
+            ["ui", rest @ ..] => view.ui.push(crate::ui_steps::parse(rest)?),
             ["hover", p] => {
                 let (x, y) = parse_point(p)?;
                 view.hover = Some([x as f32, y as f32]);
