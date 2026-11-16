@@ -195,3 +195,53 @@ fn a_new_map_plays() {
     assert_eq!(seen.len(), 7, "{seen:?}");
     assert!(w.population > 0, "people moved in");
 }
+
+/// One event of every type the planning window offers, one a month over two years,
+/// each fires in the month and year it was given once the map is played.
+#[test]
+fn every_event_type_fires_on_its_date() {
+    let Some(data) = test_data() else { return };
+    let mut e = editor(&data, &std::env::temp_dir().join("osiris-playtest-types"));
+    e.new_map(1);
+    let entry = first_allowed(&e, Point::Entry, (0..10).map(|x| (x, 42)));
+    place(&mut e, Point::Entry, entry);
+    let invasion = first_allowed(&e, Point::Invasion(0), (0..84).flat_map(|y| (0..84).map(move |x| (x, y))));
+    place(&mut e, Point::Invasion(0), invasion);
+    assert!(e.scenario.events.is_empty(), "Default.map has none");
+    e.add_event();
+    let kinds = super::events::list(&e.scenario, 0, EvField::Kind).unwrap().1;
+    e.delete_event(0);
+    assert_eq!(kinds.len(), 26);
+    let mut when = Vec::new();
+    for (n, &k) in kinds.iter().enumerate() {
+        let i = e.add_event().unwrap();
+        // One a month from February (a January of the first year has no monthly
+        // pass before it).
+        let (year, month) = (((n + 1) / 12) as i32, (n + 1) % 12);
+        pick(&mut e.scenario, i, EvField::Kind, k);
+        set_number(&mut e.scenario, i, EvField::Year(true), year);
+        set_number(&mut e.scenario, i, EvField::Year(false), year);
+        pick(&mut e.scenario, i, EvField::Month, month);
+        when.push(year * 12 + month as i32);
+    }
+    let bytes = e.to_bytes().unwrap();
+    let scenario = Scenario::from_chunks(&osiris_formats::ChunkFile::parse(&bytes, osiris_formats::Layout::Map).unwrap()).unwrap();
+    assert_eq!(scenario.events.iter().map(|e| e.kind as usize).collect::<Vec<_>>(), kinds);
+    let model = Model::parse(&String::from_utf8_lossy(&std::fs::read(data.join("Pharaoh_Model_Normal.txt")).unwrap())).unwrap();
+    let mut w = World::new(&scenario, e.defs.clone(), Arc::new(Balance::from_model(&model)));
+    w.begin_at(osiris_sim::difficulty::NORMAL);
+    w.start(&scenario);
+    let mut fired = vec![None; kinds.len()];
+    for _ in 0..28 {
+        next_month(&mut w);
+        let now = w.month_count();
+        for (i, ev) in w.scenario_events.list.iter().enumerate() {
+            if ev.trigger != osiris_sim::scenario_events::trigger::ONCE && fired[i].is_none() {
+                fired[i] = Some(now);
+            }
+        }
+    }
+    for (i, &k) in kinds.iter().enumerate() {
+        assert_eq!(fired[i], Some(when[i]), "event {i}, type {k}");
+    }
+}
