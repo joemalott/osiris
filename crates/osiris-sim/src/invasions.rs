@@ -206,6 +206,10 @@ pub struct Army {
     pub band_age: Vec<u16>,
 }
 
+fn is_zero(n: &u8) -> bool {
+    *n == 0
+}
+
 fn full_morale() -> i32 {
     100
 }
@@ -228,7 +232,7 @@ pub struct Invasions {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub held: Vec<((i32, i32), u8)>,
     /// Formation updates since the held ground was last rebuilt.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub held_age: u8,
 }
 
