@@ -383,43 +383,35 @@ impl World {
         }
     }
 
-    /// Puts `men` of army `army` on the field at `spot`: its arms in proportion to their
-    /// frequency in the figure model, among the arms its nation has art for, each arm
-    /// in formations as the original raises them, as many as there are free slots for.
-    pub(crate) fn put_ashore(&mut self, army: usize, nation: u16, men: i32, spot: (i32, i32)) {
+    /// How many of `men` of army `army` march in each arm, as the original counts
+    /// them (FUN_00446a30, and FUN_004ad4c0 for men landed from a transport): the
+    /// archers and the charioteers are each their arm's frequency in the figure model
+    /// as a percentage of the men, rounded down, and the infantry are the rest. Bedouin
+    /// are all Bedouin infantry. An arm the nation has no figures for marches with
+    /// the infantry.
+    fn arm_counts(&self, army: usize, nation: u16, men: i32) -> [(u16, i32); 3] {
         let invader = self.invasions.armies.get(army).map_or(invader::ENEMY, |a| a.invader);
-        let mut arms: Vec<(u16, i32)> = if invader == invader::BEDOUIN {
-            vec![(BEDOUIN, 1)]
-        } else {
-            [ENEMY_INFANTRY, ENEMY_ARCHER, ENEMY_CHARIOT]
-                .into_iter()
-                .enumerate()
-                .filter(|&(i, _)| self.defs.armies.get(nation as usize).is_some_and(|a| a.arms[i].is_some()))
-                .map(|(_, k)| {
-                    let probe = Figure { kind: k, cargo: nation, ..Figure::new(0, k, 0, 0, Travel::Land) };
-                    (k, self.invader_stats(&probe).map_or(0, |s| if s.hp > 0 { s.frequency.max(1) } else { 0 }))
-                })
-                .filter(|a| a.1 > 0)
-                .collect()
+        if invader == invader::BEDOUIN {
+            return [(BEDOUIN, men), (ENEMY_ARCHER, 0), (ENEMY_CHARIOT, 0)];
+        }
+        let share = |k: u16, arm: usize| {
+            let drawn = self.defs.armies.get(nation as usize).is_some_and(|a| a.arms[arm].is_some());
+            let probe = Figure { kind: k, cargo: nation, ..Figure::new(0, k, 0, 0, Travel::Land) };
+            let frequency = self.invader_stats(&probe).map_or(0, |s| s.frequency);
+            if drawn { men * frequency / 100 } else { 0 }
         };
-        if arms.is_empty() {
-            arms.push((ENEMY_INFANTRY, 1));
-        }
-        let total: i32 = arms.iter().map(|a| a.1).sum::<i32>().max(1);
+        let (archers, chariots) = (share(ENEMY_ARCHER, 1), share(ENEMY_CHARIOT, 2));
+        [(ENEMY_INFANTRY, men - archers - chariots), (ENEMY_ARCHER, archers), (ENEMY_CHARIOT, chariots)]
+    }
+
+    /// Puts `men` of army `army` on the field at `spot`: its arms as `arm_counts`
+    /// has them, infantry, archers and chariots in that order, each arm in formations
+    /// as the original raises them, as many as there are free slots for.
+    pub(crate) fn put_ashore(&mut self, army: usize, nation: u16, men: i32, spot: (i32, i32)) {
         let first = self.invasions.armies.get(army).map_or(0, |a| a.figures.len() as i32);
-        // How many men of each arm.
-        let mut counts = vec![0; arms.len()];
-        for n in first..first + men {
-            let mut pick = (n * 37 + self.rng.below(total)) % total;
-            let i = arms.iter().position(|a| {
-                pick -= a.1;
-                pick < 0
-            });
-            counts[i.unwrap_or(0)] += 1;
-        }
         let mut n = first;
-        for (i, &(k, _)) in arms.iter().enumerate() {
-            for size in formation_sizes(counts[i]) {
+        for (k, count) in self.arm_counts(army, nation, men) {
+            for size in formation_sizes(count) {
                 if self.enemy_formations() >= ENEMY_FORMATION_SLOTS {
                     return;
                 }
@@ -1110,6 +1102,37 @@ mod tests {
             ticks += 1;
         }
         assert_eq!(ticks, 44);
+    }
+
+    #[test]
+    fn an_armys_arms_are_its_nations_shares_of_its_men() {
+        let Some(mut world) = mission(1) else { return };
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        world.balance = crate::balance::Balance::load_all(&data).expect("model")[crate::difficulty::NORMAL as usize].clone();
+        let army = |world: &mut World, invader: u8, nation: &str| {
+            let nation = world.defs.army(nation).expect("nation") as u16;
+            world.invasions.armies.push(Army { invader, nation, ..Default::default() });
+            (world.invasions.armies.len() - 1, nation)
+        };
+        // Hyksos: archers and chariots a fifth each of 47, rounded down; the rest
+        // infantry (FUN_00446a30).
+        let (a, n) = army(&mut world, invader::ENEMY, "hyksos");
+        assert_eq!(world.arm_counts(a, n, 47), [(ENEMY_INFANTRY, 29), (ENEMY_ARCHER, 9), (ENEMY_CHARIOT, 9)]);
+        // Egyptians: 40% archers, no chariots.
+        let (a, n) = army(&mut world, invader::PHARAOH, "egyptian");
+        assert_eq!(world.arm_counts(a, n, 12), [(ENEMY_INFANTRY, 8), (ENEMY_ARCHER, 4), (ENEMY_CHARIOT, 0)]);
+        // Bedouin are all infantry.
+        let (a, n) = army(&mut world, invader::BEDOUIN, "bedouin");
+        assert_eq!(world.arm_counts(a, n, 20)[0], (BEDOUIN, 20));
+        // The same army comes the same way every time.
+        world.invasions.armies.clear();
+        world.invasions.land_points = vec![world.entry_point];
+        world.invade_now(invader::ENEMY, 40, 1);
+        let kinds: Vec<u16> = world.invasions.armies[0].figures.iter().filter_map(|&f| world.figures.get(f)).map(|f| f.kind).collect();
+        let (n, counts) = (world.invasions.nation, world.arm_counts(0, world.invasions.nation, kinds.len() as i32));
+        for (k, c) in counts {
+            assert_eq!(kinds.iter().filter(|&&f| f == k).count() as i32, c, "nation {n} {counts:?} {kinds:?}");
+        }
     }
 
     #[test]
