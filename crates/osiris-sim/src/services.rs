@@ -25,6 +25,9 @@ pub mod figure_kind {
 
 /// Coverage value set on a house when a walker passes.
 pub const VISIT: i32 = 96;
+/// Ticks between a constable's looks for invaders to go after: every tenth of his
+/// checks, which come every 12 ticks (FUN_004abe40, FUN_0048e6f0).
+const CONSTABLE_LOOK: u16 = 120;
 /// Radius around a roamer within which it serves.
 const SERVICE_RADIUS: i32 = 2;
 
@@ -517,6 +520,66 @@ impl World {
         (0..8).step_by(2).find(|&d| roads[d] && Some(d) != came_from).map(|d| d as u8)
     }
 
+    /// What a constable at `at` goes after (FUN_0048e820), when there are invaders
+    /// on the field: of the invaders and wild beasts no other constable is after,
+    /// those whose distance, the longer of its two parts, comes to less than 30
+    /// counted twice for an invader and three times for a beast (so invaders within
+    /// 14 tiles, beasts within 9), the nearest so counted, the first on a tie.
+    fn constables_mark(&self, at: (i32, i32)) -> Option<(FigureId, (i32, i32))> {
+        let alive = |o: &crate::figures::Figure| !o.dead && o.action != crate::military::action::CORPSE;
+        if !self.figures.iter().any(|o| crate::invasions::is_invader_kind(o.kind) && alive(o)) {
+            return None;
+        }
+        let chased: Vec<FigureId> = self.figures.iter().filter(|c| c.kind == crate::crime::CONSTABLE && c.action == crate::military::action::CHASING).map(|c| c.foe).collect();
+        self.figures
+            .iter()
+            .filter(|o| alive(o) && !chased.contains(&o.id))
+            .filter_map(|o| {
+                let weight = if crate::invasions::is_invader_kind(o.kind) {
+                    2
+                } else if crate::predators::is_predator(o.kind) && o.action != crate::predators::action::HIDDEN {
+                    3
+                } else {
+                    return None;
+                };
+                let d = weight * (o.x - at.0).abs().max((o.y - at.1).abs());
+                (d < 30).then_some((d, o.id, (o.x, o.y)))
+            })
+            .min_by_key(|m| (m.0, m.1))
+            .map(|m| (m.1, m.2))
+    }
+
+    /// A constable after an invader or beast walks at him over open ground and
+    /// takes him on once beside him; when the mark is gone he heads home.
+    fn chase_as_constable(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get(fid) else { return };
+        let (foe, home) = (f.foe, f.home);
+        let mark = self.figures.get(foe).filter(|o| !o.dead && o.action != crate::military::action::CORPSE).map(|o| (o.x, o.y));
+        let map = &self.map;
+        let f = self.figures.get_mut(fid).expect("present");
+        let Some(to) = mark else {
+            let target = self.buildings.get(home).and_then(|b| b.road);
+            f.foe = 0;
+            f.action = action::RETURNING;
+            if !target.is_some_and(|t| f.go_to(map, t)) {
+                f.dead = true;
+            }
+            return;
+        };
+        if (to.0 - f.x).abs() <= 1 && (to.1 - f.y).abs() <= 1 && !f.moving {
+            f.action = crate::military::action::ATTACK;
+            f.attack_tick = 0;
+            f.route.clear();
+            return;
+        }
+        if !f.moving && f.destination != Some(to) && !f.go_to(map, to) {
+            f.destination = Some(to);
+        }
+        if f.walk(map) == Step::Lost {
+            f.route.clear();
+        }
+    }
+
     pub(crate) fn update_roamer(&mut self, fid: u32) {
         let Some(f) = self.figures.get(fid) else { return };
         let (kind, home, act) = (f.kind, f.home, f.action);
@@ -566,6 +629,30 @@ impl World {
                         f.attack_tick = 0;
                         f.route.clear();
                         return;
+                    }
+                    if act == crate::military::action::CHASING {
+                        return self.chase_as_constable(fid);
+                    }
+                    // Every 120 ticks on his rounds, while invaders are about, he looks
+                    // for one to go after (FUN_0048e6f0).
+                    let invaders = !self.combatants.invaders.is_empty();
+                    let f = self.figures.get_mut(fid).expect("present");
+                    if invaders {
+                        f.attack_tick += 1;
+                    }
+                    if f.attack_tick >= CONSTABLE_LOOK {
+                        f.attack_tick = 0;
+                        if let Some((foe, to)) = self.constables_mark((x, y)) {
+                            let map = &self.map;
+                            let f = self.figures.get_mut(fid).expect("present");
+                            f.travel = Travel::Land;
+                            if f.go_to(map, to) {
+                                f.foe = foe;
+                                f.action = crate::military::action::CHASING;
+                                return;
+                            }
+                            f.travel = Travel::Roads;
+                        }
                     }
                 }
             }
@@ -655,6 +742,34 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constables_go_after_invaders_near_by_every_120_ticks() {
+        let Some(mut w) = crate::irrigation::tests::mission_world(2) else { return };
+        w.invasions.planned.clear();
+        assert!(matches!(w.apply(&crate::world::Command::Road { start: (40, 70), end: (66, 70) }), crate::world::Outcome::Done { .. }));
+        assert!(matches!(w.apply(&crate::world::Command::Build { kind: 55, x: 42, y: 71, x1: 42, y1: 71 }), crate::world::Outcome::Done { .. }));
+        let station = w.map.building.at_or(42, 71, 0);
+        let c = w.figures.spawn(crate::crime::CONSTABLE, 50, 70, Travel::Roads);
+        {
+            let f = w.figures.get_mut(c).expect("constable");
+            (f.home, f.action, f.roam_left) = (station, action::ROAMING, 10_000);
+        }
+        // One invader 13 tiles off, counted 26; another 16 off, 32, out of reach.
+        let near = w.figures.spawn(crate::invasions::ENEMY_INFANTRY, 50, 83, Travel::Hostile);
+        w.figures.spawn(crate::invasions::ENEMY_INFANTRY, 66, 54, Travel::Hostile);
+        w.gather_combatants();
+        for _ in 0..119 {
+            w.update_roamer(c);
+            if let Some(f) = w.figures.get_mut(near) {
+                (f.x, f.y) = (50, 83);
+            }
+        }
+        assert_ne!(w.figures.get(c).map(|f| f.action), Some(crate::military::action::CHASING));
+        w.update_roamer(c);
+        let f = w.figures.get(c).expect("constable");
+        assert_eq!((f.action, f.foe), (crate::military::action::CHASING, near));
+    }
 
     #[test]
     fn traffic_counters_rise_decay_and_low_ones_wipe_high_ones() {
