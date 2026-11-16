@@ -79,6 +79,29 @@ fn formation_sizes(men: i32) -> Vec<i32> {
     }
 }
 
+/// An invasion point the scenario leaves unset.
+pub const NO_POINT: (i32, i32) = (-1, -1);
+
+/// The first set point of `points` from number `from` on (0-based), wrapping after
+/// the eighth, trying eight in all (FUN_00446a30). Bedouin sent to a sea point
+/// (`from` 8 to 15) try that sea point first and then the land points from the
+/// first, as the original's search runs on from its sea points' place in memory.
+fn first_set_point(land: &[(i32, i32)], sea: &[(i32, i32)], from: usize) -> Option<(i32, i32)> {
+    let set = |p: Option<&(i32, i32)>| p.copied().filter(|&p| p.0 >= 0 && p.1 >= 0);
+    let mut i = from;
+    for _ in 0..8 {
+        let p = if i >= 8 { set(sea.get(i - 8)) } else { set(land.get(i)) };
+        if p.is_some() {
+            return p;
+        }
+        i += 1;
+        if i > 7 {
+            i = 0;
+        }
+    }
+    None
+}
+
 /// Ticks the `j`th man of the `k`th formation an army brings onto the field at once
 /// stands before he moves off (FUN_00446a30 and FUN_004ad4c0 set his +0x36 count).
 fn entry_wait(j: i32, k: i32) -> u16 {
@@ -206,10 +229,19 @@ impl Invasions {
             })
             .collect();
         let points = |p: &[osiris_formats::scenario::TilePoint]| p.iter().filter(|p| p.is_valid()).map(|p| (p.x, p.y)).collect();
+        // The invasion points keep their numbers: one the scenario leaves unset
+        // stays in its place as (-1, -1), so the next one along is taken for it.
+        let numbered = |p: &[osiris_formats::scenario::TilePoint]| {
+            let mut v: Vec<(i32, i32)> = p.iter().map(|p| if p.is_valid() { (p.x, p.y) } else { NO_POINT }).collect();
+            while v.last() == Some(&NO_POINT) {
+                v.pop();
+            }
+            v
+        };
         Self {
             planned,
-            land_points: points(&info.invasion_points_land),
-            sea_points: points(&info.invasion_points_sea),
+            land_points: numbered(&info.invasion_points_land),
+            sea_points: numbered(&info.invasion_points_sea),
             landings: points(&info.disembark_points),
             // The scenario's enemy is the nation's number, past the last (11) taken
             // as the last (FUN_004bc720).
@@ -348,18 +380,20 @@ impl World {
                 p.done = true;
             }
         }
-        let by_sea = (9..=16).contains(&point) && !self.invasions.sea_points.is_empty();
+        // Bedouin never come by sea (FUN_00446a30 sends them overland whatever the
+        // point). A city with no sea point set takes a sea army overland too.
+        let sea = &self.invasions.sea_points;
+        let sea_spot = if (9..=16).contains(&point) && inv.invader != invader::BEDOUIN {
+            (0..8).map(|n| (point as usize - 9 + n) % 8).find_map(|i| sea.get(i).copied().filter(|p| p.0 >= 0 && p.1 >= 0))
+        } else {
+            None
+        };
+        let by_sea = sea_spot.is_some();
         // Land and Bedouin attacks come in the difficulty's share of their size; no
         // army is ever more than 150.
-        let scaled = if by_sea && inv.invader != invader::BEDOUIN { amount } else { amount * self.by_difficulty(crate::difficulty::INVASION_PCT) / 100 };
+        let scaled = if by_sea { amount } else { amount * self.by_difficulty(crate::difficulty::INVASION_PCT) / 100 };
         let amount = scaled.clamp(1, 150);
-        let spot = if by_sea {
-            self.invasions.sea_points.get(point as usize - 9).copied()
-        } else {
-            self.invasions.land_points.get((point.max(1) - 1) as usize).copied()
-        }
-        .or_else(|| self.invasions.land_points.first().copied())
-        .unwrap_or(self.entry_point);
+        let spot = sea_spot.or_else(|| self.land_spot(inv.invader, point)).unwrap_or(self.exit_point);
         let nation = match inv.invader {
             invader::BEDOUIN => self.defs.army("bedouin"),
             invader::EGYPT | invader::PHARAOH => self.defs.army("egyptian"),
@@ -512,6 +546,27 @@ impl World {
             1 => min,
             _ => max,
         }
+    }
+
+    /// Where an army coming overland to `point` comes in (FUN_00446a30): the point's
+    /// own tile, or the next set point along when it is unset; for point 8 one of
+    /// the first two, four or eight points at random by how many are set (fewer than
+    /// three, fewer than five, more). A foreign army of the Persians (the scenario's
+    /// enemy 11) always comes by the city's entry point. None when no point is set.
+    fn land_spot(&mut self, who: u8, point: i32) -> Option<(i32, i32)> {
+        let persian = self.defs.armies.get(self.invasions.nation as usize).is_some_and(|a| a.key == "persian");
+        if who == invader::ENEMY && persian {
+            return Some(self.entry_point).filter(|p| p.0 >= 0 && p.1 >= 0);
+        }
+        let land = &self.invasions.land_points;
+        let from = if point == 8 {
+            let set = land.iter().filter(|p| p.0 >= 0 && p.1 >= 0).count();
+            let mask = if set < 3 { 1 } else if set < 5 { 3 } else { 7 };
+            self.rng.below(mask + 1) as usize
+        } else {
+            (point.clamp(1, 16) - 1) as usize
+        };
+        first_set_point(land, &self.invasions.sea_points, from)
     }
 
     /// The nearest walkable land tile to `p`.
@@ -1175,6 +1230,29 @@ mod tests {
         }
         let moved: Vec<u8> = men.iter().filter_map(|&m| world.figures.get(m)).filter(|f| (f.x, f.y) != p || f.moving).map(|f| f.slot + 20 * f.band).collect();
         assert_eq!(moved, vec![0]);
+    }
+
+    #[test]
+    fn armies_come_in_by_the_originals_points() {
+        let Some(mut world) = mission(1) else { return };
+        world.invasions.land_points = vec![NO_POINT, (10, 11), NO_POINT, (20, 21)];
+        world.invasions.sea_points = vec![(30, 31)];
+        world.invasions.nation = world.defs.army("hyksos").expect("hyksos") as u16;
+        // An unset point gives way to the next set one, wrapping past the eighth.
+        assert_eq!(world.land_spot(invader::ENEMY, 1), Some((10, 11)));
+        assert_eq!(world.land_spot(invader::ENEMY, 3), Some((20, 21)));
+        assert_eq!(world.land_spot(invader::ENEMY, 5), Some((10, 11)));
+        // Point 8: one of the first two, with two points set.
+        for _ in 0..20 {
+            assert_eq!(world.land_spot(invader::ENEMY, 8), Some((10, 11)));
+        }
+        // Bedouin sent to a sea point walk in from its tile, or from the land points.
+        assert_eq!(world.land_spot(invader::BEDOUIN, 9), Some((30, 31)));
+        assert_eq!(world.land_spot(invader::BEDOUIN, 10), Some((10, 11)));
+        // Persians come by the city's entry.
+        world.invasions.nation = world.defs.army("persian").expect("persian") as u16;
+        assert_eq!(world.land_spot(invader::ENEMY, 3), Some(world.entry_point));
+        assert_eq!(world.land_spot(invader::BEDOUIN, 3), Some((20, 21)));
     }
 
     #[test]
