@@ -162,8 +162,9 @@ const RAM_ANGLE: [[u8; 8]; 8] = [
 /// city's); they then rest this long without moving, and row slowly as long again
 /// (FUN_004a5680).
 const FATIGUE_TICKS: i32 = 200;
-/// A transport evading looks round every 75 ticks for enemy ships within 9 tiles
-/// each way, and runs about 10 tiles from them (FUN_004a4a80, FUN_004a4850).
+/// A transport evading looks round every 75 ticks for enemy ships in the 18-tile
+/// square about it (9 tiles back, 8 ahead, each way), and runs about 10 tiles from
+/// them (FUN_004a4a80, FUN_004a5560, FUN_004a4850).
 const EVADE_LOOK: i32 = 75;
 const EVADE_BOX: i32 = 9;
 const EVADE_RUN: i32 = 10;
@@ -1078,9 +1079,10 @@ impl World {
         }
     }
 
-    /// A ship evading, with a ship of the other side near, runs from it: of three
-    /// points about 10 tiles off, straight away and to either side, the one farthest
-    /// from the enemy that open water leads to (FUN_004a5560, FUN_004a4850). The
+    /// A ship evading, with a ship of the other side in the 18-tile square round it,
+    /// runs from the nearest: toward three points 10 tiles off, straight away and to
+    /// either side, as far as the longest run of open water goes (FUN_004a5560,
+    /// FUN_004a4850). The
     /// city's transports run from any enemy ship; the enemy's fleeing ships from the
     /// city's warships, transports and fishing boats. False if none was near.
     fn evade(&mut self, fid: FigureId) -> bool {
@@ -1091,21 +1093,23 @@ impl World {
         let Some(enemy) = self
             .figures
             .iter()
-            .filter(|o| other(o.kind) && !o.dead && o.action != action::CORPSE && !o.ship.as_ref().is_some_and(|s| s.hidden) && (o.x - pos.0).abs() <= EVADE_BOX && (o.y - pos.1).abs() <= EVADE_BOX)
+            .filter(|o| other(o.kind) && !o.dead && o.action != action::CORPSE && !o.ship.as_ref().is_some_and(|s| s.hidden) && (-EVADE_BOX..EVADE_BOX).contains(&(o.x - pos.0)) && (-EVADE_BOX..EVADE_BOX).contains(&(o.y - pos.1)))
             .map(|o| (o.x, o.y))
-            .min_by_key(|&p| distance(p, pos))
+            .min_by_key(|&p| (p.0 - pos.0).pow(2) + (p.1 - pos.1).pow(2))
         else {
             return false;
         };
         let away = crate::figures::direction_to(enemy, pos).unwrap_or(2) as i32;
+        // The longest run of open water of the three, the later of two as long.
         let best = [away, away + 7, away + 1]
             .into_iter()
             .map(|d| {
                 let (dx, dy) = NEIGHBOURS[(d % 8) as usize];
-                self.water_line(pos, (pos.0 + dx * EVADE_RUN, pos.1 + dy * EVADE_RUN))
+                self.water_line_run(pos, (pos.0 + dx * EVADE_RUN, pos.1 + dy * EVADE_RUN))
             })
-            .filter(|&p| p != pos)
-            .max_by_key(|&p| distance(p, enemy));
+            .filter(|&(p, _)| p != pos)
+            .max_by_key(|&(_, run)| run)
+            .map(|(p, _)| p);
         if let Some(p) = best {
             let map = &self.map;
             self.figures.get_mut(fid).expect("present").go_to(map, p);
@@ -1113,20 +1117,39 @@ impl World {
         true
     }
 
-    /// The farthest open water on the straight line from `from` toward `to` before
-    /// anything else (FUN_0040c180).
+    /// The open water on the straight line from `from` to `to` that is farthest from
+    /// `from` and that a ship at `from` can sail to, land or a bend in the river
+    /// between them or not (FUN_0040c180, which walks the line a row and a column
+    /// at a time); `from` itself if there is none.
     fn water_line(&self, from: (i32, i32), to: (i32, i32)) -> (i32, i32) {
-        let n = distance(from, to);
-        let mut last = from;
-        for i in 1..=n {
-            let x = from.0 + ((to.0 - from.0) as f64 * i as f64 / n as f64).round() as i32;
-            let y = from.1 + ((to.1 - from.1) as f64 * i as f64 / n as f64).round() as i32;
-            if !crate::water::navigable(&self.map, x, y) {
-                break;
-            }
-            last = (x, y);
+        self.water_line_run(from, to).0
+    }
+
+    /// `water_line`, with the squared distance to the tile found (0 for `from`).
+    fn water_line_run(&self, from: (i32, i32), to: (i32, i32)) -> ((i32, i32), i32) {
+        let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+        if (dx, dy) == (0, 0) {
+            return (from, 0);
         }
-        last
+        let reach = crate::water::reachable(&self.map, from);
+        let w = self.map.width;
+        let open = |(x, y): (i32, i32)| self.map.contains(x, y) && reach[(y * w + x) as usize];
+        let rows = (1..=dy.abs()).map(|i| {
+            let y = i * dy.signum();
+            (from.0 + (y as f64 * dx as f64 / dy as f64).trunc() as i32, from.1 + y)
+        });
+        let columns = (1..=dx.abs()).map(|i| {
+            let x = i * dx.signum();
+            (from.0 + x, from.1 + (x as f64 * dy as f64 / dx as f64).trunc() as i32)
+        });
+        let mut best = (from, 0);
+        for p in rows.chain(columns).filter(|&p| open(p)) {
+            let d = (p.0 - from.0).pow(2) + (p.1 - from.1).pow(2);
+            if d >= best.1 {
+                best = (p, d);
+            }
+        }
+        best
     }
 
     /// Whether ship `fid` is at the shipwright's with its hull at 15% or less, or away
