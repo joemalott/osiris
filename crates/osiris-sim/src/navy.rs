@@ -84,12 +84,10 @@ const LAUNCH_WAIT: i32 = 50;
 const REPAIR_AT: i32 = 15;
 /// Ticks a sinking ship stays in sight (FUN_004b1d50).
 const SINK_TICKS: i32 = 128;
-/// Ticks a warship takes to reload: it shoots when its count passes this.
-const RELOAD: i32 = 30;
-/// How far a warship looks for enemies under Engage nearby enemies, and how far from
-/// its post it goes after them (it goes back once 10 tiles out); how far it looks
-/// seeking and destroying (the whole map).
-const ENGAGE_SEARCH: i32 = 18;
+/// How much farther than its missile range a warship looks for enemies under Engage
+/// nearby enemies, and how far from its post it goes after them (it goes back once
+/// 10 tiles out); how far it looks seeking and destroying (the whole map).
+const ENGAGE_LOOK: i32 = 10;
 const ENGAGE_LEASH: i32 = 10;
 const SEEK_SEARCH: i32 = 228;
 /// The speed-table code a ship of `kind` sails at, its model's speed being `speed`
@@ -146,6 +144,10 @@ const RAM_WEAK_PCT: i32 = 20;
 const RAM_COOLDOWN: i32 = 15;
 /// A warship holding position braces for a ram: it takes 20 less.
 const HOLD_BRACE: i32 = 20;
+/// A ship holding position looks every 20 ticks for a foreign warship nearer than 5
+/// tiles to turn to.
+const HOLD_LOOK: i32 = 20;
+const HOLD_FACE: i32 = 5;
 /// What a ram's force is divided by, by the target's heading (row) and the warship's
 /// (column): 1 square on the beam, 5 end on (the table at 0x5dc24c).
 const RAM_ANGLE: [[u8; 8]; 8] = [
@@ -162,8 +164,9 @@ const RAM_ANGLE: [[u8; 8]; 8] = [
 /// city's); they then rest this long without moving, and row slowly as long again
 /// (FUN_004a5680).
 const FATIGUE_TICKS: i32 = 200;
-/// A transport evading looks round every 75 ticks for enemy ships within 9 tiles
-/// each way, and runs about 10 tiles from them (FUN_004a4a80, FUN_004a4850).
+/// A transport evading looks round every 75 ticks for enemy ships in the 18-tile
+/// square about it (9 tiles back, 8 ahead, each way), and runs about 10 tiles from
+/// them (FUN_004a4a80, FUN_004a5560, FUN_004a4850).
 const EVADE_LOOK: i32 = 75;
 const EVADE_BOX: i32 = 9;
 const EVADE_RUN: i32 = 10;
@@ -280,6 +283,18 @@ pub struct Ship {
     pub leg: u8,
     pub engaged: bool,
     pub look: i32,
+}
+
+/// The tiles sharing a side with a footprint of `size` at `(x, y)`, in the original's
+/// order (the tables at 0x5cc9e0 and 0x5cce98): the row above left to right, the
+/// column to the right top to bottom, the row below right to left, the column to the
+/// left bottom to top. The corners are not among them.
+fn side_tiles(x: i32, y: i32, size: i32) -> impl Iterator<Item = (i32, i32)> {
+    let top = (0..size).map(move |i| (i, -1));
+    let right = (0..size).map(move |i| (size, i));
+    let bottom = (0..size).rev().map(move |i| (i, size));
+    let left = (0..size).rev().map(move |i| (-1, i));
+    top.chain(right).chain(bottom).chain(left).map(move |(dx, dy)| (x + dx, y + dy))
 }
 
 fn distance(a: (i32, i32), b: (i32, i32)) -> i32 {
@@ -431,15 +446,17 @@ impl World {
         b.boat_kind = 0;
     }
 
-    /// The first tile round building `id` that is water, has no building, and has
-    /// water all round (FUN_004806c0).
-    fn launch_tile(&self, id: BuildingId) -> Option<(i32, i32)> {
+    /// The first tile beside building `id` that is water, has no building, and has
+    /// water all round (FUN_004806c0): where the shipwright puts a new boat in the
+    /// water, where a warship or transport moors at its wharf, and where a ship goes
+    /// to the shipwright for repairs.
+    pub(crate) fn launch_tile(&self, id: BuildingId) -> Option<(i32, i32)> {
         let b = self.buildings.get(id)?;
         let map = &self.map;
         let open = |x: i32, y: i32| {
             map.terrain_is(x, y, terrain::WATER | terrain::DEEPWATER) && !map.terrain_is(x, y, terrain::BUILDING) && NEIGHBOURS.iter().all(|&(dx, dy)| map.terrain_is(x + dx, y + dy, terrain::WATER))
         };
-        crate::buildings::ring(b.x, b.y, b.size).find(|&(x, y)| open(x, y))
+        side_tiles(b.x, b.y, b.size).find(|&(x, y)| open(x, y))
     }
 
     fn ship_state(&mut self, fid: FigureId) -> Option<&mut Ship> {
@@ -452,10 +469,12 @@ impl World {
         self.figures.get(fid).map_or(0, |f| (hp - f.damage.max(0)).max(0) * 100 / hp)
     }
 
-    /// Whether ship `fid` is moored at its wharf.
+    /// Whether ship `fid` is moored at its wharf: on the wharf's launch tile, which the
+    /// original checks every tick to mark the wharf's boat as in (FUN_004a7030,
+    /// 0x4a4fd0).
     pub fn ship_docked(&self, fid: FigureId) -> bool {
         let Some(f) = self.figures.get(fid) else { return false };
-        !f.moving && self.buildings.get(f.home).is_some_and(|w| crate::water::mooring_tiles(w).contains(&(f.x, f.y)))
+        !f.moving && self.launch_tile(f.home) == Some((f.x, f.y))
     }
 
     /// The transport a company is aboard, if any.
@@ -594,23 +613,20 @@ impl World {
         step
     }
 
-    /// Heads a ship for its wharf's mooring.
+    /// Heads a ship for its wharf: the wharf's launch tile (FUN_004a4770,
+    /// FUN_004a58e0).
     fn sail_home(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
         let act = if f.kind == WARSHIP { ship::WARSHIP_HOME } else { ship::TRANSPORT_HOME };
-        let berth = self.mooring_for(f.home, (f.x, f.y));
+        let berth = self.launch_tile(f.home);
         let map = &self.map;
         let f = self.figures.get_mut(fid).expect("present");
         f.action = act;
         f.foe = 0;
-        match berth {
-            Some(t) if t != (f.x, f.y) => {
-                f.go_to(map, t);
-            }
-            _ => {
-                f.route.clear();
-                f.destination = Some((f.x, f.y));
-            }
+        // With no way there it stays where it is.
+        if !berth.is_some_and(|t| t != (f.x, f.y) && f.go_to(map, t)) {
+            f.route.clear();
+            f.destination = Some((f.x, f.y));
         }
     }
 
@@ -659,11 +675,17 @@ impl World {
             .map(|b| b.id)
     }
 
-    /// Open water beside shipwright `id` a ship at `from` can reach.
+    /// Where a ship at `from` waits for repairs at shipwright `id`: the yard's launch
+    /// tile (FUN_004a45d0), else, out of its reach, the open water beside the yard
+    /// nearest it.
     fn yard_berth(&self, id: BuildingId, from: (i32, i32)) -> Option<(i32, i32)> {
         let b = self.buildings.get(id)?;
         let reach = crate::water::reachable(&self.map, from);
         let w = self.map.width;
+        let open = |(x, y): (i32, i32)| self.map.contains(x, y) && reach[(y * w + x) as usize];
+        if let Some(t) = self.launch_tile(id).filter(|&t| open(t)) {
+            return Some(t);
+        }
         crate::buildings::ring(b.x - 1, b.y - 1, b.size + 2)
             .chain(crate::buildings::ring(b.x, b.y, b.size))
             .filter(|&(x, y)| self.map.contains(x, y) && reach[(y * w + x) as usize])
@@ -729,8 +751,12 @@ impl World {
     /// original's reckoning (FUN_004bcb10): loaded enemy transports (25), invaders
     /// ashore within its missile range (17), enemy warships (15), empty transports
     /// (10), less the distance to each; only what scores better than `-reach` counts.
-    /// `post` limits it to enemies within 10 tiles of the post it guards.
-    fn ship_target(&self, fid: FigureId, reach: i32, post: Option<(i32, i32)>) -> Option<FigureId> {
+    fn ship_target(&self, fid: FigureId, reach: i32) -> Option<FigureId> {
+        self.ship_target_near(fid, reach, None)
+    }
+
+    /// `ship_target`, limited to the enemies within 10 tiles of `post` when there is one.
+    fn ship_target_near(&self, fid: FigureId, reach: i32, post: Option<(i32, i32)>) -> Option<FigureId> {
         let f = self.figures.get(fid)?;
         let from = (f.x, f.y);
         let range = self.fighter_stats(fid).missile_range;
@@ -751,18 +777,25 @@ impl World {
         self.figures.get(fid).is_some_and(|o| !o.dead && o.action != action::CORPSE && (is_enemy_ship(o.kind) || self.is_invader(o)))
     }
 
-    /// A warship looses a javelin at `target` if it has reloaded (a shot every 31
-    /// ticks). It does the warship's missile attack x (20 - armour) / 20, the city's
-    /// javelin rule (the javelin's action at 0x49a880).
+    /// A warship's reload count goes up a tick; past its model's ticks between shots
+    /// (h) it is ready, and starts again.
+    fn reloaded(&mut self, fid: FigureId) -> bool {
+        let delay = self.fighter_stats(fid).missile_delay;
+        let Some(s) = self.ship_state(fid) else { return false };
+        s.reload += 1;
+        if s.reload <= delay {
+            return false;
+        }
+        s.reload = 0;
+        true
+    }
+
+    /// A warship looses a javelin at `target`. It does the warship's missile attack x
+    /// (20 - armour) / 20, the city's javelin rule (the javelin's action at 0x49a880).
     fn ship_fire(&mut self, fid: FigureId, target: FigureId) {
         let stats = self.fighter_stats(fid);
         let Some(to) = self.figures.get(target).map(|t| (t.x, t.y)) else { return };
-        let Some(s) = self.ship_state(fid) else { return };
-        if s.reload <= RELOAD {
-            return;
-        }
-        s.reload = 0;
-        let from = self.figures.get(fid).map(|f| (f.x, f.y)).expect("present");
+        let Some(from) = self.figures.get(fid).map(|f| (f.x, f.y)) else { return };
         self.figure_sound(fid, 2);
         let missile = self.figures.spawn(crate::military::JAVELIN, from.0, from.1, Travel::Land);
         if let Some(m) = self.figures.get_mut(missile) {
@@ -773,10 +806,27 @@ impl World {
         }
     }
 
-    /// A warship under way or holding shoots at whatever it can see (FUN_004a6bf0).
+    /// A warship waiting at its launch, sailing home or holding: each time it has
+    /// reloaded it looks for the best enemy by the original's reckoning with its
+    /// missile range as the reach, and throws at it however far off that is
+    /// (FUN_004a6bf0, FUN_004bcb10).
     fn fire_at_will(&mut self, fid: FigureId) {
-        if let Some(t) = self.ship_target(fid, ENGAGE_SEARCH, None) {
+        if !self.reloaded(fid) {
+            return;
+        }
+        let range = self.fighter_stats(fid).missile_range;
+        if let Some(t) = self.ship_target(fid, range) {
             self.ship_fire(fid, t);
+        }
+    }
+
+    /// A warship fighting `target` throws at it while it is within missile range,
+    /// its reload counting only then (FUN_004a6300, FUN_004a6d40).
+    fn fire_in_range(&mut self, fid: FigureId, target: FigureId) {
+        let range = self.fighter_stats(fid).missile_range;
+        let (Some(f), Some(t)) = (self.figures.get(fid), self.figures.get(target)) else { return };
+        if distance((f.x, f.y), (t.x, t.y)) < range && self.reloaded(fid) {
+            self.ship_fire(fid, target);
         }
     }
 
@@ -816,18 +866,21 @@ impl World {
             let (x, y) = (t.x, t.y);
             self.fx(crate::effects::Fx::Dust { x, y, size: 0, pieces: 4 });
         }
-        let knock = |w: &mut World, d: u8| -> u8 {
-            w.rng.next();
-            let turn = if w.rng.byte() & 1 == 0 { -1 } else { 1 };
-            (d as i32 + turn).clamp(0, 7) as u8
-        };
-        let own = knock(self, dir);
-        let theirs = knock(self, tdir);
-        if let Some(t) = self.figures.get_mut(target) {
-            t.direction = theirs;
+        // The rammer swings a point one way and the ship struck the other (a ship
+        // part-way across a tile keeps its heading till it is across, lest it step
+        // aside onto the bank).
+        self.rng.next();
+        let turn = if self.rng.byte() & 1 == 0 { -1 } else { 1 };
+        let knock = |d: u8, turn: i32| (d as i32 + turn).clamp(0, 7) as u8;
+        if let Some(t) = self.figures.get_mut(target)
+            && !t.moving
+        {
+            t.direction = knock(tdir, -turn);
         }
         let f = self.figures.get_mut(fid).expect("present");
-        f.direction = own;
+        if !f.moving {
+            f.direction = knock(dir, turn);
+        }
         f.foe = 0;
         f.route.clear();
         if let Some(s) = f.ship.as_deref_mut() {
@@ -850,7 +903,6 @@ impl World {
     /// A warship's turn.
     fn update_warship(&mut self, fid: FigureId) {
         let Some(s) = self.ship_state(fid) else { return };
-        s.reload = (s.reload + 1).min(RELOAD + 1);
         s.ram_cool = (s.ram_cool - 1).max(0);
         if s.fatigue > 0 {
             s.rest -= 1;
@@ -877,8 +929,11 @@ impl World {
                 }
             }
             ship::HOLD => {
-                self.fire_at_will(fid);
                 self.sail(fid, false);
+                self.fire_at_will(fid);
+                if self.figures.get(fid).and_then(|f| f.ship.as_ref()).is_some_and(|s| s.fatigue < 2) {
+                    self.face_raider(fid);
+                }
             }
             ship::ENGAGE | ship::SEEK => self.warship_combat(fid, act),
             ship::ATTACK => self.warship_attack(fid),
@@ -888,6 +943,34 @@ impl World {
                 f.action = ship::LAUNCHED;
                 f.counter = 0;
             }
+        }
+    }
+
+    /// A ship holding position turns, every 20 ticks, to face the nearest foreign
+    /// warship within 5 tiles, so that a ram takes it bow on (FUN_004a6cc0 for a
+    /// warship, FUN_004a4f60 for a transport, both with FUN_004bcd90).
+    fn face_raider(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        f.counter += 1;
+        if f.counter < HOLD_LOOK {
+            return;
+        }
+        f.counter = 0;
+        let pos = (f.x, f.y);
+        let Some(at) = self
+            .figures
+            .iter()
+            .filter(|o| o.kind == ENEMY_WARSHIP && !o.dead && o.action != action::CORPSE && distance(pos, (o.x, o.y)) < HOLD_FACE)
+            .min_by_key(|o| (distance(pos, (o.x, o.y)), o.id))
+            .map(|o| (o.x, o.y))
+        else {
+            return;
+        };
+        let f = self.figures.get_mut(fid).expect("present");
+        if !f.moving
+            && let Some(d) = crate::figures::direction_to(pos, at)
+        {
+            f.direction = d;
         }
     }
 
@@ -903,10 +986,13 @@ impl World {
         }
     }
 
-    /// Engage nearby enemies, or seek and destroy all (FUN_004a6300): after the best
-    /// enemy in reach, and guarding, back to its post when it has strayed 10 tiles
-    /// from it or has no one to fight.
+    /// Engage nearby enemies, or seek and destroy all (FUN_004a6300). Seeking, it goes
+    /// after the best enemy on the whole map. Guarding, it looks as far as its
+    /// missile range and ten tiles more, and takes on the best enemy found only if
+    /// that is within ten tiles of its post; it fights on only while it is within ten
+    /// tiles of its post and its quarry within missile range, else it goes back.
     fn warship_combat(&mut self, fid: FigureId, act: u16) {
+        let range = self.fighter_stats(fid).missile_range;
         let Some(f) = self.figures.get(fid) else { return };
         let (pos, foe) = ((f.x, f.y), f.foe);
         let anchor = f.ship.as_ref().map_or(pos, |s| s.anchor);
@@ -915,7 +1001,20 @@ impl World {
             self.back_to_post(fid, anchor);
             return;
         }
-        let target = if self.alive_enemy(foe) { Some(foe) } else { self.ship_target(fid, if guarding { ENGAGE_SEARCH } else { SEEK_SEARCH }, guarding.then_some(anchor)) };
+        let at = |w: &World, t: FigureId| w.figures.get(t).map_or(pos, |o| (o.x, o.y));
+        let target = if self.alive_enemy(foe) {
+            Some(foe)
+        } else if guarding && self.rules.navy_engage_nearby {
+            self.ship_target_near(fid, range + ENGAGE_LOOK, Some(anchor))
+        } else if guarding {
+            self.ship_target(fid, range + ENGAGE_LOOK).filter(|&t| distance(anchor, at(self, t)) < ENGAGE_LEASH)
+        } else {
+            self.ship_target(fid, SEEK_SEARCH)
+        };
+        if guarding && target.is_some_and(|t| distance(pos, at(self, t)) >= range) {
+            self.back_to_post(fid, anchor);
+            return;
+        }
         match target {
             Some(t) => {
                 self.figures.get_mut(fid).expect("present").foe = t;
@@ -952,9 +1051,7 @@ impl World {
         let (Some(f), Some(t)) = (self.figures.get(fid), self.figures.get(target)) else { return };
         let (pos, at, afloat) = ((f.x, f.y), (t.x, t.y), is_enemy_ship(t.kind));
         let d = distance(pos, at);
-        if d < range {
-            self.ship_fire(fid, target);
-        }
+        self.fire_in_range(fid, target);
         if !afloat {
             if d >= range && self.figures.get(fid).is_some_and(|f| f.action != ship::ATTACK) {
                 self.figures.get_mut(fid).expect("present").foe = 0;
@@ -996,7 +1093,7 @@ impl World {
     fn warship_attack(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
         let foe = f.foe;
-        let target = if self.alive_enemy(foe) { Some(foe) } else { self.ship_target(fid, SEEK_SEARCH, None) };
+        let target = if self.alive_enemy(foe) { Some(foe) } else { self.ship_target(fid, SEEK_SEARCH) };
         let Some(t) = target else {
             let f = self.figures.get_mut(fid).expect("present");
             let saved = f.ship.as_ref().map_or(0, |s| s.saved);
@@ -1014,7 +1111,7 @@ impl World {
         if afloat {
             self.fight_target(fid, t);
         } else if distance(pos, at) < range {
-            self.ship_fire(fid, t);
+            self.fire_in_range(fid, t);
         } else if let Some(w) = self.nearest_water(at) {
             self.pursue(fid, w);
         }
@@ -1047,6 +1144,7 @@ impl World {
             }
             ship::HOLD => {
                 self.sail(fid, false);
+                self.face_raider(fid);
             }
             ship::EMBARK => self.embark_step(fid),
             ship::DISEMBARK | ship::BACK => self.disembark_step(fid),
@@ -1059,9 +1157,10 @@ impl World {
         }
     }
 
-    /// A ship evading, with a ship of the other side near, runs from it: of three
-    /// points about 10 tiles off, straight away and to either side, the one farthest
-    /// from the enemy that open water leads to (FUN_004a5560, FUN_004a4850). The
+    /// A ship evading, with a ship of the other side in the 18-tile square round it,
+    /// runs from the nearest: toward three points 10 tiles off, straight away and to
+    /// either side, as far as the longest run of open water goes (FUN_004a5560,
+    /// FUN_004a4850). The
     /// city's transports run from any enemy ship; the enemy's fleeing ships from the
     /// city's warships, transports and fishing boats. False if none was near.
     fn evade(&mut self, fid: FigureId) -> bool {
@@ -1072,21 +1171,23 @@ impl World {
         let Some(enemy) = self
             .figures
             .iter()
-            .filter(|o| other(o.kind) && !o.dead && o.action != action::CORPSE && !o.ship.as_ref().is_some_and(|s| s.hidden) && (o.x - pos.0).abs() <= EVADE_BOX && (o.y - pos.1).abs() <= EVADE_BOX)
+            .filter(|o| other(o.kind) && !o.dead && o.action != action::CORPSE && !o.ship.as_ref().is_some_and(|s| s.hidden) && (-EVADE_BOX..EVADE_BOX).contains(&(o.x - pos.0)) && (-EVADE_BOX..EVADE_BOX).contains(&(o.y - pos.1)))
             .map(|o| (o.x, o.y))
-            .min_by_key(|&p| distance(p, pos))
+            .min_by_key(|&p| (p.0 - pos.0).pow(2) + (p.1 - pos.1).pow(2))
         else {
             return false;
         };
         let away = crate::figures::direction_to(enemy, pos).unwrap_or(2) as i32;
+        // The longest run of open water of the three, the later of two as long.
         let best = [away, away + 7, away + 1]
             .into_iter()
             .map(|d| {
                 let (dx, dy) = NEIGHBOURS[(d % 8) as usize];
-                self.water_line(pos, (pos.0 + dx * EVADE_RUN, pos.1 + dy * EVADE_RUN))
+                self.water_line_run(pos, (pos.0 + dx * EVADE_RUN, pos.1 + dy * EVADE_RUN))
             })
-            .filter(|&p| p != pos)
-            .max_by_key(|&p| distance(p, enemy));
+            .filter(|&(p, _)| p != pos)
+            .max_by_key(|&(_, run)| run)
+            .map(|(p, _)| p);
         if let Some(p) = best {
             let map = &self.map;
             self.figures.get_mut(fid).expect("present").go_to(map, p);
@@ -1094,20 +1195,39 @@ impl World {
         true
     }
 
-    /// The farthest open water on the straight line from `from` toward `to` before
-    /// anything else (FUN_0040c180).
+    /// The open water on the straight line from `from` to `to` that is farthest from
+    /// `from` and that a ship at `from` can sail to, land or a bend in the river
+    /// between them or not (FUN_0040c180, which walks the line a row and a column
+    /// at a time); `from` itself if there is none.
     fn water_line(&self, from: (i32, i32), to: (i32, i32)) -> (i32, i32) {
-        let n = distance(from, to);
-        let mut last = from;
-        for i in 1..=n {
-            let x = from.0 + ((to.0 - from.0) as f64 * i as f64 / n as f64).round() as i32;
-            let y = from.1 + ((to.1 - from.1) as f64 * i as f64 / n as f64).round() as i32;
-            if !crate::water::navigable(&self.map, x, y) {
-                break;
-            }
-            last = (x, y);
+        self.water_line_run(from, to).0
+    }
+
+    /// `water_line`, with the squared distance to the tile found (0 for `from`).
+    fn water_line_run(&self, from: (i32, i32), to: (i32, i32)) -> ((i32, i32), i32) {
+        let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+        if (dx, dy) == (0, 0) {
+            return (from, 0);
         }
-        last
+        let reach = crate::water::reachable(&self.map, from);
+        let w = self.map.width;
+        let open = |(x, y): (i32, i32)| self.map.contains(x, y) && reach[(y * w + x) as usize];
+        let rows = (1..=dy.abs()).map(|i| {
+            let y = i * dy.signum();
+            (from.0 + (y as f64 * dx as f64 / dy as f64).trunc() as i32, from.1 + y)
+        });
+        let columns = (1..=dx.abs()).map(|i| {
+            let x = i * dx.signum();
+            (from.0 + x, from.1 + (x as f64 * dy as f64 / dx as f64).trunc() as i32)
+        });
+        let mut best = (from, 0);
+        for p in rows.chain(columns).filter(|&p| open(p)) {
+            let d = (p.0 - from.0).pow(2) + (p.1 - from.1).pow(2);
+            if d >= best.1 {
+                best = (p, d);
+            }
+        }
+        best
     }
 
     /// Whether ship `fid` is at the shipwright's with its hull at 15% or less, or away
@@ -1563,24 +1683,29 @@ impl World {
         }
     }
 
-    /// An enemy ship going home: to the river entry, then on to the river exit, where
-    /// it is gone.
+    /// An enemy transport, its men put ashore, sails for the river exit and is gone
+    /// there (FUN_004ad350). Coming to rest anywhere else, it makes for the river
+    /// entry, and from the entry for the exit (FUN_004adc80); with no way on, it is
+    /// gone.
     fn leave_by_river(&mut self, fid: FigureId) {
         let (entry, exit) = (self.river_entry(), self.river_exit());
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return };
         let Some(s) = f.ship.as_deref_mut() else { return };
-        let leg = s.leg;
-        s.leg = leg.saturating_add(1);
-        let to = match leg {
-            0 => entry.or(exit),
-            1 => exit,
-            _ => None,
+        let first = s.leg == 0;
+        s.leg = s.leg.saturating_add(1);
+        let here = (f.x, f.y);
+        let to = if exit == Some(here) {
+            None
+        } else if entry == Some(here) {
+            exit
+        } else if first {
+            exit.or(entry)
+        } else {
+            entry.or(exit)
         };
-        match to {
-            Some(t) if t != (f.x, f.y) && f.go_to(map, t) => {}
-            _ if leg == 0 && exit.is_some() => self.leave_by_river(fid),
-            _ => f.dead = true,
+        if !to.is_some_and(|t| t != here && f.go_to(map, t)) {
+            f.dead = true;
         }
     }
 
@@ -1610,7 +1735,6 @@ impl World {
         let f = self.figures.get_mut(fid).expect("present");
         let kind = f.kind;
         let s = f.ship.as_deref_mut().expect("present");
-        s.reload = (s.reload + 1).min(stats.missile_delay + 1);
         s.ram_cool = (s.ram_cool - 1).max(0);
         if s.fatigue > 0 {
             s.rest -= 1;
@@ -1637,9 +1761,12 @@ impl World {
             }
         }
         let act = self.figures.get(fid).map_or(0, |f| f.action);
+        // Each time it has reloaded it looks for the best target with its missile
+        // range as the reach, and throws at it however far off that is (FUN_004aed10).
         if kind == ENEMY_WARSHIP
             && matches!(act, ship::LAUNCHED | ship::FLEE | ship::PATROL)
-            && let Some(t) = self.enemy_ship_target(fid, Some(stats.missile_range))
+            && self.reloaded(fid)
+            && let Some(t) = self.enemy_ship_target(fid, stats.missile_range)
         {
             self.enemy_fire(fid, t);
         }
@@ -1724,8 +1851,8 @@ impl World {
     /// city's soldiers within its missile range (17), a warship (15), an empty
     /// transport (10), a trade ship or a fishing boat (5), less the distance to each,
     /// over the whole map; never a ship away on the Kingdom's service, nor men aboard
-    /// a transport. `within` limits it to what is in missile range.
-    fn enemy_ship_target(&self, fid: FigureId, within: Option<i32>) -> Option<FigureId> {
+    /// a transport. Only what scores better than `-reach` counts.
+    fn enemy_ship_target(&self, fid: FigureId, reach: i32) -> Option<FigureId> {
         let f = self.figures.get(fid)?;
         let from = (f.x, f.y);
         let range = self.fighter_stats(fid).missile_range;
@@ -1742,28 +1869,24 @@ impl World {
                     k if crate::military::is_soldier(k) && o.action != action::ABOARD && d <= range => 17,
                     _ => return None,
                 };
-                within.is_none_or(|r| d <= r).then_some((pri - d, o.id))
+                Some((pri - d, o.id))
             })
-            .filter(|&(score, _)| score > -SEEK_SEARCH)
+            .filter(|&(score, _)| score > -reach)
             .max_by_key(|&(score, id)| (score, std::cmp::Reverse(id)))
             .map(|(_, id)| id)
     }
 
-    /// An enemy warship looses a spear at `target` once it has reloaded (its model's
-    /// ticks between shots), turning to face it (FUN_004b45c0 with the spear, 71).
-    /// The spear carries the ship's missile attack for a ship it strikes.
+    /// An enemy warship looses a spear at `target`, turning to face it (FUN_004b45c0
+    /// with the spear, 71). The spear carries the ship's missile attack for a ship it
+    /// strikes.
     fn enemy_fire(&mut self, fid: FigureId, target: FigureId) {
         let stats = self.fighter_stats(fid);
         let spear = self.balance.unit(crate::military::SPEAR).missile_attack;
         let Some(to) = self.figures.get(target).map(|t| (t.x, t.y)) else { return };
-        let Some(s) = self.ship_state(fid) else { return };
-        if s.reload <= stats.missile_delay {
-            return;
-        }
-        s.reload = 0;
-        let f = self.figures.get_mut(fid).expect("present");
+        let Some(f) = self.figures.get_mut(fid) else { return };
         let from = (f.x, f.y);
         let dir = crate::figures::direction_to(from, to);
+        // (Not mid-step: the step under way goes by its heading.)
         if !f.moving {
             f.direction = dir.unwrap_or(f.direction);
         }
@@ -1791,7 +1914,7 @@ impl World {
         let (engaged, look, leg) = f.ship.as_ref().map_or((false, 0, 0), |s| (s.engaged, s.look, s.leg));
         let quarry = self.figures.get(foe).is_some_and(|o| !o.dead && o.action != action::CORPSE && o.action != action::ABOARD && !o.ship.as_ref().is_some_and(|s| s.hidden));
         if !engaged || look <= 0 || !quarry {
-            let Some(t) = self.enemy_ship_target(fid, None) else {
+            let Some(t) = self.enemy_ship_target(fid, SEEK_SEARCH) else {
                 self.patrol_leg(fid, leg);
                 return;
             };
@@ -1814,7 +1937,8 @@ impl World {
             s.look -= 1;
         }
         let Some((at, afloat)) = self.figures.get(target).map(|t| ((t.x, t.y), t.travel == Travel::Water)) else { return };
-        if distance(pos, at) <= stats.missile_range {
+        // Its reload counts only while its quarry is within missile range.
+        if distance(pos, at) < stats.missile_range && self.reloaded(fid) {
             self.enemy_fire(fid, target);
         }
         if !afloat {
@@ -2338,7 +2462,8 @@ mod tests {
         assert_eq!(f.damage, hull / 10 * 10 * 25 / 100, "the warship takes the battle's losses");
         assert!(!f.ship.as_ref().is_some_and(|s| s.hidden || s.abroad.is_some()));
         assert_eq!(world.military.companies[c].soldiers.len(), 3, "a quarter of four lost");
-        assert_eq!(soldiers.iter().filter(|&&s| world.figures.get(s).is_some_and(|f| !f.dead)).count(), 3);
+        // (The fallen man's slot may since have gone to another figure.)
+        assert_eq!(soldiers.iter().filter(|&&s| world.figures.get(s).is_some_and(|f| !f.dead && f.kind == crate::military::ARCHER)).count(), 3);
         // The transport puts the company back ashore by its old post.
         for _ in 0..3000 {
             world.tick();
@@ -2427,5 +2552,166 @@ mod tests {
         assert!(!e.active);
         assert_eq!(e.state, crate::scenario_events::state::FAILED);
         assert!(!e.overdue, "no grace months for troops");
+    }
+
+    #[test]
+    fn a_warship_moors_by_its_wharf_sails_where_sent_and_comes_back_to_the_same_tile() {
+        let Some(mut world) = navy_town() else { return };
+        let ours = ship_at_post(&mut world, WARSHIP);
+        let f = world.figures.get(ours).expect("warship");
+        let berth = world.launch_tile(f.home).expect("berth");
+        for _ in 0..200 {
+            if world.figures.get(ours).is_some_and(|f| (f.x, f.y) == berth && !f.moving) {
+                break;
+            }
+            world.tick();
+        }
+        assert_eq!(world.figures.get(ours).map(|f| (f.x, f.y)), Some(berth));
+        assert!(world.ship_docked(ours));
+        // Sent to the far side of the river, it gets there and keeps its order.
+        let to = (200, 124);
+        assert!(world.move_ship(ours, to));
+        for _ in 0..600 {
+            world.tick();
+            if world.figures.get(ours).is_some_and(|f| (f.x, f.y) == to && !f.moving) {
+                break;
+            }
+        }
+        let f = world.figures.get(ours).expect("warship");
+        assert_eq!(((f.x, f.y), f.action), (to, ship::ENGAGE));
+        assert!(!world.ship_docked(ours));
+        // Told to go home, it comes back to the tile it was launched on.
+        assert!(world.order_ship(ours, ShipOrder::Return));
+        for _ in 0..600 {
+            world.tick();
+            if world.ship_docked(ours) {
+                break;
+            }
+        }
+        assert_eq!(world.figures.get(ours).map(|f| (f.x, f.y)), Some(berth));
+        assert!(world.ship_docked(ours));
+    }
+    /// An enemy ship that stays where it is put, waiting to set out.
+    fn moored_enemy(world: &mut World, kind: u16, at: (i32, i32), men: i32) -> FigureId {
+        // A nation with ships of its own.
+        let afloat = |r: usize| world.balance.enemy_units.get(r).is_some_and(|u| u.hp > 0);
+        let nation = world.defs.armies.iter().position(|a| a.stats_row.is_some_and(|r| afloat(r + 3) && afloat(r + 4))).expect("a nation") as u16;
+        let fid = world.figures.spawn(kind, at.0, at.1, Travel::Water);
+        let f = world.figures.get_mut(fid).expect("enemy");
+        f.action = ship::LAUNCHED;
+        f.counter = 1_000_000;
+        f.speed = 2;
+        f.cargo = nation;
+        f.amount = men;
+        f.ship = Some(Box::default());
+        fid
+    }
+    #[test]
+    fn a_warship_holding_throws_once_a_reload_at_a_loaded_transport_beyond_its_range() {
+        let Some(mut world) = navy_town() else { return };
+        let ours = ship_at_post(&mut world, WARSHIP);
+        let stats = world.fighter_stats(ours);
+        assert!(world.order_ship(ours, ShipOrder::Hold));
+        let pos = world.figures.get(ours).map(|f| (f.x, f.y)).expect("warship");
+        // Fifteen tiles off, well past its missile range of 8, but a loaded
+        // transport scores 25 less 15, better than -8.
+        let at = (pos.0 + 15, pos.1 + 6);
+        assert!(distance(pos, at) > stats.missile_range);
+        let theirs = moored_enemy(&mut world, ENEMY_TRANSPORT, at, 4);
+        let mut throws = Vec::new();
+        let mut flying = std::collections::BTreeSet::new();
+        for t in 0..200 {
+            if let Some(f) = world.figures.get_mut(theirs) {
+                f.damage = 0;
+            }
+            world.tick();
+            let now: std::collections::BTreeSet<FigureId> = world.figures.iter().filter(|f| f.kind == crate::military::JAVELIN && !f.dead).map(|f| f.id).collect();
+            if now.difference(&flying).next().is_some() {
+                throws.push(t);
+            }
+            flying = now;
+        }
+        assert!(throws.len() >= 3, "{throws:?}");
+        assert!(throws.windows(2).all(|w| w[1] - w[0] == stats.missile_delay + 1), "{throws:?}");
+    }
+    #[test]
+    fn a_guard_goes_after_enemies_near_its_post_and_lets_those_farther_off_be() {
+        let Some(mut world) = navy_town() else { return };
+        let ours = ship_at_post(&mut world, WARSHIP);
+        for _ in 0..200 {
+            world.tick();
+        }
+        let anchor = world.figures.get(ours).and_then(|f| f.ship.as_ref()).map(|s| s.anchor).expect("post");
+        // An enemy warship twelve tiles from the post is in sight, but too far from
+        // it to go after.
+        let far = moored_enemy(&mut world, ENEMY_WARSHIP, (anchor.0 + 12, anchor.1 + 5), 0);
+        for _ in 0..100 {
+            world.tick();
+            let f = world.figures.get(ours).expect("warship");
+            assert_eq!((f.foe, (f.x, f.y)), (0, anchor));
+        }
+        world.figures.get_mut(far).expect("enemy").dead = true;
+        world.tick();
+        // Nor one near the post but out of missile range: it waits for it to come.
+        let mid = moored_enemy(&mut world, ENEMY_WARSHIP, (anchor.0 + 9, anchor.1 + 5), 0);
+        for _ in 0..100 {
+            world.tick();
+            assert_eq!(world.figures.get(ours).map(|f| (f.x, f.y)), Some(anchor));
+        }
+        world.figures.get_mut(mid).expect("enemy").dead = true;
+        world.tick();
+        // One within range of the post it goes after.
+        let near = moored_enemy(&mut world, ENEMY_WARSHIP, (anchor.0 + 5, anchor.1 + 4), 0);
+        let mut chased = false;
+        for _ in 0..40 {
+            world.tick();
+            chased |= world.figures.get(ours).is_some_and(|f| f.foe == near);
+        }
+        assert!(chased);
+    }
+    #[test]
+    fn a_transport_holding_turns_to_face_an_enemy_warship_close_by() {
+        let Some(mut world) = navy_town() else { return };
+        let ours = ship_at_post(&mut world, TRANSPORT);
+        assert!(world.order_ship(ours, ShipOrder::Hold));
+        for _ in 0..100 {
+            world.tick();
+        }
+        let f = world.figures.get(ours).expect("transport");
+        let pos = (f.x, f.y);
+        let at = (pos.0 + 3, pos.1 + 3);
+        let want = crate::figures::direction_to(pos, at).expect("direction");
+        world.figures.get_mut(ours).expect("transport").direction = (want + 4) % 8;
+        moored_enemy(&mut world, ENEMY_WARSHIP, at, 0);
+        for _ in 0..HOLD_LOOK + 1 {
+            world.tick();
+        }
+        assert_eq!(world.figures.get(ours).map(|f| f.direction), Some(want));
+    }
+    #[test]
+    fn an_enemy_transport_lands_its_men_then_leaves_by_the_river_exit() {
+        let Some(mut world) = navy_town() else { return };
+        let exit = world.river_exit().expect("exit");
+        let entry = world.river_entry().expect("entry");
+        let t = moored_enemy(&mut world, ENEMY_TRANSPORT, entry, 4);
+        let f = world.figures.get_mut(t).expect("transport");
+        f.counter = 1;
+        f.formation = 1000;
+        f.ship.as_deref_mut().expect("ship").landing = Some((190, 113));
+        let mut last = entry;
+        let mut landed = false;
+        for _ in 0..(80 * crate::time::TICKS_PER_DAY) {
+            world.tick();
+            match world.figures.get(t) {
+                Some(f) if !f.dead => {
+                    last = (f.x, f.y);
+                    landed |= f.amount == 0;
+                }
+                _ => break,
+            }
+        }
+        assert!(landed, "it put its men ashore");
+        assert!(world.figures.get(t).is_none_or(|f| f.dead), "it is gone");
+        assert_eq!(last, exit, "gone by the exit");
     }
 }

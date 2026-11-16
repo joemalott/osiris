@@ -697,6 +697,8 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 };
                 world.apply(&Command::CompanyOrder { company: c.parse()?, order });
             }
+            // Where boats come in and leave by the river (snapped to open water).
+            ["river"] => eprintln!("{step}: entry {:?} exit {:?}", world.river_entry(), world.river_exit()),
             ["seapoint", p] => world.invasions.sea_points.push(parse_point(p)?),
             ["landpoint", p] => world.invasions.land_points.push(parse_point(p)?),
             // Opens a call for troops against strength N from trade city C (by sea, if

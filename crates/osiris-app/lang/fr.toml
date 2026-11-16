@@ -54,6 +54,8 @@
 "New storage yards and granaries start at Accept None." = "Les nouveaux entrepôts et greniers commencent sur Ne rien accepter."
 "Ptah speeds carpenters" = "Ptah accélère les charpentiers"
 "Fixes the original: Ptah's altar speeds the carpenters' guild." = "Corrige l'original : l'autel de Ptah accélère la guilde des charpentiers."
+"Guard ships engage near" = "Navires de garde proches"
+"Fixes the original: a warship guarding its post fights the enemies near it, not only the best one in sight." = "Corrige l'original : un navire de guerre qui garde son poste combat les ennemis proches, pas seulement le meilleur en vue."
 
 # The city
 "Speed" = "Vitesse"

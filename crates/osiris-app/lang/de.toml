@@ -54,6 +54,8 @@
 "New storage yards and granaries start at Accept None." = "Neue Lagerhöfe und Kornspeicher beginnen mit Nichts annehmen."
 "Ptah speeds carpenters" = "Ptah beschleunigt Zimmerleute"
 "Fixes the original: Ptah's altar speeds the carpenters' guild." = "Behebt einen Fehler des Originals: Ptahs Altar beschleunigt die Zimmermannsgilde."
+"Guard ships engage near" = "Wachschiffe greifen nahe an"
+"Fixes the original: a warship guarding its post fights the enemies near it, not only the best one in sight." = "Behebt einen Fehler des Originals: ein Kriegsschiff, das seinen Posten bewacht, bekämpft die Feinde in seiner Nähe, nicht nur den besten in Sicht."
 
 # The city
 "Speed" = "Tempo"
