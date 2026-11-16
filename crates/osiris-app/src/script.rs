@@ -722,7 +722,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
             ["army"] => {
                 for (i, c) in world.military.companies.iter().enumerate() {
                     let alive: Vec<(i32, i32, u16, i32, u8)> = c.soldiers.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.action, f.damage, f.slot)).collect();
-                    eprintln!("  company {i} fort {} kind {} standard {:?} at_fort {} morale {} schooled {} wind {} experience {} order {:?} turned {} charged {} wounds {}% soldiers {} recruits {} {:?}", c.fort, c.kind, c.standard_tile, c.at_fort, c.morale, c.schooled, c.wind, c.experience, c.order, c.turned, c.charged, world.company_wounds(i), c.soldiers.len(), c.recruits.len(), alive);
+                    eprintln!("  company {i} fort {} kind {} standard {:?} at_fort {} morale {} routed {}/{} schooled {} wind {} experience {} order {:?} turned {} charged {} wounds {}% soldiers {} recruits {} {:?}", c.fort, c.kind, c.standard_tile, c.at_fort, c.morale, c.routed, c.broken, c.schooled, c.wind, c.experience, c.order, c.turned, c.charged, world.company_wounds(i), c.soldiers.len(), c.recruits.len(), alive);
                 }
                 for b in world.buildings.iter().filter(|b| b.kind == osiris_sim::military::RECRUITER) {
                     eprintln!("  recruiter {} workers {} days {} weapons {} chariots {} wanted {}", b.id, b.workers, b.spawn_delay, b.stock[osiris_sim::military::WEAPONS as usize], b.stock[osiris_sim::military::CHARIOTS as usize], world.recruits_wanted(b.id));
@@ -730,7 +730,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 for (i, a) in world.invasions.armies.iter().enumerate() {
                     let alive: Vec<(i32, i32, u16, u16, i32)> = a.figures.iter().filter_map(|&s| world.figures.get(s)).map(|f| (f.x, f.y, f.kind, f.action, f.damage)).collect();
                     let t = world.buildings.get(a.target).map(|b| (b.kind, b.x, b.y, b.enemy_damage));
-                    eprintln!("  army {i} invader {} nation {} target {} {:?} morale {} fleeing {} {:?}", a.invader, a.nation, a.target, t, a.morale, a.fleeing, alive);
+                    eprintln!("  army {i} invader {} nation {} target {} {:?} morale {:?} withdrawn {:?} {:?}", a.invader, a.nation, a.target, t, a.band_morale, a.withdrawn, alive);
                 }
                 eprintln!("  battles {:?} kingdom {}", world.military.battles, world.ratings.kingdom);
                 eprintln!("  points land {:?} sea {:?} landings {:?}", world.invasions.land_points, world.invasions.sea_points, world.invasions.landings);

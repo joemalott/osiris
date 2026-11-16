@@ -32,6 +32,11 @@ impl World {
             5 | 29 => {
                 self.update_herds();
                 self.update_armies();
+                // Whether a side's morale breaks, once a day (FUN_004b7790 runs
+                // FUN_004b79f0 at the day's first formation tick).
+                if self.time.tick == 5 {
+                    self.check_morale();
+                }
             }
             7 => {
                 for id in self.buildings.ids() {

@@ -36,11 +36,14 @@
 //! missiles only: in melee the original takes the striker's company's, which an
 //! invader hasn't.
 //!
-//! Morale: every man lost shakes his side, the more so the bigger the share of it
-//! that fell; a company rests its spirits at the fort month by month, up to 60
-//! (charioteers 80, and 20 more once its recruits train at a military academy),
-//! and loses heart when kept out long. A company whose morale breaks runs home,
-//! and a broken army runs for the edge of the map.
+//! Morale: every man lost shakes his company or formation, the more so the bigger
+//! the share of it that fell; a company rests its spirits at the fort month by
+//! month, up to 60 (charioteers 80, and 20 more once its recruits train at a military
+//! academy), and loses heart when kept out long. Invaders' formations hold at most 70
+//! (Bedouin 80). Once a day, a company out of its fort or a formation of invaders at
+//! 20 or less breaks: the company runs home and won't take orders for a while, the
+//! formation leaves the map, and the first break shakes the rest of that side and
+//! heartens the other.
 //!
 //! Experience: a company's experience (0 to 100) is the average of its men's. A raw
 //! recruit brings none, one who passed through a military academy 25, and a temple
@@ -118,6 +121,11 @@ pub fn fort_ground(x: i32, y: i32) -> impl Iterator<Item = (i32, i32)> {
 
 /// Morale at or below which a side breaks and runs.
 pub const BROKEN_MORALE: i32 = 20;
+/// Morale at or below which a broken company is badly broken.
+const SHATTERED_MORALE: i32 = 10;
+/// What the first break of a side's company or formation does to the morale of the
+/// rest of that side, and of the other (FUN_004b79f0).
+const BREAK_SHOCK: i32 = 10;
 
 /// Morale lost for a death, by the share of the side it was (percent).
 pub fn morale_loss(share_pct: i32) -> i32 {
@@ -255,6 +263,18 @@ pub struct Company {
     pub charged: bool,
     #[serde(default)]
     pub charge_rest: i32,
+    /// Days its morale has been found broken while out (the original's +0x66, days
+    /// at 11 to 20, and +0x73, days at 10 or less): the company runs home, and takes
+    /// no orders once it has been so two days, or one day badly. Cleared by a month
+    /// spent at the fort.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub routed: u8,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub broken: u8,
+}
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
 }
 
 impl Company {
@@ -769,7 +789,7 @@ impl World {
     /// and must rest their horses before charging again.
     pub fn move_company(&mut self, company: usize, tile: (i32, i32)) -> bool {
         // Aboard a transport, it goes where the ship takes it.
-        if self.company_ship(company).is_some() {
+        if self.company_ship(company).is_some() || self.refuses_orders(company) {
             return false;
         }
         let Some(standard) = self.military.companies.get(company).map(|c| c.standard) else { return false };
@@ -1178,6 +1198,9 @@ impl World {
     /// loose line is turned if the company's rotate switch is on. Charioteers can't
     /// be ordered to charge while their horses recover from the last.
     pub fn set_order(&mut self, company: usize, order: Order) {
+        if self.refuses_orders(company) {
+            return;
+        }
         let Some(c) = self.military.companies.get_mut(company) else { return };
         if order == Order::Charge && (c.kind != CHARIOTEER || c.charged) {
             return;
@@ -1268,20 +1291,17 @@ impl World {
         f.foe = 0;
         f.route.clear();
         f.moving = false;
-        let formation = if crate::navy::is_enemy_ship(f.kind) { 0 } else { f.formation };
+        let (formation, band) = if crate::navy::is_enemy_ship(f.kind) { (0, 0) } else { (f.formation, f.band) };
         self.figure_sound(fid, 3);
         // The share of the company still standing that he was.
         let standing = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map_or(0, |c| {
             c.soldiers.iter().chain(&c.recruits).filter(|&&s| self.figures.get(s).is_some_and(|f| !f.dead && f.action != action::CORPSE)).count() as i32
         });
-        if let Some(c) = self.company_of(fid).and_then(|c| self.military.companies.get_mut(c)) {
-            c.morale = (c.morale - morale_loss(if standing > 0 { 100 / standing } else { 0 })).max(0);
-            if c.morale <= BROKEN_MORALE && !c.at_fort {
-                let company = self.company_of(fid).expect("checked");
-                self.return_company(company);
-            }
+        // Whether it breaks is seen to once a day (`check_morale`).
+        if let Some(c) = self.company_of(fid) {
+            self.change_morale(c, -morale_loss(if standing > 0 { 100 / standing } else { 0 }));
         } else if formation >= 1000 {
-            self.army_loses(formation as usize - 1000);
+            self.army_loses(formation as usize - 1000, band);
         }
         true
     }
@@ -1506,10 +1526,101 @@ impl World {
             self.sink_abroad(t);
         }
     }
+    /// A company's morale changes by `delta`, from 0 up to its kind's highest
+    /// (FUN_004b7b50).
+    pub(crate) fn change_morale(&mut self, company: usize, delta: i32) {
+        if let Some(c) = self.military.companies.get_mut(company) {
+            c.morale = (c.morale + delta).min(morale_cap(c.kind, c.schooled)).max(0);
+        }
+    }
+
+    /// Whether a company refuses orders: it has run from the field two days, or one
+    /// day badly broken. One that broke only a day ago rallies to an order, gaining
+    /// 10 morale (FUN_004b6400 and the other orders).
+    fn refuses_orders(&mut self, company: usize) -> bool {
+        if self.company_too_shaken(company) {
+            return true;
+        }
+        let Some(c) = self.military.companies.get(company) else { return true };
+        if c.routed == 1 {
+            self.change_morale(company, BREAK_SHOCK);
+        }
+        false
+    }
+
+    /// Whether a company's morale is too low for it to take orders ("Company's
+    /// morale is too low to respond!").
+    pub fn company_too_shaken(&self, company: usize) -> bool {
+        self.military.companies.get(company).is_none_or(|c| c.broken > 0 || c.routed >= 2)
+    }
+
+    /// Daily, at the original's formation tick (FUN_004b79f0): a company out of its
+    /// fort, or an invaders' formation, whose morale has fallen to 20 breaks. The
+    /// first time it does, the rest of its side lose 10 morale and the other side
+    /// gain 10. A broken company runs home, its men in a fight finishing it first;
+    /// a broken formation of invaders leaves the map the same way.
+    pub(crate) fn check_morale(&mut self) {
+        for c in 0..self.military.companies.len() {
+            let co = &self.military.companies[c];
+            if co.fort == 0 || co.at_fort || self.military.sent_away(c) || self.company_ship(c).is_some() {
+                continue;
+            }
+            let fresh = co.routed == 0 && co.broken == 0;
+            if co.morale > BROKEN_MORALE {
+                continue;
+            }
+            // The shock falls on the company itself too, before it is judged.
+            if fresh {
+                self.side_shaken(false);
+            }
+            let co = &mut self.military.companies[c];
+            if co.morale <= SHATTERED_MORALE {
+                co.broken = co.broken.saturating_add(1);
+            } else {
+                co.routed = co.routed.saturating_add(1);
+            }
+            self.run_home(c);
+        }
+        self.check_enemy_morale();
+    }
+
+    /// The first break of a company (`invaders` false) or of a formation of invaders
+    /// shakes its side and heartens the other.
+    pub(crate) fn side_shaken(&mut self, invaders: bool) {
+        let (ours, theirs) = if invaders { (BREAK_SHOCK, -BREAK_SHOCK) } else { (-BREAK_SHOCK, BREAK_SHOCK) };
+        for c in 0..self.military.companies.len() {
+            if self.military.companies[c].fort != 0 {
+                self.change_morale(c, ours);
+            }
+        }
+        self.enemy_morale_all(theirs);
+    }
+
+    /// A broken company runs for its fort: the men not fighting at once, those in a
+    /// fight once it is over.
+    fn run_home(&mut self, company: usize) {
+        let Some(c) = self.military.companies.get_mut(company) else { return };
+        c.at_fort = true;
+        let (standard, soldiers, ground) = (c.standard, c.soldiers.clone(), c.ground);
+        let home = self.buildings.get(ground).map(|g| (g.x, g.y));
+        let map = &self.map;
+        if let (Some(f), Some(home)) = (self.figures.get_mut(standard), home) {
+            f.action = action::GOING_TO_FORT;
+            f.reroute(map, home);
+        }
+        for s in soldiers {
+            if self.figures.get(s).is_some_and(|f| !matches!(f.action, action::ATTACK | action::CORPSE)) {
+                self.send_to_post(s);
+            }
+        }
+    }
+
     pub(crate) fn update_morale_month(&mut self) {
+        self.enemy_morale_month();
         for c in &mut self.military.companies {
             if c.at_fort {
                 c.months_away = 0;
+                (c.routed, c.broken) = (0, 0);
                 c.morale = (c.morale + 5).min(morale_cap(c.kind, c.schooled));
             } else {
                 c.months_away += 1;
@@ -1838,13 +1949,13 @@ mod tests {
         let mut over = false;
         for _ in 0..60 * crate::time::TICKS_PER_DAY {
             w.tick();
-            let fighting = w.invasions.armies.iter().any(|a| a.figures.iter().any(|&f| w.figures.get(f).is_some_and(|f| !f.dead && f.action != action::CORPSE && !a.fleeing)));
+            let fighting = w.invasions.armies.iter().any(|a| a.figures.iter().any(|&f| w.figures.get(f).is_some_and(|f| !f.dead && !matches!(f.action, action::CORPSE | action::FLEEING))));
             if !fighting && w.military.companies[0].soldiers.iter().all(|&s| w.figures.get(s).is_some_and(|f| f.action == action::AT_STANDARD)) {
                 over = true;
                 break;
             }
         }
-        assert!(over, "the battle never ended: {:?} men {:?} armies {:?}", w.military.companies[0], w.military.companies[0].soldiers.iter().filter_map(|&s| w.figures.get(s)).map(|f| (f.x, f.y, f.action, f.slot, f.destination, f.route.len())).collect::<Vec<_>>(), w.invasions.armies.iter().map(|a| (a.fleeing, a.figures.iter().filter_map(|&f| w.figures.get(f)).map(|f| (f.x, f.y, f.action)).collect::<Vec<_>>())).collect::<Vec<_>>());
+        assert!(over, "the battle never ended: {:?} men {:?} armies {:?}", w.military.companies[0], w.military.companies[0].soldiers.iter().filter_map(|&s| w.figures.get(s)).map(|f| (f.x, f.y, f.action, f.slot, f.destination, f.route.len())).collect::<Vec<_>>(), w.invasions.armies.iter().map(|a| (a.band_morale.clone(), a.figures.iter().filter_map(|&f| w.figures.get(f)).map(|f| (f.x, f.y, f.action)).collect::<Vec<_>>())).collect::<Vec<_>>());
         let c = &w.military.companies[0];
         assert!(c.experience > 0 && !c.soldiers.is_empty(), "{c:?}");
         // Back in its lines, each man in his own place.
@@ -1903,5 +2014,52 @@ mod tests {
         }
         assert_eq!(w.military.companies[0].soldiers.len(), 12, "{:?}", w.military.companies[0]);
         assert_in_formation(&w, action::AT_REST);
+    }
+
+    #[test]
+    fn broken_sides_run_once_a_day_and_shake_the_rest() {
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 4 * crate::economy::LOAD);
+        for _ in 0..60 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_eq!(w.military.companies[0].soldiers.len(), 4);
+        assert!(w.move_company(0, (40, 60)));
+        w.invade_now(crate::invasions::invader::BEDOUIN, 8, 1);
+        // An invaders' formation starts at 100; its first loss holds it to the
+        // Bedouin's 80.
+        assert_eq!(w.band_morale(0, 0), 100);
+        let invader = w.invasions.armies[0].figures[0];
+        w.army_loses(0, 0);
+        assert_eq!(w.band_morale(0, 0), 80);
+        // Broken: it leaves once the day's check comes, and the city's men take heart.
+        w.military.companies[0].morale = 40;
+        w.invasions.armies[0].band_morale[0] = 20;
+        w.check_morale();
+        assert!(w.invasions.armies[0].withdrawn.contains(&0));
+        assert_eq!(w.figures.get(invader).map(|f| f.action), Some(action::FLEEING));
+        assert_eq!(w.military.companies[0].morale, 50);
+        // A company broken in the field runs home, the shock of it bringing it to 5,
+        // badly broken, and its enemies take heart. It takes no orders.
+        w.military.companies[0].morale = 15;
+        let before = w.band_morale(0, 0);
+        w.check_morale();
+        let c = &w.military.companies[0];
+        assert!(c.at_fort && c.routed == 0 && c.broken == 1 && c.morale == 5, "{c:?}");
+        assert_eq!(w.band_morale(0, 0), (before + 10).min(80));
+        assert!(!w.move_company(0, (41, 60)));
+        // Broken a day, but not badly, an order rallies it (+10); two days, not.
+        (w.military.companies[0].routed, w.military.companies[0].broken) = (1, 0);
+        assert!(w.move_company(0, (40, 60)));
+        assert_eq!(w.military.companies[0].morale, 15);
+        assert!(!w.military.companies[0].at_fort);
+        w.military.companies[0].routed = 2;
+        assert!(!w.move_company(0, (41, 60)));
+        // A month at the fort sets it right.
+        w.return_company(0);
+        w.update_morale_month();
+        let c = &w.military.companies[0];
+        assert_eq!((c.routed, c.broken), (0, 0));
     }
 }

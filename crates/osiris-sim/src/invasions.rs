@@ -132,11 +132,15 @@ pub struct Army {
     pub nation: u16,
     pub target: BuildingId,
     pub priority: i8,
-    #[serde(default = "full_morale")]
+    /// Older saves' morale for the whole army; each formation now has its own.
+    #[serde(default = "full_morale", skip_serializing)]
     pub morale: i32,
-    /// Broken and running for the edge of the map.
-    #[serde(default)]
+    /// Older saves' army in flight: it keeps running.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub fleeing: bool,
+    /// Each formation's morale, by its number (100 for one not yet counted).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub band_morale: Vec<i32>,
     /// Where it came in, and leaves.
     #[serde(default)]
     pub entry: (i32, i32),
@@ -730,23 +734,76 @@ impl World {
         }
     }
 
-    /// An army loses a man: its morale drops, and when it breaks the army flees.
-    pub(crate) fn army_loses(&mut self, army: usize) {
-        // The share of the army still standing that he was.
-        let standing = self.invasions.armies.get(army).map_or(0, |a| a.figures.iter().filter(|&&g| self.figures.get(g).is_some_and(|f| !f.dead && f.action != action::CORPSE)).count() as i32);
+    /// The morale of formation `band` of army `army`.
+    pub fn band_morale(&self, army: usize, band: u8) -> i32 {
+        self.invasions.armies.get(army).and_then(|a| a.band_morale.get(band as usize)).copied().unwrap_or(full_morale())
+    }
+
+    /// A formation's morale changes by `delta`, from 0 up to the invaders' highest:
+    /// 80 for Bedouin, 70 for any other (FUN_004b7b50), so their first loss or month
+    /// brings a fresh formation's 100 down to it.
+    fn change_band_morale(&mut self, army: usize, band: u8, delta: i32) {
         let Some(a) = self.invasions.armies.get_mut(army) else { return };
-        a.morale = (a.morale - crate::military::morale_loss(if standing > 0 { 100 / standing } else { 0 })).max(0);
-        if a.morale <= crate::military::BROKEN_MORALE && !a.fleeing {
-            a.fleeing = true;
-            let (entry, figures) = (a.entry, a.figures.clone());
-            let map = &self.map;
-            for fid in figures {
-                if let Some(f) = self.figures.get_mut(fid)
+        let cap = if a.invader == invader::BEDOUIN { 80 } else { 70 };
+        if a.band_morale.len() <= band as usize {
+            a.band_morale.resize(band as usize + 1, full_morale());
+        }
+        let m = &mut a.band_morale[band as usize];
+        *m = (*m + delta).min(cap).max(0);
+    }
+
+    /// The formations on the field: (army, formation) of each with anyone standing.
+    fn standing_bands(&self) -> Vec<(usize, u8)> {
+        let mut bands = Vec::new();
+        for (i, a) in self.invasions.armies.iter().enumerate() {
+            for &fid in &a.figures {
+                if let Some(f) = self.figures.get(fid)
+                    && !f.dead
                     && f.action != action::CORPSE
+                    && !bands.contains(&(i, f.band))
                 {
-                    f.action = FLEEING;
-                    f.foe = 0;
-                    f.go_to(map, entry);
+                    bands.push((i, f.band));
+                }
+            }
+        }
+        bands
+    }
+
+    /// Every formation of invaders on the field gains `delta` morale.
+    pub(crate) fn enemy_morale_all(&mut self, delta: i32) {
+        for (a, band) in self.standing_bands() {
+            self.change_band_morale(a, band, delta);
+        }
+    }
+
+    /// Monthly: the invaders' morale is held to their highest (FUN_004b7960).
+    pub(crate) fn enemy_morale_month(&mut self) {
+        self.enemy_morale_all(0);
+    }
+
+    /// A formation loses a man: its morale drops by his share of those still standing
+    /// in it (FUN_004b7ab0, which counts the victim's own formation).
+    pub(crate) fn army_loses(&mut self, army: usize, band: u8) {
+        let standing = self.invasions.armies.get(army).map_or(0, |a| a.figures.iter().filter(|&&g| self.figures.get(g).is_some_and(|f| f.band == band && !f.dead && f.action != action::CORPSE)).count() as i32);
+        self.change_band_morale(army, band, -crate::military::morale_loss(if standing > 0 { 100 / standing } else { 0 }));
+    }
+
+    /// Daily (FUN_004b79f0): a formation whose morale has fallen to 20 breaks and
+    /// leaves the map as one that has given up does, its men in a fight finishing it
+    /// first. The first to break of each heartens the city's companies by 10 and
+    /// shakes the other formations by 10.
+    pub(crate) fn check_enemy_morale(&mut self) {
+        for (a, band) in self.standing_bands() {
+            if self.invasions.armies[a].withdrawn.contains(&band) || self.band_morale(a, band) > crate::military::BROKEN_MORALE {
+                continue;
+            }
+            self.side_shaken(true);
+            let army = &mut self.invasions.armies[a];
+            army.withdrawn.push(band);
+            let (entry, figures) = (army.entry, army.figures.clone());
+            for fid in figures {
+                if self.figures.get(fid).is_some_and(|f| f.band == band && !f.dead && !matches!(f.action, action::ATTACK | action::CORPSE | FLEEING)) {
+                    self.withdraw(fid, entry);
                 }
             }
         }

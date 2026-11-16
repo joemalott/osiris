@@ -1369,13 +1369,12 @@ impl Game {
         if let Some(c) = self.selected_company.take() {
             let Some(company) = self.world.military.companies.get(c) else { return false };
             let clicked = self.world.map.building.at_or(x, y, 0);
-            let low_morale = company.morale < 21;
             if clicked != 0 && (clicked == company.fort || clicked == company.ground) {
                 self.world.apply(&Command::ReturnCompany(c));
+            } else if self.world.company_too_shaken(c) {
+                self.warn(49);
             } else if self.world.apply(&Command::MoveCompany { company: c, x, y }) == Outcome::Blocked {
                 self.warn(209);
-            } else if low_morale {
-                self.warn(49);
             }
             return true;
         }
