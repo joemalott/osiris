@@ -169,6 +169,12 @@ fn a_new_map_plays() {
                 seen.push("price");
             }
             3 => {
+                // A gift waits for the player's answer, as in the original.
+                use osiris_sim::scenario_events::{event, gift_choice};
+                let offered = w.scenario_events.list.iter().position(|e| e.kind == event::GIFT && e.active && e.choices & gift_choice::ACCEPT != 0);
+                let i = offered.expect("the gift is offered in April");
+                assert_eq!(w.finance.this_year.donated, donated, "nothing given before it's accepted");
+                assert!(w.answer_gift(i, gift_choice::ACCEPT));
                 assert_eq!(w.finance.this_year.donated - donated, 500, "the gift in April");
                 seen.push("gift");
             }
