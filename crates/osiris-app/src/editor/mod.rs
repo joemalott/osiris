@@ -11,6 +11,8 @@
 pub mod events;
 pub mod kingdom;
 pub mod options;
+#[cfg(test)]
+mod playtest;
 pub mod script;
 pub mod terrain;
 pub mod view;
