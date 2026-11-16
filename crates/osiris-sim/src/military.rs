@@ -31,9 +31,11 @@
 //! - a man turned from his company's front has −4 armour, against missiles too.
 //!
 //! Infantry and charioteers who strike a man busy with someone else from behind
-//! strike at +4. Charioteers charging do not stop to fight but ride the enemy down:
-//! each they run into takes their attack, four times over once they have run six
-//! tiles straight (until twenty), and his armour does him no good. The armour a
+//! strike at +4. Charioteers sent somewhere at the charge ride for their places in
+//! a close block round the spot, at twice their pace from the sixth tile to the
+//! twentieth, and do not stop to fight but ride the enemy down: each they run into
+//! takes their attack, four times over over those same tiles, and his armour does
+//! him no good. Once all have arrived, the company engages. The armour a
 //! company's experience was meant to add, (experience + 10) / 20, counts against
 //! missiles only: in melee the original takes the striker's company's, which an
 //! invader hasn't.
@@ -114,8 +116,8 @@ const BLOW_TICKS: u16 = 24;
 pub(crate) const QUICK_BLOW: u16 = 12;
 /// The most armour counts for.
 const MAX_ARMOR: i32 = 20;
-/// The straight run (tiles) over which a charging chariot tramples at four times
-/// its attack.
+/// The tiles into its charge over which a chariot rides at twice its pace and
+/// tramples at four times its attack (the soldier's +0x134 at 0x48e9e0).
 const CHARGE_RUN: std::ops::Range<i32> = 6..20;
 /// Ticks a fallen figure lies on the field: the original's dying count runs to 127
 /// and the figure is gone on the 128th (FUN_004b1d50).
@@ -207,6 +209,8 @@ pub mod action {
     pub const CHASING: u16 = 86;
     pub const AT_STANDARD: u16 = 84;
     pub const ATTACK: u16 = 90;
+    /// Charioteers at the charge (the original's 0x13).
+    pub const CHARGING: u16 = 82;
     pub const FLEEING: u16 = 148;
     /// Aboard a transport, out of sight (the original's 0x12).
     pub const ABOARD: u16 = 150;
@@ -249,12 +253,6 @@ pub struct Company {
     pub abroad: i32,
     #[serde(default)]
     pub order: Order,
-    /// Charioteers' horses: the ticks of charging they have left in them.
-    #[serde(default = "full_wind")]
-    pub wind: i32,
-    /// The tick the horses last ran or rested, so a company tires once a tick.
-    #[serde(default)]
-    pub wind_tick: u64,
     /// The way the company faces in the field (a direction): the way it last
     /// marched.
     #[serde(default)]
@@ -326,16 +324,6 @@ impl Company {
     }
 }
 
-/// Ticks a company of charioteers can charge at top speed before its horses tire,
-/// and how many ticks of rest win back one. (The manual only says the horses tire
-/// after a great distance and must rest; these amounts are placeholders.)
-const WIND: i32 = 300;
-const REST_PER_WIND: u64 = 2;
-
-fn full_wind() -> i32 {
-    WIND
-}
-
 /// After a charge, the turns its men must take (each soldier's turn counts) before
 /// the company can charge again, as the original counts them.
 const CHARGE_REST: i32 = 2000;
@@ -358,7 +346,9 @@ impl Order {
         match self {
             Order::HoldTight | Order::HoldLoose => 0,
             Order::Engage => 6,
-            Order::MopUp | Order::Charge => 20,
+            Order::MopUp => 20,
+            // At the charge they ride for their places, not after the enemy.
+            Order::Charge => 0,
         }
     }
 }
@@ -637,7 +627,7 @@ impl World {
             f.home = id;
             f.action = action::AT_REST;
         }
-        self.military.companies.push(Company { fort: id, ground, kind, standard, standard_tile: (gx, gy), at_fort: true, morale: 50, wind: WIND, ..Default::default() });
+        self.military.companies.push(Company { fort: id, ground, kind, standard, standard_tile: (gx, gy), at_fort: true, morale: 50, ..Default::default() });
     }
 
     /// Whether a tile of a fort's parade ground is free.
@@ -922,7 +912,8 @@ impl World {
     /// destination"). The standard is planted there at once, as the original's is
     /// (FUN_004b6400 only sets the company's spot, and the bearer stands on it,
     /// FUN_00490b50); the men march to it. Charioteers under orders to charge set
-    /// off at the charge, and must rest their horses before charging again.
+    /// off at the charge, and must rest their horses before charging again; sent on
+    /// while still charging, they engage instead.
     pub fn move_company(&mut self, company: usize, tile: (i32, i32)) -> bool {
         // Aboard a transport, it goes where the ship takes it.
         if self.company_ship(company).is_some() || self.refuses_orders(company) {
@@ -938,7 +929,12 @@ impl World {
         if let Some(d) = general_direction(from, tile) {
             c.facing = d;
         }
-        if c.order == Order::Charge && !c.charged {
+        // Sent on during a charge, it engages instead (FUN_004b6400).
+        let charge = c.order == Order::Charge && !c.charged;
+        if c.order == Order::Charge && c.charged {
+            c.order = Order::Engage;
+        }
+        if charge {
             c.charged = true;
             c.charge_rest = 0;
         }
@@ -949,7 +945,18 @@ impl World {
         for s in soldiers {
             if self.figures.get(s).is_some_and(|f| f.action != action::ATTACK) {
                 self.send_to_post(s);
+                // At the charge (FUN_004b6a40: state 0x13, its run begun afresh).
+                if let Some(f) = self.figures.get_mut(s)
+                    && charge
+                    && f.action == action::GOING_TO_STANDARD
+                {
+                    f.action = action::CHARGING;
+                    f.counter = 0;
+                }
             }
+        }
+        if charge && !self.military.companies[company].soldiers.iter().any(|&s| self.riding(s)) {
+            self.military.companies[company].order = Order::Engage;
         }
         true
     }
@@ -1099,17 +1106,13 @@ impl World {
                 }
             }
             action::AT_STANDARD => {
-                self.breathe(fid, false);
-                // Archers, and charioteers not at the charge, throw at enemies in
-                // range (0x48fb05: types 11 and 13 by their figure model's missile
-                // attack, range and rate: a charioteer's 10, 8 tiles, every 120 ticks).
-                if kind == ARCHER || kind == CHARIOTEER && !self.charging(fid) {
+                // Archers and charioteers throw at enemies in range (0x48fb05: types
+                // 11 and 13 by their figure model's missile attack, range and rate: a
+                // charioteer's 10, 8 tiles, every 120 ticks).
+                if kind == ARCHER || kind == CHARIOTEER {
                     self.shoot_at_foes(fid);
                 }
-                // Charging charioteers ride at the enemy rather than stand and fight.
-                if !self.charging(fid) {
-                    self.engage(fid, 1);
-                }
+                self.engage(fid, 1);
                 if self.figures.get(fid).is_none_or(|f| f.action != action::AT_STANDARD) {
                     return;
                 }
@@ -1127,17 +1130,15 @@ impl World {
                     self.chase(fid, order.reach());
                 }
             }
+            action::CHARGING => self.ride(fid),
             action::CHASING => {
-                if !self.charging(fid) {
-                    self.engage(fid, 1);
-                }
+                self.engage(fid, 1);
                 if self.figures.get(fid).is_some_and(|f| f.action == action::CHASING) {
                     let reach = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map_or(0, |c| c.order.reach());
                     self.chase(fid, reach);
                 }
             }
             action::AT_REST => {
-                self.breathe(fid, false);
                 // At the fort a man takes his place on the parade ground at once
                 // (state 8, FUN_004b53b0).
                 if !self.in_place(fid) {
@@ -1283,40 +1284,60 @@ impl World {
         list.into_iter().filter(|&&(id, _, _)| self.figures.get(id).is_some_and(|a| a.action == action::ATTACK && a.foe == fid)).count()
     }
 
-    /// Whether a soldier is a charioteer charging with horses still fresh.
-    fn charging(&self, fid: FigureId) -> bool {
-        self.figures.get(fid).is_some_and(|f| f.kind == CHARIOTEER)
-            && self.company_of(fid).and_then(|c| self.military.companies.get(c)).is_some_and(|c| c.order == Order::Charge && c.wind > 0)
-    }
-
-    /// Whether a charioteer is at the charge: galloping after the enemy.
+    /// Whether a charioteer is at the charge, riding for his place round the spot
+    /// the company was sent to.
     fn riding(&self, fid: FigureId) -> bool {
-        self.figures.get(fid).is_some_and(|f| f.action == action::CHASING) && self.charging(fid)
+        self.figures.get(fid).is_some_and(|f| f.action == action::CHARGING)
     }
 
-    /// Once a tick, a company's horses tire while it charges and recover while it
-    /// doesn't.
-    fn breathe(&mut self, fid: FigureId, running: bool) {
-        let now = self.time.total_ticks;
-        let Some(c) = self.company_of(fid).and_then(|c| self.military.companies.get_mut(c)) else { return };
-        if c.wind_tick == now {
-            return;
+    /// A charioteer's turn at the charge (state 0x13 of 0x48e9e0): he rides for his
+    /// place in the charge's close block round the company's spot, at twice his pace
+    /// once he has ridden six tiles and until twenty, riding down whoever he comes
+    /// upon. Once every man of it has arrived, the company engages (layout 15).
+    fn ride(&mut self, fid: FigureId) {
+        let map = &self.map;
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        let (x, y) = (f.x, f.y);
+        f.speed = if CHARGE_RUN.contains(&f.counter) { 2 } else { 1 };
+        let step = f.walk(map);
+        f.speed = 1;
+        let (nx, ny) = (f.x, f.y);
+        match step {
+            Step::Moving => {}
+            Step::Arrived => {
+                f.action = action::AT_STANDARD;
+                f.aimed = false;
+                f.counter = 0;
+            }
+            Step::Blocked | Step::Lost => {
+                f.route.clear();
+                self.send_to_post(fid);
+                if let Some(f) = self.figures.get_mut(fid)
+                    && f.action == action::GOING_TO_STANDARD
+                {
+                    f.action = action::CHARGING;
+                }
+            }
         }
-        c.wind_tick = now;
-        if running {
-            c.wind = (c.wind - 1).max(0);
-        } else if now.is_multiple_of(REST_PER_WIND) {
-            c.wind = (c.wind + 1).min(WIND);
+        if (nx, ny) != (x, y) {
+            // The run counts the tiles ridden since the charge began (+0x134).
+            if let Some(f) = self.figures.get_mut(fid) {
+                f.counter += 1;
+            }
+            self.trample(fid, (nx, ny));
+        }
+        let Some(c) = self.company_of(fid) else { return };
+        let co = &self.military.companies[c];
+        if co.order == Order::Charge && !co.soldiers.iter().any(|&s| self.riding(s)) {
+            self.military.companies[c].order = Order::Engage;
         }
     }
 
     /// A soldier under orders to go after enemies heads for the nearest within `reach`
-    /// tiles, or back to his place when none is left. Charging charioteers go at the
-    /// gallop until their horses tire, and then at half pace; galloping, they ride
-    /// down whoever they run into, and fight once they can ride no further.
+    /// tiles; when none is left, he stands where he is.
     fn chase(&mut self, fid: FigureId, reach: i32) {
         let Some(f) = self.figures.get(fid) else { return };
-        let (x, y, heading) = (f.x, f.y, f.direction);
+        let (x, y) = (f.x, f.y);
         let mut target = self.nearest_foe(false, (x, y), reach).map(|o| (o.1, o.2));
         // Engaging, a man goes no further than six tiles from his place before he
         // turns back to it (state 0x14 at 0x48e9e0).
@@ -1324,12 +1345,6 @@ impl World {
         if engaging && self.post_of(fid).is_some_and(|p| (p.0 - x).abs().max((p.1 - y).abs()) >= ENGAGE_LEASH) {
             target = None;
         }
-        let charioteer = f.kind == CHARIOTEER && self.company_of(fid).and_then(|c| self.military.companies.get(c)).is_some_and(|c| c.order == Order::Charge);
-        let fresh = self.charging(fid);
-        if charioteer && target.is_some() {
-            self.breathe(fid, fresh);
-        }
-        let spent = charioteer && !fresh && self.time.total_ticks % 2 == 1;
         let map = &self.map;
         let f = self.figures.get_mut(fid).expect("present");
         // One he can't get at (a beast across the water, say) he leaves be, and goes
@@ -1348,29 +1363,9 @@ impl World {
             }
         }
         match target {
-            Some(to) => {
+            Some(_) => {
                 f.action = action::CHASING;
-                f.speed = if fresh { 2 } else { 1 };
-                if !spent {
-                    f.walk(map);
-                }
-                f.speed = 1;
-                if !fresh {
-                    f.counter = 0;
-                    return;
-                }
-                let (nx, ny, moving) = (f.x, f.y, f.moving);
-                if (nx, ny) == (x, y) {
-                    // Nowhere further to ride: fight.
-                    if !moving && (to.0 - x).abs() <= 1 && (to.1 - y).abs() <= 1 {
-                        self.engage(fid, 1);
-                    }
-                    return;
-                }
-                // The run counts the tiles gone straight.
-                let steps = (nx - x).abs().max((ny - y).abs());
-                f.counter = if f.direction == heading { f.counter + steps } else { steps };
-                self.trample(fid, (nx, ny));
+                f.walk(map);
             }
             // Nothing left to go after: he finishes his step and stands, to take his
             // place again when the company re-forms (state 0x14 to 12).
@@ -1384,7 +1379,7 @@ impl World {
     }
 
     /// A charging chariot comes onto `tile`: the first enemy there takes its attack,
-    /// four times over if it has run six to nineteen tiles straight, his armour
+    /// four times over if it has ridden six to nineteen tiles of its charge, his armour
     /// counting for nothing. (The original weighs it by the chariot's own armour
     /// instead, (30 - armour) / 20, which is one for any chariot.)
     fn trample(&mut self, fid: FigureId, tile: (i32, i32)) {
@@ -2448,6 +2443,45 @@ mod tests {
             thrown |= w.figures.iter().any(|f| f.kind == JAVELIN && f.formation == 1);
         }
         assert!(thrown, "{:?} {:?}", w.figures.get(man).map(|f| (f.action, f.attack_tick, f.x, f.y)), w.fighter_stats(man));
+    }
+
+    #[test]
+    fn a_charge_rides_out_once_and_then_engages() {
+        let Some(mut w) = barracks_of(FORT_CHARIOTEERS, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, CHARIOTS, 2 * crate::economy::LOAD);
+        for _ in 0..60 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_eq!(w.military.companies[0].soldiers.len(), 2);
+        w.set_order(0, Order::Charge);
+        assert!(w.move_company(0, (40, 50)));
+        let men = w.military.companies[0].soldiers.clone();
+        assert!(men.iter().all(|&s| w.figures.get(s).is_some_and(|f| f.action == action::CHARGING)));
+        // A man's first six tiles take twice as long as the next six.
+        let man = men[0];
+        let mut reached = Vec::new();
+        let mut last = w.figures.get(man).map(|f| (f.x, f.y));
+        for t in 0..10 * crate::time::TICKS_PER_DAY {
+            w.tick();
+            let now = w.figures.get(man).map(|f| (f.x, f.y));
+            if now != last {
+                reached.push(t);
+                last = now;
+            }
+            if w.military.companies[0].order != Order::Charge {
+                break;
+            }
+        }
+        assert!(reached.len() >= 13, "{reached:?}");
+        let (slow, fast) = (reached[6] - reached[0], reached[12] - reached[6]);
+        assert!(fast * 3 <= slow * 2, "{slow} {fast}");
+        // All in, the company engages; the charge is spent until the horses rest.
+        let c = &w.military.companies[0];
+        assert_eq!((c.order, c.charged), (Order::Engage, true));
+        assert!(men.iter().all(|&s| w.figures.get(s).is_some_and(|f| f.action != action::CHARGING)));
+        w.set_order(0, Order::Charge);
+        assert_eq!(w.military.companies[0].order, Order::Engage);
     }
 
     #[test]
