@@ -333,14 +333,14 @@ impl World {
                     f.counter = 60;
                     return;
                 }
-                if f.anim_tick % 12 == 0 {
+                if f.anim_tick.is_multiple_of(12) {
                     self.sense_danger(fid);
                 }
             }
             _ => {
                 let f = self.figures.get_mut(fid).expect("present");
                 f.anim_tick += 1;
-                if f.anim_tick % 8 == 0 && self.sense_danger(fid) {
+                if f.anim_tick.is_multiple_of(8) && self.sense_danger(fid) {
                     return;
                 }
                 let f = self.figures.get_mut(fid).expect("present");

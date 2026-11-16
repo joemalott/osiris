@@ -275,7 +275,7 @@ impl World {
         let mut best: Option<(i32, BuildingId)> = None;
         for (id, entry) in self.yards_from_entry(None) {
             let Some(b) = self.buildings.get(id) else { continue };
-            if !b.road.is_some_and(|rd| network(rd)) || !matches!(b.order(r), order::ACCEPT | order::GET) || self.stored(id, r) >= b.order_cap(r) || self.yard_import_loads(id, r, 4 * LOAD) == 0 {
+            if !b.road.is_some_and(&network) || !matches!(b.order(r), order::ACCEPT | order::GET) || self.stored(id, r) >= b.order_cap(r) || self.yard_import_loads(id, r, 4 * LOAD) == 0 {
                 continue;
             }
             let penalty = 32 - b.spaces.iter().map(|&(sr, n)| if n == 0 { 8 } else if sr == r && n < crate::storage::SPACE_UNITS { 4 } else { 0 }).sum::<i32>();

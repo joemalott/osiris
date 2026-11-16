@@ -7,7 +7,6 @@ version.workspace = true
 
 [dependencies]
 rodio = "0.22"
-serde = { version = "1", features = ["derive"] }
 toml = "0.9"
 thiserror = "2"
 rand = "0.10"

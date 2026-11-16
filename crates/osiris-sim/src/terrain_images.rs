@@ -34,7 +34,7 @@ pub struct Choice {
 impl Choice {
     pub fn contains(&self, image: u32) -> bool {
         let step = self.stride.max(1);
-        image >= self.first && (image - self.first) % step == 0 && (image - self.first) / step < self.count
+        image >= self.first && (image - self.first).is_multiple_of(step) && (image - self.first) / step < self.count
     }
 }
 

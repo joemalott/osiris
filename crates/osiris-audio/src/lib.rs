@@ -305,7 +305,7 @@ impl Inner {
         let mut path = self.resolve_effect_path(name_or_path);
         if !path.exists()
             && let Ok(sub) = path.strip_prefix(self.game_dir.join("AUDIO"))
-            && let Some(found) = self.find(&sub.to_path_buf())
+            && let Some(found) = self.find(sub)
         {
             path = found;
         }

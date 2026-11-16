@@ -1940,10 +1940,7 @@ fn run(mut args: Args) -> Result<()> {
     };
     let args = Args { data: Some(data.clone()), ..args };
     let library = ImageLibrary::open(&data.join("Data")).with_context(|| {
-        format!(
-            "{}",
-            trf("Could not read the Pharaoh game data at {0}. Choose the folder Pharaoh is installed in (the GOG or Steam Pharaoh + Cleopatra), or pass --data <dir>.", &[&data.display()])
-        )
+        trf("Could not read the Pharaoh game data at {0}. Choose the folder Pharaoh is installed in (the GOG or Steam Pharaoh + Cleopatra), or pass --data <dir>.", &[&data.display()]).to_string()
     })?;
     let assets = load_assets(&data, &library)?;
     migrate_legacy_family();

@@ -643,7 +643,7 @@ impl Editor {
         let objects = self.objects().to_vec();
         let Some(r) = self.scenario.empire.routes.get_mut(id) else { return };
         let within = |p: (i32, i32)| {
-            objects.iter().enumerate().filter(|(_, o)| o.kind == object::CITY && p.0 >= o.x && p.0 <= o.x + o.width && p.1 >= o.y && p.1 <= o.y + o.height).map(|(i, _)| i as i16).last().unwrap_or(-1)
+            objects.iter().enumerate().filter(|(_, o)| o.kind == object::CITY && p.0 >= o.x && p.0 <= o.x + o.width && p.1 >= o.y && p.1 <= o.y + o.height).map(|(i, _)| i as i16).next_back().unwrap_or(-1)
         };
         r.from_object = r.points.first().map_or(-1, |&p| within(p));
         r.to_object = r.points.last().map_or(-1, |&p| within(p));

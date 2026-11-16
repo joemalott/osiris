@@ -673,7 +673,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                 world.festival_now(g.parse::<usize>()?.min(4), s.parse()?);
                 for f in world.figures.iter().filter(|f| f.kind == osiris_sim::festivals::FESTIVAL_GUY && !before.contains(&f.id)) {
                     let home = world.buildings.get(f.home).map_or(0, |b| b.kind);
-                    eprintln!("  festival walker {} from building {} (kind {home}) at {},{} as {:?}", f.id, f.home, f.x, f.y, osiris_sim::festivals::festival_look(&world, f));
+                    eprintln!("  festival walker {} from building {} (kind {home}) at {},{} as {:?}", f.id, f.home, f.x, f.y, osiris_sim::festivals::festival_look(world, f));
                 }
             }
             // Starts the scenario's earthquake now, or one at a tile with a severity.
@@ -1310,7 +1310,7 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     world.time.year, world.time.month, world.population, world.treasury, r.culture, r.prosperity, r.prosperity_max, r.monument, r.kingdom, l.employed, l.available, l.needed, l.shortage, world.unemployment, f.last_year, r.tribute_unpaid_years
                 );
             }
-            ["citysounds", p] => eprintln!("{}", crate::city_sounds::describe(&world, parse_point(p)?)),
+            ["citysounds", p] => eprintln!("{}", crate::city_sounds::describe(world, parse_point(p)?)),
             ["report"] => {
                 let houses: Vec<String> = world
                     .buildings

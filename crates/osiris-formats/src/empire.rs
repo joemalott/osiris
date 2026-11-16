@@ -251,7 +251,7 @@ impl Empire {
         if !self.prices.is_empty()
             && let Some(data) = file.get_mut("trade_prices")
         {
-            for (r, chunk) in data.chunks_exact_mut(8).enumerate() {
+            for (r, chunk) in data.as_chunks_mut::<8>().0.iter_mut().enumerate() {
                 let (buy, sell) = self.prices.get(r).copied().unwrap_or((0, 0));
                 chunk[..4].copy_from_slice(&buy.to_le_bytes());
                 chunk[4..].copy_from_slice(&sell.to_le_bytes());

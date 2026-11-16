@@ -558,7 +558,7 @@ pub fn list(s: &Scenario, i: usize, f: EvField) -> Option<(usize, Vec<usize>)> {
         // Every type but the free event, earthquake, revolt and change of
         // Pharaoh (0x4498f0); the mummy the original offers only with Cleopatra
         // installed, which Osiris always has.
-        EvField::Kind => (156, (1..30).filter(|&k| !matches!(k, 3 | 4 | 5)).collect()),
+        EvField::Kind => (156, (1..30).filter(|&k| !matches!(k, 3..=5)).collect()),
         EvField::Month => (25, (0..12).collect()),
         EvField::Subtype => {
             let (g, n) = subtypes(e.kind)?;

@@ -191,9 +191,9 @@ impl World {
                 };
                 let spot = loop {
                     self.rng.next();
-                    let dx = self.rng.short() * 5 >> 15;
+                    let dx = (self.rng.short() * 5) >> 15;
                     self.rng.next();
-                    let dy = self.rng.short() * 5 >> 15;
+                    let dy = (self.rng.short() * 5) >> 15;
                     if (sx + dx, sy + dy) != here {
                         break (sx + dx, sy + dy);
                     }

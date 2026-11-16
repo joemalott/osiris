@@ -355,10 +355,7 @@ fn ambience_at(world: &World, centre: [f32; 2]) -> Option<&'static str> {
             if (x, y) != (b.x, b.y + b.size - 1) {
                 continue;
             }
-            match city::ambient_kind(b.kind) {
-                k @ (1 | 2 | 4) => counts[k as usize] += 1,
-                _ => {}
-            }
+            if let k @ (1 | 2 | 4) = city::ambient_kind(b.kind) { counts[k as usize] += 1 }
         }
     }
     let mut best = None;

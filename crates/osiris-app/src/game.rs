@@ -1798,7 +1798,7 @@ impl Game {
             let (a, frame) = match f.action {
                 action::HARVESTING => {
                     let a = anim("work")?;
-                    (a, f.counter.max(0) as u32 % a.frames.max(1) as u32)
+                    (a, f.counter.max(0) as u32 % a.frames.max(1))
                 }
                 action::RETURNING => {
                     let a = anim("back")?;

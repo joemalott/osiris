@@ -190,9 +190,7 @@ impl World {
             }
             let id = self.create_building(t.kind, t.x, t.y);
             if let Some(m) = self.buildings.get_mut(id).and_then(|b| b.monument.as_mut()) {
-                for c in &mut m.chambers {
-                    *c = ChamberState { progress: 4, left: 0, worker: 0 };
-                }
+                &mut m.chambers.fill(ChamberState { progress: 4, left: 0, worker: 0 });
                 m.lamps = CARRIED_LAMPS;
                 m.finished = true;
                 m.announced = true;

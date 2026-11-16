@@ -1710,7 +1710,6 @@ version = "0.1.15"
 dependencies = [
  "rand",
  "rodio",
- "serde",
  "thiserror 2.0.20",
  "toml",
 ]

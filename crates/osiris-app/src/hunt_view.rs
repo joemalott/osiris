@@ -48,7 +48,7 @@ fn game<'a>(world: &'a World, f: &Figure) -> Option<(&'a Anim, u32, bool)> {
         }
         action::ALERT => (anim(world, f.kind, "idle").unwrap_or(walk), 0, true),
         _ => {
-            let key = if f.id % 2 == 0 { "eating" } else { "idle" };
+            let key = if f.id.is_multiple_of(2) { "eating" } else { "idle" };
             let a = anim(world, f.kind, key).unwrap_or(walk);
             (a, (world.time.total_ticks as u32 + f.id) % a.frames.max(1), true)
         }
