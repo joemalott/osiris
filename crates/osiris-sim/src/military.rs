@@ -99,6 +99,8 @@ fn model_row(kind: u16) -> u16 {
 
 /// Soldiers a company holds.
 pub const COMPANY_SIZE: usize = 16;
+/// The tiles from his place an engaging soldier goes after enemies.
+const ENGAGE_LEASH: i32 = 6;
 /// The most forts a city may have (0x471114).
 const MAX_FORTS: usize = 6;
 /// Why a seventh fort can't be built: the app shows the game's own 19:50.
@@ -272,6 +274,10 @@ pub struct Company {
     /// at 11 to 20, and +0x73, days at 10 or less): the company runs home, and takes
     /// no orders once it has been so two days, or one day badly. Cleared by a month
     /// spent at the fort.
+    /// The orders it had before it was sent to mop up, which it takes again once
+    /// no enemy is left.
+    #[serde(default)]
+    pub before_mop_up: Order,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub routed: u8,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -1184,6 +1190,12 @@ impl World {
         let Some(f) = self.figures.get(fid) else { return };
         let (x, y, heading) = (f.x, f.y, f.direction);
         let mut target = self.nearest_foe(false, (x, y), reach).map(|o| (o.1, o.2));
+        // Engaging, a man goes no further than six tiles from his place before he
+        // turns back to it (state 0x14 at 0x48e9e0).
+        let engaging = self.company_of(fid).and_then(|c| self.military.companies.get(c)).is_some_and(|c| c.order == Order::Engage);
+        if engaging && self.post_of(fid).is_some_and(|p| (p.0 - x).abs().max((p.1 - y).abs()) >= ENGAGE_LEASH) {
+            target = None;
+        }
         let charioteer = f.kind == CHARIOTEER && self.company_of(fid).and_then(|c| self.military.companies.get(c)).is_some_and(|c| c.order == Order::Charge);
         let fresh = self.charging(fid);
         if charioteer && target.is_some() {
@@ -1277,6 +1289,11 @@ impl World {
         let Some(c) = self.military.companies.get_mut(company) else { return };
         if order == Order::Charge && (c.kind != CHARIOTEER || c.charged) {
             return;
+        }
+        // Mopping up is for while there are enemies about: the orders it replaces
+        // come back once they are gone (company +0x62).
+        if order == Order::MopUp && c.order != Order::MopUp {
+            c.before_mop_up = c.order;
         }
         c.order = order;
         if matches!(order, Order::HoldTight | Order::HoldLoose) {
@@ -1599,6 +1616,32 @@ impl World {
             self.sink_abroad(t);
         }
     }
+    /// Twice a day (FUN_004b8b20): a company mopping up with no enemy left on the
+    /// field (no invaders, no wild beasts) goes back to its orders before, and
+    /// re-forms.
+    pub(crate) fn update_companies(&mut self) {
+        let enemies = self.figures.iter().any(|f| !f.dead && f.action != action::CORPSE && (self.is_invader(f) || crate::predators::is_predator(f.kind) && f.action != crate::predators::action::HIDDEN));
+        if enemies {
+            return;
+        }
+        for c in 0..self.military.companies.len() {
+            let co = &mut self.military.companies[c];
+            if co.order != Order::MopUp || co.fort == 0 {
+                continue;
+            }
+            // Its line is turned as it was: mopping up doesn't change that.
+            co.order = co.before_mop_up;
+            if co.at_fort {
+                continue;
+            }
+            for s in co.soldiers.clone() {
+                if self.figures.get(s).is_some_and(|f| matches!(f.action, action::AT_STANDARD | action::GOING_TO_STANDARD | action::CHASING)) {
+                    self.send_to_post(s);
+                }
+            }
+        }
+    }
+
     /// A company's morale changes by `delta`, from 0 up to its kind's highest
     /// (FUN_004b7b50).
     pub(crate) fn change_morale(&mut self, company: usize, delta: i32) {
@@ -2126,6 +2169,24 @@ mod tests {
         tiles.sort();
         tiles.dedup();
         assert_eq!(tiles.len(), COMPANY_SIZE, "men share a tile");
+    }
+
+    #[test]
+    fn mopping_up_ends_when_the_enemy_is_gone() {
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        w.set_order(0, Order::HoldLoose);
+        w.set_order(0, Order::MopUp);
+        assert!(w.move_company(0, (40, 60)));
+        w.invade_now(crate::invasions::invader::BEDOUIN, 4, 1);
+        w.update_companies();
+        assert_eq!(w.military.companies[0].order, Order::MopUp, "invaders about");
+        // The invaders and beasts gone, it takes its loose line again.
+        let ids: Vec<FigureId> = w.figures.iter().filter(|f| w.is_invader(f) || crate::predators::is_predator(f.kind)).map(|f| f.id).collect();
+        for id in ids {
+            w.figures.get_mut(id).expect("figure").dead = true;
+        }
+        w.update_companies();
+        assert_eq!(w.military.companies[0].order, Order::HoldLoose);
     }
 
     #[test]
