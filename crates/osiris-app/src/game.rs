@@ -1291,6 +1291,7 @@ impl Game {
             match self.world.apply(&cmd) {
                 Outcome::NotEnoughMoney => self.say(tr("Out of credit!")),
                 Outcome::Blocked => self.say(tr("Can't build there")),
+                Outcome::Invalid(why) if why == osiris_sim::military::FORTS_FULL => self.warn(50),
                 Outcome::Invalid(why) => self.say(tr(why)),
                 Outcome::Done { items, .. } => {
                     if items > 0 {

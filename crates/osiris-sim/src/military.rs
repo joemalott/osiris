@@ -99,6 +99,10 @@ fn model_row(kind: u16) -> u16 {
 
 /// Soldiers a company holds.
 pub const COMPANY_SIZE: usize = 16;
+/// The most forts a city may have (0x471114).
+const MAX_FORTS: usize = 6;
+/// Why a seventh fort can't be built: the app shows the game's own 19:50.
+pub const FORTS_FULL: &str = "Your army has its full complement of Forts";
 /// Ticks a blow takes to land.
 const BLOW_TICKS: u16 = 24;
 /// Where a blow's count starts when it strikes the first blow of a fight, or a
@@ -616,12 +620,37 @@ impl World {
         }
     }
 
-    /// When a fort goes, its ground goes with it and its company disbands.
+    /// Whether the city has as many forts as it may: six (the original refuses a
+    /// seventh, 19:50 "Your army has its full complement of Forts").
+    pub fn forts_full(&self) -> bool {
+        self.military.companies.iter().filter(|c| c.fort != 0).count() >= MAX_FORTS
+    }
+
+    /// The company whose parade ground is `ground`, if its fort still stands.
+    pub(crate) fn fort_of_ground(&self, ground: BuildingId) -> Option<BuildingId> {
+        self.military.companies.iter().find(|c| c.ground == ground && c.fort != 0).map(|c| c.fort)
+    }
+
+    /// When a fort goes, its ground goes with it and its company disbands
+    /// (FUN_004b82e0): the standard is gone at once, and its men, at hand or on
+    /// their way, fall where they stand (0x48eacb), to lie as the dead do.
     pub(crate) fn remove_fort(&mut self, id: BuildingId) {
         let Some(c) = self.military.companies.iter().position(|c| c.fort == id) else { return };
         let company = self.military.companies[c].clone();
-        for fid in company.soldiers.iter().chain(&company.recruits).chain(std::iter::once(&company.standard)) {
-            if let Some(f) = self.figures.get_mut(*fid) {
+        if let Some(f) = self.figures.get_mut(company.standard) {
+            f.dead = true;
+        }
+        for fid in company.soldiers.iter().chain(&company.recruits) {
+            if let Some(f) = self.figures.get_mut(*fid)
+                && f.action != action::CORPSE
+                && f.action != action::ABOARD
+            {
+                f.action = action::CORPSE;
+                f.counter = 0;
+                f.foe = 0;
+                f.route.clear();
+                f.moving = false;
+            } else if let Some(f) = self.figures.get_mut(*fid) {
                 f.dead = true;
             }
         }
@@ -2015,6 +2044,40 @@ mod tests {
         }
         assert_eq!(w.military.companies[0].soldiers.len(), 12, "{:?}", w.military.companies[0]);
         assert_in_formation(&w, action::AT_REST);
+    }
+
+    #[test]
+    fn a_fort_goes_with_its_ground_and_its_men_fall() {
+        use crate::world::{Command, Outcome};
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 3 * crate::economy::LOAD);
+        for _ in 0..40 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        let men = w.military.companies[0].soldiers.clone();
+        assert!(!men.is_empty());
+        // Clearing the parade ground takes the fort; its men fall and lie a while.
+        let (gx, gy) = (44 + GROUND_OFFSET.0, 75 + GROUND_OFFSET.1);
+        assert!(matches!(w.apply(&Command::Clear { x0: gx + 1, y0: gy + 1, x1: gx + 1, y1: gy + 1 }), Outcome::Done { .. }));
+        assert!(w.buildings.iter().all(|b| !matches!(b.kind, FORT_INFANTRY | FORT_GROUND)));
+        assert_eq!(w.military.companies[0].fort, 0);
+        assert!(men.iter().all(|&s| w.figures.get(s).is_some_and(|f| f.action == action::CORPSE)));
+        for _ in 0..CORPSE_TICKS {
+            w.tick();
+        }
+        assert!(men.iter().all(|&s| w.figures.get(s).is_none_or(|f| f.dead)));
+        // Six forts at most: once there are six, a seventh is refused anywhere.
+        let spots: Vec<(i32, i32)> = (40..140).step_by(8).flat_map(|y| (10..140).step_by(9).map(move |x| (x, y))).collect();
+        for &(x, y) in &spots {
+            if !w.forts_full() {
+                w.apply(&Command::Build { kind: FORT_ARCHERS, x, y, x1: x, y1: y });
+            }
+        }
+        assert!(w.forts_full());
+        assert_eq!(w.buildings.iter().filter(|b| fort_soldier(b.kind).is_some()).count(), 6);
+        assert!(spots.iter().all(|&(x, y)| w.can_place(FORT_ARCHERS, x, y) != Ok(())));
+        assert!(spots.iter().any(|&(x, y)| w.can_place(FORT_ARCHERS, x, y) == Err(FORTS_FULL)));
     }
 
     #[test]
