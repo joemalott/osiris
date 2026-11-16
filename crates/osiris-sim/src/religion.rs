@@ -164,7 +164,6 @@ impl World {
     /// tables, up to 50. A god above 50 loses its wrath, one below 50 its favour. On
     /// the first day of the month the god picked acts.
     pub(crate) fn update_gods_day(&mut self) {
-        self.seth_strikes_invaders();
         if !self.rules.gods_enabled || self.religion.gods.is_empty() {
             return;
         }
@@ -590,9 +589,10 @@ impl World {
         f.moving = false;
     }
 
-    /// Seth's great blessing: once invaders are in the city he strikes down up to
-    /// ten of them and is done.
-    fn seth_strikes_invaders(&mut self) {
+    /// Seth's great blessing: once a formation of invaders has been in the city
+    /// more than 45 of its updates (some 23 days), he strikes down up to ten of
+    /// them and is done (FUN_004b9f90, from FUN_004b8cf0).
+    pub(crate) fn seth_strikes_invaders(&mut self) {
         if self.religion.seth_crush <= 0 {
             return;
         }

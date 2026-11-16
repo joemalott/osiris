@@ -151,6 +151,14 @@ pub struct Figure {
     /// may stand beside when it is built on or out of reach.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub post: Option<(i32, i32)>,
+    /// Invaders: ticks they still stand where they came in before moving off (the
+    /// original's +0x36 count in its standing state 9).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub wait: u16,
+}
+
+fn is_zero(n: &u16) -> bool {
+    *n == 0
 }
 
 impl Figure {
@@ -198,6 +206,7 @@ impl Figure {
             ship: None,
             aimed: false,
             post: None,
+            wait: 0,
         }
     }
 

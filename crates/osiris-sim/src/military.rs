@@ -1832,7 +1832,7 @@ impl World {
     /// (FUN_00499b50, FUN_00499e50). So the first of the best kind found is kept even
     /// if another of that kind is nearer, and a better mark farther off than a
     /// lesser one is passed over.
-    fn missile_target(&self, at: (i32, i32), range: i32, invader: bool) -> Option<(FigureId, i32, i32)> {
+    pub(crate) fn missile_target(&self, at: (i32, i32), range: i32, invader: bool) -> Option<(FigureId, i32, i32)> {
         let few_soldiers = invader && self.figures.iter().filter(|o| is_soldier(o.kind) && !o.dead).count() < 4;
         let (mut best, mut worth, mut near) = (None, 0, range);
         for o in self.figures.iter().filter(|o| !o.dead && o.action != action::CORPSE) {
@@ -2524,7 +2524,10 @@ mod tests {
             w.tick();
         }
         w.set_order(0, Order::MopUp);
-        assert!(w.move_company(0, (40, 60)));
+        // They wait where they came in, the ground round the fort being held, so the
+        // company goes out to meet them.
+        let e = w.invasions.armies[0].entry;
+        assert!(w.move_company(0, (e.0 - 12, e.1 - 4)));
         let mut over = false;
         for _ in 0..60 * crate::time::TICKS_PER_DAY {
             w.tick();

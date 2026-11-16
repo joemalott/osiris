@@ -178,6 +178,7 @@ impl World {
                 crate::navy::WARSHIP | crate::navy::TRANSPORT => self.update_ship(fid),
                 k if crate::invasions::is_invader_kind(k) => self.update_invader(fid),
                 crate::defenses::TOWER_SENTRY => self.update_sentry(fid),
+                crate::defenses::BALLISTA => self.update_ballista(fid),
                 crate::fishing::FISHING_BOAT => self.update_fishing_boat(fid),
                 crate::docks::TRADE_SHIP => self.update_trade_ship(fid),
                 crate::docks::DOCKER => self.update_docker(fid),

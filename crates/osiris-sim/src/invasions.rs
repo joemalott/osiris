@@ -63,8 +63,8 @@ pub(crate) const ENEMY_FORMATION_SLOTS: usize = 40;
 /// Consecutive failed target searches (two a day) after which a formation gives up
 /// and goes home: the 49th (FUN_004b8cf0, its counter at formation +0x68).
 const GIVE_UP_AFTER: u8 = 48;
-/// Tiles within which soldiers of the city hold an army's attention, so it doesn't
-/// look for a building to attack (FUN_004ba290 with 16).
+/// Tiles within which ground the city's companies hold draws an army to it, rather
+/// than to a building (FUN_004ba290 with 16).
 const SOLDIERS_NEAR: i32 = 16;
 
 /// How the original splits an arm of an invading army into formations
@@ -77,6 +77,49 @@ fn formation_sizes(men: i32) -> Vec<i32> {
         17..=32 => vec![men - men / 2, men / 2],
         _ => vec![men - 2 * (men / 3), men / 3, men / 3],
     }
+}
+
+/// The original's target lists (0x5deb9c, a hundred building types each): food,
+/// gold, the best houses, the military, and everything, each in order of how
+/// keenly invaders go for it.
+const TARGET_LISTS: [&[u16]; 5] = [
+    &[71, 72, 70, 191, 193, 190, 102, 103, 100, 101, 105, 194, 224, 104, 196],
+    &[85, 84, 87, 86, 184, 187, 188, 189],
+    &[187, 188, 189, 79, 78, 77, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10],
+    &[94, 185, 186, 55],
+    &[
+        187, 188, 189, 79, 78, 77, 29, 28, 27, 26, 25, 85, 84, 32, 33, 98, 65, 66, 67, 68, 69, 87, 86, 184, 30, 31, 47, 46, 53, 51, 24, 23, 22, 21, 20, 206, 114, 177, 178, 179, 231, 113, 112, 111, 110, 71, 72, 70, 74, 75, 76, 60, 61, 62, 63, 64, 34, 36, 37,
+        35, 94, 185, 186, 19, 18, 17, 16, 15, 49, 106, 107, 216, 161, 217, 162, 109, 108, 90, 102, 103, 104, 101, 100, 194, 105, 224, 55, 81, 180, 92, 14, 13, 12, 11, 10,
+    ],
+];
+
+/// An invasion point the scenario leaves unset.
+pub const NO_POINT: (i32, i32) = (-1, -1);
+
+/// The first set point of `points` from number `from` on (0-based), wrapping after
+/// the eighth, trying eight in all (FUN_00446a30). Bedouin sent to a sea point
+/// (`from` 8 to 15) try that sea point first and then the land points from the
+/// first, as the original's search runs on from its sea points' place in memory.
+fn first_set_point(land: &[(i32, i32)], sea: &[(i32, i32)], from: usize) -> Option<(i32, i32)> {
+    let set = |p: Option<&(i32, i32)>| p.copied().filter(|&p| p.0 >= 0 && p.1 >= 0);
+    let mut i = from;
+    for _ in 0..8 {
+        let p = if i >= 8 { set(sea.get(i - 8)) } else { set(land.get(i)) };
+        if p.is_some() {
+            return p;
+        }
+        i += 1;
+        if i > 7 {
+            i = 0;
+        }
+    }
+    None
+}
+
+/// Ticks the `j`th man of the `k`th formation an army brings onto the field at once
+/// stands before he moves off (FUN_00446a30 and FUN_004ad4c0 set his +0x36 count).
+fn entry_wait(j: i32, k: i32) -> u16 {
+    (10 * (j + 1 + 20 * k)).clamp(0, u16::MAX as i32) as u16
 }
 
 /// Whether an invader looking for a building to attack counts `(x, y)` as ground he
@@ -154,6 +197,17 @@ pub struct Army {
     /// Formations that have given up and are marching home.
     #[serde(default)]
     pub withdrawn: Vec<u8>,
+    /// Where the army heads for the city's soldiers, when they are near enough to
+    /// hold its attention (the original's army destination with no building).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<(i32, i32)>,
+    /// Each formation's updates on the field (the original's formation +0x4e).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub band_age: Vec<u16>,
+}
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
 }
 
 fn full_morale() -> i32 {
@@ -173,6 +227,13 @@ pub struct Invasions {
     pub nation: u16,
     pub peak_population: i32,
     pub lost: bool,
+    /// The ground the city's companies hold: tiles round each company and how
+    /// strongly held, rebuilt every fifth formation update (FUN_004ba090), sorted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held: Vec<((i32, i32), u8)>,
+    /// Formation updates since the held ground was last rebuilt.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub held_age: u8,
 }
 
 impl Invasions {
@@ -200,10 +261,19 @@ impl Invasions {
             })
             .collect();
         let points = |p: &[osiris_formats::scenario::TilePoint]| p.iter().filter(|p| p.is_valid()).map(|p| (p.x, p.y)).collect();
+        // The invasion points keep their numbers: one the scenario leaves unset
+        // stays in its place as (-1, -1), so the next one along is taken for it.
+        let numbered = |p: &[osiris_formats::scenario::TilePoint]| {
+            let mut v: Vec<(i32, i32)> = p.iter().map(|p| if p.is_valid() { (p.x, p.y) } else { NO_POINT }).collect();
+            while v.last() == Some(&NO_POINT) {
+                v.pop();
+            }
+            v
+        };
         Self {
             planned,
-            land_points: points(&info.invasion_points_land),
-            sea_points: points(&info.invasion_points_sea),
+            land_points: numbered(&info.invasion_points_land),
+            sea_points: numbered(&info.invasion_points_sea),
             landings: points(&info.disembark_points),
             // The scenario's enemy is the nation's number, past the last (11) taken
             // as the last (FUN_004bc720).
@@ -279,8 +349,10 @@ impl World {
                     let arrive = now + inv.warning.max(1);
                     inv.year = arrive / 12;
                     inv.month = arrive % 12;
-                } else if self.ratings.kingdom > CALL_OFF_KINGDOM {
-                    // Won back Pharaoh's favour before his army comes: it stays home.
+                }
+                // Won back Pharaoh's favour by the day his army is due: it stays
+                // home. The original asks only then (FUN_00451540).
+                if inv.year * 12 + inv.month <= now && self.ratings.kingdom > CALL_OFF_KINGDOM {
                     inv.done = true;
                     self.post("message_attack_called_off", None, true);
                     continue;
@@ -342,18 +414,20 @@ impl World {
                 p.done = true;
             }
         }
-        let by_sea = (9..=16).contains(&point) && !self.invasions.sea_points.is_empty();
+        // Bedouin never come by sea (FUN_00446a30 sends them overland whatever the
+        // point). A city with no sea point set takes a sea army overland too.
+        let sea = &self.invasions.sea_points;
+        let sea_spot = if (9..=16).contains(&point) && inv.invader != invader::BEDOUIN {
+            (0..8).map(|n| (point as usize - 9 + n) % 8).find_map(|i| sea.get(i).copied().filter(|p| p.0 >= 0 && p.1 >= 0))
+        } else {
+            None
+        };
+        let by_sea = sea_spot.is_some();
         // Land and Bedouin attacks come in the difficulty's share of their size; no
         // army is ever more than 150.
-        let scaled = if by_sea && inv.invader != invader::BEDOUIN { amount } else { amount * self.by_difficulty(crate::difficulty::INVASION_PCT) / 100 };
+        let scaled = if by_sea { amount } else { amount * self.by_difficulty(crate::difficulty::INVASION_PCT) / 100 };
         let amount = scaled.clamp(1, 150);
-        let spot = if by_sea {
-            self.invasions.sea_points.get(point as usize - 9).copied()
-        } else {
-            self.invasions.land_points.get((point.max(1) - 1) as usize).copied()
-        }
-        .or_else(|| self.invasions.land_points.first().copied())
-        .unwrap_or(self.entry_point);
+        let spot = sea_spot.or_else(|| self.land_spot(inv.invader, point)).unwrap_or(self.exit_point);
         let nation = match inv.invader {
             invader::BEDOUIN => self.defs.army("bedouin"),
             invader::EGYPT | invader::PHARAOH => self.defs.army("egyptian"),
@@ -383,43 +457,36 @@ impl World {
         }
     }
 
-    /// Puts `men` of army `army` on the field at `spot`: its arms in proportion to their
-    /// frequency in the figure model, among the arms its nation has art for, each arm
-    /// in formations as the original raises them, as many as there are free slots for.
-    pub(crate) fn put_ashore(&mut self, army: usize, nation: u16, men: i32, spot: (i32, i32)) {
+    /// How many of `men` of army `army` march in each arm, as the original counts
+    /// them (FUN_00446a30, and FUN_004ad4c0 for men landed from a transport): the
+    /// archers and the charioteers are each their arm's frequency in the figure model
+    /// as a percentage of the men, rounded down, and the infantry are the rest. Bedouin
+    /// are all Bedouin infantry. An arm the nation has no figures for marches with
+    /// the infantry.
+    fn arm_counts(&self, army: usize, nation: u16, men: i32) -> [(u16, i32); 3] {
         let invader = self.invasions.armies.get(army).map_or(invader::ENEMY, |a| a.invader);
-        let mut arms: Vec<(u16, i32)> = if invader == invader::BEDOUIN {
-            vec![(BEDOUIN, 1)]
-        } else {
-            [ENEMY_INFANTRY, ENEMY_ARCHER, ENEMY_CHARIOT]
-                .into_iter()
-                .enumerate()
-                .filter(|&(i, _)| self.defs.armies.get(nation as usize).is_some_and(|a| a.arms[i].is_some()))
-                .map(|(_, k)| {
-                    let probe = Figure { kind: k, cargo: nation, ..Figure::new(0, k, 0, 0, Travel::Land) };
-                    (k, self.invader_stats(&probe).map_or(0, |s| if s.hp > 0 { s.frequency.max(1) } else { 0 }))
-                })
-                .filter(|a| a.1 > 0)
-                .collect()
+        if invader == invader::BEDOUIN {
+            return [(BEDOUIN, men), (ENEMY_ARCHER, 0), (ENEMY_CHARIOT, 0)];
+        }
+        let share = |k: u16, arm: usize| {
+            let drawn = self.defs.armies.get(nation as usize).is_some_and(|a| a.arms[arm].is_some());
+            let probe = Figure { kind: k, cargo: nation, ..Figure::new(0, k, 0, 0, Travel::Land) };
+            let frequency = self.invader_stats(&probe).map_or(0, |s| s.frequency);
+            if drawn { men * frequency / 100 } else { 0 }
         };
-        if arms.is_empty() {
-            arms.push((ENEMY_INFANTRY, 1));
-        }
-        let total: i32 = arms.iter().map(|a| a.1).sum::<i32>().max(1);
-        let first = self.invasions.armies.get(army).map_or(0, |a| a.figures.len() as i32);
-        // How many men of each arm.
-        let mut counts = vec![0; arms.len()];
-        for n in first..first + men {
-            let mut pick = (n * 37 + self.rng.below(total)) % total;
-            let i = arms.iter().position(|a| {
-                pick -= a.1;
-                pick < 0
-            });
-            counts[i.unwrap_or(0)] += 1;
-        }
-        let mut n = first;
-        for (i, &(k, _)) in arms.iter().enumerate() {
-            for size in formation_sizes(counts[i]) {
+        let (archers, chariots) = (share(ENEMY_ARCHER, 1), share(ENEMY_CHARIOT, 2));
+        [(ENEMY_INFANTRY, men - archers - chariots), (ENEMY_ARCHER, archers), (ENEMY_CHARIOT, chariots)]
+    }
+
+    /// Puts `men` of army `army` on the field at `spot`: its arms as `arm_counts`
+    /// has them, infantry, archers and chariots in that order, each arm in formations
+    /// as the original raises them, as many as there are free slots for. They come
+    /// in a man at a time: the `j`th man of the `k`th formation raised here stands
+    /// 10 * (j + 1 + 20k) ticks before he moves off (FUN_00446a30, FUN_004ad4c0).
+    pub(crate) fn put_ashore(&mut self, army: usize, nation: u16, men: i32, spot: (i32, i32)) {
+        let mut raised = 0;
+        for (k, count) in self.arm_counts(army, nation, men) {
+            for size in formation_sizes(count) {
                 if self.enemy_formations() >= ENEMY_FORMATION_SLOTS {
                     return;
                 }
@@ -429,20 +496,21 @@ impl World {
                 }) else {
                     return;
                 };
-                for _ in 0..size {
+                for j in 0..size {
                     let fid = self.figures.spawn(k, spot.0, spot.1, Travel::Hostile);
                     if let Some(f) = self.figures.get_mut(fid) {
                         f.cargo = nation;
                         f.formation = 1000 + army as u16;
-                        f.slot = (n % 16) as u8;
+                        f.slot = j as u8;
                         f.band = band;
                         f.action = 1;
+                        f.wait = entry_wait(j, raised);
                     }
                     if let Some(a) = self.invasions.armies.get_mut(army) {
                         a.figures.push(fid);
                     }
-                    n += 1;
                 }
+                raised += 1;
             }
         }
     }
@@ -512,6 +580,27 @@ impl World {
             1 => min,
             _ => max,
         }
+    }
+
+    /// Where an army coming overland to `point` comes in (FUN_00446a30): the point's
+    /// own tile, or the next set point along when it is unset; for point 8 one of
+    /// the first two, four or eight points at random by how many are set (fewer than
+    /// three, fewer than five, more). A foreign army of the Persians (the scenario's
+    /// enemy 11) always comes by the city's entry point. None when no point is set.
+    fn land_spot(&mut self, who: u8, point: i32) -> Option<(i32, i32)> {
+        let persian = self.defs.armies.get(self.invasions.nation as usize).is_some_and(|a| a.key == "persian");
+        if who == invader::ENEMY && persian {
+            return Some(self.entry_point).filter(|p| p.0 >= 0 && p.1 >= 0);
+        }
+        let land = &self.invasions.land_points;
+        let from = if point == 8 {
+            let set = land.iter().filter(|p| p.0 >= 0 && p.1 >= 0).count();
+            let mask = if set < 3 { 1 } else if set < 5 { 3 } else { 7 };
+            self.rng.below(mask + 1) as usize
+        } else {
+            (point.clamp(1, 16) - 1) as usize
+        };
+        first_set_point(land, &self.invasions.sea_points, from)
     }
 
     /// The nearest walkable land tile to `p`.
@@ -638,43 +727,142 @@ impl World {
         (b.y..b.y + h).any(|y| (b.x..b.x + w).any(|x| self.map.contains(x, y) && reach[(y * mw + x) as usize]))
     }
 
-    /// What an army goes for: the buildings its orders name, nearest first, among
-    /// those it can get at over land from `from` (FUN_004ba3b0 only looks at
-    /// buildings its "through everything" search from the army reached).
-    fn choose_target(&self, army: usize, from: (i32, i32)) -> Option<BuildingId> {
-        let priority = self.invasions.armies.get(army)?.priority;
-        let weight = |k: u16, level: u8| -> i32 {
-            match priority {
-                0 => matches!(k, kind::GRANARY | kind::STORAGE_YARD | kind::BAZAAR) as i32 * 10 + self.is_farm(k) as i32 * 8,
-                1 => (kind::PALACES.contains(&k) || k == kind::TAX_COLLECTOR) as i32 * 10,
-                2 => level as i32,
-                3 => matches!(k, crate::military::FORT_ARCHERS | crate::military::FORT_INFANTRY | crate::military::FORT_CHARIOTEERS | 55 | 94) as i32 * 10,
-                _ => 1,
-            }
-        };
+    /// Which of the original's target lists an army searches: its orders (0 food, 1
+    /// gold, 2 the best houses, 3 the military), a list picked at random for each
+    /// search when its orders are 4 (FUN_004ba3b0), and the list of everything for
+    /// any other.
+    fn target_list(&mut self, army: usize) -> usize {
+        match self.invasions.armies.get(army).map_or(-1, |a| a.priority) {
+            p @ 0..=3 => p as usize,
+            4 => self.rng.below(4) as usize,
+            _ => 4,
+        }
+    }
+
+    /// What an army goes for (FUN_004ba3b0): among the buildings it can get at over
+    /// land from `from` (its "through everything" search) that stand outside the
+    /// ground the city's companies hold, the one earliest in its target list, the
+    /// nearest of those by the longer of the two distances, the first built on a tie.
+    /// When the list finds none, the same from the list of everything.
+    fn choose_target(&self, list: usize, from: (i32, i32)) -> Option<BuildingId> {
         let reach = self.land_reach(from);
-        self.buildings
+        let candidates: Vec<(u16, BuildingId, i32)> = self
+            .buildings
             .iter()
-            .filter(|b| !matches!(b.kind, crate::military::FORT_GROUND | kind::ROAD | kind::BURNING_RUIN) && !crate::defenses::is_defense(b.kind))
-            .filter(|b| self.within_reach(b.id, &reach))
-            .map(|b| {
-                let level = b.house.as_ref().map_or(0, |h| h.level + 1);
-                let d = (b.x - from.0).abs() + (b.y - from.1).abs();
-                (weight(b.kind, level).max(1) * 100 - d, b.id)
-            })
-            .max_by_key(|&(score, id)| (score, std::cmp::Reverse(id)))
-            .map(|(_, id)| id)
+            .filter(|b| self.held_at((b.x, b.y)) == 0 && self.within_reach(b.id, &reach))
+            .map(|b| (b.kind, b.id, (b.x - from.0).abs().max((b.y - from.1).abs())))
+            .collect();
+        let best = |list: &[u16]| {
+            candidates
+                .iter()
+                .filter_map(|&(k, id, d)| list.iter().position(|&t| t == k).map(|rank| (rank, d, id)))
+                .min()
+                .map(|(_, _, id)| id)
+        };
+        best(TARGET_LISTS[list.min(4)]).or_else(|| best(TARGET_LISTS[4]))
+    }
+
+    /// How strongly the city's companies hold `tile`; 0 for ground they don't.
+    pub fn held_at(&self, tile: (i32, i32)) -> u8 {
+        let held = &self.invasions.held;
+        held.binary_search_by_key(&tile, |h| h.0).map_or(0, |i| held[i].1)
+    }
+
+    /// Every fifth formation update the ground the city's companies hold is marked
+    /// afresh (FUN_004ba090): round each company with men, at its fort or in the
+    /// field, squares of 7 tiles' reach, and of 6, 5, 4, 3 and 2 tiles as it has
+    /// at least 4, 7, 10, 13 and 16 men; each square adds 1 to each of its tiles,
+    /// or 3 where a soldier stands.
+    fn mark_held_ground(&mut self) {
+        let mut held: std::collections::BTreeMap<(i32, i32), u8> = Default::default();
+        let soldier_at: std::collections::HashSet<(i32, i32)> = self.figures.iter().filter(|f| crate::military::is_soldier(f.kind) && !f.dead && f.action != action::CORPSE).map(|f| (f.x, f.y)).collect();
+        for c in &self.military.companies {
+            let men = c.soldiers.iter().filter(|&&s| self.figures.get(s).is_some_and(|f| !f.dead && f.action != action::CORPSE)).count() as i32;
+            if men == 0 {
+                continue;
+            }
+            let (cx, cy) = c.standard_tile;
+            for (at_least, r) in [(1, 7), (4, 6), (7, 5), (10, 4), (13, 3), (16, 2)] {
+                if men < at_least {
+                    continue;
+                }
+                for y in (cy - r).max(0)..=(cy + r).min(self.map.height - 1) {
+                    for x in (cx - r).max(0)..=(cx + r).min(self.map.width - 1) {
+                        let v = held.entry((x, y)).or_default();
+                        *v = v.saturating_add(if soldier_at.contains(&(x, y)) { 3 } else { 1 });
+                    }
+                }
+            }
+        }
+        self.invasions.held = held.into_iter().collect();
+    }
+
+    /// The most strongly held tile within `r` tiles of `from` that an army there
+    /// can get to, the first by rows on a tie (FUN_004ba290).
+    fn held_ground_near(&self, from: (i32, i32), r: i32) -> Option<(i32, i32)> {
+        let reach = self.land_reach(from);
+        let w = self.map.width;
+        let mut best: Option<((i32, i32), u8)> = None;
+        for &(tile, v) in &self.invasions.held {
+            if (tile.0 - from.0).abs() > r || (tile.1 - from.1).abs() > r || !reach.get((tile.1 * w + tile.0) as usize).copied().unwrap_or(false) {
+                continue;
+            }
+            let better = match best {
+                None => true,
+                Some((t, bv)) => v > bv || v == bv && (tile.1, tile.0) < (t.1, t.0),
+            };
+            if better {
+                best = Some((tile, v));
+            }
+        }
+        best.map(|b| b.0)
     }
 
     /// Twice a day, as the original updates its formations (FUN_004b8cf0, at ticks 5
     /// and 29): each army looks again for something to attack from where its leading
-    /// formation stands, unless the city's soldiers are near. When a search finds no
+    /// formation stands. Ground the city's companies hold within 16 tiles draws it
+    /// there, unless it outnumbers their soldiers two to one; otherwise it takes the
+    /// best target its list offers, afresh each time. When a search finds no
     /// building it can get at, even by battering through walls (a city across water,
     /// or none left), the leading formation counts it, and at the 49th search in a
     /// row it gives up: its men march back to where they came in and leave the map
     /// (figure action 3 in FUN_004991a0, which removes them when they arrive or find
     /// no way there). The next formation then takes the lead and counts afresh.
     pub(crate) fn update_armies(&mut self) {
+        let invaders = self.figures.iter().filter(|f| is_invader_kind(f.kind) && !f.dead && f.action != action::CORPSE).count() as i32;
+        if invaders == 0 {
+            return;
+        }
+        self.invasions.held_age += 1;
+        if self.invasions.held_age > 4 {
+            self.invasions.held_age = 0;
+            self.mark_held_ground();
+        }
+        // An army more than twice the city's soldiers (infantry counting half again)
+        // pays them no mind and goes for the buildings (FUN_004b8cf0, with the counts
+        // of FUN_004b7c80).
+        let soldiers: i32 = self.military.companies.iter().map(|c| {
+            let men = c.soldiers.iter().filter(|&&s| self.figures.get(s).is_some_and(|f| !f.dead && f.action != action::CORPSE)).count() as i32;
+            if c.kind == crate::military::INFANTRY { men + men / 2 } else { men }
+        }).sum();
+        let heedless = 2 * soldiers < invaders;
+        // Each formation still in the fight counts its updates; once any has been
+        // on the field more than 45, Seth strikes if he means to (FUN_004b9f90).
+        let mut seasoned = false;
+        for (a, band) in self.standing_bands() {
+            let army = &mut self.invasions.armies[a];
+            if army.withdrawn.contains(&band) {
+                continue;
+            }
+            if army.band_age.len() <= band as usize {
+                army.band_age.resize(band as usize + 1, 0);
+            }
+            army.band_age[band as usize] += 1;
+            seasoned |= army.band_age[band as usize] > 45;
+        }
+        if seasoned {
+            self.seth_strikes_invaders();
+        }
         for a in 0..self.invasions.armies.len() {
             if self.invasions.armies[a].fleeing {
                 continue;
@@ -695,18 +883,18 @@ impl World {
                 }
             }
             let Some(&(_, band, _, x, y)) = members.iter().filter(|m| !withdrawn.contains(&m.1) && m.2 != FLEEING).min_by_key(|m| m.1) else { continue };
-            let soldiers_near = self.figures.iter().any(|f| crate::military::is_soldier(f.kind) && !f.dead && f.action != action::CORPSE && (f.x - x).abs() <= SOLDIERS_NEAR && (f.y - y).abs() <= SOLDIERS_NEAR);
-            if soldiers_near {
+            // Ground the city's companies hold near by draws the army to it.
+            let held = if heedless { None } else { self.held_ground_near((x, y), SOLDIERS_NEAR) };
+            self.invasions.armies[a].goal = held;
+            if held.is_some() {
+                self.invasions.armies[a].target = 0;
                 continue;
             }
-            let target = self.invasions.armies[a].target;
-            let found = if self.buildings.get(target).is_some() && self.within_reach(target, &self.land_reach((x, y))) {
-                true
-            } else {
-                let t = self.choose_target(a, (x, y));
-                self.invasions.armies[a].target = t.unwrap_or(0);
-                t.is_some()
-            };
+            // Otherwise it looks again for the best target, every time.
+            let list = self.target_list(a);
+            let t = self.choose_target(list, (x, y));
+            self.invasions.armies[a].target = t.unwrap_or(0);
+            let found = t.is_some();
             let army = &mut self.invasions.armies[a];
             if found {
                 army.failed_searches = 0;
@@ -840,6 +1028,13 @@ impl World {
         if self.figures.get(fid).is_some_and(|f| f.action == action::ATTACK) {
             return;
         }
+        // Newly come, he stands his turn before moving off.
+        if let Some(f) = self.figures.get_mut(fid)
+            && f.wait > 0
+        {
+            f.wait -= 1;
+            return;
+        }
         let army = self.figures.get(fid).map_or(0, |f| f.formation.saturating_sub(1000)) as usize;
         // Soldiers close by draw them off, those not already beset by two first.
         let near = self.nearest_open_foe(true, (x, y), CHASE_RANGE).or_else(|| self.nearest_foe(true, (x, y), CHASE_RANGE)).map(|o| (o.1, o.2));
@@ -852,12 +1047,27 @@ impl World {
             f.walk(map);
             return;
         }
+        // Drawn to the ground the city's companies hold, he marches there, his
+        // formation spread round the spot.
+        if let Some((gx, gy)) = self.invasions.armies.get(army).and_then(|a| a.goal) {
+            let slot = self.figures.get(fid).map_or(0, |f| f.slot as i32);
+            let to = (gx + slot % 4 - 1, gy + slot / 4 % 4 - 1);
+            let f = self.figures.get_mut(fid).expect("present");
+            if !f.moving && f.destination != Some(to) && (f.x, f.y) != to && !f.go_to(map, to) {
+                f.destination = Some(to);
+            }
+            if f.walk(map) == Step::Lost {
+                f.route.clear();
+            }
+            return;
+        }
         // March on the target.
         let target = self.invasions.armies.get(army).map_or(0, |a| a.target);
         let target = if self.buildings.get(target).is_some() {
             target
         } else {
-            let t = self.choose_target(army, (x, y)).unwrap_or(0);
+            let list = self.target_list(army);
+            let t = self.choose_target(list, (x, y)).unwrap_or(0);
             if let Some(a) = self.invasions.armies.get_mut(army) {
                 a.target = t;
             }
@@ -983,7 +1193,11 @@ impl World {
         if self.invasions.lost {
             return;
         }
-        let invaders = self.figures.iter().filter(|f| is_invader_kind(f.kind) && f.action != action::CORPSE).count() as i32;
+        // The original counts every invader figure its update runs for, the fallen
+        // lying on the field included, and every enemy ship, afloat or sinking
+        // (FUN_004991a0, FUN_004adf60 and FUN_004aee10 each add one to the count
+        // FUN_004ea2c0 weighs).
+        let invaders = self.figures.iter().filter(|f| !f.dead && (is_invader_kind(f.kind) || crate::navy::is_enemy_ship(f.kind))).count() as i32;
         if invaders == 0 {
             return;
         }
@@ -1101,7 +1315,7 @@ mod tests {
         world.invasions.armies[army].figures.truncate(1);
         world.invasions.armies[army].target = well;
         let f = world.figures.get_mut(men[0]).expect("man");
-        (f.x, f.y, f.action) = (x - 1, y, 1);
+        (f.x, f.y, f.action, f.wait) = (x - 1, y, 1, 0);
         f.route.clear();
         // A blow every 4 ticks; the 11th brings it down (FUN_004b3530).
         let mut ticks = 0;
@@ -1110,6 +1324,169 @@ mod tests {
             ticks += 1;
         }
         assert_eq!(ticks, 44);
+    }
+
+    #[test]
+    fn an_armys_arms_are_its_nations_shares_of_its_men() {
+        let Some(mut world) = mission(1) else { return };
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        world.balance = crate::balance::Balance::load_all(&data).expect("model")[crate::difficulty::NORMAL as usize].clone();
+        let army = |world: &mut World, invader: u8, nation: &str| {
+            let nation = world.defs.army(nation).expect("nation") as u16;
+            world.invasions.armies.push(Army { invader, nation, ..Default::default() });
+            (world.invasions.armies.len() - 1, nation)
+        };
+        // Hyksos: archers and chariots a fifth each of 47, rounded down; the rest
+        // infantry (FUN_00446a30).
+        let (a, n) = army(&mut world, invader::ENEMY, "hyksos");
+        assert_eq!(world.arm_counts(a, n, 47), [(ENEMY_INFANTRY, 29), (ENEMY_ARCHER, 9), (ENEMY_CHARIOT, 9)]);
+        // Egyptians: 40% archers, no chariots.
+        let (a, n) = army(&mut world, invader::PHARAOH, "egyptian");
+        assert_eq!(world.arm_counts(a, n, 12), [(ENEMY_INFANTRY, 8), (ENEMY_ARCHER, 4), (ENEMY_CHARIOT, 0)]);
+        // Bedouin are all infantry.
+        let (a, n) = army(&mut world, invader::BEDOUIN, "bedouin");
+        assert_eq!(world.arm_counts(a, n, 20)[0], (BEDOUIN, 20));
+        // The same army comes the same way every time.
+        world.invasions.armies.clear();
+        world.invasions.land_points = vec![world.entry_point];
+        world.invade_now(invader::ENEMY, 40, 1);
+        let kinds: Vec<u16> = world.invasions.armies[0].figures.iter().filter_map(|&f| world.figures.get(f)).map(|f| f.kind).collect();
+        let (n, counts) = (world.invasions.nation, world.arm_counts(0, world.invasions.nation, kinds.len() as i32));
+        for (k, c) in counts {
+            assert_eq!(kinds.iter().filter(|&&f| f == k).count() as i32, c, "nation {n} {counts:?} {kinds:?}");
+        }
+    }
+
+    #[test]
+    fn invaders_move_off_a_man_at_a_time() {
+        let Some(mut world) = mission(1) else { return };
+        let p = well_and_open_ground(&mut world);
+        world.invasions.land_points = vec![p];
+        world.invasions.sea_points.clear();
+        world.invade_now(invader::BEDOUIN, 40, 1);
+        let men = world.invasions.armies[0].figures.clone();
+        // Two formations of 20 Bedouin: 10, 20, ... ticks for the first, 210, 220, ...
+        // for the second (FUN_00446a30).
+        let waits: Vec<(u8, u8, u16)> = men.iter().filter_map(|&m| world.figures.get(m)).map(|f| (f.band, f.slot, f.wait)).collect();
+        let n = waits.iter().filter(|w| w.0 == 0).count();
+        assert!(n > 0 && n < waits.len(), "{waits:?}");
+        for &(band, slot, wait) in &waits {
+            assert_eq!(wait as i32, 10 * (slot as i32 + 1 + 20 * band as i32), "{waits:?}");
+        }
+        // Only the first man has left the spot after 15 ticks.
+        for _ in 0..15 {
+            world.gather_combatants();
+            for &m in &men {
+                world.update_invader(m);
+            }
+        }
+        let moved: Vec<u8> = men.iter().filter_map(|&m| world.figures.get(m)).filter(|f| (f.x, f.y) != p || f.moving).map(|f| f.slot + 20 * f.band).collect();
+        assert_eq!(moved, vec![0]);
+    }
+
+    #[test]
+    fn pharaoh_calls_his_army_off_only_when_it_is_due() {
+        let Some(mut world) = mission(1) else { return };
+        world.invasions.planned = vec![Invasion { invader: invader::PHARAOH, by_favour: true, warning: 3, ..Default::default() }];
+        world.ratings.kingdom = 0;
+        world.update_invasions();
+        assert!(world.invasions.planned[0].armed);
+        // Favour won back early: the army is still on its way...
+        world.ratings.kingdom = 40;
+        world.time.month += 1;
+        world.update_invasions();
+        assert!(!world.invasions.planned[0].done);
+        assert!(!world.messages.iter().any(|m| m == "message_attack_called_off"));
+        // ...and turns back on the day it is due.
+        world.time.month += 2;
+        world.update_invasions();
+        assert!(world.invasions.planned[0].done && world.invasions.armies.is_empty());
+        assert!(world.messages.iter().any(|m| m == "message_attack_called_off"));
+    }
+
+    #[test]
+    fn invaders_go_for_the_first_target_on_their_list() {
+        use crate::world::{Command, Outcome};
+        let Some(mut world) = mission(1) else { return };
+        let (w, h) = (world.map.width, world.map.height);
+        let mut built = Vec::new();
+        for k in [kind::WELL, kind::BAZAAR, kind::GRANARY] {
+            let (x, y) = (6..h - 6).flat_map(|y| (6..w - 6).map(move |x| (x, y))).find(|&(x, y)| world.can_place(k, x, y).is_ok()).expect("room");
+            assert!(matches!(world.apply(&Command::Build { kind: k, x, y, x1: x, y1: y }), Outcome::Done { .. }), "{k}");
+            built.push(world.map.building.at_or(x, y, 0));
+        }
+        let from = world.buildings.get(built[0]).map(|b| (b.x, b.y)).expect("well");
+        world.invasions.armies.push(Army { priority: 0, ..Default::default() });
+        // Food first: the granary before the bazaar wherever they stand.
+        assert_eq!(world.choose_target(0, from), Some(built[2]));
+        // Gold: none here, so the list of everything, where the bazaar comes after
+        // the granary too, and the well before neither.
+        assert_eq!(world.choose_target(1, from), Some(built[2]));
+        // Ground the city's companies hold is left alone.
+        let g = world.buildings.get(built[2]).map(|b| (b.x, b.y)).expect("granary");
+        world.invasions.held = vec![(g, 1)];
+        assert_eq!(world.choose_target(0, from), Some(built[1]));
+        // Orders 4 pick one of the four lists at random; other orders the last.
+        world.invasions.armies[0].priority = 7;
+        assert_eq!(world.target_list(0), 4);
+        world.invasions.armies[0].priority = 4;
+        assert!((0..20).all(|_| world.target_list(0) < 4));
+    }
+
+    #[test]
+    fn seth_strikes_once_an_army_has_been_in_the_city_a_while() {
+        let Some(mut world) = mission(1) else { return };
+        let p = well_and_open_ground(&mut world);
+        world.invasions.land_points = vec![p];
+        world.invade_now(invader::BEDOUIN, 40, 1);
+        world.religion.seth_crush = 10;
+        assert!(world.invasions.armies[0].figures.len() > 10);
+        let fallen = |w: &World| w.invasions.armies[0].figures.iter().filter(|&&f| w.figures.get(f).is_some_and(|f| f.action == action::CORPSE)).count();
+        for _ in 0..45 {
+            world.update_armies();
+        }
+        assert_eq!(fallen(&world), 0);
+        // The 46th update of its formation (FUN_004b8cf0 calls FUN_004b9f90).
+        world.update_armies();
+        assert_eq!((fallen(&world), world.religion.seth_crush), (10, 0));
+    }
+
+    #[test]
+    fn the_fallen_and_enemy_ships_count_as_invaders_in_a_siege() {
+        for k in [ENEMY_INFANTRY, crate::navy::ENEMY_TRANSPORT] {
+            let Some(mut world) = mission(1) else { return };
+            world.population = 0;
+            world.invasions.peak_population = 100;
+            world.check_siege();
+            assert!(!world.invasions.lost);
+            let f = world.figures.spawn(k, 5, 5, Travel::Hostile);
+            world.figures.get_mut(f).expect("figure").action = action::CORPSE;
+            world.check_siege();
+            assert!(world.invasions.lost, "{k}");
+        }
+    }
+
+    #[test]
+    fn armies_come_in_by_the_originals_points() {
+        let Some(mut world) = mission(1) else { return };
+        world.invasions.land_points = vec![NO_POINT, (10, 11), NO_POINT, (20, 21)];
+        world.invasions.sea_points = vec![(30, 31)];
+        world.invasions.nation = world.defs.army("hyksos").expect("hyksos") as u16;
+        // An unset point gives way to the next set one, wrapping past the eighth.
+        assert_eq!(world.land_spot(invader::ENEMY, 1), Some((10, 11)));
+        assert_eq!(world.land_spot(invader::ENEMY, 3), Some((20, 21)));
+        assert_eq!(world.land_spot(invader::ENEMY, 5), Some((10, 11)));
+        // Point 8: one of the first two, with two points set.
+        for _ in 0..20 {
+            assert_eq!(world.land_spot(invader::ENEMY, 8), Some((10, 11)));
+        }
+        // Bedouin sent to a sea point walk in from its tile, or from the land points.
+        assert_eq!(world.land_spot(invader::BEDOUIN, 9), Some((30, 31)));
+        assert_eq!(world.land_spot(invader::BEDOUIN, 10), Some((10, 11)));
+        // Persians come by the city's entry.
+        world.invasions.nation = world.defs.army("persian").expect("persian") as u16;
+        assert_eq!(world.land_spot(invader::ENEMY, 3), Some(world.entry_point));
+        assert_eq!(world.land_spot(invader::BEDOUIN, 3), Some((20, 21)));
     }
 
     #[test]
