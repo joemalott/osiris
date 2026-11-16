@@ -7,8 +7,8 @@
 //! flag waving over it when a trade route to it can be opened or is open. Only open
 //! routes are drawn, a dot every few pixels along the way. Traders do not travel the
 //! routes: they appear straight in the city. What the original moves along routes
-//! are armies: invaders marching on the city and troops sent to a distant battle
-//! (group 178 by land, 179 by sea), which Osiris does not draw yet. Text comes from
+//! are armies: invaders marching on the city, which Osiris does not draw yet, and
+//! troops sent to a distant battle (group 178 by land, 179 by sea). Text comes from
 //! group 47 and city names from group 195.
 //!
 //! Opening a route asks first, in the original's yes/no window (text group 5), and
@@ -84,6 +84,8 @@ pub struct EmpireImages {
     pub(crate) advisors: u32,
     /// The OK and cancel buttons of the yes/no window: group 96, offsets 0 and 4.
     pub(crate) ok_cancel: u32,
+    /// The city's troops away for the Kingdom: by land (group 178) and by sea (179).
+    pub(crate) troops: [u32; 2],
 }
 
 impl EmpireImages {
@@ -105,6 +107,7 @@ impl EmpireImages {
             context: g(134)?,
             advisors: g(106)?,
             ok_cancel: g(96)?,
+            troops: [g(178)?, g(179)?],
         })
     }
 
@@ -447,6 +450,10 @@ impl EmpireWindow {
                 img(r, images.route_dot, at[0], at[1]);
             }
         }
+        for (at, sea) in troops_away(world) {
+            let at = self.to_screen(screen, at);
+            img(r, images.troops[usize::from(sea)], at[0], at[1]);
+        }
         r.set_clip(None);
         self.draw_frame(r, images);
         self.draw_panel(r, panels, world, text, images);
@@ -716,6 +723,34 @@ fn wrapped(r: &mut Renderer, s: &str, x: f32, y: f32, w: f32) {
     let opts = rich_text::Options { font: Font::NormalBlackOnLight, width: w as i32, paragraph_indent: 0 };
     let laid = rich_text::layout(s, &opts, &mut rich_text::RendererMeasure::new(r));
     rich_text::draw(r, &laid, [x, y - 3.0], laid.height as f32, 0.0, font::BLACK);
+}
+
+/// Where the city's troops away for the Kingdom are on the map, and whether they
+/// went by sea (FUN_0052f8b0's last loop, FUN_00449750): a dot of the calling city's
+/// route, as far from our city as the journey has gone. On the way out that is
+/// `100 - months to go * 100 / months of travel` percent of the way, on the way home
+/// `months to go * 100 / months of travel`. The original walks the route record the
+/// event's city number picks and turns it by which end is ours; Osiris takes the
+/// call's own route, and our end by which end of it lies nearer our city.
+fn troops_away(world: &World) -> Vec<((i32, i32), bool)> {
+    let home = world.trade.cities.iter().find(|c| c.city_type == city::OURS).map(|c| c.pos);
+    let mut away = Vec::new();
+    for b in &world.military.battles {
+        let Some(e) = world.scenario_events.list.get(b.request) else { continue };
+        let route = usize::try_from(e.route).ok().or_else(|| e.city.and_then(|c| world.trade.cities.get(c)).map(|c| c.route as usize));
+        let Some(route) = route.and_then(|r| world.trade.routes.get(r)) else { continue };
+        let mut dots = route_dots(route);
+        let (Some(&first), Some(&last)) = (dots.first(), dots.last()) else { continue };
+        let far = |p: (i32, i32), h: (i32, i32)| (p.0 - h.0).pow(2) + (p.1 - h.1).pow(2);
+        if home.is_some_and(|h| far(first, h) > far(last, h)) {
+            dots.reverse();
+        }
+        let travel = world.request_travel_months(b.request).max(1);
+        let gone = if b.fought { b.months * 100 / travel } else { 100 - b.months * 100 / travel };
+        let i = (dots.len() as i32 * gone.clamp(0, 100) / 100).min(dots.len() as i32 - 1);
+        away.push((dots[i as usize], b.sea));
+    }
+    away
 }
 
 /// The dots along a route: from each waypoint to the next, one every `step` pixels.

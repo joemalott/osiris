@@ -660,6 +660,15 @@ pub fn run_script(world: &mut World, script: &str) -> Result<ScriptView> {
                     f.damage = n.parse()?;
                 }
             }
+            // Troops away for request I, by land or sea, M months from their journey's
+            // end, going out or coming back (for looking at the empire map).
+            ["away", i, way, m, dir] => world.military.battles.push(osiris_sim::military::DistantBattle {
+                request: i.parse()?,
+                sea: *way == "sea",
+                months: m.parse()?,
+                fought: *dir == "back",
+                ..Default::default()
+            }),
             ["fortreturn", c] => _ = world.apply(&Command::ReturnCompany(c.parse()?)),
             // The company window's switch that turns the next held line.
             ["rotate", c] => _ = world.apply(&Command::RotateLine(c.parse()?)),
