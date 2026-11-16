@@ -2098,6 +2098,75 @@ mod tests {
         assert!(!e.scenario.empire.objects[new].in_use || e.scenario.empire.objects[new].city_type != city::OURS);
     }
 
+    /// A picture and a region's name added on the Kingdom map, the picture stepped
+    /// on with its arrows and the region named from its list (group 196), come back
+    /// from the saved map; Delete object takes a third object out and the ones after
+    /// it move down.
+    #[test]
+    fn pictures_and_regions_save() {
+        let Some(data) = data() else { return };
+        let lib = ImageLibrary::open(&data.join("Data")).unwrap();
+        let defs = Arc::new(osiris_sim::Defs::load(&lib).unwrap());
+        let text = crate::lang::english_text(&data);
+        let mut e = Editor::open(&data.join("Maps/Default.map"), defs, text, std::env::temp_dir().join("osiris-kingdom-test")).unwrap();
+        e.open_kingdom();
+        let run = |e: &mut Editor, a: Scripted| e.run_scripted(&lib, SCREEN, a);
+        let h = SCREEN[1];
+        let b = boxes(h);
+        let at = |r: [f32; 4]| Scripted::Click([r[0] + 5.0, r[1] + 5.0]);
+        run(&mut e, Scripted::Scroll(187, 340));
+        let before = live(&e.scenario.empire.objects);
+
+        // Add object > Simple graphic: the choice starts at the last picture (0x4081f0),
+        // so two steps on make it the second; placed, then one on.
+        run(&mut e, Scripted::Button(0));
+        run(&mut e, at(b.kinds[0]));
+        run(&mut e, at(b.arrows[1]));
+        run(&mut e, at(b.arrows[1]));
+        run(&mut e, Scripted::MapClick(650, 650));
+        let pic = e.view.kingdom.as_ref().unwrap().selected.unwrap();
+        assert_eq!((e.scenario.empire.objects[pic].kind, e.scenario.empire.objects[pic].expanded_image_id), (object::ORNAMENT, 1));
+        let placed = (e.scenario.empire.objects[pic].x, e.scenario.empire.objects[pic].y);
+        run(&mut e, at(b.arrows[1]));
+        assert_eq!(e.scenario.empire.objects[pic].expanded_image_id, 2);
+        run(&mut e, at(b.arrows[0]));
+        run(&mut e, at(b.arrows[0]));
+        run(&mut e, at(b.arrows[0]));
+        assert!(e.scenario.empire.objects[pic].expanded_image_id > 2, "back from the first wraps to the last");
+        run(&mut e, at(b.arrows[2]));
+        run(&mut e, at(b.arrows[1]));
+        run(&mut e, at(b.arrows[1]));
+        assert_eq!(e.scenario.empire.objects[pic].expanded_image_id, 2);
+        let (pw, ph) = (e.scenario.empire.objects[pic].width, e.scenario.empire.objects[pic].height);
+        assert!(pw > 0 && ph > 0, "the picture's size");
+
+        // Add object > Region, named from its list: the sixth name.
+        run(&mut e, Scripted::Button(0));
+        run(&mut e, at(b.kinds[2]));
+        run(&mut e, Scripted::MapClick(500, 760));
+        let region = e.view.kingdom.as_ref().unwrap().selected.unwrap();
+        assert_eq!(e.scenario.empire.objects[region].kind, object::REGION);
+        run(&mut e, at(b.region));
+        let (_, rects) = list_layout(SCREEN, 17);
+        run(&mut e, at(rects[5]));
+        assert_eq!(e.scenario.empire.objects[region].city_name_id, 5);
+        assert_eq!(live(&e.scenario.empire.objects), before + 2);
+
+        let s = Scenario::from_chunks(&ChunkFile::parse(&e.to_bytes().unwrap(), Layout::Map).unwrap()).unwrap();
+        let (p, r) = (&s.empire.objects[pic], &s.empire.objects[region]);
+        assert_eq!((p.in_use, p.kind, p.expanded_image_id, p.width, p.height), (true, object::ORNAMENT, 2, pw, ph));
+        assert_eq!((p.x, p.y), placed, "where it was put; a new picture keeps its corner");
+        assert_eq!((r.in_use, r.kind, r.city_name_id, r.x, r.y), (true, object::REGION, 5, 500 - 45, 760 - 10));
+
+        // Delete the picture: the region moves down into its place.
+        run(&mut e, Scripted::Button(1));
+        run(&mut e, Scripted::MapRight(650, 650));
+        assert_eq!(e.view.kingdom.as_ref().unwrap().selected, Some(pic));
+        run(&mut e, Scripted::Button(2));
+        assert_eq!(live(&e.scenario.empire.objects), before + 1);
+        assert_eq!((e.scenario.empire.objects[region - 1].kind, e.scenario.empire.objects[region - 1].city_name_id), (object::REGION, 5));
+    }
+
     /// What the city can get decides what the scenario keeps (FUN_00442870,
     /// FUN_00442a40): with no grain grown and no straw sold anywhere, our city can't
     /// raise meat; with no limestone anywhere a pyramid can't be built; with no copper
