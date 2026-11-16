@@ -754,9 +754,10 @@ impl World {
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return };
         f.action = if at_fort { action::GOING_TO_FORT } else { action::GOING_TO_STANDARD };
-        if (f.x, f.y) == post {
+        // Routed from where his step ends, or a man turned mid-step stops a tile off.
+        if (f.x, f.y) == post && !f.moving {
             f.action = if at_fort { action::AT_REST } else { action::AT_STANDARD };
-        } else if !f.go_to(map, post) {
+        } else if !f.reroute(map, post) {
             // Nowhere to stand there: stay put.
             f.action = if at_fort { action::AT_REST } else { action::AT_STANDARD };
         }
@@ -775,8 +776,8 @@ impl World {
         let from = self.figures.get(standard).map(|f| (f.x, f.y));
         let map = &self.map;
         let reached = match self.figures.get_mut(standard) {
-            Some(f) if (f.x, f.y) == tile => true,
-            Some(f) => f.go_to(map, tile),
+            Some(f) if (f.x, f.y) == tile && !f.moving => true,
+            Some(f) => f.reroute(map, tile),
             None => false,
         };
         if !reached {
@@ -851,7 +852,7 @@ impl World {
         let map = &self.map;
         if let (Some(f), Some(home)) = (self.figures.get_mut(standard), home) {
             f.action = action::GOING_TO_FORT;
-            f.go_to(map, home);
+            f.reroute(map, home);
         }
         for s in soldiers {
             if let Some(f) = self.figures.get_mut(s) {
@@ -1690,10 +1691,14 @@ mod tests {
     /// west end, an archers' fort below it and, if `academy`, a military academy on
     /// the road 18 tiles east, everything staffed.
     fn barracks(academy: bool) -> Option<World> {
+        barracks_of(FORT_ARCHERS, academy)
+    }
+
+    fn barracks_of(fort: u16, academy: bool) -> Option<World> {
         use crate::world::{Command, Outcome};
         let mut w = crate::irrigation::tests::mission_world(2)?;
         w.invasions.planned.clear();
-        let mut steps = vec![Command::Road { start: (40, 70), end: (66, 70) }, Command::Build { kind: RECRUITER, x: 42, y: 71, x1: 42, y1: 71 }, Command::Build { kind: FORT_ARCHERS, x: 44, y: 75, x1: 44, y1: 75 }];
+        let mut steps = vec![Command::Road { start: (40, 70), end: (66, 70) }, Command::Build { kind: RECRUITER, x: 42, y: 71, x1: 42, y1: 71 }, Command::Build { kind: fort, x: 44, y: 75, x1: 44, y1: 75 }];
         if academy {
             steps.push(Command::Build { kind: ACADEMIES[0], x: 60, y: 71, x1: 60, y1: 71 });
         }
@@ -1775,5 +1780,80 @@ mod tests {
         c.upgrade();
         assert_eq!((c.experience, c.schooled), (ACADEMY_EXPERIENCE, true));
         assert!(!rmp_serde::to_vec_named(&c).unwrap().windows(7).any(|w| w == b"trained"));
+    }
+
+    /// Ticks until company 0 has a full company of men with it, or panics.
+    fn muster(w: &mut World) {
+        for _ in 0..400 * crate::time::TICKS_PER_DAY {
+            w.tick();
+            if w.military.companies[0].soldiers.len() == COMPANY_SIZE {
+                return;
+            }
+        }
+        panic!("company never filled: {:?}", w.military.companies[0]);
+    }
+
+    /// Every man of company 0 stands at his own place: on the field around the
+    /// standard, or on the parade ground at the fort.
+    fn assert_in_formation(w: &World, state: u16) {
+        let c = &w.military.companies[0];
+        let mut tiles = Vec::new();
+        for &s in &c.soldiers {
+            let f = w.figures.get(s).expect("soldier");
+            assert_eq!(f.action, state, "soldier {s} at {:?}", (f.x, f.y));
+            assert_eq!(Some((f.x, f.y)), w.post_of(s), "soldier {s} in slot {} stands off his place", f.slot);
+            tiles.push((f.x, f.y));
+        }
+        tiles.sort();
+        tiles.dedup();
+        assert_eq!(tiles.len(), c.soldiers.len(), "men share a tile");
+    }
+
+    #[test]
+    fn a_company_marches_off_to_a_distant_battle_and_comes_home() {
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 16 * crate::economy::LOAD);
+        muster(&mut w);
+        // A city two months away by land calls for troops against 20, due in three.
+        let route = w.trade.routes.len();
+        w.trade.routes.push(crate::trade::TradeRoute { points: vec![(0, 0), (800, 0)], step: 5, ..Default::default() });
+        w.trade.cities.push(crate::trade::TradeCity { route: route as u8, ..Default::default() });
+        let i = w.scenario_events.request_troops_now(20);
+        let due = w.month_count() + 3;
+        let e = &mut w.scenario_events.list[i];
+        e.city = Some(w.trade.cities.len() - 1);
+        e.route = route as i32;
+        e.due = Some(due);
+        assert!(!w.request_by_sea(i));
+        assert!(!w.can_send_request(i), "no company is marked");
+        w.toggle_kingdom_service(0);
+        assert!(w.can_send_request(i));
+        assert!(w.dispatch_request(i));
+        // They march out of the city and are gone; the fort sends for no recruits
+        // while they are away.
+        for _ in 0..30 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert!(w.military.companies[0].soldiers.is_empty(), "{:?}", w.military.companies[0]);
+        assert_eq!(w.company_men(0), 16);
+        assert!(!w.recruits_wanted(recruiter));
+        // Infantry count two each: 32 against 20, 37% ahead, a quarter lost.
+        assert_eq!(w.military.battle_for(i).map(|b| b.strength), Some(32));
+        for _ in 0..8 * 31 * crate::time::TICKS_PER_DAY {
+            w.tick();
+            if w.military.battles.is_empty() {
+                break;
+            }
+        }
+        assert!(w.military.battles.is_empty());
+        assert_eq!(w.scenario_events.list[i].state, crate::scenario_events::state::RECEIVED);
+        assert!(w.notices.log.iter().any(|n| n.key == "message_troops_return_victorious"));
+        // The twelve left walk back to the fort and take their places.
+        for _ in 0..30 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_eq!(w.military.companies[0].soldiers.len(), 12, "{:?}", w.military.companies[0]);
+        assert_in_formation(&w, action::AT_REST);
     }
 }
