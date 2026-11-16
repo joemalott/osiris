@@ -317,8 +317,10 @@ impl World {
                     let arrive = now + inv.warning.max(1);
                     inv.year = arrive / 12;
                     inv.month = arrive % 12;
-                } else if self.ratings.kingdom > CALL_OFF_KINGDOM {
-                    // Won back Pharaoh's favour before his army comes: it stays home.
+                }
+                // Won back Pharaoh's favour by the day his army is due: it stays
+                // home. The original asks only then (FUN_00451540).
+                if inv.year * 12 + inv.month <= now && self.ratings.kingdom > CALL_OFF_KINGDOM {
                     inv.done = true;
                     self.post("message_attack_called_off", None, true);
                     continue;
@@ -1230,6 +1232,26 @@ mod tests {
         }
         let moved: Vec<u8> = men.iter().filter_map(|&m| world.figures.get(m)).filter(|f| (f.x, f.y) != p || f.moving).map(|f| f.slot + 20 * f.band).collect();
         assert_eq!(moved, vec![0]);
+    }
+
+    #[test]
+    fn pharaoh_calls_his_army_off_only_when_it_is_due() {
+        let Some(mut world) = mission(1) else { return };
+        world.invasions.planned = vec![Invasion { invader: invader::PHARAOH, by_favour: true, warning: 3, ..Default::default() }];
+        world.ratings.kingdom = 0;
+        world.update_invasions();
+        assert!(world.invasions.planned[0].armed);
+        // Favour won back early: the army is still on its way...
+        world.ratings.kingdom = 40;
+        world.time.month += 1;
+        world.update_invasions();
+        assert!(!world.invasions.planned[0].done);
+        assert!(!world.messages.iter().any(|m| m == "message_attack_called_off"));
+        // ...and turns back on the day it is due.
+        world.time.month += 2;
+        world.update_invasions();
+        assert!(world.invasions.planned[0].done && world.invasions.armies.is_empty());
+        assert!(world.messages.iter().any(|m| m == "message_attack_called_off"));
     }
 
     #[test]
