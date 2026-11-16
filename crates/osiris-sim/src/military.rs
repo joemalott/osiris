@@ -511,9 +511,10 @@ pub fn is_soldier(k: u16) -> bool {
 /// Where each of a company's sixteen men stands relative to its standard, by the
 /// original's formation layouts: the charge's close block; the tight double line,
 /// across or turned; the loose staggered line, across or turned; and mopping up,
-/// engaging and at rest on the parade ground, each a four-by-four block (the
-/// original's layouts 0, 1-4, 6, 15 and 7).
-const LAYOUTS: [[(i8, i8); COMPANY_SIZE]; 8] = [
+/// engaging and at rest on the parade ground, each a four-by-four block; and the
+/// charioteers' tight line, across or turned, a tile between its ranks (the
+/// original's layouts 0, 1-4, 6, 15, 7, 13 and 14).
+const LAYOUTS: [[(i8, i8); COMPANY_SIZE]; 10] = [
     [(0, 0), (1, 0), (0, 1), (1, 1), (-1, 0), (-1, 1), (0, -1), (1, -1), (-1, -1), (2, -1), (2, 0), (2, 1), (0, 2), (1, 2), (-1, 2), (2, 2)],
     [(0, 0), (0, 1), (-1, 0), (1, 0), (-1, 1), (1, 1), (-2, 0), (-2, 1), (2, 0), (2, 1), (-3, 0), (-3, 1), (3, 0), (3, 1), (-4, 0), (-4, 1)],
     [(0, 0), (0, -1), (0, 1), (1, 0), (1, -1), (1, 1), (0, -2), (1, -2), (0, 2), (1, 2), (0, -3), (1, -3), (0, 3), (1, 3), (0, -4), (1, -4)],
@@ -522,13 +523,17 @@ const LAYOUTS: [[(i8, i8); COMPANY_SIZE]; 8] = [
     [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (2, 1), (1, 2), (0, 2), (2, 2), (3, 0), (3, 1), (3, 2), (1, 3), (2, 3), (0, 3), (3, 3)],
     [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (2, 1), (1, 2), (0, 2), (2, 2), (3, 0), (3, 1), (3, 2), (1, 3), (2, 3), (0, 3), (3, 3)],
     [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (2, 1), (1, 2), (0, 2), (2, 2), (3, 0), (3, 1), (3, 2), (1, 3), (2, 3), (0, 3), (3, 3)],
+    [(0, 0), (0, 2), (-1, 0), (1, 0), (-1, 2), (1, 2), (-2, 0), (-2, 2), (2, 0), (2, 2), (-3, 0), (-3, 2), (3, 0), (3, 2), (-4, 0), (-4, 2)],
+    [(0, 0), (0, -1), (0, 1), (2, 0), (2, -1), (2, 1), (0, -2), (2, -2), (0, 2), (2, 2), (0, -3), (2, -3), (0, 3), (2, 3), (0, -4), (2, -4)],
 ];
 
 /// The row of [`LAYOUTS`] a company in the field stands in: by its orders, and for
 /// the held lines by which way the line was turned when they were given.
-fn layout(order: Order, turned: bool) -> usize {
+fn layout(order: Order, turned: bool, kind: u16) -> usize {
     match order {
         Order::Charge => 0,
+        // Chariots need room: theirs is the original's 13 and 14.
+        Order::HoldTight if kind == CHARIOTEER => 8 + turned as usize,
         Order::HoldTight => 1 + turned as usize,
         Order::HoldLoose => 3 + turned as usize,
         Order::MopUp => 5,
@@ -551,8 +556,8 @@ fn alternative_tiles() -> impl Iterator<Item = (i32, i32)> {
 }
 
 /// Where a soldier stands around his company's standard.
-fn slot_offset(slot: u8, order: Order, turned: bool) -> (i32, i32) {
-    let (dx, dy) = LAYOUTS[layout(order, turned)][slot as usize % COMPANY_SIZE];
+fn slot_offset(slot: u8, order: Order, turned: bool, kind: u16) -> (i32, i32) {
+    let (dx, dy) = LAYOUTS[layout(order, turned, kind)][slot as usize % COMPANY_SIZE];
     (dx as i32, dy as i32)
 }
 
@@ -813,7 +818,7 @@ impl World {
             let g = self.buildings.get(c.ground)?;
             Some(ground_slot((g.x, g.y), f.slot))
         } else {
-            let (dx, dy) = slot_offset(f.slot, c.order, c.turned);
+            let (dx, dy) = slot_offset(f.slot, c.order, c.turned, c.kind);
             Some((c.standard_tile.0 + dx, c.standard_tile.1 + dy))
         }
     }
@@ -1930,8 +1935,11 @@ mod tests {
             // Every layout gives each man his own tile.
             assert_eq!(seen.len(), COMPANY_SIZE, "layout {i}");
         }
-        assert_eq!(slot_offset(15, Order::HoldTight, true), (1, -4));
-        assert_eq!(slot_offset(14, Order::HoldLoose, false), (8, 0));
+        assert_eq!(slot_offset(15, Order::HoldTight, true, INFANTRY), (1, -4));
+        assert_eq!(slot_offset(14, Order::HoldLoose, false, INFANTRY), (8, 0));
+        assert_eq!(slot_offset(1, Order::HoldTight, false, CHARIOTEER), (0, 2));
+        assert_eq!(slot_offset(15, Order::HoldTight, true, CHARIOTEER), (2, -4));
+        assert_eq!(slot_offset(14, Order::HoldLoose, false, CHARIOTEER), (8, 0));
     }
 
     #[test]
