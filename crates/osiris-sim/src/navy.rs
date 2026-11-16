@@ -282,6 +282,18 @@ pub struct Ship {
     pub look: i32,
 }
 
+/// The tiles sharing a side with a footprint of `size` at `(x, y)`, in the original's
+/// order (the tables at 0x5cc9e0 and 0x5cce98): the row above left to right, the
+/// column to the right top to bottom, the row below right to left, the column to the
+/// left bottom to top. The corners are not among them.
+fn side_tiles(x: i32, y: i32, size: i32) -> impl Iterator<Item = (i32, i32)> {
+    let top = (0..size).map(move |i| (i, -1));
+    let right = (0..size).map(move |i| (size, i));
+    let bottom = (0..size).rev().map(move |i| (i, size));
+    let left = (0..size).rev().map(move |i| (-1, i));
+    top.chain(right).chain(bottom).chain(left).map(move |(dx, dy)| (x + dx, y + dy))
+}
+
 fn distance(a: (i32, i32), b: (i32, i32)) -> i32 {
     (a.0 - b.0).abs().max((a.1 - b.1).abs())
 }
@@ -431,15 +443,17 @@ impl World {
         b.boat_kind = 0;
     }
 
-    /// The first tile round building `id` that is water, has no building, and has
-    /// water all round (FUN_004806c0).
-    fn launch_tile(&self, id: BuildingId) -> Option<(i32, i32)> {
+    /// The first tile beside building `id` that is water, has no building, and has
+    /// water all round (FUN_004806c0): where the shipwright puts a new boat in the
+    /// water, where a warship or transport moors at its wharf, and where a ship goes
+    /// to the shipwright for repairs.
+    pub(crate) fn launch_tile(&self, id: BuildingId) -> Option<(i32, i32)> {
         let b = self.buildings.get(id)?;
         let map = &self.map;
         let open = |x: i32, y: i32| {
             map.terrain_is(x, y, terrain::WATER | terrain::DEEPWATER) && !map.terrain_is(x, y, terrain::BUILDING) && NEIGHBOURS.iter().all(|&(dx, dy)| map.terrain_is(x + dx, y + dy, terrain::WATER))
         };
-        crate::buildings::ring(b.x, b.y, b.size).find(|&(x, y)| open(x, y))
+        side_tiles(b.x, b.y, b.size).find(|&(x, y)| open(x, y))
     }
 
     fn ship_state(&mut self, fid: FigureId) -> Option<&mut Ship> {
@@ -452,10 +466,12 @@ impl World {
         self.figures.get(fid).map_or(0, |f| (hp - f.damage.max(0)).max(0) * 100 / hp)
     }
 
-    /// Whether ship `fid` is moored at its wharf.
+    /// Whether ship `fid` is moored at its wharf: on the wharf's launch tile, which the
+    /// original checks every tick to mark the wharf's boat as in (FUN_004a7030,
+    /// 0x4a4fd0).
     pub fn ship_docked(&self, fid: FigureId) -> bool {
         let Some(f) = self.figures.get(fid) else { return false };
-        !f.moving && self.buildings.get(f.home).is_some_and(|w| crate::water::mooring_tiles(w).contains(&(f.x, f.y)))
+        !f.moving && self.launch_tile(f.home) == Some((f.x, f.y))
     }
 
     /// The transport a company is aboard, if any.
@@ -594,23 +610,20 @@ impl World {
         step
     }
 
-    /// Heads a ship for its wharf's mooring.
+    /// Heads a ship for its wharf: the wharf's launch tile (FUN_004a4770,
+    /// FUN_004a58e0).
     fn sail_home(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get(fid) else { return };
         let act = if f.kind == WARSHIP { ship::WARSHIP_HOME } else { ship::TRANSPORT_HOME };
-        let berth = self.mooring_for(f.home, (f.x, f.y));
+        let berth = self.launch_tile(f.home);
         let map = &self.map;
         let f = self.figures.get_mut(fid).expect("present");
         f.action = act;
         f.foe = 0;
-        match berth {
-            Some(t) if t != (f.x, f.y) => {
-                f.go_to(map, t);
-            }
-            _ => {
-                f.route.clear();
-                f.destination = Some((f.x, f.y));
-            }
+        // With no way there it stays where it is.
+        if !berth.is_some_and(|t| t != (f.x, f.y) && f.go_to(map, t)) {
+            f.route.clear();
+            f.destination = Some((f.x, f.y));
         }
     }
 
@@ -659,11 +672,17 @@ impl World {
             .map(|b| b.id)
     }
 
-    /// Open water beside shipwright `id` a ship at `from` can reach.
+    /// Where a ship at `from` waits for repairs at shipwright `id`: the yard's launch
+    /// tile (FUN_004a45d0), else, out of its reach, the open water beside the yard
+    /// nearest it.
     fn yard_berth(&self, id: BuildingId, from: (i32, i32)) -> Option<(i32, i32)> {
         let b = self.buildings.get(id)?;
         let reach = crate::water::reachable(&self.map, from);
         let w = self.map.width;
+        let open = |(x, y): (i32, i32)| self.map.contains(x, y) && reach[(y * w + x) as usize];
+        if let Some(t) = self.launch_tile(id).filter(|&t| open(t)) {
+            return Some(t);
+        }
         crate::buildings::ring(b.x - 1, b.y - 1, b.size + 2)
             .chain(crate::buildings::ring(b.x, b.y, b.size))
             .filter(|&(x, y)| self.map.contains(x, y) && reach[(y * w + x) as usize])
@@ -2338,7 +2357,8 @@ mod tests {
         assert_eq!(f.damage, hull / 10 * 10 * 25 / 100, "the warship takes the battle's losses");
         assert!(!f.ship.as_ref().is_some_and(|s| s.hidden || s.abroad.is_some()));
         assert_eq!(world.military.companies[c].soldiers.len(), 3, "a quarter of four lost");
-        assert_eq!(soldiers.iter().filter(|&&s| world.figures.get(s).is_some_and(|f| !f.dead)).count(), 3);
+        // (The fallen man's slot may since have gone to another figure.)
+        assert_eq!(soldiers.iter().filter(|&&s| world.figures.get(s).is_some_and(|f| !f.dead && f.kind == crate::military::ARCHER)).count(), 3);
         // The transport puts the company back ashore by its old post.
         for _ in 0..3000 {
             world.tick();
@@ -2427,5 +2447,43 @@ mod tests {
         assert!(!e.active);
         assert_eq!(e.state, crate::scenario_events::state::FAILED);
         assert!(!e.overdue, "no grace months for troops");
+    }
+
+    #[test]
+    fn a_warship_moors_by_its_wharf_sails_where_sent_and_comes_back_to_the_same_tile() {
+        let Some(mut world) = navy_town() else { return };
+        let ours = ship_at_post(&mut world, WARSHIP);
+        let f = world.figures.get(ours).expect("warship");
+        let berth = world.launch_tile(f.home).expect("berth");
+        for _ in 0..200 {
+            if world.figures.get(ours).is_some_and(|f| (f.x, f.y) == berth && !f.moving) {
+                break;
+            }
+            world.tick();
+        }
+        assert_eq!(world.figures.get(ours).map(|f| (f.x, f.y)), Some(berth));
+        assert!(world.ship_docked(ours));
+        // Sent to the far side of the river, it gets there and keeps its order.
+        let to = (200, 124);
+        assert!(world.move_ship(ours, to));
+        for _ in 0..600 {
+            world.tick();
+            if world.figures.get(ours).is_some_and(|f| (f.x, f.y) == to && !f.moving) {
+                break;
+            }
+        }
+        let f = world.figures.get(ours).expect("warship");
+        assert_eq!(((f.x, f.y), f.action), (to, ship::ENGAGE));
+        assert!(!world.ship_docked(ours));
+        // Told to go home, it comes back to the tile it was launched on.
+        assert!(world.order_ship(ours, ShipOrder::Return));
+        for _ in 0..600 {
+            world.tick();
+            if world.ship_docked(ours) {
+                break;
+            }
+        }
+        assert_eq!(world.figures.get(ours).map(|f| (f.x, f.y)), Some(berth));
+        assert!(world.ship_docked(ours));
     }
 }
