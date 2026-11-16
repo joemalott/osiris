@@ -1999,8 +1999,7 @@ mod tests {
     const SCREEN: [f32; 2] = [1024.0, 768.0];
 
     fn data() -> Option<PathBuf> {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
-        dir.is_dir().then_some(dir)
+        crate::editor::test_data()
     }
 
     /// The Kingdom map worked as a designer would, by clicks on its screen: a new

@@ -565,8 +565,7 @@ mod tests {
     }
 
     fn data() -> Option<std::path::PathBuf> {
-        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
-        dir.is_dir().then_some(dir)
+        crate::editor::test_data()
     }
 
     /// The grassland worked out again over a whole shipped map matches what the

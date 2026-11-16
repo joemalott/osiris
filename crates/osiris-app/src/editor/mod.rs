@@ -686,6 +686,15 @@ fn herd_ground(t: u32, ground: u32) -> bool {
     kind & ground != 0
 }
 
+/// The game data the editor's tests read: `$OSIRIS_TEST_DATA`, else `PharaohData` at
+/// the top of the checkout; `None` (the tests pass without checking) when neither is
+/// there.
+#[cfg(test)]
+pub(crate) fn test_data() -> Option<PathBuf> {
+    let dir = std::env::var_os("OSIRIS_TEST_DATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData"));
+    dir.is_dir().then_some(dir)
+}
+
 /// Every `.map` the editor offers: the game's own, then the player's.
 pub fn list_maps(data: &Path, maps_dir: &Path) -> Vec<PathBuf> {
     let mut v = crate::list_files(&data.join("Maps"), "map");
@@ -698,8 +707,7 @@ mod tests {
     use super::*;
 
     fn data() -> Option<PathBuf> {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
-        dir.is_dir().then_some(dir)
+        test_data()
     }
 
     fn editor(data: &Path, map: &str) -> Editor {
