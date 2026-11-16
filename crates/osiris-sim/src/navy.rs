@@ -1605,24 +1605,29 @@ impl World {
         }
     }
 
-    /// An enemy ship going home: to the river entry, then on to the river exit, where
-    /// it is gone.
+    /// An enemy transport, its men put ashore, sails for the river exit and is gone
+    /// there (FUN_004ad350). Coming to rest anywhere else, it makes for the river
+    /// entry, and from the entry for the exit (FUN_004adc80); with no way on, it is
+    /// gone.
     fn leave_by_river(&mut self, fid: FigureId) {
         let (entry, exit) = (self.river_entry(), self.river_exit());
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return };
         let Some(s) = f.ship.as_deref_mut() else { return };
-        let leg = s.leg;
-        s.leg = leg.saturating_add(1);
-        let to = match leg {
-            0 => entry.or(exit),
-            1 => exit,
-            _ => None,
+        let first = s.leg == 0;
+        s.leg = s.leg.saturating_add(1);
+        let here = (f.x, f.y);
+        let to = if exit == Some(here) {
+            None
+        } else if entry == Some(here) {
+            exit
+        } else if first {
+            exit.or(entry)
+        } else {
+            entry.or(exit)
         };
-        match to {
-            Some(t) if t != (f.x, f.y) && f.go_to(map, t) => {}
-            _ if leg == 0 && exit.is_some() => self.leave_by_river(fid),
-            _ => f.dead = true,
+        if !to.is_some_and(|t| t != here && f.go_to(map, t)) {
+            f.dead = true;
         }
     }
 
@@ -2508,5 +2513,46 @@ mod tests {
         }
         assert_eq!(world.figures.get(ours).map(|f| (f.x, f.y)), Some(berth));
         assert!(world.ship_docked(ours));
+    }
+    /// An enemy ship that stays where it is put, waiting to set out.
+    fn moored_enemy(world: &mut World, kind: u16, at: (i32, i32), men: i32) -> FigureId {
+        // A nation with ships of its own.
+        let afloat = |r: usize| world.balance.enemy_units.get(r).is_some_and(|u| u.hp > 0);
+        let nation = world.defs.armies.iter().position(|a| a.stats_row.is_some_and(|r| afloat(r + 3) && afloat(r + 4))).expect("a nation") as u16;
+        let fid = world.figures.spawn(kind, at.0, at.1, Travel::Water);
+        let f = world.figures.get_mut(fid).expect("enemy");
+        f.action = ship::LAUNCHED;
+        f.counter = 1_000_000;
+        f.speed = 2;
+        f.cargo = nation;
+        f.amount = men;
+        f.ship = Some(Box::default());
+        fid
+    }
+    #[test]
+    fn an_enemy_transport_lands_its_men_then_leaves_by_the_river_exit() {
+        let Some(mut world) = navy_town() else { return };
+        let exit = world.river_exit().expect("exit");
+        let entry = world.river_entry().expect("entry");
+        let t = moored_enemy(&mut world, ENEMY_TRANSPORT, entry, 4);
+        let f = world.figures.get_mut(t).expect("transport");
+        f.counter = 1;
+        f.formation = 1000;
+        f.ship.as_deref_mut().expect("ship").landing = Some((190, 113));
+        let mut last = entry;
+        let mut landed = false;
+        for _ in 0..(80 * crate::time::TICKS_PER_DAY) {
+            world.tick();
+            match world.figures.get(t) {
+                Some(f) if !f.dead => {
+                    last = (f.x, f.y);
+                    landed |= f.amount == 0;
+                }
+                _ => break,
+            }
+        }
+        assert!(landed, "it put its men ashore");
+        assert!(world.figures.get(t).is_none_or(|f| f.dead), "it is gone");
+        assert_eq!(last, exit, "gone by the exit");
     }
 }
