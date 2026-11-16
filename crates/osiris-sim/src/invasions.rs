@@ -79,6 +79,12 @@ fn formation_sizes(men: i32) -> Vec<i32> {
     }
 }
 
+/// Ticks the `j`th man of the `k`th formation an army brings onto the field at once
+/// stands before he moves off (FUN_00446a30 and FUN_004ad4c0 set his +0x36 count).
+fn entry_wait(j: i32, k: i32) -> u16 {
+    (10 * (j + 1 + 20 * k)).clamp(0, u16::MAX as i32) as u16
+}
+
 /// Whether an invader looking for a building to attack counts `(x, y)` as ground he
 /// can cross on the way, walls and buildings included (he batters through them): the
 /// original's "through everything" search over its non-citizen route grid
@@ -406,10 +412,11 @@ impl World {
 
     /// Puts `men` of army `army` on the field at `spot`: its arms as `arm_counts`
     /// has them, infantry, archers and chariots in that order, each arm in formations
-    /// as the original raises them, as many as there are free slots for.
+    /// as the original raises them, as many as there are free slots for. They come
+    /// in a man at a time: the `j`th man of the `k`th formation raised here stands
+    /// 10 * (j + 1 + 20k) ticks before he moves off (FUN_00446a30, FUN_004ad4c0).
     pub(crate) fn put_ashore(&mut self, army: usize, nation: u16, men: i32, spot: (i32, i32)) {
-        let first = self.invasions.armies.get(army).map_or(0, |a| a.figures.len() as i32);
-        let mut n = first;
+        let mut raised = 0;
         for (k, count) in self.arm_counts(army, nation, men) {
             for size in formation_sizes(count) {
                 if self.enemy_formations() >= ENEMY_FORMATION_SLOTS {
@@ -421,20 +428,21 @@ impl World {
                 }) else {
                     return;
                 };
-                for _ in 0..size {
+                for j in 0..size {
                     let fid = self.figures.spawn(k, spot.0, spot.1, Travel::Hostile);
                     if let Some(f) = self.figures.get_mut(fid) {
                         f.cargo = nation;
                         f.formation = 1000 + army as u16;
-                        f.slot = (n % 16) as u8;
+                        f.slot = j as u8;
                         f.band = band;
                         f.action = 1;
+                        f.wait = entry_wait(j, raised);
                     }
                     if let Some(a) = self.invasions.armies.get_mut(army) {
                         a.figures.push(fid);
                     }
-                    n += 1;
                 }
+                raised += 1;
             }
         }
     }
@@ -832,6 +840,13 @@ impl World {
         if self.figures.get(fid).is_some_and(|f| f.action == action::ATTACK) {
             return;
         }
+        // Newly come, he stands his turn before moving off.
+        if let Some(f) = self.figures.get_mut(fid)
+            && f.wait > 0
+        {
+            f.wait -= 1;
+            return;
+        }
         let army = self.figures.get(fid).map_or(0, |f| f.formation.saturating_sub(1000)) as usize;
         // Soldiers close by draw them off, those not already beset by two first.
         let near = self.nearest_open_foe(true, (x, y), CHASE_RANGE).or_else(|| self.nearest_foe(true, (x, y), CHASE_RANGE)).map(|o| (o.1, o.2));
@@ -1093,7 +1108,7 @@ mod tests {
         world.invasions.armies[army].figures.truncate(1);
         world.invasions.armies[army].target = well;
         let f = world.figures.get_mut(men[0]).expect("man");
-        (f.x, f.y, f.action) = (x - 1, y, 1);
+        (f.x, f.y, f.action, f.wait) = (x - 1, y, 1, 0);
         f.route.clear();
         // A blow every 4 ticks; the 11th brings it down (FUN_004b3530).
         let mut ticks = 0;
@@ -1133,6 +1148,33 @@ mod tests {
         for (k, c) in counts {
             assert_eq!(kinds.iter().filter(|&&f| f == k).count() as i32, c, "nation {n} {counts:?} {kinds:?}");
         }
+    }
+
+    #[test]
+    fn invaders_move_off_a_man_at_a_time() {
+        let Some(mut world) = mission(1) else { return };
+        let p = well_and_open_ground(&mut world);
+        world.invasions.land_points = vec![p];
+        world.invasions.sea_points.clear();
+        world.invade_now(invader::BEDOUIN, 40, 1);
+        let men = world.invasions.armies[0].figures.clone();
+        // Two formations of 20 Bedouin: 10, 20, ... ticks for the first, 210, 220, ...
+        // for the second (FUN_00446a30).
+        let waits: Vec<(u8, u8, u16)> = men.iter().filter_map(|&m| world.figures.get(m)).map(|f| (f.band, f.slot, f.wait)).collect();
+        let n = waits.iter().filter(|w| w.0 == 0).count();
+        assert!(n > 0 && n < waits.len(), "{waits:?}");
+        for &(band, slot, wait) in &waits {
+            assert_eq!(wait as i32, 10 * (slot as i32 + 1 + 20 * band as i32), "{waits:?}");
+        }
+        // Only the first man has left the spot after 15 ticks.
+        for _ in 0..15 {
+            world.gather_combatants();
+            for &m in &men {
+                world.update_invader(m);
+            }
+        }
+        let moved: Vec<u8> = men.iter().filter_map(|&m| world.figures.get(m)).filter(|f| (f.x, f.y) != p || f.moving).map(|f| f.slot + 20 * f.band).collect();
+        assert_eq!(moved, vec![0]);
     }
 
     #[test]
