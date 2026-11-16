@@ -207,6 +207,21 @@ impl Advisors {
         self.scroll = (self.scroll as i32 + lines).max(0) as usize;
     }
 
+    /// The notice popup open (its title and text lines in group 5), and whether the
+    /// military overseer shows the navy, for tests.
+    #[cfg(test)]
+    pub fn notice(&self) -> Option<(usize, usize)> {
+        match self.popup {
+            Some(Popup::Notice(t, l)) => Some((t, l)),
+            _ => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn navy_page(&self) -> bool {
+        self.navy
+    }
+
     /// Right-click: closes a popup, or the overseers.
     pub fn back(&mut self) -> bool {
         self.popup.take().is_none()
@@ -238,6 +253,8 @@ impl Advisors {
         let button_y = ((screen[1] + 418.0) / 2.0).floor();
         ui.image(img.strip, strip_x, strip_y);
         let mut switch_to = None;
+        // Set when "Dispatch now" found more than one call to answer.
+        let mut choose_call = false;
         for (i, &(a, x, w)) in STRIP.iter().enumerate() {
             let rect = [strip_x + x, button_y, w, 32.0];
             let id = img.buttons + 4 * i as u32;
@@ -294,6 +311,7 @@ impl Advisors {
                 // Overseer, and a word to choose there (0x40a4ce).
                 if several {
                     switch_to = Some(Advisor::Political);
+                    choose_call = true;
                 }
                 page
             }
@@ -338,9 +356,8 @@ impl Advisors {
             }
         }
         if let Some(a) = switch_to {
-            let several = self.current == Advisor::Military && a == Advisor::Political;
             self.current = a;
-            self.popup = several.then_some(Popup::Notice(102, 103));
+            self.popup = choose_call.then_some(Popup::Notice(102, 103));
             self.scroll = 0;
         }
         action
@@ -1559,6 +1576,11 @@ fn popup_line(ui: &mut Ui, line: &str, x: f32, y: f32, w: f32) {
     }
 }
 
+/// The military pages' "Dispatch now" button and the army/navy switch, from the
+/// overseer panel's corner.
+pub const DISPATCH: [f32; 4] = [545.0, 35.0, 75.0, 35.0];
+pub const ARMY_NAVY: [f32; 4] = [532.0, 347.0, 80.0, 48.0];
+
 /// The "Dispatch now" button both military pages show while something at home is
 /// marked for Kingdom service (0x40a450). It sends the marked troops to the first
 /// open call by land and the first by sea, each if something marked can go that
@@ -1596,7 +1618,7 @@ fn service_heading(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], marked: b
         }
         return false;
     }
-    let rect = [px + 545.0, py + 35.0, 75.0, 35.0];
+    let rect = [px + DISPATCH[0], py + DISPATCH[1], DISPATCH[2], DISPATCH[3]];
     let hot = ui.hot(rect);
     panel::button_border(ui.r, ui.panels, rect[0], rect[1], 75, 35, hot);
     for (id, y) in [(30, 40.0), (31, 54.0)] {
@@ -1611,12 +1633,33 @@ fn service_heading(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], marked: b
 /// page, the army's on the navy page; its hit box at 0x5c4ec8 and 0x5c50f8, 80x48
 /// at 532,347). True if clicked.
 fn army_navy_switch(ui: &mut Ui, [px, py]: [f32; 2], navy: bool) -> bool {
-    let rect = [px + 532.0, py + 347.0, 80.0, 48.0];
+    let rect = [px + ARMY_NAVY[0], py + ARMY_NAVY[1], ARMY_NAVY[2], ARMY_NAVY[3]];
     let image = ui.r.library.group_id("Pharaoh_General", 4, 0).unwrap_or(0) + u32::from(!navy);
     ui.image(image, rect[0], rect[1]);
     let hot = ui.hot(rect);
     panel::button_border(ui.r, ui.panels, rect[0], rect[1], 80, 48, hot);
     ui.clicked(rect)
+}
+
+/// What the scouts report of threats to the city, on both military pages (text
+/// group 51; FUN_00522e10 and the army page): soldiers of Pharaoh or another
+/// Egyptian city in the city (11, the count at 0xea5eb4), foreign soldiers or
+/// warships (10, the enemies-present count at 0xea5ea4, to which an enemy warship
+/// adds), an invasion announced (9), or none (8).
+fn threat_line(world: &World) -> usize {
+    use osiris_sim::invasions::{invader, is_invader_kind};
+    let alive = |id: osiris_sim::figures::FigureId| world.figures.get(id).is_some_and(|f| !f.dead && f.action != osiris_sim::military::action::CORPSE);
+    let egyptian: Vec<osiris_sim::figures::FigureId> = world.invasions.armies.iter().filter(|a| matches!(a.invader, invader::EGYPT | invader::PHARAOH)).flat_map(|a| a.figures.iter().copied()).filter(|&id| alive(id)).collect();
+    let foreign = world.figures.iter().any(|f| (is_invader_kind(f.kind) && !egyptian.contains(&f.id) || f.kind == osiris_sim::navy::ENEMY_WARSHIP) && alive(f.id));
+    if !egyptian.is_empty() {
+        11
+    } else if foreign {
+        10
+    } else if world.invasions.planned.iter().any(|p| p.announced && !p.done) {
+        9
+    } else {
+        8
+    }
 }
 
 /// What the scouts report about the Kingdom's calls for troops, army and navy
@@ -1644,6 +1687,25 @@ fn kingdom_call_line(world: &World) -> usize {
     } else {
         12
     }
+}
+
+/// A warship row's button on the navy page, by column: go to it, back to its wharf,
+/// Kingdom service; 30 pixels square at x 440, 500 and 560, the rows 44 apart from
+/// y 83 (FUN_00522e10).
+pub fn navy_button([px, py]: [f32; 2], row: usize, col: usize) -> [f32; 4] {
+    [px + 440.0 + 60.0 * col as f32, py + 83.0 + 44.0 * row as f32, 30.0, 30.0]
+}
+
+/// The overseer panel's corner on a screen of size `screen`.
+pub fn panel_origin(screen: [f32; 2]) -> [f32; 2] {
+    Advisors::panel_origin(screen)
+}
+
+/// The middle of overseer `a`'s button on the strip under the panel, for tests.
+#[cfg(test)]
+pub fn strip_button_centre(screen: [f32; 2], a: Advisor) -> [f32; 2] {
+    let &(_, x, w) = STRIP.iter().find(|s| s.0 == a).expect("on the strip");
+    [((screen[0] - 640.0) / 2.0).floor() + x + w / 2.0, ((screen[1] + 418.0) / 2.0).floor() + 16.0]
 }
 
 /// The navy's page (FUN_00520ea0 case 3, its buttons FUN_00523bb0): a row for each
@@ -1707,15 +1769,15 @@ fn navy(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], several: &mut bool, 
             ui.label(Font::NormalBlackOnDark, &away, px + 500.0, ry + 4.0);
             continue;
         }
-        let bx = |x: f32| [px + x, ry + 1.0, 30.0, 30.0];
-        let go = bx(440.0);
+        let bx = |col: usize| navy_button([px, py], row, col);
+        let go = bx(0);
         let hot = ui.hot(go);
         panel::button_border(ui.r, ui.panels, go[0], go[1], 30, 30, hot);
         ui.image(buttons, go[0] + 3.0, go[1] + 3.0);
         if ui.clicked(go) {
             action = Some(AdvisorAction::GoToShip(s));
         }
-        let back = bx(500.0);
+        let back = bx(1);
         let hot = ui.hot(back);
         let docked = world.ship_docked(s);
         panel::button_border(ui.r, ui.panels, back[0], back[1], 30, 30, hot);
@@ -1723,11 +1785,17 @@ fn navy(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], several: &mut bool, 
         if ui.clicked(back) && !docked {
             world.apply(&Command::ShipOrder { ship: s, order: ShipOrder::Return });
         }
-        // The mark lights up only while a city by sea is calling for troops.
-        let service = bx(560.0);
+        // The mark lights up only while a city by sea is calling for troops; with no
+        // such call it shows its greyed picture, and a mark left from a call since
+        // closed is taken off as the page is drawn (FUN_00522e10).
+        let service = bx(2);
         let hot = sea_call && ui.hot(service);
         panel::button_border(ui.r, ui.panels, service[0], service[1], 30, 30, hot);
-        ui.image(buttons + if st.service { 3 } else { 4 }, service[0] + 3.0, service[1] + 3.0);
+        if !sea_call && st.service {
+            world.apply(&Command::ShipService(s));
+        }
+        let mark = if !sea_call { 5 } else if st.service { 3 } else { 4 };
+        ui.image(buttons + mark, service[0] + 3.0, service[1] + 3.0);
         if ui.clicked(service) {
             // Refused, it says why (0x40a600).
             let refusal = world.service_refusal(true);
@@ -1747,9 +1815,7 @@ fn navy(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], several: &mut bool, 
         }
         lines.push((348.0, fleet));
     }
-    let invaders = world.figures.iter().any(|f| osiris_sim::invasions::is_invader_kind(f.kind));
-    let coming = world.invasions.planned.iter().any(|p| p.announced && !p.done);
-    let threat = ui.t(G, if invaders { 10 } else if coming { 9 } else { 8 });
+    let threat = ui.t(G, threat_line(world));
     lines.push((if warships.is_empty() { 358.0 } else { 368.0 }, threat));
     let call = ui.t(G, kingdom_call_line(world));
     lines.push((388.0, call));
@@ -1849,9 +1915,7 @@ fn military(ui: &mut Ui, world: &mut World, [px, py]: [f32; 2], several: &mut bo
         let n = companies.len();
         lines.push((348.0, format!("{soldiers} {} {} {n} {}", ui.t(8, if soldiers == 1 { 46 } else { 47 }), ui.t(G, 7), ui.t(8, if n == 1 { 48 } else { 49 }))));
     }
-    let invaders = world.figures.iter().any(|f| osiris_sim::invasions::is_invader_kind(f.kind));
-    let coming = world.invasions.planned.iter().any(|p| p.announced && !p.done);
-    let threat = ui.t(G, if invaders { 10 } else if coming { 9 } else { 8 });
+    let threat = ui.t(G, threat_line(world));
     lines.push((if companies.is_empty() { 358.0 } else { 368.0 }, threat));
     let abroad = ui.t(G, kingdom_call_line(world));
     lines.push((388.0, abroad));
