@@ -32,8 +32,9 @@ pub mod invader {
     pub const BEDOUIN: u8 = 4;
 }
 
-/// Damage a building takes before invaders bring it down.
-const BUILDING_HP: i32 = 1000;
+/// Blows a building other than the defences takes before invaders bring it down:
+/// it falls to the 11th (FUN_004b3530 with 10, FUN_004690f0).
+const BUILDING_BLOWS: i32 = 10;
 /// Tiles within which invaders turn on soldiers.
 const CHASE_RANGE: i32 = 5;
 /// Months before arrival when reminders come.
@@ -872,16 +873,18 @@ impl World {
             f.moving = false;
             f.route.clear();
             f.attack_tick += 1;
-            // The defences take a blow every 4 ticks and fall once past their count.
+            // Every building takes a blow every 4 ticks, whoever strikes it, and
+            // falls once past its count: 10 for most, 200 for a wall, 400 for a tower
+            // or gatehouse (FUN_004b3530). (The original counts blows by the tile
+            // struck; Osiris by the building.)
             let hp = crate::defenses::hit_points(b.kind);
-            if f.attack_tick < if hp.is_some() { 4 } else { 24 } {
+            if f.attack_tick < 4 {
                 return;
             }
             f.attack_tick = 0;
-            let attack = if hp.is_some() { 1 } else { self.fighter_stats(fid).attack.max(1) };
             let Some(b) = self.buildings.get_mut(target) else { return };
-            b.enemy_damage += attack;
-            if b.enemy_damage > hp.unwrap_or(BUILDING_HP) {
+            b.enemy_damage += 1;
+            if b.enemy_damage > hp.unwrap_or(BUILDING_BLOWS) {
                 // Walls crumble; everything else is put to the torch.
                 if crate::defenses::is_defense(b.kind) {
                     self.wreck(target, false);
@@ -1078,6 +1081,35 @@ mod tests {
         }
         let found = world.nearest_reachable_building((x - 5, y));
         assert_eq!(found, Some((well, (x - 1, y))));
+    }
+
+    #[test]
+    fn an_invader_brings_a_building_down_with_eleven_blows() {
+        let Some(mut world) = mission(1) else { return };
+        world.rules.fire = false;
+        let (w, h) = (world.map.width, world.map.height);
+        let clear = |world: &World, x: i32, y: i32| (x - 2..=x).all(|xx| world.can_place(kind::WELL, xx, y).is_ok());
+        let (x, y) = (6..h - 1).flat_map(|y| (6..w - 1).map(move |x| (x, y))).find(|&(x, y)| clear(&world, x, y)).expect("open ground");
+        assert!(matches!(world.apply(&crate::world::Command::Build { kind: kind::WELL, x, y, x1: x, y1: y }), crate::world::Outcome::Done { .. }));
+        let well = world.map.building.at_or(x, y, 0);
+        world.invade_now(invader::BEDOUIN, 1, 1);
+        let army = world.invasions.armies.len() - 1;
+        let men = world.invasions.armies[army].figures.clone();
+        for &m in &men[1..] {
+            world.figures.get_mut(m).expect("man").dead = true;
+        }
+        world.invasions.armies[army].figures.truncate(1);
+        world.invasions.armies[army].target = well;
+        let f = world.figures.get_mut(men[0]).expect("man");
+        (f.x, f.y, f.action) = (x - 1, y, 1);
+        f.route.clear();
+        // A blow every 4 ticks; the 11th brings it down (FUN_004b3530).
+        let mut ticks = 0;
+        while world.buildings.get(well).is_some_and(|b| b.kind == kind::WELL) && ticks < 400 {
+            world.update_invader(men[0]);
+            ticks += 1;
+        }
+        assert_eq!(ticks, 44);
     }
 
     #[test]
