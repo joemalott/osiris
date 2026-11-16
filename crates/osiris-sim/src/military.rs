@@ -578,6 +578,62 @@ fn slot_offset(slot: u8, order: Order, turned: bool, kind: u16) -> (i32, i32) {
     (dx as i32, dy as i32)
 }
 
+/// Whether a missile loosed from tile `from` gets to tile `to` (FUN_004b4420): the
+/// line between the tiles' corners is walked in fifteenths of a tile, eight steps at
+/// a time, and the tile reached after each eight must not be a tree, a wall, a
+/// gatehouse or a building bigger than one tile. From a wall or gatehouse the first
+/// six looks (about three tiles) don't count, so men on the walls shoot over them.
+pub(crate) fn line_of_sight(map: &crate::map::Map, from: (i32, i32), to: (i32, i32)) -> bool {
+    use crate::map::terrain::{BUILDING, GATEHOUSE, TREE, WALL};
+    let mut over = if map.terrain_is(from.0, from.1, WALL | GATEHOUSE) { 6 } else { 0 };
+    let (mut x, mut y) = (from.0 * 15, from.1 * 15);
+    let (tx, ty) = (to.0 * 15, to.1 * 15);
+    let (mut dx, mut dy) = ((tx - x).abs(), (ty - y).abs());
+    // The long way is walked a step at a time, the other when the error says.
+    let along_y = dx < dy;
+    let mut err = if dx < dy {
+        2 * dx - dy
+    } else if dy < dx {
+        2 * dy - dx
+    } else {
+        0
+    };
+    for _ in 0..1000 {
+        for _ in 0..8 {
+            if dx + dy < 1 {
+                return true;
+            }
+            if along_y {
+                err += if err < 0 { 2 * dx } else { 2 * (dx - dy) };
+                dy -= 1;
+                y += (ty - y).signum();
+                if err >= 0 {
+                    dx -= 1;
+                    x += (tx - x).signum();
+                }
+            } else {
+                err += if err < 0 { 2 * dy } else { 2 * (dy - dx) };
+                dx -= 1;
+                x += (tx - x).signum();
+                if err >= 0 {
+                    dy -= 1;
+                    y += (ty - y).signum();
+                }
+            }
+        }
+        let (cx, cy) = (x / 15, y / 15);
+        if over > 0 {
+            over -= 1;
+            continue;
+        }
+        let t = map.terrain.at_or(cx, cy, 0);
+        if t & (TREE | WALL | GATEHOUSE) != 0 || t & BUILDING != 0 && map.bitfields.at_or(cx, cy, 0) & 0x0f != 0 {
+            return false;
+        }
+    }
+    false
+}
+
 /// A soldier's place on the parade ground at rest.
 fn ground_slot(ground: (i32, i32), slot: u8) -> (i32, i32) {
     let (dx, dy) = LAYOUTS[7][slot as usize % COMPANY_SIZE];
@@ -1231,7 +1287,9 @@ impl World {
         self.foes(invader)
             .filter(|&&(_, ox, oy)| (ox - x).abs() <= range && (oy - y).abs() <= range)
             .filter(|&&(id, _, _)| self.figures.get(id).is_some_and(|o| !o.dead && o.action != action::CORPSE))
-            .min_by_key(|&&(_, ox, oy)| (ox - x).abs() + (oy - y).abs())
+            // The distance the longer way, and of those as near the first by figure
+            // number (FUN_004999e0).
+            .min_by_key(|&&(id, ox, oy)| ((ox - x).abs().max((oy - y).abs()), id))
             .copied()
     }
 
@@ -1277,7 +1335,9 @@ impl World {
             .filter(|&&(_, ox, oy)| (ox - x).abs() <= range && (oy - y).abs() <= range)
             .filter(|&&(id, _, _)| self.figures.get(id).is_some_and(|o| !o.dead && o.action != action::CORPSE))
             .filter(|&&(id, _, _)| self.attackers(id) < 2 && !self.riding(id))
-            .min_by_key(|&&(_, ox, oy)| (ox - x).abs() + (oy - y).abs())
+            // The distance the longer way, and of those as near the first by figure
+            // number (FUN_004999e0).
+            .min_by_key(|&&(id, ox, oy)| ((ox - x).abs().max((oy - y).abs()), id))
             .copied()
     }
 
@@ -1348,19 +1408,37 @@ impl World {
     /// tiles; when none is left, he stands where he is.
     fn chase(&mut self, fid: FigureId, reach: i32) {
         let Some(f) = self.figures.get(fid) else { return };
-        let (x, y) = (f.x, f.y);
-        let mut target = self.nearest_foe(false, (x, y), reach).map(|o| (o.1, o.2));
+        let (x, y, kind, foe) = (f.x, f.y, f.kind, f.foe);
+        // He keeps after the one he picked while it stands.
+        let kept = (f.action == action::CHASING).then_some(foe).filter(|&o| self.figures.get(o).is_some_and(|o| !o.dead && o.action != action::CORPSE && self.foe_of_the_city(o)));
+        let mut target = kept.or_else(|| self.seek_foe(fid, reach)).and_then(|o| self.figures.get(o).map(|o| (o.id, (o.x, o.y))));
         // Engaging, a man goes no further than six tiles from his place before he
         // turns back to it (state 0x14 at 0x48e9e0).
         let engaging = self.company_of(fid).and_then(|c| self.military.companies.get(c)).is_some_and(|c| c.order == Order::Engage);
         if engaging && self.post_of(fid).is_some_and(|p| (p.0 - x).abs().max((p.1 - y).abs()) >= ENGAGE_LEASH) {
             target = None;
         }
+        // An archer or charioteer near enough to loose at it stands and does.
+        let range = self.fighter_stats(fid).missile_range;
+        if let Some((id, to)) = target
+            && matches!(kind, ARCHER | CHARIOTEER)
+            && (to.0 - x).abs().max((to.1 - y).abs()) < range
+            && self.figures.get(fid).is_some_and(|f| !f.moving)
+        {
+            let f = self.figures.get_mut(fid).expect("present");
+            f.route.clear();
+            f.destination = Some((x, y));
+            f.post = None;
+            f.foe = id;
+            f.action = action::CHASING;
+            self.shoot_at_foes(fid);
+            return;
+        }
         let map = &self.map;
         let f = self.figures.get_mut(fid).expect("present");
         // One he can't get at (a beast across the water, say) he leaves be, and goes
         // back to his place, as the original's man whose route fails does.
-        if let Some(to) = target
+        if let Some((_, to)) = target
             && !f.moving
             && f.destination != Some(to)
         {
@@ -1374,8 +1452,9 @@ impl World {
             }
         }
         match target {
-            Some(_) => {
+            Some((id, _)) => {
                 f.action = action::CHASING;
+                f.foe = id;
                 f.walk(map);
             }
             // Nothing left to go after: he finishes his step and stands, to take his
@@ -1383,10 +1462,50 @@ impl World {
             None if f.action == action::CHASING => {
                 f.route.clear();
                 f.destination = Some(f.step_end());
+                f.foe = 0;
                 f.action = action::GOING_TO_STANDARD;
             }
             None => {}
         }
+    }
+
+    /// Whether the city's men go after a figure: an invader, or a wild beast about.
+    fn foe_of_the_city(&self, o: &crate::figures::Figure) -> bool {
+        self.is_invader(o) || crate::predators::is_predator(o.kind) && o.action != crate::predators::action::HIDDEN
+    }
+
+    /// The enemy a soldier sent after them picks within `reach` tiles (states 0x14
+    /// and 0xe of 0x48e9e0). An archer or charioteer takes the mark he would loose
+    /// at, looking `reach` tiles beyond his missile range (FUN_00499b50). An
+    /// infantryman takes the nearest invader or beast, the distance taken the
+    /// longer way, one whom another of the city's men is already after counting as
+    /// twice as far, and of those as near the first by figure number (FUN_004999e0).
+    fn seek_foe(&self, fid: FigureId, reach: i32) -> Option<FigureId> {
+        let f = self.figures.get(fid)?;
+        let (x, y) = (f.x, f.y);
+        if matches!(f.kind, ARCHER | CHARIOTEER) {
+            let range = self.fighter_stats(fid).missile_range;
+            return self.missile_target((x, y), range + reach, false).map(|t| t.0);
+        }
+        let mut foes: Vec<(FigureId, i32, i32)> = self.combatants.invaders.iter().chain(&self.combatants.predators).copied().collect();
+        foes.sort_unstable_by_key(|o| o.0);
+        let wanted = |id: FigureId| self.combatants.defenders.iter().any(|&(d, _, _)| d != fid && self.figures.get(d).is_some_and(|a| a.foe == id && matches!(a.action, action::CHASING | action::ATTACK)));
+        let mut best = None;
+        let mut near = i32::MAX;
+        for (id, ox, oy) in foes {
+            if self.figures.get(id).is_none_or(|o| o.dead || o.action == action::CORPSE) {
+                continue;
+            }
+            let d = (ox - x).abs().max((oy - y).abs());
+            if d > reach {
+                continue;
+            }
+            let d = if wanted(id) { 2 * d } else { d };
+            if d < near {
+                (best, near) = (Some(id), d);
+            }
+        }
+        best
     }
 
     /// A charging chariot comes onto `tile`: the first enemy there takes its attack,
@@ -1542,14 +1661,62 @@ impl World {
         true
     }
 
-    /// The nearest of the city's ships afloat and in sight within `range` of `at`.
-    fn nearest_city_ship(&self, (x, y): (i32, i32), range: i32) -> Option<(FigureId, i32, i32)> {
-        self.figures
-            .iter()
-            .filter(|o| (crate::navy::is_city_ship(o.kind) || o.kind == crate::fishing::FISHING_BOAT) && !o.dead && o.action != action::CORPSE && !o.ship.as_ref().is_some_and(|s| s.hidden))
-            .filter(|o| (o.x - x).abs() <= range && (o.y - y).abs() <= range)
-            .min_by_key(|o| ((o.x - x).abs() + (o.y - y).abs(), o.id))
-            .map(|o| (o.id, o.x, o.y))
+    /// What a figure is worth as a mark for one of the city's archers or charioteers
+    /// (FUN_00499b50): invaders 50, an enemy transport with troops aboard 40 and an
+    /// empty one 20, an enemy warship 30, a wild beast 10. None for anyone else.
+    fn city_mark(&self, o: &crate::figures::Figure) -> Option<i32> {
+        use crate::navy::{EGYPT_TRANSPORT, EGYPT_WARSHIP, ENEMY_TRANSPORT, ENEMY_WARSHIP};
+        if o.ship.as_ref().is_some_and(|s| s.hidden) {
+            return None;
+        }
+        match o.kind {
+            k if crate::invasions::is_invader_kind(k) => Some(50),
+            ENEMY_TRANSPORT | EGYPT_TRANSPORT => Some(if o.amount > 0 { 40 } else { 20 }),
+            ENEMY_WARSHIP | EGYPT_WARSHIP => Some(30),
+            k if crate::predators::is_predator(k) && o.action != crate::predators::action::HIDDEN => Some(10),
+            _ => None,
+        }
+    }
+
+    /// What a figure is worth as a mark for an invading archer (FUN_00499e50), and
+    /// how much farther off it counts: the city's soldiers and tower sentries 50, a
+    /// transport with a company aboard 40 and an empty one 20, a warship 30; and
+    /// while the city has fewer than four soldiers, anyone else of the city's at 10,
+    /// counted five tiles farther. Never invaders, beasts, game, missiles,
+    /// standards and the like.
+    fn invader_mark(&self, o: &crate::figures::Figure, few_soldiers: bool) -> Option<(i32, i32)> {
+        use crate::navy::{TRANSPORT, WARSHIP};
+        if o.ship.as_ref().is_some_and(|s| s.hidden) || o.action == action::ABOARD {
+            return None;
+        }
+        match o.kind {
+            // (The original's figure 62 too, which Osiris has none of.)
+            ARCHER | CHARIOTEER | INFANTRY | crate::defenses::TOWER_SENTRY | 62 => Some((50, 0)),
+            TRANSPORT => Some((if o.ship.as_ref().is_some_and(|s| s.aboard.is_some()) { 40 } else { 20 }, 0)),
+            WARSHIP => Some((30, 0)),
+            0 | 6 | 14 | 36 | 37 | 41 | 43..=45 | 54..=56 | 58..=61 | 63 | 65 | 67 | 68 | 70 | 71 | 82..=84 | 86 | 92 | 93 | 95 | 97 | 99..=104 | 109 => None,
+            _ => few_soldiers.then_some((10, 5)),
+        }
+    }
+
+    /// The mark an archer at `at` looses at, the city's (`invader` false) or an
+    /// invader's: going through the figures in order, one worth more than the mark
+    /// so far and nearer than it, within `range` and in sight, takes its place
+    /// (FUN_00499b50, FUN_00499e50). So the first of the best kind found is kept even
+    /// if another of that kind is nearer, and a better mark farther off than a
+    /// lesser one is passed over.
+    fn missile_target(&self, at: (i32, i32), range: i32, invader: bool) -> Option<(FigureId, i32, i32)> {
+        let few_soldiers = invader && self.figures.iter().filter(|o| is_soldier(o.kind) && !o.dead).count() < 4;
+        let (mut best, mut worth, mut near) = (None, 0, range);
+        for o in self.figures.iter().filter(|o| !o.dead && o.action != action::CORPSE) {
+            let mark = if invader { self.invader_mark(o, few_soldiers) } else { self.city_mark(o).map(|w| (w, 0)) };
+            let Some((w, farther)) = mark else { continue };
+            let d = (o.x - at.0).abs().max((o.y - at.1).abs()) + farther;
+            if w > worth && d < near && line_of_sight(&self.map, at, (o.x, o.y)) {
+                (best, worth, near) = (Some((o.id, o.x, o.y)), w, d);
+            }
+        }
+        best
     }
 
     /// Marks or unmarks company `company` for Kingdom service (0x40a390). A company
@@ -1917,8 +2084,8 @@ impl World {
         }
     }
 
-    /// An archer looses a missile at the nearest enemy in range each time he has
-    /// reloaded (his rate of fire, in ticks), if there is one. The city's javelins
+    /// An archer looses a missile each time he has reloaded (his rate of fire, in
+    /// ticks), at the mark the original would pick (`missile_target`), if any. The city's javelins
     /// carry their thrower's missile attack; the invaders' do the spear's.
     pub(crate) fn shoot_at_foes(&mut self, fid: FigureId) {
         let stats = self.fighter_stats(fid);
@@ -1933,18 +2100,7 @@ impl World {
         f.attack_tick = 0;
         let (x, y) = (f.x, f.y);
         let mine = self.figures.get(fid).is_some_and(|f| self.is_invader(f));
-        let range = stats.missile_range;
-        // The city's men shoot at invaders before beasts; invaders at the city's
-        // fighters before its ships (FUN_00499e50 ranks soldiers above warships and
-        // transports).
-        let target = if mine {
-            self.nearest_foe(true, (x, y), range).or_else(|| self.nearest_city_ship((x, y), range))
-        } else {
-            // Within the range, not at it (0x499b50).
-            let near = |list: &[(FigureId, i32, i32)]| list.iter().filter(|o| (o.1 - x).abs() < range && (o.2 - y).abs() < range).min_by_key(|o| (o.1 - x).abs() + (o.2 - y).abs()).copied();
-            near(&self.combatants.invaders).or_else(|| near(&self.combatants.predators))
-        };
-        let Some((target, tx, ty)) = target else { return };
+        let Some((target, tx, ty)) = self.missile_target((x, y), stats.missile_range, mine) else { return };
         if let Some(f) = self.figures.get_mut(fid) {
             f.direction = crate::figures::direction_to((x, y), (tx, ty)).unwrap_or(f.direction);
             f.aimed = true;
@@ -2543,6 +2699,57 @@ mod tests {
         }
         assert!(!w.return_company(0));
         assert!(!w.military.companies[0].at_fort);
+    }
+
+    #[test]
+    fn archers_shoot_at_what_they_can_see_and_the_original_would_pick() {
+        use crate::map::terrain::{TREE, WALL};
+        let Some(mut w) = crate::irrigation::tests::mission_world(2) else { return };
+        for y in 50..70 {
+            for x in 30..50 {
+                w.map.terrain.set(x, y, 0);
+            }
+        }
+        assert!(line_of_sight(&w.map, (35, 60), (45, 60)));
+        assert!(line_of_sight(&w.map, (35, 60), (42, 55)));
+        w.map.terrain.set(40, 60, TREE);
+        assert!(!line_of_sight(&w.map, (35, 60), (45, 60)));
+        // From the walls, the first tiles out (six looks, about three tiles) don't
+        // block.
+        w.map.terrain.set(37, 60, TREE);
+        w.map.terrain.set(40, 60, 0);
+        w.map.terrain.set(35, 60, WALL);
+        assert!(line_of_sight(&w.map, (35, 60), (45, 60)));
+        w.map.terrain.set(35, 60, 0);
+        assert!(!line_of_sight(&w.map, (35, 60), (45, 60)));
+        w.map.terrain.set(37, 60, 0);
+
+        // The first mark found that is worth more and nearer is taken: a beast first
+        // and nearer keeps an invader farther off from being picked.
+        assert!(crate::predators::is_predator(82));
+        let beast = w.figures.spawn(82, 37, 60, Travel::Land);
+        let raider = w.figures.spawn(43, 40, 60, Travel::Land);
+        assert_eq!(w.missile_target((35, 60), 10, false).map(|t| t.0), Some(beast));
+        w.figures.get_mut(beast).expect("beast").dead = true;
+        assert_eq!(w.missile_target((35, 60), 10, false).map(|t| t.0), Some(raider));
+        // Out of range, or out of sight, it is passed over.
+        assert_eq!(w.missile_target((35, 60), 5, false), None);
+        w.map.terrain.set(38, 60, TREE);
+        assert_eq!(w.missile_target((35, 60), 10, false), None);
+        w.map.terrain.set(38, 60, 0);
+
+        // Invading archers go for soldiers, and for anyone else only while the city
+        // has fewer than four, five tiles farther than he stands.
+        let townsman = w.figures.spawn(1, 37, 62, Travel::Land);
+        assert_eq!(w.missile_target((40, 60), 10, true).map(|t| t.0), Some(townsman));
+        assert_eq!(w.missile_target((40, 60), 7, true), None);
+        let soldier = w.figures.spawn(INFANTRY, 46, 60, Travel::Land);
+        assert_eq!(w.missile_target((40, 60), 10, true).map(|t| t.0), Some(soldier));
+        for i in 0..4 {
+            w.figures.spawn(ARCHER, 70 + i, 90, Travel::Land);
+        }
+        w.figures.get_mut(soldier).expect("soldier").dead = true;
+        assert_eq!(w.missile_target((40, 60), 10, true), None);
     }
 
     #[test]
