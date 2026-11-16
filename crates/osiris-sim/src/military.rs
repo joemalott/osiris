@@ -109,8 +109,9 @@ const MAX_ARMOR: i32 = 20;
 /// The straight run (tiles) over which a charging chariot tramples at four times
 /// its attack.
 const CHARGE_RUN: std::ops::Range<i32> = 6..20;
-/// Ticks a fallen figure lies on the field.
-const CORPSE_TICKS: i32 = 200;
+/// Ticks a fallen figure lies on the field: the original's dying count runs to 127
+/// and the figure is gone on the 128th (FUN_004b1d50).
+pub(crate) const CORPSE_TICKS: i32 = 128;
 /// Where the parade ground sits beside its fort.
 const GROUND_OFFSET: (i32, i32) = (3, -1);
 /// The 4x4 tiles of the parade ground beside a fort placed at `(x, y)`.

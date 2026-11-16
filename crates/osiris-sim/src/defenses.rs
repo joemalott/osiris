@@ -351,7 +351,7 @@ impl World {
         if f.action == crate::military::action::CORPSE {
             let f = self.figures.get_mut(fid).expect("present");
             f.counter += 1;
-            if f.counter > 200 {
+            if f.counter >= crate::military::CORPSE_TICKS {
                 f.dead = true;
             }
             return;

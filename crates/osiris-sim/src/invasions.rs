@@ -960,7 +960,7 @@ impl World {
     fn update_invader_corpse(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get_mut(fid) else { return };
         f.counter += 1;
-        if f.counter < 200 {
+        if f.counter < crate::military::CORPSE_TICKS {
             return;
         }
         f.dead = true;
