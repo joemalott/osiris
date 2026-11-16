@@ -608,13 +608,28 @@ impl World {
             }
         }
         let standard = self.figures.spawn(STANDARD_BEARER, gx, gy, Travel::Land);
-        let company = self.military.companies.len() as u16 + 1;
+        let c = self.free_company().unwrap_or(self.military.companies.len());
         if let Some(f) = self.figures.get_mut(standard) {
-            f.formation = company;
+            f.formation = c as u16 + 1;
             f.home = id;
             f.action = action::AT_REST;
         }
-        self.military.companies.push(Company { fort: id, ground, kind, standard, standard_tile: (gx, gy), at_fort: true, morale: 50, wind: WIND, ..Default::default() });
+        let company = Company { fort: id, ground, kind, standard, standard_tile: (gx, gy), at_fort: true, morale: 50, wind: WIND, ..Default::default() };
+        match self.military.companies.get_mut(c) {
+            Some(old) => *old = company,
+            None => self.military.companies.push(company),
+        }
+    }
+
+    /// The first company record a lost fort has freed, which a new fort takes, as the
+    /// original takes the first record not in use (FUN_004b6e10; FUN_004b82e0 clears
+    /// a lost fort's). Osiris passes over a record its men abroad or aboard a
+    /// transport still answer to.
+    fn free_company(&self) -> Option<usize> {
+        (0..self.military.companies.len()).find(|&c| {
+            let co = &self.military.companies[c];
+            co.fort == 0 && co.abroad == 0 && !self.military.sent_away(c) && self.company_ship(c).is_none()
+        })
     }
 
     /// Whether a tile of a fort's parade ground is free.
@@ -2369,5 +2384,23 @@ mod tests {
         let fort = w.military.companies[0].fort;
         w.demolish(fort);
         assert_eq!(w.cart_destination(WEAPONS, (62, 62)), Some(yard));
+    }
+
+    /// A fort built after one is lost takes the first company record free
+    /// (FUN_004b6e10), and its standard answers to it.
+    #[test]
+    fn a_new_fort_takes_a_lost_forts_company() {
+        use crate::world::{Command, Outcome};
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        assert!(matches!(w.apply(&Command::Build { kind: FORT_ARCHERS, x: 54, y: 75, x1: 54, y1: 75 }), Outcome::Done { items: 1.., .. }));
+        let first = w.military.companies[0].fort;
+        w.demolish(first);
+        assert_eq!(w.military.companies[0].fort, 0);
+        assert!(matches!(w.apply(&Command::Build { kind: FORT_CHARIOTEERS, x: 44, y: 75, x1: 44, y1: 75 }), Outcome::Done { items: 1.., .. }));
+        assert_eq!(w.military.companies.len(), 2);
+        let c = &w.military.companies[0];
+        assert_eq!((c.kind, c.morale, c.soldiers.len()), (CHARIOTEER, 50, 0));
+        assert_eq!(w.company_of(c.standard), Some(0));
+        assert_eq!(w.military.companies[1].kind, ARCHER);
     }
 }
