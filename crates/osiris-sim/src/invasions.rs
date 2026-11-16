@@ -201,6 +201,9 @@ pub struct Army {
     /// hold its attention (the original's army destination with no building).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal: Option<(i32, i32)>,
+    /// Each formation's updates on the field (the original's formation +0x4e).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub band_age: Vec<u16>,
 }
 
 fn full_morale() -> i32 {
@@ -839,6 +842,23 @@ impl World {
             if c.kind == crate::military::INFANTRY { men + men / 2 } else { men }
         }).sum();
         let heedless = 2 * soldiers < invaders;
+        // Each formation still in the fight counts its updates; once any has been
+        // on the field more than 45, Seth strikes if he means to (FUN_004b9f90).
+        let mut seasoned = false;
+        for (a, band) in self.standing_bands() {
+            let army = &mut self.invasions.armies[a];
+            if army.withdrawn.contains(&band) {
+                continue;
+            }
+            if army.band_age.len() <= band as usize {
+                army.band_age.resize(band as usize + 1, 0);
+            }
+            army.band_age[band as usize] += 1;
+            seasoned |= army.band_age[band as usize] > 45;
+        }
+        if seasoned {
+            self.seth_strikes_invaders();
+        }
         for a in 0..self.invasions.armies.len() {
             if self.invasions.armies[a].fleeing {
                 continue;
@@ -1403,6 +1423,24 @@ mod tests {
         assert_eq!(world.target_list(0), 4);
         world.invasions.armies[0].priority = 4;
         assert!((0..20).all(|_| world.target_list(0) < 4));
+    }
+
+    #[test]
+    fn seth_strikes_once_an_army_has_been_in_the_city_a_while() {
+        let Some(mut world) = mission(1) else { return };
+        let p = well_and_open_ground(&mut world);
+        world.invasions.land_points = vec![p];
+        world.invade_now(invader::BEDOUIN, 40, 1);
+        world.religion.seth_crush = 10;
+        assert!(world.invasions.armies[0].figures.len() > 10);
+        let fallen = |w: &World| w.invasions.armies[0].figures.iter().filter(|&&f| w.figures.get(f).is_some_and(|f| f.action == action::CORPSE)).count();
+        for _ in 0..45 {
+            world.update_armies();
+        }
+        assert_eq!(fallen(&world), 0);
+        // The 46th update of its formation (FUN_004b8cf0 calls FUN_004b9f90).
+        world.update_armies();
+        assert_eq!((fallen(&world), world.religion.seth_crush), (10, 0));
     }
 
     #[test]
