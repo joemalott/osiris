@@ -192,6 +192,9 @@ fn a_new_map_plays() {
                 seen.push("wages");
             }
             8 => {
+                // Before the army: with no soldiers or walls it razes the town in a
+                // couple of months (a building falls on the 11th blow, as in the exe).
+                assert!(w.population > 0, "people moved in");
                 assert!(!w.invasions.armies.is_empty() || w.figures.iter().any(|f| w.is_invader(f)), "the army arrives in September");
                 seen.push("invasion");
             }
@@ -199,7 +202,6 @@ fn a_new_map_plays() {
         }
     }
     assert_eq!(seen.len(), 7, "{seen:?}");
-    assert!(w.population > 0, "people moved in");
 }
 
 /// One event of every type the planning window offers, one a month over two years,
