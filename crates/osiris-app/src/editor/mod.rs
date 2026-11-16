@@ -245,7 +245,9 @@ impl Editor {
     /// Opens the map at `path` for editing.
     pub fn open(path: &Path, defs: Arc<Defs>, text: Arc<TextTable>, maps_dir: PathBuf) -> Result<Self> {
         let bytes = std::fs::read(path).with_context(|| path.display().to_string())?;
-        let template = ChunkFile::parse(&bytes, Layout::Map)?;
+        // Saved in the original editor's own version, as the original's loader
+        // upgrades it: so a deben or a zoo set here means the same to the game.
+        let template = osiris_formats::upgrade::map_as_saved(&ChunkFile::parse(&bytes, Layout::Map)?)?;
         let mut scenario = Scenario::from_chunks(&template)?;
         scenario.fix_image_ids(0);
         let name = path.file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned());
@@ -717,18 +719,45 @@ mod tests {
         Editor::open(&data.join("Maps").join(map), defs, text, std::env::temp_dir().join("osiris-editor-test")).unwrap()
     }
 
-    /// A map saved untouched reads back with the same terrain, info and chunks.
+    /// A shipped map saved untouched is written in the original editor's version
+    /// (160) and reads back as the original's loader reads the shipped file: the same
+    /// terrain, info, Kingdom and events, but for what the loader upgrades (deben and
+    /// troops renumbered after Cleopatra's goods, the zoo and the words after it
+    /// cleared, era 1, the faction toggle off). Saving that again changes nothing.
     #[test]
-    fn untouched_map_saves_as_it_was() {
+    fn untouched_map_saves_as_the_original_reads_it() {
         let Some(data) = data() else { return };
         let e = editor(&data, "Warfare.map");
         let bytes = e.to_bytes().unwrap();
-        let again = Scenario::from_chunks(&ChunkFile::parse(&bytes, Layout::Map).unwrap()).unwrap();
+        let file = ChunkFile::parse(&bytes, Layout::Map).unwrap();
+        assert_eq!(file.version, osiris_formats::upgrade::EDITOR_VERSION);
+        let again = Scenario::from_chunks(&file).unwrap();
         let before = Scenario::load_map(&data.join("Maps/Warfare.map")).unwrap();
-        assert_eq!(format!("{:?}", again.info), format!("{:?}", before.info));
+        assert!(before.version < 152);
+        let mut info = before.info.clone();
+        info.reserved[45..100].fill(0);
+        info.player_faction = 0;
+        info.alt_predator_type = 0;
+        assert_eq!(format!("{:?}", again.info), format!("{info:?}"));
+        assert_eq!(file.get("scenario_info").unwrap()[ERA_BYTE], 1);
         assert_eq!(again.terrain, before.terrain.iter().map(|t| t & !OSIRIS_BITS).collect::<Vec<_>>());
         assert_eq!(again.moisture, before.moisture);
-        assert_eq!(format!("{:?}", again.empire), format!("{:?}", before.empire));
+        let strip = |o: &osiris_formats::empire::EmpireObject| osiris_formats::empire::EmpireObject { raw: Vec::new(), ..o.clone() };
+        assert!(again.empire.objects.iter().map(strip).eq(before.empire.objects.iter().map(strip)));
+        assert_eq!(format!("{:?}{:?}", again.empire.routes, again.empire.prices), format!("{:?}{:?}", before.empire.routes, before.empire.prices));
+        assert_eq!(again.events.len(), before.events.len());
+        for (a, b) in again.events.iter().zip(&before.events) {
+            let item = if osiris_formats::upgrade::item_is_resource(b.kind) { osiris_formats::upgrade::upgrade_item(b.item) } else { b.item };
+            assert_eq!((a.kind, a.item, a.amount, a.year, a.on_completed), (b.kind, item, b.amount, b.year, b.on_completed));
+        }
+        // The deben Warfare's first request asks for, and the troops its event 27 does.
+        assert_eq!((again.events[0].item.fixed, again.events[27].item.fixed), (36, 37));
+
+        let path = std::env::temp_dir().join(format!("osiris-untouched-{}.map", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+        let reopened = Editor::open(&path, e.defs.clone(), e.text.clone(), e.maps_dir.clone()).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert!(reopened.to_bytes().unwrap() == bytes, "a map of version 160 saves as it was");
     }
 
     /// A new map of each size is its size, centred in the grid, and what is painted
@@ -842,7 +871,8 @@ mod tests {
         let Some(data) = data() else { return };
         let mut e = editor(&data, "Warfare.map");
         let lines: Vec<String> = (0..3).map(|i| summary(&e.text, &e.scenario.events, i)).collect();
-        assert_eq!(lines[0], " 0 Request Jan +7-14 500 Oil");
+        // Deben, 31 in a file this old, read as the original reads it (FUN_004d40c0).
+        assert_eq!(lines[0], " 0 Request Jan +7-14 500 Deben");
         assert_eq!(lines[1], " 1 Kingdom Increase *0 +1 5-10");
         let n = e.scenario.events.len();
 

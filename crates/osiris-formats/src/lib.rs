@@ -17,6 +17,7 @@ pub mod pkware;
 pub mod scenario;
 pub mod sg3;
 pub mod text;
+pub mod upgrade;
 
 pub use campaign::Campaign;
 pub use chunks::{ChunkFile, Layout, MissionPak, Storage};

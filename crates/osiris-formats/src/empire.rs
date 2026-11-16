@@ -27,6 +27,8 @@ pub const MAX_BUYS: usize = 8;
 /// Waypoints a route can have.
 pub const MAX_POINTS: usize = 50;
 const ROUTE_RECORD: usize = 324;
+/// The bytes of an object's record before its trade amounts, the same in both layouts.
+const OBJECT_FIXED: usize = 62;
 
 /// The price table the game starts from and the editor's Reset prices button puts
 /// back (the exe's table at 0x5d2d68): (buy, sell) per load.
@@ -332,7 +334,16 @@ fn parse_object(data: &[u8], version: i32) -> Result<EmpireObject> {
 /// Writes `o` over `rec`, one record of the objects chunk. Fields are written only
 /// where the stored bytes don't already read as the object's value.
 fn write_object(o: &EmpireObject, rec: &mut [u8], version: i32) {
-    let old = if o.raw.len() == rec.len() { o.raw.clone() } else { vec![0; rec.len()] };
+    // A record read from a file of the other layout (76 and 98 bytes) keeps the 62
+    // bytes both share.
+    let old = if o.raw.len() == rec.len() {
+        o.raw.clone()
+    } else {
+        let mut v = vec![0; rec.len()];
+        let n = o.raw.len().min(OBJECT_FIXED);
+        v[..n].copy_from_slice(&o.raw[..n]);
+        v
+    };
     rec.copy_from_slice(&old);
     let put16 = |rec: &mut [u8], at: usize, v: u16| rec[at..at + 2].copy_from_slice(&v.to_le_bytes());
     rec[0] = o.kind;

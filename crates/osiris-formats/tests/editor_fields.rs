@@ -298,3 +298,44 @@ fn empire_edits_round_trip() {
         }
     }
 }
+
+/// Every shipped map brought up to the editor's version 160 (as the original's
+/// loader upgrades it, FUN_004d4ae0) writes out and reads back in that version's
+/// layout with the same terrain, Kingdom and events but for the upgrades: deben and
+/// troops renumbered past Cleopatra's goods, the zoo cleared until set, which a
+/// version this new then keeps.
+#[test]
+fn old_maps_upgrade_to_the_editors_version() {
+    use osiris_formats::upgrade::{EDITOR_VERSION, item_is_resource, map_as_saved, upgrade_item};
+    let Some(data) = data_dir() else { return };
+    let mut names: Vec<_> = std::fs::read_dir(data.join("Maps")).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".map") && !n.starts_with('_')).collect();
+    names.sort();
+    assert!(names.len() > 30);
+    for name in names {
+        let file = map(&data, &name);
+        let up = map_as_saved(&file).unwrap();
+        let back = ChunkFile::parse(&up.to_bytes(), Layout::Map).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(back.version, EDITOR_VERSION, "{name}");
+        let (a, mut b) = (Scenario::from_chunks(&file).unwrap(), Scenario::from_chunks(&back).unwrap());
+        assert_eq!(a.terrain, b.terrain, "{name}");
+        assert_eq!(a.empire.prices, b.empire.prices, "{name}");
+        for (n, (x, y)) in a.empire.objects.iter().zip(&b.empire.objects).enumerate() {
+            assert_eq!((x.in_use, x.kind, x.x, x.y, x.city_type, &x.sells, &x.buys, &x.demand), (y.in_use, y.kind, y.x, y.y, y.city_type, &y.sells, &y.buys, &y.demand), "{name}: object {n}");
+            assert_eq!(&x.raw[..62], &y.raw[..62], "{name}: object {n}'s bytes");
+        }
+        assert_eq!(a.events.len(), b.events.len(), "{name}");
+        for (x, y) in a.events.iter().zip(&b.events) {
+            let item = if file.version < 152 && item_is_resource(x.kind) { upgrade_item(x.item) } else { x.item };
+            assert_eq!((x.kind, item, x.amount, x.year), (y.kind, y.item, y.amount, y.year), "{name}");
+        }
+        if file.version < 155 {
+            assert!(!b.allowed_structures()[45], "{name}: no zoo until set");
+            b.info.reserved[45] = 1;
+            let mut again = back.clone();
+            b.write_chunks(&mut again).unwrap();
+            assert!(Scenario::from_chunks(&ChunkFile::parse(&again.to_bytes(), Layout::Map).unwrap()).unwrap().allowed_structures()[45], "{name}: the zoo, once allowed, stays");
+        }
+        // Upgrading again is nothing.
+        assert!(map_as_saved(&back).unwrap().to_bytes() == back.to_bytes(), "{name}");
+    }
+}
