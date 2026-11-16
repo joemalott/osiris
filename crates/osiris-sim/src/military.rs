@@ -770,8 +770,10 @@ impl World {
         let Some(c) = self.company_to_recruit(recruiter) else { return };
         let Some(road) = self.buildings.get(recruiter).and_then(|b| b.road) else { return };
         if let Some(res) = outfit(self.military.companies[c].kind) {
-            let stock = &mut self.buildings.get_mut(recruiter).expect("present").stock[res as usize];
-            *stock = (*stock - crate::economy::LOAD).max(0);
+            // A whole load, without a floor at nothing (FUN_004b70c0 only checks there
+            // was some): its stock comes and goes a load at a time, so it never dips
+            // below.
+            self.buildings.get_mut(recruiter).expect("present").stock[res as usize] -= crate::economy::LOAD;
         }
         let company = &self.military.companies[c];
         let kind = company.kind;
