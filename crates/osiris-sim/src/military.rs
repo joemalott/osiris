@@ -19,9 +19,11 @@
 //!
 //! Orders: a company holds its ground in tight or loose formation, fighting only what
 //! comes at it; or it engages enemies that come near, in formation; or breaks ranks
-//! to mop up every enemy it can find; or, charioteers, charges. A company standing
-//! halted in the field fights by its orders, and its men fight worse when they have
-//! turned from the way it faces (a flank or rear attack):
+//! to mop up every enemy it can find; or, charioteers, charges. The standard goes
+//! straight to the spot the company is sent to, and the men march to their places
+//! round it; a company that has halted, every man in his place, fights by its
+//! orders, and its men fight worse when they have turned from the way it faces (a
+//! flank or rear attack):
 //!
 //! - infantry in tight formation strike at +4 and take blows at +4 armour;
 //! - in loose formation, infantry and archers have +4 armour against missiles;
@@ -282,6 +284,13 @@ pub struct Company {
     pub routed: u8,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub broken: u8,
+    /// Not halted: when the company was last mustered (twice a day, and at each
+    /// loss), some man of it had not yet arrived at his place, or had turned to take
+    /// aim since he did (the original's +0x5a is set only when every man's direction
+    /// reads "at destination", FUN_004b7c80). Its flag waves, and it fights without
+    /// its line's advantages.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub marching: bool,
 }
 
 fn is_zero(n: &u8) -> bool {
@@ -851,6 +860,7 @@ impl World {
             if (f.x, f.y) == tile && !f.moving {
                 f.destination = Some(tile);
                 f.route.clear();
+                f.aimed = false;
                 f.action = if at_fort { action::AT_REST } else { action::AT_STANDARD };
                 return;
             }
@@ -867,30 +877,23 @@ impl World {
 
     /// Orders a company out to form up around `tile`. False, and nothing done, when
     /// its standard can't get there ("This company cannot reach its intended
-    /// destination"). Charioteers under orders to charge set off at the charge,
-    /// and must rest their horses before charging again.
+    /// destination"). The standard is planted there at once, as the original's is
+    /// (FUN_004b6400 only sets the company's spot, and the bearer stands on it,
+    /// FUN_00490b50); the men march to it. Charioteers under orders to charge set
+    /// off at the charge, and must rest their horses before charging again.
     pub fn move_company(&mut self, company: usize, tile: (i32, i32)) -> bool {
         // Aboard a transport, it goes where the ship takes it.
         if self.company_ship(company).is_some() || self.refuses_orders(company) {
             return false;
         }
         let Some(standard) = self.military.companies.get(company).map(|c| c.standard) else { return false };
-        let from = self.figures.get(standard).map(|f| (f.x, f.y));
-        let map = &self.map;
-        let reached = match self.figures.get_mut(standard) {
-            Some(f) if (f.x, f.y) == tile && !f.moving => true,
-            Some(f) => f.reroute(map, tile),
-            None => false,
-        };
-        if !reached {
+        let Some(from) = self.figures.get(standard).map(|f| (f.x, f.y)) else { return false };
+        if crate::figures::find_route(&self.map, Travel::Land, from, tile).is_none() {
             return false;
-        }
-        if let Some(f) = self.figures.get_mut(standard) {
-            f.action = action::GOING_TO_STANDARD;
         }
         let c = &mut self.military.companies[company];
         // It faces the way it marches.
-        if let Some(d) = from.and_then(|from| general_direction(from, tile)) {
+        if let Some(d) = general_direction(from, tile) {
             c.facing = d;
         }
         if c.order == Order::Charge && !c.charged {
@@ -900,12 +903,32 @@ impl World {
         c.at_fort = false;
         c.standard_tile = tile;
         let soldiers = c.soldiers.clone();
+        self.plant_standard(company);
         for s in soldiers {
             if self.figures.get(s).is_some_and(|f| f.action != action::ATTACK) {
                 self.send_to_post(s);
             }
         }
         true
+    }
+
+    /// The standard stands where its company forms up: on its spot in the field, or
+    /// on the parade ground at the fort (FUN_00490b50). Aboard a transport, it is
+    /// with the ship.
+    fn plant_standard(&mut self, company: usize) {
+        let Some(c) = self.military.companies.get(company) else { return };
+        let spot = if c.at_fort { self.buildings.get(c.ground).map(|g| (g.x, g.y)) } else { Some(c.standard_tile) };
+        let at_fort = c.at_fort;
+        let (Some(spot), Some(f)) = (spot, self.figures.get_mut(c.standard)) else { return };
+        if f.action == action::ABOARD {
+            return;
+        }
+        (f.x, f.y) = spot;
+        f.destination = Some(spot);
+        f.route.clear();
+        f.moving = false;
+        f.progress = 0;
+        f.action = if at_fort { action::AT_REST } else { action::AT_STANDARD };
     }
 
     /// The company window's switch that turns the line of the next tight or loose
@@ -936,10 +959,28 @@ impl World {
         if hp > 0 { damage * 100 / hp } else { 0 }
     }
 
-    /// Whether a company's standard is planted (its flag hangs still), rather than
-    /// on the move.
+    /// Whether a company stands halted, every man in his place (its flag hangs
+    /// still), as it was found when last mustered.
     pub fn company_halted(&self, company: usize) -> bool {
-        self.military.companies.get(company).and_then(|c| self.figures.get(c.standard)).is_some_and(|f| !f.moving)
+        self.military.companies.get(company).is_some_and(|c| !c.marching)
+    }
+
+    /// Whether a soldier has arrived where he was going and stands there, not
+    /// having turned to take aim since: the original's direction byte reads "at
+    /// destination". A man drawn into a fight keeps what he was doing before.
+    fn arrived(&self, fid: FigureId) -> bool {
+        let Some(f) = self.figures.get(fid) else { return true };
+        let doing = if f.action == action::ATTACK { f.resume } else { f.action };
+        f.action == action::ABOARD || !f.moving && f.route.is_empty() && !f.aimed && matches!(doing, action::AT_STANDARD | action::AT_REST)
+    }
+
+    /// Musters a company (FUN_004b7c80): it is halted only if every man with it,
+    /// recruits on their way included, has arrived.
+    fn muster_company(&mut self, company: usize) {
+        let Some(c) = self.military.companies.get(company) else { return };
+        let men: Vec<FigureId> = c.soldiers.iter().chain(&c.recruits).copied().filter(|&s| self.figures.get(s).is_some_and(|f| !f.dead && f.action != action::CORPSE)).collect();
+        let marching = !men.iter().all(|&s| self.arrived(s));
+        self.military.companies[company].marching = marching;
     }
 
     /// Orders a company back to its fort.
@@ -949,13 +990,8 @@ impl World {
         }
         let Some(c) = self.military.companies.get_mut(company) else { return };
         c.at_fort = true;
-        let (standard, soldiers, ground) = (c.standard, c.soldiers.clone(), c.ground);
-        let home = self.buildings.get(ground).map(|g| (g.x, g.y));
-        let map = &self.map;
-        if let (Some(f), Some(home)) = (self.figures.get_mut(standard), home) {
-            f.action = action::GOING_TO_FORT;
-            f.reroute(map, home);
-        }
+        let soldiers = c.soldiers.clone();
+        self.plant_standard(company);
         for s in soldiers {
             if let Some(f) = self.figures.get_mut(s) {
                 f.foe = 0;
@@ -1005,7 +1041,10 @@ impl World {
                 let f = self.figures.get_mut(fid).expect("present");
                 match f.walk(map) {
                     Step::Moving => {}
-                    Step::Arrived => f.action = if act == action::GOING_TO_FORT { action::AT_REST } else { action::AT_STANDARD },
+                    Step::Arrived => {
+                        f.action = if act == action::GOING_TO_FORT { action::AT_REST } else { action::AT_STANDARD };
+                        f.aimed = false;
+                    }
                     // Something built across his way: he finds another (route
                     // result 9, 0x48e9e0).
                     Step::Blocked | Step::Lost => {
@@ -1274,17 +1313,17 @@ impl World {
         }
     }
 
-    /// The line a soldier fights in: his company, when it stands halted in the field
-    /// with its standard planted. He faces its way when standing in it, or when
-    /// fighting or walking that way.
+    /// The line a soldier fights in: his company, when it was found halted, every
+    /// man in his place, at its last muster (the original's +0x5a, wherever the
+    /// company stands). He faces its way when standing in it, or when fighting or
+    /// walking that way.
     fn line(&self, fid: FigureId) -> Option<Line> {
         let f = self.figures.get(fid)?;
         if !is_soldier(f.kind) {
             return None;
         }
         let c = self.military.companies.get(self.company_of(fid)?)?;
-        let halted = !c.at_fort && self.figures.get(c.standard).is_some_and(|s| s.action == action::AT_STANDARD);
-        if !halted {
+        if c.marching {
             return None;
         }
         let facing = f.action == action::AT_STANDARD || toward(f.direction, c.facing);
@@ -1628,10 +1667,13 @@ impl World {
             self.sink_abroad(t);
         }
     }
-    /// Twice a day (FUN_004b8b20): a company mopping up with no enemy left on the
-    /// field (no invaders, no wild beasts) goes back to its orders before, and
-    /// re-forms.
+    /// Twice a day (FUN_004b7790): every company is mustered, and (FUN_004b8b20) a
+    /// company mopping up with no enemy left on the field (no invaders, no wild
+    /// beasts) goes back to its orders before, and re-forms.
     pub(crate) fn update_companies(&mut self) {
+        for c in 0..self.military.companies.len() {
+            self.muster_company(c);
+        }
         let enemies = self.figures.iter().any(|f| !f.dead && f.action != action::CORPSE && (self.is_invader(f) || crate::predators::is_predator(f.kind) && f.action != crate::predators::action::HIDDEN));
         if enemies {
             return;
@@ -1729,13 +1771,8 @@ impl World {
     fn run_home(&mut self, company: usize) {
         let Some(c) = self.military.companies.get_mut(company) else { return };
         c.at_fort = true;
-        let (standard, soldiers, ground) = (c.standard, c.soldiers.clone(), c.ground);
-        let home = self.buildings.get(ground).map(|g| (g.x, g.y));
-        let map = &self.map;
-        if let (Some(f), Some(home)) = (self.figures.get_mut(standard), home) {
-            f.action = action::GOING_TO_FORT;
-            f.reroute(map, home);
-        }
+        let soldiers = c.soldiers.clone();
+        self.plant_standard(company);
         for s in soldiers {
             if self.figures.get(s).is_some_and(|f| !matches!(f.action, action::ATTACK | action::CORPSE)) {
                 self.send_to_post(s);
@@ -1803,6 +1840,7 @@ impl World {
         let Some((target, tx, ty)) = target else { return };
         if let Some(f) = self.figures.get_mut(fid) {
             f.direction = crate::figures::direction_to((x, y), (tx, ty)).unwrap_or(f.direction);
+            f.aimed = true;
         }
         self.figure_sound(fid, 2);
         let missile = self.figures.spawn(if mine { ARROW } else { JAVELIN }, x, y, Travel::Land);
@@ -1865,15 +1903,10 @@ impl World {
         }
     }
 
-    /// The standard bearer carries the company's flag to where it forms up.
+    /// The standard bearer stands with the company's flag where it forms up.
     pub(crate) fn update_standard_bearer(&mut self, fid: FigureId) {
-        let map = &self.map;
-        let Some(f) = self.figures.get_mut(fid) else { return };
-        if f.action == action::ABOARD {
-            return;
-        }
-        if f.walk(map) != Step::Moving {
-            f.action = if f.action == action::GOING_TO_FORT { action::AT_REST } else { action::AT_STANDARD };
+        if let Some(c) = self.company_of(fid) {
+            self.plant_standard(c);
         }
     }
 }
@@ -2162,6 +2195,48 @@ mod tests {
         }
         assert_eq!(w.military.companies[0].soldiers.len(), 12, "{:?}", w.military.companies[0]);
         assert_in_formation(&w, action::AT_REST);
+    }
+
+    #[test]
+    fn the_standard_goes_first_and_the_company_halts_when_all_are_in_place() {
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 4 * crate::economy::LOAD);
+        for _ in 0..60 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_eq!(w.military.companies[0].soldiers.len(), 4);
+        assert!(w.company_halted(0));
+        // Sent out, the standard stands on its spot at once; the men march to it.
+        assert!(w.move_company(0, (40, 60)));
+        let standard = w.military.companies[0].standard;
+        assert_eq!(w.figures.get(standard).map(|f| (f.x, f.y, f.action)), Some((40, 60, action::AT_STANDARD)));
+        w.tick();
+        assert_eq!(w.figures.get(standard).map(|f| (f.x, f.y, f.moving)), Some((40, 60, false)));
+        // Mustered while they are on the way, it is not halted, and stays so until
+        // the muster after the last man is in his place.
+        w.update_companies();
+        assert!(!w.company_halted(0));
+        let mut arrived_at = None;
+        for t in 0..20 * crate::time::TICKS_PER_DAY {
+            w.tick();
+            let men = &w.military.companies[0].soldiers;
+            if arrived_at.is_none() && men.iter().all(|&s| w.figures.get(s).is_some_and(|f| f.action == action::AT_STANDARD && !f.moving)) {
+                arrived_at = Some(t);
+                assert!(!w.company_halted(0), "halted before a muster");
+            }
+            if w.company_halted(0) {
+                let t0 = arrived_at.expect("halted before every man arrived");
+                assert!(t - t0 <= crate::time::TICKS_PER_DAY, "{t0} {t}");
+                assert_in_formation(&w, action::AT_STANDARD);
+                // Back to the fort: the standard is on the parade ground at once.
+                w.return_company(0);
+                let g = w.buildings.get(w.military.companies[0].ground).map(|g| (g.x, g.y));
+                assert_eq!(w.figures.get(standard).map(|f| (f.x, f.y)), g);
+                return;
+            }
+        }
+        panic!("never halted");
     }
 
     #[test]
