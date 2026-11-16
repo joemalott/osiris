@@ -378,6 +378,37 @@ pub fn summary(text: &osiris_formats::TextTable, events: &[EventRecord], i: usiz
     format!("{i:2} {name} {s}")
 }
 
+/// Event `i` taken out of the list (FUN_00448e30): the ones after it move up, and
+/// every follow-up number past it steps down with them; one naming `i` itself is
+/// left as it is.
+pub fn remove_event(events: &mut Vec<EventRecord>, i: usize) -> bool {
+    if i >= events.len() {
+        return false;
+    }
+    events.remove(i);
+    for e in events.iter_mut() {
+        for n in 0..4 {
+            let v = link(e, n);
+            if v > i as i16 {
+                set_link(e, n, v - 1);
+            }
+        }
+    }
+    true
+}
+
+/// The trigger after `t` for an event of type `k` (0x44a470): one time, recurring,
+/// triggered only, then one time again, or for an invasion triggered by favour
+/// before one time.
+pub fn next_trigger(k: u8, t: u8) -> u8 {
+    match t {
+        0 => trigger::RECURRING,
+        t if t & trigger::RECURRING != 0 => trigger::TRIGGERED,
+        t if t & trigger::TRIGGERED != 0 && k == kind::INVASION => trigger::FAVOUR,
+        _ => trigger::ONCE,
+    }
+}
+
 impl Editor {
     /// Add event: a new event at the end of the list (not past 120).
     pub fn add_event(&mut self) -> Option<usize> {
@@ -393,39 +424,16 @@ impl Editor {
     /// every follow-up number past it steps down with them (one naming the deleted
     /// event itself is left as it is, as the original leaves it).
     pub fn delete_event(&mut self, i: usize) -> bool {
-        let events = &mut self.scenario.events;
-        if i >= events.len() {
-            return false;
-        }
-        events.remove(i);
-        for e in events.iter_mut() {
-            for n in 0..4 {
-                let v = link(e, n);
-                if v > i as i16 {
-                    set_link(e, n, v - 1);
-                }
-            }
-        }
-        self.dirty = true;
-        true
+        let gone = remove_event(&mut self.scenario.events, i);
+        self.dirty |= gone;
+        gone
     }
 
     /// The trigger button (0x44a470): one time, recurring, triggered only, then back
     /// to one time, or for an invasion to triggered by favour first.
     pub fn cycle_trigger(&mut self, i: usize) {
         let Some(e) = self.scenario.events.get_mut(i) else { return };
-        e.trigger = match e.trigger {
-            0 => trigger::RECURRING,
-            t if t & trigger::RECURRING != 0 => trigger::TRIGGERED,
-            t if t & trigger::TRIGGERED != 0 => {
-                if e.kind == kind::INVASION {
-                    trigger::FAVOUR
-                } else {
-                    trigger::ONCE
-                }
-            }
-            _ => trigger::ONCE,
-        };
+        e.trigger = next_trigger(e.kind, e.trigger);
         self.dirty = true;
     }
 
@@ -611,7 +619,10 @@ impl Editor {
             && let Some(i) = o.event.take()
         {
             self.delete_event(i);
+            // The selection stays on the place, now the next event's, unless that is
+            // past the end (FUN_00448e30), so Delete event can be pressed again.
             let n = self.scenario.events.len();
+            o.event = (i < n).then_some(i);
             if o.event_top >= n {
                 o.event_top = o.event_top.saturating_sub(1);
             }
@@ -870,5 +881,205 @@ impl Editor {
             }
             _ => o.picker = Some(Picker::new(Field::Event(i, EvField::Item(slot)), group, ids)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ev(k: u8) -> EventRecord {
+        EventRecord { kind: k, ..new_event() }
+    }
+
+    fn val(fixed: i16, min: i16, max: i16) -> EventValue {
+        EventValue { value: fixed.max(min), fixed, min, max }
+    }
+
+    fn typed(mut v: EventValue, high: bool, n: i16) -> (i16, i16, i16) {
+        set_end(&mut v, high, n);
+        (v.fixed, v.min, v.max)
+    }
+
+    /// The range keypads (0x449c90 and twins): the ends kept in order, the same end
+    /// twice a fixed value, so typing under a fixed value makes a range up to it.
+    #[test]
+    fn keypad_ends_follow_the_original() {
+        assert_eq!(typed(val(8, -1, -1), false, 3), (-1, 3, 8), "3 under a fixed 8: between 3 and 8");
+        assert_eq!(typed(val(8, -1, -1), false, 10), (10, -1, -1), "10 over it: fixed 10");
+        assert_eq!(typed(val(8, -1, -1), true, 3), (3, -1, -1), "the high end under it: fixed");
+        assert_eq!(typed(val(1, -1, -1), true, 5), (-1, 1, 5));
+        assert_eq!(typed(val(-1, 2, 6), false, 4), (-1, 4, 6));
+        assert_eq!(typed(val(-1, 2, 6), true, 2), (2, -1, -1));
+        assert_eq!(typed(val(-1, 2, 6), false, 9), (9, -1, -1), "a low end past the high one");
+        // Three choices show no ends: a number typed replaces them.
+        assert_eq!(typed(val(1, 2, 3), false, 5), (5, -1, -1));
+        assert_eq!(ends(val(1, 2, 3)), (-1, -1));
+    }
+
+    /// Add event's defaults (0x448590 over FUN_004489c0).
+    #[test]
+    fn new_events_are_the_originals() {
+        let e = new_event();
+        assert_eq!((e.kind, e.subtype, e.trigger, e.month, e.months), (kind::REQUEST, 0, trigger::ONCE, 0, 12));
+        assert_eq!(items(&e), [1, -1, -1]);
+        assert_eq!((ends(e.amount), ends(year_pick(&e)), ends(location_pick(&e))), ((8, 8), (1, 1), (1, 1)));
+        assert_eq!(e.route[1..], [-1, 0, 49]);
+        assert_eq!([e.on_completed, e.on_refusal, e.on_too_late, e.on_defeat], [-1; 4]);
+        assert_eq!((e.raw[56], e.raw[57], e.link_reasons), (0xff, 0xff, [6; 4]));
+    }
+
+    /// Which items each type and request reason takes (FUN_00449550, FUN_00449440).
+    #[test]
+    fn items_fit_the_type_and_reason() {
+        let req = |s: i8| item_choices(&EventRecord { subtype: s, ..ev(kind::REQUEST) });
+        assert_eq!(req(1), vec![37]);
+        assert_eq!(req(2), vec![37]);
+        assert_eq!(req(3), vec![1, 2, 3, 4, 5, 6, 7, 8, 15, 17, 19, 36]);
+        assert_eq!(req(4), vec![12, 20, 24, 25, 26, 30, 36]);
+        assert_eq!(req(5), (1..=8).collect::<Vec<_>>());
+        let general = req(0);
+        assert!(general.contains(&36) && !general.contains(&37) && !general.contains(&21) && !general.contains(&27));
+        assert_eq!(req(6), general);
+        let gift = item_choices(&ev(kind::GIFT));
+        assert!(gift.contains(&36) && gift.contains(&21) && !gift.contains(&37) && !gift.contains(&27));
+        for k in 13..=16 {
+            let c = item_choices(&ev(k));
+            assert_eq!(c.len(), 33, "type {k}: goods 1-35 but 21 and 27");
+            assert!(!c.contains(&36));
+        }
+        assert_eq!(item_choices(&ev(kind::INVASION)), vec![1, 2, 3, 4]);
+        assert!(item_choices(&ev(8)).is_empty());
+    }
+
+    /// A new reason swaps the items it doesn't take for the first it does
+    /// (0x4499c0); a new type starts from the first item and drops a favour trigger
+    /// unless it is an invasion (0x449710).
+    #[test]
+    fn reasons_and_types_reset_what_no_longer_fits() {
+        let mut s = Scenario { events: vec![new_event()], ..Default::default() };
+        pick(&mut s, 0, EvField::Subtype, 3);
+        pick(&mut s, 0, EvField::Item(0), 15);
+        pick(&mut s, 0, EvField::Item(1), 17);
+        assert_eq!(items(&s.events[0]), [15, 17, -1]);
+        pick(&mut s, 0, EvField::Subtype, 5);
+        assert_eq!(items(&s.events[0]), [1, -1, -1], "a famine wants food");
+        pick(&mut s, 0, EvField::Subtype, 1);
+        assert_eq!(items(&s.events[0]), [37, -1, -1], "a city attacked wants troops");
+        assert_eq!(s.events[0].item.value, 37, "and the value follows");
+        pick(&mut s, 0, EvField::Subtype, 9);
+        assert_eq!(s.events[0].subtype, 1, "past the seven reasons: ignored");
+        // Clearing the first item moves the others up.
+        pick(&mut s, 0, EvField::Subtype, 3);
+        pick(&mut s, 0, EvField::Item(1), 15);
+        pick(&mut s, 0, EvField::Item(0), 0);
+        assert_eq!(items(&s.events[0]), [15, -1, -1]);
+
+        pick(&mut s, 0, EvField::Kind, kind::INVASION as usize);
+        s.events[0].trigger = trigger::FAVOUR;
+        pick(&mut s, 0, EvField::Kind, kind::INVASION as usize);
+        assert_eq!(s.events[0].trigger, trigger::FAVOUR, "the same type changes nothing");
+        pick(&mut s, 0, EvField::Kind, kind::GIFT as usize);
+        assert_eq!((s.events[0].trigger, items(&s.events[0])), (trigger::ONCE, [1, -1, -1]));
+        pick(&mut s, 0, EvField::God, 7);
+        pick(&mut s, 0, EvField::Month, 15);
+        assert_eq!((s.events[0].god, s.events[0].month), (0, 11));
+    }
+
+    #[test]
+    fn the_trigger_button_cycles() {
+        let run = |k: u8| {
+            let mut t = trigger::ONCE;
+            (0..5)
+                .map(|_| {
+                    t = next_trigger(k, t);
+                    t
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(run(kind::REQUEST), vec![2, 1, 0, 2, 1]);
+        assert_eq!(run(kind::INVASION), vec![2, 1, 0x10, 0, 2]);
+        // A fired one-time event (bit 4 at run time) starts over.
+        assert_eq!(next_trigger(kind::REQUEST, 4), trigger::ONCE);
+    }
+
+    /// Delete event (FUN_00448e30): later follow-up numbers step down; one naming
+    /// the deleted event is left.
+    #[test]
+    fn deleting_renumbers_follow_ups() {
+        let linked = |c: i16, r: i16, l: i16, d: i16| EventRecord { on_completed: c, on_refusal: r, on_too_late: l, on_defeat: d, ..new_event() };
+        let mut v = vec![linked(2, 3, -1, 1), new_event(), linked(3, 0, 1, -1), new_event()];
+        assert!(remove_event(&mut v, 1));
+        assert_eq!(v.len(), 3);
+        assert_eq!([v[0].on_completed, v[0].on_refusal, v[0].on_too_late, v[0].on_defeat], [1, 2, -1, 1]);
+        assert_eq!([v[1].on_completed, v[1].on_refusal, v[1].on_too_late], [2, 0, 1]);
+        assert!(!remove_event(&mut v, 3));
+    }
+
+    /// The game reads a stored value as it is, so each is kept one its pick can give.
+    #[test]
+    fn values_settle_into_their_picks() {
+        let mut e = new_event();
+        e.year = 9;
+        set_year_pick(&mut e, val(-1, 3, 5));
+        e.amount = EventValue { value: 2, ..val(8, -1, -1) };
+        e.item = EventValue { value: 99, ..val(15, 17, 19) };
+        e.location = [0, -1, 2, 4];
+        settle_values(&mut e);
+        assert_eq!((e.year, e.amount.value, e.item.value, e.location[0]), (3, 8, 15, 2));
+        let mut e2 = e.clone();
+        e2.year = 4;
+        e2.item.value = 19;
+        settle_values(&mut e2);
+        assert_eq!((e2.year, e2.item.value), (4, 19), "values that fit stay");
+    }
+
+    #[test]
+    fn follow_ups_must_be_triggered_others() {
+        let mut v = vec![new_event(), new_event()];
+        assert!(!valid_link(&v, 0, 1), "a one-time event can't follow");
+        v[1].trigger = trigger::TRIGGERED;
+        assert!(valid_link(&v, 0, 1));
+        v[0].trigger = trigger::TRIGGERED;
+        assert!(!valid_link(&v, 0, 0), "not itself");
+        assert!(!valid_link(&v, 0, 2) && !valid_link(&v, 0, -1) && !valid_link(&v, 0, 999));
+    }
+
+    /// The Event Summary's lines (FUN_00448f60).
+    #[test]
+    fn summary_lines_read_as_the_originals() {
+        let mut text = osiris_formats::TextTable::default();
+        let names = |n: usize, f: &dyn Fn(usize) -> String| (0..n).map(f).collect::<Vec<_>>();
+        text.set_group(156, names(30, &|k| format!("T{k}")));
+        text.set_group(25, names(12, &|m| format!("M{m}")));
+        text.set_group(23, names(38, &|r| format!("R{r}")));
+        text.set_group(34, names(5, &|r| format!("I{r}")));
+        let mut a = new_event();
+        a.month = 4;
+        set_year_pick(&mut a, val(-1, 3, 5));
+        a.amount = val(-1, 6, 9);
+        set_items(&mut a, [15, 17, -1]);
+        a.on_refusal = 1;
+        let mut b = EventRecord { trigger: trigger::TRIGGERED, ..ev(kind::GIFT) };
+        set_items(&mut b, [20, -1, -1]);
+        let c = EventRecord { trigger: trigger::TRIGGERED, ..ev(17) };
+        let mut d = EventRecord { trigger: trigger::FAVOUR, ..ev(kind::INVASION) };
+        set_items(&mut d, [3, -1, -1]);
+        let f = ev(21);
+        let v = vec![a, b, c, d, f];
+        let lines: Vec<String> = (0..v.len()).map(|i| summary(&text, &v, i)).collect();
+        assert_eq!(lines, vec![" 0 T1 M4 +3-5 6-9 R15/R17", " 1 T23 *0 +1 8 R20", " 2 T17 *** +1 8", " 3 T2 ** +1 8 I3", " 4 T21 M0 +1"]);
+    }
+
+    #[test]
+    fn lists_offer_what_the_original_does() {
+        let s = Scenario { events: vec![new_event(), ev(8)], ..Default::default() };
+        let (g, kinds) = list(&s, 0, EvField::Kind).unwrap();
+        assert_eq!(g, 156);
+        assert_eq!(kinds, (1..30).filter(|k| !matches!(k, 3 | 4 | 5)).collect::<Vec<_>>(), "no free event, earthquake, revolt or new Pharaoh");
+        assert_eq!(list(&s, 0, EvField::Subtype).unwrap(), (149, (0..7).collect()));
+        assert!(list(&s, 1, EvField::Subtype).is_none() && list(&s, 1, EvField::Item(0)).is_none());
+        assert_eq!(list(&s, 0, EvField::LinkReason(2)).unwrap(), (299, (0..7).collect()));
+        assert_eq!(number(&s, 0, EvField::Link(0)), 999, "the follow-up keypad starts at 999");
     }
 }

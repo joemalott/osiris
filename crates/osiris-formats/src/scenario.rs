@@ -399,7 +399,7 @@ pub mod terrain {
 pub const ALLOWED_STRUCTURES: usize = 46;
 
 /// Everything a scenario needs to set up a fresh city, from any of the three sources.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Scenario {
     pub version: i32,
     pub info: ScenarioInfo,
