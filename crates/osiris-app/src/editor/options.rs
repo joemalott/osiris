@@ -954,3 +954,127 @@ impl Editor {
         let _ = WHITE;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The keypad: the first digit replaces the value shown, six digits at most,
+    /// Backspace takes one off, Enter sets the field.
+    #[test]
+    fn the_keypad_types_and_sets() {
+        let mut s = Scenario::default();
+        s.info.initial_funds = 5000;
+        let mut o = Options::at(Page::Starting);
+        o.keypad = Some(Keypad::new(Field::Funds, number(&s, Field::Funds)));
+        assert_eq!(o.keypad.as_ref().unwrap().typed, "5000");
+        o.type_text(&mut s, "12345678");
+        assert_eq!(o.keypad.as_ref().unwrap().typed, "123456");
+        o.type_text(&mut s, "\u{8}\u{8}9");
+        assert_eq!(s.info.initial_funds, 5000, "nothing set before Enter");
+        o.type_text(&mut s, "\n");
+        assert!(o.keypad.is_none());
+        assert_eq!(s.info.initial_funds, 12349);
+        assert!(!o.wants_text());
+    }
+
+    /// The brief description: 24 characters at most (the guide), letters the map's
+    /// text can hold.
+    #[test]
+    fn the_description_takes_24_characters() {
+        let mut s = Scenario::default();
+        let mut o = Options::at(Page::Main);
+        o.type_text(&mut s, "ignored");
+        assert_eq!(s.info.subtitle, "", "not typing until the box is clicked");
+        o.typing = true;
+        o.type_text(&mut s, "Café on the Nile\u{1}, with a very long tail");
+        assert_eq!(s.info.subtitle, "Café on the Nile, with a");
+        assert_eq!(s.info.subtitle.chars().count(), 24);
+        o.type_text(&mut s, "\u{8}\n");
+        assert_eq!(s.info.subtitle, "Café on the Nile, with ");
+        assert!(!o.wants_text());
+    }
+
+    #[test]
+    fn numbers_set_their_fields() {
+        let mut s = Scenario::default();
+        s.info.start_year = -2500;
+        set_number(&mut s, Field::Year, 1800);
+        assert_eq!(s.info.start_year, -1800, "the year keeps its era");
+        assert_eq!(number(&s, Field::Year), 1800);
+        set_number(&mut s, Field::Year, 123_456);
+        assert_eq!(s.info.start_year, -9999);
+        set_number(&mut s, Field::Interest, -5);
+        assert_eq!(s.info.debt_interest_rate, 0);
+        set_number(&mut s, Field::HousingCount, 12);
+        assert_eq!((s.info.win.housing_count.value, s.info.win.housing_count.enabled), (12, true));
+        set_number(&mut s, Field::HousingCount, 0);
+        assert!(!s.info.win.housing_count.enabled, "no count, no housing goal");
+        for (f, v) in [(Field::Gift, 700), (Field::Milestone(2), 33), (Field::Culture, 61), (Field::Prosperity, 62), (Field::Kingdom, 63), (Field::TimeLimit, 64), (Field::Survival, 65), (Field::Population, 6600)] {
+            set_number(&mut s, f, v);
+            assert_eq!(number(&s, f), v, "{f:?}");
+        }
+        pick(&mut s, Field::Rank, 4);
+        pick(&mut s, Field::Pharaoh, 99);
+        pick(&mut s, Field::Incarnation, 7);
+        pick(&mut s, Field::Enemy, 11);
+        pick(&mut s, Field::HousingLevel, 13);
+        let i = &s.info;
+        assert_eq!((i.player_rank, i.current_pharaoh, i.player_incarnation, i.enemy_id, i.win.housing_level.value), (4, 99, 7, 11, 13));
+    }
+
+    /// The monuments are kept in order, and with the burial provisions make the
+    /// monument goal's rating (FUN_004f78a0): sqrt(points + provisions / 32 or / 16)
+    /// times 6.32.
+    #[test]
+    fn monuments_make_the_rating() {
+        let mut s = Scenario::default();
+        pick(&mut s, Field::Monument(1), 5);
+        pick(&mut s, Field::Monument(2), 2);
+        assert_eq!(s.info.monuments, [2, 5, 0], "sorted, the empty slot last");
+        // Points 10 + 26 = 36: sqrt 6 * 6.32 = 37.92, so 38.
+        assert_eq!((s.info.win.monuments.value, s.info.win.monuments.enabled), (38, true));
+        // 3200 grain (/32) is 100 more, 160 linen (/16) 10: sqrt 146 * 6.32 = 76.4.
+        set_number(&mut s, Field::Provision(1), 9000);
+        assert_eq!(s.info.burial_provisions_required[1], 3200, "capped at 3200");
+        set_number(&mut s, Field::Provision(17), 160);
+        assert_eq!(s.info.win.monuments.value, 76);
+        s.info.burial_provisions_required.iter_mut().for_each(|v| *v = 0);
+        pick(&mut s, Field::Monument(0), 0);
+        pick(&mut s, Field::Monument(0), 0);
+        assert_eq!(s.info.monuments, [0, 0, 0]);
+        assert_eq!((s.info.win.monuments.value, s.info.win.monuments.enabled), (0, false));
+    }
+
+    /// Which monuments each era offers (FUN_0040cb40) and which take provisions.
+    #[test]
+    fn eras_offer_their_monuments() {
+        let offered = |era| (1..MONUMENTS.len()).filter(|&m| fits_era(m, era)).collect::<Vec<_>>();
+        assert!(offered(0).is_empty());
+        let any = [21, 22, 23, 24, 25, 26, 27];
+        let with = |extra: &[usize]| {
+            let mut v: Vec<usize> = extra.iter().copied().chain(any).collect();
+            v.sort();
+            v
+        };
+        assert_eq!(offered(1), with(&(1..=20).collect::<Vec<_>>()), "Pyramids: every tomb");
+        assert_eq!(offered(2), with(&[33, 34, 35, 36]), "Valley of the Kings");
+        assert_eq!(offered(3), with(&[28, 29, 30]), "Alexandria");
+        assert_eq!(offered(4), with(&[37]), "Abu Simbel");
+        assert_eq!(offered(255).len(), 37, "an era from before eras: anything");
+        assert!(is_tomb(1) && is_tomb(25) && is_tomb(33) && !is_tomb(21) && !is_tomb(28) && !is_tomb(0));
+    }
+
+    #[test]
+    fn back_steps_out_one_window_at_a_time() {
+        let mut o = Options::at(Page::StartDate);
+        o.keypad = Some(Keypad::new(Field::Year, 0));
+        assert!(!o.back() && o.keypad.is_none() && o.page == Page::StartDate);
+        assert!(!o.back() && o.page == Page::Starting);
+        assert!(!o.back() && o.page == Page::Main);
+        assert!(o.back(), "the Options screen closes");
+        for (p, parent) in [(Page::Monuments, Page::Win), (Page::Event, Page::Events), (Page::Events, Page::Main), (Page::Flood, Page::Main), (Page::Gods, Page::Main), (Page::Allowed, Page::Main)] {
+            assert_eq!(p.parent(), Some(parent));
+        }
+    }
+}
