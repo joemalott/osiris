@@ -291,7 +291,21 @@ pub struct Company {
     /// its line's advantages.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub marching: bool,
+    /// Half-days until its men re-form after fighting (the original's +0x50), after
+    /// loosing missiles (+0x5c) and after being struck by them (+0x5e): while any is
+    /// running, a man out of his place stays where he is (FUN_004b8b20 counts them
+    /// down; state 12 of 0x48e9e0 waits on them).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fought: u8,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub shot: u8,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub struck: u8,
 }
+
+/// Half-days a fight, a missile loosed or a missile struck holds a company's men
+/// where they stand.
+const REFORM_WAIT: u8 = 6;
 
 fn is_zero(n: &u8) -> bool {
     *n == 0
@@ -850,6 +864,7 @@ impl World {
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return };
         f.action = if at_fort { action::GOING_TO_FORT } else { action::GOING_TO_STANDARD };
+        f.post = Some(post);
         let tiles = std::iter::once((0, 0)).chain(alternative_tiles()).map(|(dx, dy)| (post.0 + dx, post.1 + dy));
         for (i, tile) in tiles.enumerate() {
             if !crate::figures::passable(map, f.travel, tile.0, tile.1) || i > 0 && taken.contains(&tile) {
@@ -873,6 +888,33 @@ impl World {
         f.destination = Some((f.x, f.y));
         f.route.clear();
         f.action = if at_fort { action::AT_REST } else { action::AT_STANDARD };
+    }
+
+    /// Whether a soldier stands in his place in the ranks, or where he went for want
+    /// of it.
+    fn in_place(&self, fid: FigureId) -> bool {
+        let Some(f) = self.figures.get(fid) else { return true };
+        !f.moving && f.destination == Some((f.x, f.y)) && f.post.is_some() && f.post == self.post_of(fid)
+    }
+
+    /// Whether a company's men must stay where they are rather than re-form: it has
+    /// fought, loosed missiles or been struck by them lately.
+    fn holding_where_they_are(&self, company: usize) -> bool {
+        self.military.companies.get(company).is_some_and(|c| c.fought > 0 || c.shot > 0 || c.struck > 0)
+    }
+
+    /// Closes up a company's ranks (FUN_004b7c80): its living men, recruits on their
+    /// way included, take places 0, 1, 2, ... in the order of their figure numbers,
+    /// so a man lost leaves no gap.
+    fn close_ranks(&mut self, company: usize) {
+        let Some(c) = self.military.companies.get(company) else { return };
+        let mut men: Vec<FigureId> = c.soldiers.iter().chain(&c.recruits).copied().filter(|&s| self.figures.get(s).is_some_and(|f| !f.dead && f.action != action::CORPSE)).collect();
+        men.sort_unstable();
+        for (slot, s) in men.into_iter().enumerate() {
+            if let Some(f) = self.figures.get_mut(s) {
+                f.slot = slot as u8;
+            }
+        }
     }
 
     /// Orders a company out to form up around `tile`. False, and nothing done, when
@@ -1068,9 +1110,21 @@ impl World {
                 if !self.charging(fid) {
                     self.engage(fid, 1);
                 }
-                let reach = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map_or(0, |c| c.order.reach());
-                if reach > 0 && self.figures.get(fid).is_some_and(|f| f.action == action::AT_STANDARD) {
-                    self.chase(fid, reach);
+                if self.figures.get(fid).is_none_or(|f| f.action != action::AT_STANDARD) {
+                    return;
+                }
+                let Some(c) = self.company_of(fid) else { return };
+                let (at_fort, order) = self.military.companies.get(c).map_or((true, Order::HoldTight), |c| (c.at_fort, c.order));
+                let placed = self.in_place(fid);
+                // Called home, he goes; out of his place, he takes it again once
+                // the company has stopped fighting and shooting a while (state 12
+                // of 0x48e9e0). Engaging, he goes after enemies only from his place
+                // (state 0x14 is entered on arriving there); mopping up, from
+                // wherever he is.
+                if at_fort || !placed && !self.holding_where_they_are(c) {
+                    self.send_to_post(fid);
+                } else if order.reach() > 0 && (placed || order == Order::MopUp) {
+                    self.chase(fid, order.reach());
                 }
             }
             action::CHASING => {
@@ -1082,8 +1136,28 @@ impl World {
                     self.chase(fid, reach);
                 }
             }
-            action::AT_REST => self.breathe(fid, false),
-            action::ATTACK => self.fight(fid),
+            action::AT_REST => {
+                self.breathe(fid, false);
+                // At the fort a man takes his place on the parade ground at once
+                // (state 8, FUN_004b53b0).
+                if !self.in_place(fid) {
+                    self.send_to_post(fid);
+                }
+            }
+            action::ATTACK => {
+                self.fight(fid);
+                // The fight over, he goes back to what he was doing (FUN_004b1da0).
+                let at_fort = self.company_of(fid).and_then(|c| self.military.companies.get(c)).is_none_or(|c| c.at_fort);
+                if let Some(f) = self.figures.get_mut(fid)
+                    && f.action == 0
+                {
+                    f.action = match f.resume {
+                        r @ (action::AT_STANDARD | action::GOING_TO_STANDARD | action::CHASING | action::AT_REST | action::GOING_TO_FORT) => r,
+                        _ if at_fort => action::AT_REST,
+                        _ => action::AT_STANDARD,
+                    };
+                }
+            }
             action::GOING_ABROAD => {
                 // Marching out of the city; gone once past its edge.
                 let map = &self.map;
@@ -1158,6 +1232,9 @@ impl World {
         let Some((foe, ox, oy)) = self.nearest_open_foe(self.is_invader(f), (x, y), range) else { return };
         let facing = crate::figures::direction_to((x, y), (ox, oy));
         if let Some(f) = self.figures.get_mut(fid) {
+            if f.action != action::ATTACK {
+                f.resume = f.action;
+            }
             f.foe = foe;
             f.action = action::ATTACK;
             f.attack_tick = QUICK_BLOW;
@@ -1262,7 +1339,10 @@ impl World {
             && f.destination != Some(to)
         {
             let before = f.destination;
-            if !f.go_to(map, to) {
+            if f.go_to(map, to) {
+                // He has left his place.
+                f.post = None;
+            } else {
                 f.destination = before;
                 target = None;
             }
@@ -1292,7 +1372,13 @@ impl World {
                 f.counter = if f.direction == heading { f.counter + steps } else { steps };
                 self.trample(fid, (nx, ny));
             }
-            None if f.action == action::CHASING => self.send_to_post(fid),
+            // Nothing left to go after: he finishes his step and stands, to take his
+            // place again when the company re-forms (state 0x14 to 12).
+            None if f.action == action::CHASING => {
+                f.route.clear();
+                f.destination = Some(f.step_end());
+                f.action = action::GOING_TO_STANDARD;
+            }
             None => {}
         }
     }
@@ -1438,8 +1524,11 @@ impl World {
         let standing = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map_or(0, |c| {
             c.soldiers.iter().chain(&c.recruits).filter(|&&s| self.figures.get(s).is_some_and(|f| !f.dead && f.action != action::CORPSE)).count() as i32
         });
-        // Whether it breaks is seen to once a day (`check_morale`).
+        // Whether it breaks is seen to once a day (`check_morale`). His company closes
+        // its ranks at once (FUN_004b7ab0).
         if let Some(c) = self.company_of(fid) {
+            self.close_ranks(c);
+            self.muster_company(c);
             self.change_morale(c, -morale_loss(if standing > 0 { 100 / standing } else { 0 }));
         } else if formation >= 1000 {
             self.army_loses(formation as usize - 1000, band);
@@ -1667,12 +1756,24 @@ impl World {
             self.sink_abroad(t);
         }
     }
-    /// Twice a day (FUN_004b7790): every company is mustered, and (FUN_004b8b20) a
-    /// company mopping up with no enemy left on the field (no invaders, no wild
+    /// Twice a day (FUN_004b7790): every company closes its ranks and is mustered,
+    /// its re-forming waits run down (FUN_004b8b20), and a company mopping up with no enemy left on the field (no invaders, no wild
     /// beasts) goes back to its orders before, and re-forms.
     pub(crate) fn update_companies(&mut self) {
+        let invaders = self.figures.iter().any(|f| !f.dead && f.action != action::CORPSE && self.is_invader(f));
         for c in 0..self.military.companies.len() {
+            self.close_ranks(c);
             self.muster_company(c);
+            // The re-forming waits run down, and are over once no invader is left
+            // on the map; a man still fighting holds his company where it is.
+            let fighting = self.military.companies[c].soldiers.iter().any(|&s| self.figures.get(s).is_some_and(|f| f.action == action::ATTACK));
+            let co = &mut self.military.companies[c];
+            for wait in [&mut co.fought, &mut co.shot, &mut co.struck] {
+                *wait = if invaders { wait.saturating_sub(1) } else { 0 };
+            }
+            if fighting {
+                co.fought = REFORM_WAIT;
+            }
         }
         let enemies = self.figures.iter().any(|f| !f.dead && f.action != action::CORPSE && (self.is_invader(f) || crate::predators::is_predator(f.kind) && f.action != crate::predators::action::HIDDEN));
         if enemies {
@@ -1842,6 +1943,9 @@ impl World {
             f.direction = crate::figures::direction_to((x, y), (tx, ty)).unwrap_or(f.direction);
             f.aimed = true;
         }
+        if let Some(c) = self.company_of(fid).and_then(|c| self.military.companies.get_mut(c)) {
+            c.shot = REFORM_WAIT;
+        }
         self.figure_sound(fid, 2);
         let missile = self.figures.spawn(if mine { ARROW } else { JAVELIN }, x, y, Travel::Land);
         let company = if mine { 0 } else { self.company_of(fid).map_or(0, |c| c as u16 + 1) };
@@ -1895,6 +1999,11 @@ impl World {
             let armor = armor + if kind == crate::navy::WARSHIP && holding { 2 } else { 0 };
             self.hurt(target, spear(shooter, armor));
         } else if theirs {
+            // A company struck by a missile holds where it stands a while (the arrow's
+            // hit, FUN_0049a5a0).
+            if let Some(c) = self.company_of(target).and_then(|c| self.military.companies.get_mut(c)) {
+                c.struck = REFORM_WAIT;
+            }
             let seasoned = if is_soldier(kind) { (self.company_of(target).and_then(|c| self.military.companies.get(c)).map_or(0, |c| c.experience) + 10) / 20 } else { 0 };
             let armor = (armor + seasoned).min(MAX_ARMOR) + self.line(target).map_or(0, |l| l.missile_armor());
             self.hurt(target, spear(attack, armor));
@@ -2102,7 +2211,7 @@ mod tests {
         for &s in &c.soldiers {
             let f = w.figures.get(s).expect("soldier");
             assert_eq!(f.action, state, "soldier {s} at {:?}", (f.x, f.y));
-            assert_eq!(Some((f.x, f.y)), w.post_of(s), "soldier {s} in slot {} stands off his place", f.slot);
+            assert_eq!(Some((f.x, f.y)), w.post_of(s), "soldier {s} in slot {} stands off his place: {:?} {:?} {:?} {}", f.slot, f.destination, f.post, f.route, crate::figures::passable(&w.map, Travel::Land, f.x, f.y));
             tiles.push((f.x, f.y));
         }
         tiles.sort();
@@ -2131,7 +2240,8 @@ mod tests {
         for _ in 0..60 * crate::time::TICKS_PER_DAY {
             w.tick();
             let fighting = w.invasions.armies.iter().any(|a| a.figures.iter().any(|&f| w.figures.get(f).is_some_and(|f| !f.dead && !matches!(f.action, action::CORPSE | action::FLEEING))));
-            if !fighting && w.military.companies[0].soldiers.iter().all(|&s| w.figures.get(s).is_some_and(|f| f.action == action::AT_STANDARD)) {
+            // The enemy gone, the men re-form round the standard.
+            if !fighting && w.military.companies[0].soldiers.iter().all(|&s| w.figures.get(s).is_some_and(|f| f.action == action::AT_STANDARD) && w.in_place(s)) {
                 over = true;
                 break;
             }
@@ -2237,6 +2347,48 @@ mod tests {
             }
         }
         panic!("never halted");
+    }
+
+    #[test]
+    fn ranks_close_after_a_loss_once_the_fighting_has_died_down() {
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 4 * crate::economy::LOAD);
+        for _ in 0..60 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert!(w.move_company(0, (40, 60)));
+        for _ in 0..10 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_in_formation(&w, action::AT_STANDARD);
+        let mut men = w.military.companies[0].soldiers.clone();
+        men.sort_unstable();
+        assert_eq!(men.len(), 4);
+        // The second man falls: the others close up in the order of their numbers.
+        w.military.companies[0].fought = REFORM_WAIT;
+        assert!(w.hurt(men[1], 1000));
+        let survivors = [men[0], men[2], men[3]];
+        assert_eq!(survivors.map(|s| w.figures.get(s).map(|f| f.slot)), [Some(0), Some(1), Some(2)]);
+        // While the company has lately fought, the men stay where they stand.
+        let stood: Vec<(i32, i32)> = survivors.iter().filter_map(|&s| w.figures.get(s).map(|f| (f.x, f.y))).collect();
+        assert!(survivors.iter().any(|&s| !w.in_place(s)));
+        for _ in 0..100 {
+            w.gather_combatants();
+            for s in survivors {
+                w.update_soldier(s);
+            }
+        }
+        let now: Vec<(i32, i32)> = survivors.iter().filter_map(|&s| w.figures.get(s).map(|f| (f.x, f.y))).collect();
+        assert_eq!(now, stood);
+        // With no invader about the wait is over at the next muster, and they re-form.
+        w.update_companies();
+        assert_eq!(w.military.companies[0].fought, 0);
+        for _ in 0..5 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_eq!(w.military.companies[0].soldiers.len(), 3);
+        assert_in_formation(&w, action::AT_STANDARD);
     }
 
     #[test]

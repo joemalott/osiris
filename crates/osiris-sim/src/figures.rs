@@ -147,6 +147,10 @@ pub struct Figure {
     /// keeps his company from counting as halted.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub aimed: bool,
+    /// Soldiers: the place in the company's ranks they were last sent to, which they
+    /// may stand beside when it is built on or out of reach.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post: Option<(i32, i32)>,
 }
 
 impl Figure {
@@ -193,6 +197,7 @@ impl Figure {
             band: 0,
             ship: None,
             aimed: false,
+            post: None,
         }
     }
 
