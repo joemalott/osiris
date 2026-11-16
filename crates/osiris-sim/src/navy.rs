@@ -144,6 +144,10 @@ const RAM_WEAK_PCT: i32 = 20;
 const RAM_COOLDOWN: i32 = 15;
 /// A warship holding position braces for a ram: it takes 20 less.
 const HOLD_BRACE: i32 = 20;
+/// A ship holding position looks every 20 ticks for a foreign warship nearer than 5
+/// tiles to turn to.
+const HOLD_LOOK: i32 = 20;
+const HOLD_FACE: i32 = 5;
 /// What a ram's force is divided by, by the target's heading (row) and the warship's
 /// (column): 1 square on the beam, 5 end on (the table at 0x5dc24c).
 const RAM_ANGLE: [[u8; 8]; 8] = [
@@ -925,8 +929,11 @@ impl World {
                 }
             }
             ship::HOLD => {
-                self.fire_at_will(fid);
                 self.sail(fid, false);
+                self.fire_at_will(fid);
+                if self.figures.get(fid).and_then(|f| f.ship.as_ref()).is_some_and(|s| s.fatigue < 2) {
+                    self.face_raider(fid);
+                }
             }
             ship::ENGAGE | ship::SEEK => self.warship_combat(fid, act),
             ship::ATTACK => self.warship_attack(fid),
@@ -936,6 +943,34 @@ impl World {
                 f.action = ship::LAUNCHED;
                 f.counter = 0;
             }
+        }
+    }
+
+    /// A ship holding position turns, every 20 ticks, to face the nearest foreign
+    /// warship within 5 tiles, so that a ram takes it bow on (FUN_004a6cc0 for a
+    /// warship, FUN_004a4f60 for a transport, both with FUN_004bcd90).
+    fn face_raider(&mut self, fid: FigureId) {
+        let Some(f) = self.figures.get_mut(fid) else { return };
+        f.counter += 1;
+        if f.counter < HOLD_LOOK {
+            return;
+        }
+        f.counter = 0;
+        let pos = (f.x, f.y);
+        let Some(at) = self
+            .figures
+            .iter()
+            .filter(|o| o.kind == ENEMY_WARSHIP && !o.dead && o.action != action::CORPSE && distance(pos, (o.x, o.y)) < HOLD_FACE)
+            .min_by_key(|o| (distance(pos, (o.x, o.y)), o.id))
+            .map(|o| (o.x, o.y))
+        else {
+            return;
+        };
+        let f = self.figures.get_mut(fid).expect("present");
+        if !f.moving
+            && let Some(d) = crate::figures::direction_to(pos, at)
+        {
+            f.direction = d;
         }
     }
 
@@ -1109,6 +1144,7 @@ impl World {
             }
             ship::HOLD => {
                 self.sail(fid, false);
+                self.face_raider(fid);
             }
             ship::EMBARK => self.embark_step(fid),
             ship::DISEMBARK | ship::BACK => self.disembark_step(fid),
@@ -2632,6 +2668,25 @@ mod tests {
             chased |= world.figures.get(ours).is_some_and(|f| f.foe == near);
         }
         assert!(chased);
+    }
+    #[test]
+    fn a_transport_holding_turns_to_face_an_enemy_warship_close_by() {
+        let Some(mut world) = navy_town() else { return };
+        let ours = ship_at_post(&mut world, TRANSPORT);
+        assert!(world.order_ship(ours, ShipOrder::Hold));
+        for _ in 0..100 {
+            world.tick();
+        }
+        let f = world.figures.get(ours).expect("transport");
+        let pos = (f.x, f.y);
+        let at = (pos.0 + 3, pos.1 + 3);
+        let want = crate::figures::direction_to(pos, at).expect("direction");
+        world.figures.get_mut(ours).expect("transport").direction = (want + 4) % 8;
+        moored_enemy(&mut world, ENEMY_WARSHIP, at, 0);
+        for _ in 0..HOLD_LOOK + 1 {
+            world.tick();
+        }
+        assert_eq!(world.figures.get(ours).map(|f| f.direction), Some(want));
     }
     #[test]
     fn an_enemy_transport_lands_its_men_then_leaves_by_the_river_exit() {
