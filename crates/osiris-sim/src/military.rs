@@ -1032,21 +1032,30 @@ impl World {
         self.military.companies[company].marching = marching;
     }
 
-    /// Orders a company back to its fort.
-    pub fn return_company(&mut self, company: usize) {
+    /// Orders a company back to its fort. False, and nothing done, when its standard
+    /// has no way to the parade ground ("This company cannot reach its intended
+    /// destination", FUN_004b6c20). Men in a fight finish it first.
+    pub fn return_company(&mut self, company: usize) -> bool {
         if self.company_ship(company).is_some() {
-            return;
+            return false;
         }
-        let Some(c) = self.military.companies.get_mut(company) else { return };
+        let Some(c) = self.military.companies.get(company) else { return false };
+        let home = self.buildings.get(c.ground).map(|g| (g.x, g.y));
+        let from = self.figures.get(c.standard).map(|f| (f.x, f.y));
+        let (Some(home), Some(from)) = (home, from) else { return false };
+        if crate::figures::find_route(&self.map, Travel::Land, from, home).is_none() {
+            return false;
+        }
+        let c = &mut self.military.companies[company];
         c.at_fort = true;
         let soldiers = c.soldiers.clone();
         self.plant_standard(company);
         for s in soldiers {
-            if let Some(f) = self.figures.get_mut(s) {
-                f.foe = 0;
+            if self.figures.get(s).is_some_and(|f| !matches!(f.action, action::ATTACK | action::CORPSE)) {
+                self.send_to_post(s);
             }
-            self.send_to_post(s);
         }
+        true
     }
 
     /// The company a figure belongs to, if it is one of the city's soldiers.
@@ -1152,9 +1161,11 @@ impl World {
                 if let Some(f) = self.figures.get_mut(fid)
                     && f.action == 0
                 {
-                    f.action = match f.resume {
-                        r @ (action::AT_STANDARD | action::GOING_TO_STANDARD | action::CHASING | action::AT_REST | action::GOING_TO_FORT) => r,
-                        _ if at_fort => action::AT_REST,
+                    // Called home meanwhile, he goes from where he stands.
+                    let r = f.resume;
+                    f.action = match r {
+                        action::AT_REST | action::GOING_TO_FORT if at_fort => r,
+                        action::AT_STANDARD | action::GOING_TO_STANDARD | action::CHASING if !at_fort => r,
                         _ => action::AT_STANDARD,
                     };
                 }
@@ -2482,6 +2493,56 @@ mod tests {
         assert!(men.iter().all(|&s| w.figures.get(s).is_some_and(|f| f.action != action::CHARGING)));
         w.set_order(0, Order::Charge);
         assert_eq!(w.military.companies[0].order, Order::Engage);
+    }
+
+    #[test]
+    fn called_home_fighters_finish_and_the_cut_off_stay() {
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 3 * crate::economy::LOAD);
+        for _ in 0..60 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert!(w.move_company(0, (40, 60)));
+        for _ in 0..10 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_in_formation(&w, action::AT_STANDARD);
+        // A raider comes at one of the men; while they fight the company is called
+        // home. The others go; he fights on, and goes once the raider is down.
+        w.invade_now(crate::invasions::invader::BEDOUIN, 1, 1);
+        let them = w.invasions.armies[0].figures[0];
+        let man = w.military.companies[0].soldiers[0];
+        let (x, y) = w.figures.get(man).map(|f| (f.x, f.y)).expect("man");
+        if let Some(f) = w.figures.get_mut(them) {
+            (f.x, f.y) = (x - 1, y);
+            f.route.clear();
+            f.moving = false;
+        }
+        w.gather_combatants();
+        w.engage(man, 1);
+        assert_eq!(w.figures.get(man).map(|f| (f.action, f.foe)), Some((action::ATTACK, them)));
+        assert!(w.return_company(0));
+        assert_eq!(w.figures.get(man).map(|f| (f.action, f.foe)), Some((action::ATTACK, them)));
+        let others: Vec<FigureId> = w.military.companies[0].soldiers.iter().copied().filter(|&s| s != man).collect();
+        assert!(others.iter().all(|&s| w.figures.get(s).is_some_and(|f| f.action == action::GOING_TO_FORT)));
+        assert!(w.hurt(them, 1000));
+        for _ in 0..10 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_in_formation(&w, action::AT_REST);
+        // Walled in out in the field, the company can't be called home.
+        assert!(w.move_company(0, (40, 60)));
+        for _ in 0..10 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        for d in -6..=6 {
+            for (wx, wy) in [(40 + d, 54), (40 + d, 66), (34, 60 + d), (46, 60 + d)] {
+                w.map.terrain.set(wx, wy, crate::map::terrain::WALL);
+            }
+        }
+        assert!(!w.return_company(0));
+        assert!(!w.military.companies[0].at_fort);
     }
 
     #[test]

@@ -1403,7 +1403,9 @@ impl Game {
             let Some(company) = self.world.military.companies.get(c) else { return false };
             let clicked = self.world.map.building.at_or(x, y, 0);
             if clicked != 0 && (clicked == company.fort || clicked == company.ground) {
-                self.world.apply(&Command::ReturnCompany(c));
+                if self.world.apply(&Command::ReturnCompany(c)) == Outcome::Blocked {
+                    self.warn(209);
+                }
             } else if self.world.company_too_shaken(c) {
                 self.warn(49);
             } else if self.world.apply(&Command::MoveCompany { company: c, x, y }) == Outcome::Blocked {
