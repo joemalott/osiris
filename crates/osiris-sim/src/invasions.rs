@@ -32,8 +32,9 @@ pub mod invader {
     pub const BEDOUIN: u8 = 4;
 }
 
-/// Damage a building takes before invaders bring it down.
-const BUILDING_HP: i32 = 1000;
+/// Blows a building other than the defences takes before invaders bring it down:
+/// it falls to the 11th (FUN_004b3530 with 10, FUN_004690f0).
+const BUILDING_BLOWS: i32 = 10;
 /// Tiles within which invaders turn on soldiers.
 const CHASE_RANGE: i32 = 5;
 /// Months before arrival when reminders come.
@@ -132,11 +133,15 @@ pub struct Army {
     pub nation: u16,
     pub target: BuildingId,
     pub priority: i8,
-    #[serde(default = "full_morale")]
+    /// Older saves' morale for the whole army; each formation now has its own.
+    #[serde(default = "full_morale", skip_serializing)]
     pub morale: i32,
-    /// Broken and running for the edge of the map.
-    #[serde(default)]
+    /// Older saves' army in flight: it keeps running.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub fleeing: bool,
+    /// Each formation's morale, by its number (100 for one not yet counted).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub band_morale: Vec<i32>,
     /// Where it came in, and leaves.
     #[serde(default)]
     pub entry: (i32, i32),
@@ -200,7 +205,9 @@ impl Invasions {
             land_points: points(&info.invasion_points_land),
             sea_points: points(&info.invasion_points_sea),
             landings: points(&info.disembark_points),
-            nation: defs.armies.iter().position(|a| a.enemy_ids.contains(&(info.enemy_id as i64))).unwrap_or(0) as u16,
+            // The scenario's enemy is the nation's number, past the last (11) taken
+            // as the last (FUN_004bc720).
+            nation: defs.armies.iter().position(|a| a.enemy_ids.contains(&(info.enemy_id.clamp(0, 11) as i64))).unwrap_or(0) as u16,
             ..Default::default()
         }
     }
@@ -728,23 +735,76 @@ impl World {
         }
     }
 
-    /// An army loses a man: its morale drops, and when it breaks the army flees.
-    pub(crate) fn army_loses(&mut self, army: usize) {
-        // The share of the army still standing that he was.
-        let standing = self.invasions.armies.get(army).map_or(0, |a| a.figures.iter().filter(|&&g| self.figures.get(g).is_some_and(|f| !f.dead && f.action != action::CORPSE)).count() as i32);
+    /// The morale of formation `band` of army `army`.
+    pub fn band_morale(&self, army: usize, band: u8) -> i32 {
+        self.invasions.armies.get(army).and_then(|a| a.band_morale.get(band as usize)).copied().unwrap_or(full_morale())
+    }
+
+    /// A formation's morale changes by `delta`, from 0 up to the invaders' highest:
+    /// 80 for Bedouin, 70 for any other (FUN_004b7b50), so their first loss or month
+    /// brings a fresh formation's 100 down to it.
+    fn change_band_morale(&mut self, army: usize, band: u8, delta: i32) {
         let Some(a) = self.invasions.armies.get_mut(army) else { return };
-        a.morale = (a.morale - crate::military::morale_loss(if standing > 0 { 100 / standing } else { 0 })).max(0);
-        if a.morale <= crate::military::BROKEN_MORALE && !a.fleeing {
-            a.fleeing = true;
-            let (entry, figures) = (a.entry, a.figures.clone());
-            let map = &self.map;
-            for fid in figures {
-                if let Some(f) = self.figures.get_mut(fid)
+        let cap = if a.invader == invader::BEDOUIN { 80 } else { 70 };
+        if a.band_morale.len() <= band as usize {
+            a.band_morale.resize(band as usize + 1, full_morale());
+        }
+        let m = &mut a.band_morale[band as usize];
+        *m = (*m + delta).min(cap).max(0);
+    }
+
+    /// The formations on the field: (army, formation) of each with anyone standing.
+    fn standing_bands(&self) -> Vec<(usize, u8)> {
+        let mut bands = Vec::new();
+        for (i, a) in self.invasions.armies.iter().enumerate() {
+            for &fid in &a.figures {
+                if let Some(f) = self.figures.get(fid)
+                    && !f.dead
                     && f.action != action::CORPSE
+                    && !bands.contains(&(i, f.band))
                 {
-                    f.action = FLEEING;
-                    f.foe = 0;
-                    f.go_to(map, entry);
+                    bands.push((i, f.band));
+                }
+            }
+        }
+        bands
+    }
+
+    /// Every formation of invaders on the field gains `delta` morale.
+    pub(crate) fn enemy_morale_all(&mut self, delta: i32) {
+        for (a, band) in self.standing_bands() {
+            self.change_band_morale(a, band, delta);
+        }
+    }
+
+    /// Monthly: the invaders' morale is held to their highest (FUN_004b7960).
+    pub(crate) fn enemy_morale_month(&mut self) {
+        self.enemy_morale_all(0);
+    }
+
+    /// A formation loses a man: its morale drops by his share of those still standing
+    /// in it (FUN_004b7ab0, which counts the victim's own formation).
+    pub(crate) fn army_loses(&mut self, army: usize, band: u8) {
+        let standing = self.invasions.armies.get(army).map_or(0, |a| a.figures.iter().filter(|&&g| self.figures.get(g).is_some_and(|f| f.band == band && !f.dead && f.action != action::CORPSE)).count() as i32);
+        self.change_band_morale(army, band, -crate::military::morale_loss(if standing > 0 { 100 / standing } else { 0 }));
+    }
+
+    /// Daily (FUN_004b79f0): a formation whose morale has fallen to 20 breaks and
+    /// leaves the map as one that has given up does, its men in a fight finishing it
+    /// first. The first to break of each heartens the city's companies by 10 and
+    /// shakes the other formations by 10.
+    pub(crate) fn check_enemy_morale(&mut self) {
+        for (a, band) in self.standing_bands() {
+            if self.invasions.armies[a].withdrawn.contains(&band) || self.band_morale(a, band) > crate::military::BROKEN_MORALE {
+                continue;
+            }
+            self.side_shaken(true);
+            let army = &mut self.invasions.armies[a];
+            army.withdrawn.push(band);
+            let (entry, figures) = (army.entry, army.figures.clone());
+            for fid in figures {
+                if self.figures.get(fid).is_some_and(|f| f.band == band && !f.dead && !matches!(f.action, action::ATTACK | action::CORPSE | FLEEING)) {
+                    self.withdraw(fid, entry);
                 }
             }
         }
@@ -813,16 +873,18 @@ impl World {
             f.moving = false;
             f.route.clear();
             f.attack_tick += 1;
-            // The defences take a blow every 4 ticks and fall once past their count.
+            // Every building takes a blow every 4 ticks, whoever strikes it, and
+            // falls once past its count: 10 for most, 200 for a wall, 400 for a tower
+            // or gatehouse (FUN_004b3530). (The original counts blows by the tile
+            // struck; Osiris by the building.)
             let hp = crate::defenses::hit_points(b.kind);
-            if f.attack_tick < if hp.is_some() { 4 } else { 24 } {
+            if f.attack_tick < 4 {
                 return;
             }
             f.attack_tick = 0;
-            let attack = if hp.is_some() { 1 } else { self.fighter_stats(fid).attack.max(1) };
             let Some(b) = self.buildings.get_mut(target) else { return };
-            b.enemy_damage += attack;
-            if b.enemy_damage > hp.unwrap_or(BUILDING_HP) {
+            b.enemy_damage += 1;
+            if b.enemy_damage > hp.unwrap_or(BUILDING_BLOWS) {
                 // Walls crumble; everything else is put to the torch.
                 if crate::defenses::is_defense(b.kind) {
                     self.wreck(target, false);
@@ -897,21 +959,19 @@ impl World {
         }
     }
 
-    /// Fallen invaders lie a while; an army with none left standing is beaten.
+    /// Fallen invaders lie a while, then are gone. Beating an army changes no
+    /// rating: none of the original's writers of the kingdom rating (FUN_004e96c0)
+    /// is tied to a battle.
     fn update_invader_corpse(&mut self, fid: FigureId) {
         let Some(f) = self.figures.get_mut(fid) else { return };
         f.counter += 1;
-        if f.counter < 200 {
+        if f.counter < crate::military::CORPSE_TICKS {
             return;
         }
         f.dead = true;
         let army = f.formation.saturating_sub(1000) as usize;
         if let Some(a) = self.invasions.armies.get_mut(army) {
             a.figures.retain(|&g| g != fid);
-            if a.figures.is_empty() && a.invader == invader::PHARAOH && self.ratings.kingdom < 35 {
-                // Beating back Pharaoh's army earns grudging respect.
-                self.ratings.change_kingdom(10);
-            }
         }
     }
 
@@ -970,6 +1030,21 @@ mod tests {
     }
 
     #[test]
+    fn a_scenarios_enemy_is_the_originals_nation_number() {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        let Ok(library) = osiris_formats::ImageLibrary::open(&data.join("Data")) else { return };
+        let defs = crate::defs::Defs::load(&library).expect("defs");
+        let Ok(mut scenario) = osiris_formats::MissionPak::open(&data.join("mission1.pak")).and_then(|p| p.scenario(1)) else { return };
+        // FUN_004bc720: the number picks the name (0x5def84) and five rows from 5 x number.
+        let names = ["hyksos", "seapeople", "hittite", "mitani", "kushite", "libian", "nubian", "canaanite", "assyrian", "roman", "phoenician", "persian", "persian", "persian"];
+        for (id, key) in names.iter().enumerate() {
+            scenario.info.enemy_id = id as i16;
+            let nation = &defs.armies[Invasions::from_scenario(&scenario, &defs).nation as usize];
+            assert_eq!((nation.key.as_str(), nation.stats_row), (*key, Some(5 * id.min(11))), "enemy {id}");
+        }
+    }
+
+    #[test]
     fn invasions_only_via_event_wait_for_their_event() {
         let Some(mut world) = mission(20) else { return };
         // Mission 20's later waves of Pharaoh's army follow the one his lost favour
@@ -1006,6 +1081,35 @@ mod tests {
         }
         let found = world.nearest_reachable_building((x - 5, y));
         assert_eq!(found, Some((well, (x - 1, y))));
+    }
+
+    #[test]
+    fn an_invader_brings_a_building_down_with_eleven_blows() {
+        let Some(mut world) = mission(1) else { return };
+        world.rules.fire = false;
+        let (w, h) = (world.map.width, world.map.height);
+        let clear = |world: &World, x: i32, y: i32| (x - 2..=x).all(|xx| world.can_place(kind::WELL, xx, y).is_ok());
+        let (x, y) = (6..h - 1).flat_map(|y| (6..w - 1).map(move |x| (x, y))).find(|&(x, y)| clear(&world, x, y)).expect("open ground");
+        assert!(matches!(world.apply(&crate::world::Command::Build { kind: kind::WELL, x, y, x1: x, y1: y }), crate::world::Outcome::Done { .. }));
+        let well = world.map.building.at_or(x, y, 0);
+        world.invade_now(invader::BEDOUIN, 1, 1);
+        let army = world.invasions.armies.len() - 1;
+        let men = world.invasions.armies[army].figures.clone();
+        for &m in &men[1..] {
+            world.figures.get_mut(m).expect("man").dead = true;
+        }
+        world.invasions.armies[army].figures.truncate(1);
+        world.invasions.armies[army].target = well;
+        let f = world.figures.get_mut(men[0]).expect("man");
+        (f.x, f.y, f.action) = (x - 1, y, 1);
+        f.route.clear();
+        // A blow every 4 ticks; the 11th brings it down (FUN_004b3530).
+        let mut ticks = 0;
+        while world.buildings.get(well).is_some_and(|b| b.kind == kind::WELL) && ticks < 400 {
+            world.update_invader(men[0]);
+            ticks += 1;
+        }
+        assert_eq!(ticks, 44);
     }
 
     #[test]

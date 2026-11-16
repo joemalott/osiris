@@ -75,6 +75,9 @@ impl World {
             }
         }
         self.can_place_monument(k, (x, y))?;
+        if crate::military::fort_soldier(k).is_some() && self.forts_full() {
+            return Err(crate::military::FORTS_FULL);
+        }
         if crate::military::fort_soldier(k).is_some() && crate::military::fort_ground(x, y).any(|(xx, yy)| !self.fort_ground_tile_clear(xx, yy)) {
             return Err("No room for the parade ground");
         }
@@ -332,6 +335,12 @@ impl World {
         }
         if self.buildings.get(id).is_some_and(|b| crate::military::fort_soldier(b.kind).is_some()) {
             self.remove_fort(id);
+        }
+        // A fort and its parade ground are one: clearing the ground takes the fort
+        // too (FUN_004695d0).
+        if let Some(fort) = self.buildings.get(id).filter(|b| b.kind == crate::military::FORT_GROUND).and_then(|_| self.fort_of_ground(id)) {
+            self.demolish(fort);
+            return;
         }
         let Some(b) = self.buildings.remove(id) else { return };
         let defense = (crate::defenses::is_defense(b.kind) || b.kind == crate::defenses::ROADBLOCK).then_some((b.kind, b.x, b.y, b.footprint()));

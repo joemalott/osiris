@@ -561,6 +561,38 @@ impl Figure {
         }
     }
 
+    /// The tile the figure stands on once its current step is done: a figure that
+    /// has set out from a tile's centre crosses into the next halfway through.
+    pub fn step_end(&self) -> (i32, i32) {
+        if self.moving && self.progress < 8 {
+            let (dx, dy) = NEIGHBOURS[self.direction as usize % NEIGHBOURS.len()];
+            (self.x + dx, self.y + dy)
+        } else {
+            (self.x, self.y)
+        }
+    }
+
+    /// Like [`Figure::go_to`], but routed from where the current step ends, so a
+    /// figure turned round mid-step still arrives where it was sent.
+    pub fn reroute(&mut self, map: &Map, to: (i32, i32)) -> bool {
+        self.destination = Some(to);
+        let from = self.step_end();
+        if from == to {
+            self.route.clear();
+            return true;
+        }
+        match find_route(map, self.travel, from, to) {
+            Some(r) => {
+                self.route = r;
+                true
+            }
+            None => {
+                self.route.clear();
+                false
+            }
+        }
+    }
+
     /// Advances along the route by `speed` movement ticks.
     pub fn walk(&mut self, map: &Map) -> Step {
         self.anim_tick += 1;
@@ -705,6 +737,23 @@ mod tests {
         for (bits, open) in [(terrain::BUILDING, false), (terrain::WALL, false), (terrain::ROCK, false), (terrain::WATER | terrain::FLOODPLAIN, false), (terrain::DUNE, true)] {
             map.terrain.set(3, 0, bits);
             assert_eq!(passable(&map, Travel::Hostile, 3, 0), open, "{bits:#x}");
+        }
+    }
+
+    #[test]
+    fn a_figure_turned_mid_step_arrives_where_it_was_sent() {
+        let map = open_map(8, 8);
+        for progress in [3, 10] {
+            let mut f = Figure::new(1, 13, 2, 2, Travel::Land);
+            assert!(f.go_to(&map, (6, 2)));
+            for _ in 0..15 + progress {
+                f.walk(&map);
+            }
+            assert!(f.moving);
+            // Sent elsewhere part way into his second step east.
+            assert!(f.reroute(&map, (3, 6)));
+            while f.walk(&map) == Step::Moving {}
+            assert_eq!((f.x, f.y), (3, 6), "turned at progress {progress}");
         }
     }
 

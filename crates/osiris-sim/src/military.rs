@@ -36,11 +36,14 @@
 //! missiles only: in melee the original takes the striker's company's, which an
 //! invader hasn't.
 //!
-//! Morale: every man lost shakes his side, the more so the bigger the share of it
-//! that fell; a company rests its spirits at the fort month by month, up to 60
-//! (charioteers 80, and 20 more once its recruits train at a military academy),
-//! and loses heart when kept out long. A company whose morale breaks runs home,
-//! and a broken army runs for the edge of the map.
+//! Morale: every man lost shakes his company or formation, the more so the bigger
+//! the share of it that fell; a company rests its spirits at the fort month by
+//! month, up to 60 (charioteers 80, and 20 more once its recruits train at a military
+//! academy), and loses heart when kept out long. Invaders' formations hold at most 70
+//! (Bedouin 80). Once a day, a company out of its fort or a formation of invaders at
+//! 20 or less breaks: the company runs home and won't take orders for a while, the
+//! formation leaves the map, and the first break shakes the rest of that side and
+//! heartens the other.
 //!
 //! Experience: a company's experience (0 to 100) is the average of its men's. A raw
 //! recruit brings none, one who passed through a military academy 25, and a temple
@@ -96,6 +99,12 @@ fn model_row(kind: u16) -> u16 {
 
 /// Soldiers a company holds.
 pub const COMPANY_SIZE: usize = 16;
+/// The tiles from his place an engaging soldier goes after enemies.
+const ENGAGE_LEASH: i32 = 6;
+/// The most forts a city may have (0x471114).
+const MAX_FORTS: usize = 6;
+/// Why a seventh fort can't be built: the app shows the game's own 19:50.
+pub const FORTS_FULL: &str = "Your army has its full complement of Forts";
 /// Ticks a blow takes to land.
 const BLOW_TICKS: u16 = 24;
 /// Where a blow's count starts when it strikes the first blow of a fight, or a
@@ -106,8 +115,9 @@ const MAX_ARMOR: i32 = 20;
 /// The straight run (tiles) over which a charging chariot tramples at four times
 /// its attack.
 const CHARGE_RUN: std::ops::Range<i32> = 6..20;
-/// Ticks a fallen figure lies on the field.
-const CORPSE_TICKS: i32 = 200;
+/// Ticks a fallen figure lies on the field: the original's dying count runs to 127
+/// and the figure is gone on the 128th (FUN_004b1d50).
+pub(crate) const CORPSE_TICKS: i32 = 128;
 /// Where the parade ground sits beside its fort.
 const GROUND_OFFSET: (i32, i32) = (3, -1);
 /// The 4x4 tiles of the parade ground beside a fort placed at `(x, y)`.
@@ -118,6 +128,11 @@ pub fn fort_ground(x: i32, y: i32) -> impl Iterator<Item = (i32, i32)> {
 
 /// Morale at or below which a side breaks and runs.
 pub const BROKEN_MORALE: i32 = 20;
+/// Morale at or below which a broken company is badly broken.
+const SHATTERED_MORALE: i32 = 10;
+/// What the first break of a side's company or formation does to the morale of the
+/// rest of that side, and of the other (FUN_004b79f0).
+const BREAK_SHOCK: i32 = 10;
 
 /// Morale lost for a death, by the share of the side it was (percent).
 pub fn morale_loss(share_pct: i32) -> i32 {
@@ -255,6 +270,26 @@ pub struct Company {
     pub charged: bool,
     #[serde(default)]
     pub charge_rest: i32,
+    /// Days its morale has been found broken while out (the original's +0x66, days
+    /// at 11 to 20, and +0x73, days at 10 or less): the company runs home, and takes
+    /// no orders once it has been so two days, or one day badly. Cleared by a month
+    /// spent at the fort.
+    /// The orders it had before it was sent to mop up, which it takes again once
+    /// no enemy is left.
+    #[serde(default, skip_serializing_if = "is_hold_tight")]
+    pub before_mop_up: Order,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub routed: u8,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub broken: u8,
+}
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
+}
+
+fn is_hold_tight(o: &Order) -> bool {
+    *o == Order::HoldTight
 }
 
 impl Company {
@@ -480,9 +515,10 @@ pub fn is_soldier(k: u16) -> bool {
 /// Where each of a company's sixteen men stands relative to its standard, by the
 /// original's formation layouts: the charge's close block; the tight double line,
 /// across or turned; the loose staggered line, across or turned; and mopping up,
-/// engaging and at rest on the parade ground, each a four-by-four block (the
-/// original's layouts 0, 1-4, 6, 15 and 7).
-const LAYOUTS: [[(i8, i8); COMPANY_SIZE]; 8] = [
+/// engaging and at rest on the parade ground, each a four-by-four block; and the
+/// charioteers' tight line, across or turned, a tile between its ranks (the
+/// original's layouts 0, 1-4, 6, 15, 7, 13 and 14).
+const LAYOUTS: [[(i8, i8); COMPANY_SIZE]; 10] = [
     [(0, 0), (1, 0), (0, 1), (1, 1), (-1, 0), (-1, 1), (0, -1), (1, -1), (-1, -1), (2, -1), (2, 0), (2, 1), (0, 2), (1, 2), (-1, 2), (2, 2)],
     [(0, 0), (0, 1), (-1, 0), (1, 0), (-1, 1), (1, 1), (-2, 0), (-2, 1), (2, 0), (2, 1), (-3, 0), (-3, 1), (3, 0), (3, 1), (-4, 0), (-4, 1)],
     [(0, 0), (0, -1), (0, 1), (1, 0), (1, -1), (1, 1), (0, -2), (1, -2), (0, 2), (1, 2), (0, -3), (1, -3), (0, 3), (1, 3), (0, -4), (1, -4)],
@@ -491,13 +527,17 @@ const LAYOUTS: [[(i8, i8); COMPANY_SIZE]; 8] = [
     [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (2, 1), (1, 2), (0, 2), (2, 2), (3, 0), (3, 1), (3, 2), (1, 3), (2, 3), (0, 3), (3, 3)],
     [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (2, 1), (1, 2), (0, 2), (2, 2), (3, 0), (3, 1), (3, 2), (1, 3), (2, 3), (0, 3), (3, 3)],
     [(0, 0), (1, 0), (0, 1), (1, 1), (2, 0), (2, 1), (1, 2), (0, 2), (2, 2), (3, 0), (3, 1), (3, 2), (1, 3), (2, 3), (0, 3), (3, 3)],
+    [(0, 0), (0, 2), (-1, 0), (1, 0), (-1, 2), (1, 2), (-2, 0), (-2, 2), (2, 0), (2, 2), (-3, 0), (-3, 2), (3, 0), (3, 2), (-4, 0), (-4, 2)],
+    [(0, 0), (0, -1), (0, 1), (2, 0), (2, -1), (2, 1), (0, -2), (2, -2), (0, 2), (2, 2), (0, -3), (2, -3), (0, 3), (2, 3), (0, -4), (2, -4)],
 ];
 
 /// The row of [`LAYOUTS`] a company in the field stands in: by its orders, and for
 /// the held lines by which way the line was turned when they were given.
-fn layout(order: Order, turned: bool) -> usize {
+fn layout(order: Order, turned: bool, kind: u16) -> usize {
     match order {
         Order::Charge => 0,
+        // Chariots need room: theirs is the original's 13 and 14.
+        Order::HoldTight if kind == CHARIOTEER => 8 + turned as usize,
         Order::HoldTight => 1 + turned as usize,
         Order::HoldLoose => 3 + turned as usize,
         Order::MopUp => 5,
@@ -505,9 +545,23 @@ fn layout(order: Order, turned: bool) -> usize {
     }
 }
 
+/// The tiles round a soldier's place he tries when he can't stand on it, ring by
+/// ring out to six (168 tiles), each ring from due north clockwise: the original's
+/// table at 0x5ca506.
+fn alternative_tiles() -> impl Iterator<Item = (i32, i32)> {
+    (1..=6).flat_map(|k: i32| {
+        let top = (0..=k).map(move |x| (x, -k));
+        let right = (-k + 1..=k).map(move |y| (k, y));
+        let bottom = (-k..k).rev().map(move |x| (x, k));
+        let left = (-k..k).rev().map(move |y| (-k, y));
+        let back = (-k + 1..0).map(move |x| (x, -k));
+        top.chain(right).chain(bottom).chain(left).chain(back)
+    })
+}
+
 /// Where a soldier stands around his company's standard.
-fn slot_offset(slot: u8, order: Order, turned: bool) -> (i32, i32) {
-    let (dx, dy) = LAYOUTS[layout(order, turned)][slot as usize % COMPANY_SIZE];
+fn slot_offset(slot: u8, order: Order, turned: bool, kind: u16) -> (i32, i32) {
+    let (dx, dy) = LAYOUTS[layout(order, turned, kind)][slot as usize % COMPANY_SIZE];
     (dx as i32, dy as i32)
 }
 
@@ -595,12 +649,37 @@ impl World {
         }
     }
 
-    /// When a fort goes, its ground goes with it and its company disbands.
+    /// Whether the city has as many forts as it may: six (the original refuses a
+    /// seventh, 19:50 "Your army has its full complement of Forts").
+    pub fn forts_full(&self) -> bool {
+        self.military.companies.iter().filter(|c| c.fort != 0).count() >= MAX_FORTS
+    }
+
+    /// The company whose parade ground is `ground`, if its fort still stands.
+    pub(crate) fn fort_of_ground(&self, ground: BuildingId) -> Option<BuildingId> {
+        self.military.companies.iter().find(|c| c.ground == ground && c.fort != 0).map(|c| c.fort)
+    }
+
+    /// When a fort goes, its ground goes with it and its company disbands
+    /// (FUN_004b82e0): the standard is gone at once, and its men, at hand or on
+    /// their way, fall where they stand (0x48eacb), to lie as the dead do.
     pub(crate) fn remove_fort(&mut self, id: BuildingId) {
         let Some(c) = self.military.companies.iter().position(|c| c.fort == id) else { return };
         let company = self.military.companies[c].clone();
-        for fid in company.soldiers.iter().chain(&company.recruits).chain(std::iter::once(&company.standard)) {
-            if let Some(f) = self.figures.get_mut(*fid) {
+        if let Some(f) = self.figures.get_mut(company.standard) {
+            f.dead = true;
+        }
+        for fid in company.soldiers.iter().chain(&company.recruits) {
+            if let Some(f) = self.figures.get_mut(*fid)
+                && f.action != action::CORPSE
+                && f.action != action::ABOARD
+            {
+                f.action = action::CORPSE;
+                f.counter = 0;
+                f.foe = 0;
+                f.route.clear();
+                f.moving = false;
+            } else if let Some(f) = self.figures.get_mut(*fid) {
                 f.dead = true;
             }
         }
@@ -743,23 +822,47 @@ impl World {
             let g = self.buildings.get(c.ground)?;
             Some(ground_slot((g.x, g.y), f.slot))
         } else {
-            let (dx, dy) = slot_offset(f.slot, c.order, c.turned);
+            let (dx, dy) = slot_offset(f.slot, c.order, c.turned, c.kind);
             Some((c.standard_tile.0 + dx, c.standard_tile.1 + dy))
         }
     }
 
+    /// Sends a soldier to his place, or, when he can't stand there or get there
+    /// (a building, water, a wall in the way), to the nearest tile round it he can,
+    /// trying them ring by ring out to six tiles as the original does (its
+    /// alternative tiles at 0x5ca506, taken in turn each time the route fails).
     fn send_to_post(&mut self, fid: FigureId) {
         let Some(post) = self.post_of(fid) else { return };
         let at_fort = self.figures.get(fid).and_then(|f| self.military.companies.get(f.formation as usize - 1)).is_some_and(|c| c.at_fort);
+        // A tile another man of the company is bound for, or has as his place, is
+        // taken: unlike the original's men, Osiris's don't stack on one another.
+        let others: Vec<FigureId> = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map(|c| c.soldiers.iter().chain(&c.recruits).copied().filter(|&s| s != fid).collect()).unwrap_or_default();
+        let taken: Vec<(i32, i32)> = others.iter().flat_map(|&s| [self.figures.get(s).and_then(|o| o.destination), self.post_of(s)]).flatten().collect();
         let map = &self.map;
         let Some(f) = self.figures.get_mut(fid) else { return };
         f.action = if at_fort { action::GOING_TO_FORT } else { action::GOING_TO_STANDARD };
-        if (f.x, f.y) == post {
-            f.action = if at_fort { action::AT_REST } else { action::AT_STANDARD };
-        } else if !f.go_to(map, post) {
-            // Nowhere to stand there: stay put.
-            f.action = if at_fort { action::AT_REST } else { action::AT_STANDARD };
+        let tiles = std::iter::once((0, 0)).chain(alternative_tiles()).map(|(dx, dy)| (post.0 + dx, post.1 + dy));
+        for (i, tile) in tiles.enumerate() {
+            if !crate::figures::passable(map, f.travel, tile.0, tile.1) || i > 0 && taken.contains(&tile) {
+                continue;
+            }
+            // Routed from where his step ends, or a man turned mid-step stops a
+            // tile off.
+            if (f.x, f.y) == tile && !f.moving {
+                f.destination = Some(tile);
+                f.route.clear();
+                f.action = if at_fort { action::AT_REST } else { action::AT_STANDARD };
+                return;
+            }
+            if f.reroute(map, tile) {
+                return;
+            }
         }
+        // Nowhere near to stand: he stays put. (The original's man, out of tiles to
+        // try, is struck off.)
+        f.destination = Some((f.x, f.y));
+        f.route.clear();
+        f.action = if at_fort { action::AT_REST } else { action::AT_STANDARD };
     }
 
     /// Orders a company out to form up around `tile`. False, and nothing done, when
@@ -768,15 +871,15 @@ impl World {
     /// and must rest their horses before charging again.
     pub fn move_company(&mut self, company: usize, tile: (i32, i32)) -> bool {
         // Aboard a transport, it goes where the ship takes it.
-        if self.company_ship(company).is_some() {
+        if self.company_ship(company).is_some() || self.refuses_orders(company) {
             return false;
         }
         let Some(standard) = self.military.companies.get(company).map(|c| c.standard) else { return false };
         let from = self.figures.get(standard).map(|f| (f.x, f.y));
         let map = &self.map;
         let reached = match self.figures.get_mut(standard) {
-            Some(f) if (f.x, f.y) == tile => true,
-            Some(f) => f.go_to(map, tile),
+            Some(f) if (f.x, f.y) == tile && !f.moving => true,
+            Some(f) => f.reroute(map, tile),
             None => false,
         };
         if !reached {
@@ -851,7 +954,7 @@ impl World {
         let map = &self.map;
         if let (Some(f), Some(home)) = (self.figures.get_mut(standard), home) {
             f.action = action::GOING_TO_FORT;
-            f.go_to(map, home);
+            f.reroute(map, home);
         }
         for s in soldiers {
             if let Some(f) = self.figures.get_mut(s) {
@@ -902,7 +1005,13 @@ impl World {
                 let f = self.figures.get_mut(fid).expect("present");
                 match f.walk(map) {
                     Step::Moving => {}
-                    _ => f.action = if act == action::GOING_TO_FORT { action::AT_REST } else { action::AT_STANDARD },
+                    Step::Arrived => f.action = if act == action::GOING_TO_FORT { action::AT_REST } else { action::AT_STANDARD },
+                    // Something built across his way: he finds another (route
+                    // result 9, 0x48e9e0).
+                    Step::Blocked | Step::Lost => {
+                        f.route.clear();
+                        self.send_to_post(fid);
+                    }
                 }
                 if act == action::GOING_TO_STANDARD {
                     self.engage(fid, 1);
@@ -910,7 +1019,10 @@ impl World {
             }
             action::AT_STANDARD => {
                 self.breathe(fid, false);
-                if kind == ARCHER {
+                // Archers, and charioteers not at the charge, throw at enemies in
+                // range (0x48fb05: types 11 and 13 by their figure model's missile
+                // attack, range and rate: a charioteer's 10, 8 tiles, every 120 ticks).
+                if kind == ARCHER || kind == CHARIOTEER && !self.charging(fid) {
                     self.shoot_at_foes(fid);
                 }
                 // Charging charioteers ride at the enemy rather than stand and fight.
@@ -1089,7 +1201,13 @@ impl World {
     fn chase(&mut self, fid: FigureId, reach: i32) {
         let Some(f) = self.figures.get(fid) else { return };
         let (x, y, heading) = (f.x, f.y, f.direction);
-        let target = self.nearest_foe(false, (x, y), reach).map(|o| (o.1, o.2));
+        let mut target = self.nearest_foe(false, (x, y), reach).map(|o| (o.1, o.2));
+        // Engaging, a man goes no further than six tiles from his place before he
+        // turns back to it (state 0x14 at 0x48e9e0).
+        let engaging = self.company_of(fid).and_then(|c| self.military.companies.get(c)).is_some_and(|c| c.order == Order::Engage);
+        if engaging && self.post_of(fid).is_some_and(|p| (p.0 - x).abs().max((p.1 - y).abs()) >= ENGAGE_LEASH) {
+            target = None;
+        }
         let charioteer = f.kind == CHARIOTEER && self.company_of(fid).and_then(|c| self.military.companies.get(c)).is_some_and(|c| c.order == Order::Charge);
         let fresh = self.charging(fid);
         if charioteer && target.is_some() {
@@ -1098,12 +1216,21 @@ impl World {
         let spent = charioteer && !fresh && self.time.total_ticks % 2 == 1;
         let map = &self.map;
         let f = self.figures.get_mut(fid).expect("present");
+        // One he can't get at (a beast across the water, say) he leaves be, and goes
+        // back to his place, as the original's man whose route fails does.
+        if let Some(to) = target
+            && !f.moving
+            && f.destination != Some(to)
+        {
+            let before = f.destination;
+            if !f.go_to(map, to) {
+                f.destination = before;
+                target = None;
+            }
+        }
         match target {
             Some(to) => {
                 f.action = action::CHASING;
-                if !f.moving && f.destination != Some(to) {
-                    f.go_to(map, to);
-                }
                 f.speed = if fresh { 2 } else { 1 };
                 if !spent {
                     f.walk(map);
@@ -1168,9 +1295,17 @@ impl World {
     /// loose line is turned if the company's rotate switch is on. Charioteers can't
     /// be ordered to charge while their horses recover from the last.
     pub fn set_order(&mut self, company: usize, order: Order) {
+        if self.refuses_orders(company) {
+            return;
+        }
         let Some(c) = self.military.companies.get_mut(company) else { return };
         if order == Order::Charge && (c.kind != CHARIOTEER || c.charged) {
             return;
+        }
+        // Mopping up is for while there are enemies about: the orders it replaces
+        // come back once they are gone (company +0x62).
+        if order == Order::MopUp && c.order != Order::MopUp {
+            c.before_mop_up = c.order;
         }
         c.order = order;
         if matches!(order, Order::HoldTight | Order::HoldLoose) {
@@ -1258,20 +1393,17 @@ impl World {
         f.foe = 0;
         f.route.clear();
         f.moving = false;
-        let formation = if crate::navy::is_enemy_ship(f.kind) { 0 } else { f.formation };
+        let (formation, band) = if crate::navy::is_enemy_ship(f.kind) { (0, 0) } else { (f.formation, f.band) };
         self.figure_sound(fid, 3);
         // The share of the company still standing that he was.
         let standing = self.company_of(fid).and_then(|c| self.military.companies.get(c)).map_or(0, |c| {
             c.soldiers.iter().chain(&c.recruits).filter(|&&s| self.figures.get(s).is_some_and(|f| !f.dead && f.action != action::CORPSE)).count() as i32
         });
-        if let Some(c) = self.company_of(fid).and_then(|c| self.military.companies.get_mut(c)) {
-            c.morale = (c.morale - morale_loss(if standing > 0 { 100 / standing } else { 0 })).max(0);
-            if c.morale <= BROKEN_MORALE && !c.at_fort {
-                let company = self.company_of(fid).expect("checked");
-                self.return_company(company);
-            }
+        // Whether it breaks is seen to once a day (`check_morale`).
+        if let Some(c) = self.company_of(fid) {
+            self.change_morale(c, -morale_loss(if standing > 0 { 100 / standing } else { 0 }));
         } else if formation >= 1000 {
-            self.army_loses(formation as usize - 1000);
+            self.army_loses(formation as usize - 1000, band);
         }
         true
     }
@@ -1496,10 +1628,127 @@ impl World {
             self.sink_abroad(t);
         }
     }
+    /// Twice a day (FUN_004b8b20): a company mopping up with no enemy left on the
+    /// field (no invaders, no wild beasts) goes back to its orders before, and
+    /// re-forms.
+    pub(crate) fn update_companies(&mut self) {
+        let enemies = self.figures.iter().any(|f| !f.dead && f.action != action::CORPSE && (self.is_invader(f) || crate::predators::is_predator(f.kind) && f.action != crate::predators::action::HIDDEN));
+        if enemies {
+            return;
+        }
+        for c in 0..self.military.companies.len() {
+            let co = &mut self.military.companies[c];
+            if co.order != Order::MopUp || co.fort == 0 {
+                continue;
+            }
+            // Its line is turned as it was: mopping up doesn't change that.
+            co.order = co.before_mop_up;
+            if co.at_fort {
+                continue;
+            }
+            for s in co.soldiers.clone() {
+                if self.figures.get(s).is_some_and(|f| matches!(f.action, action::AT_STANDARD | action::GOING_TO_STANDARD | action::CHASING)) {
+                    self.send_to_post(s);
+                }
+            }
+        }
+    }
+
+    /// A company's morale changes by `delta`, from 0 up to its kind's highest
+    /// (FUN_004b7b50).
+    pub(crate) fn change_morale(&mut self, company: usize, delta: i32) {
+        if let Some(c) = self.military.companies.get_mut(company) {
+            c.morale = (c.morale + delta).min(morale_cap(c.kind, c.schooled)).max(0);
+        }
+    }
+
+    /// Whether a company refuses orders: it has run from the field two days, or one
+    /// day badly broken. One that broke only a day ago rallies to an order, gaining
+    /// 10 morale (FUN_004b6400 and the other orders).
+    fn refuses_orders(&mut self, company: usize) -> bool {
+        if self.company_too_shaken(company) {
+            return true;
+        }
+        let Some(c) = self.military.companies.get(company) else { return true };
+        if c.routed == 1 {
+            self.change_morale(company, BREAK_SHOCK);
+        }
+        false
+    }
+
+    /// Whether a company's morale is too low for it to take orders ("Company's
+    /// morale is too low to respond!").
+    pub fn company_too_shaken(&self, company: usize) -> bool {
+        self.military.companies.get(company).is_none_or(|c| c.broken > 0 || c.routed >= 2)
+    }
+
+    /// Daily, at the original's formation tick (FUN_004b79f0): a company out of its
+    /// fort, or an invaders' formation, whose morale has fallen to 20 breaks. The
+    /// first time it does, the rest of its side lose 10 morale and the other side
+    /// gain 10. A broken company runs home, its men in a fight finishing it first;
+    /// a broken formation of invaders leaves the map the same way.
+    pub(crate) fn check_morale(&mut self) {
+        for c in 0..self.military.companies.len() {
+            let co = &self.military.companies[c];
+            if co.fort == 0 || co.at_fort || self.military.sent_away(c) || self.company_ship(c).is_some() {
+                continue;
+            }
+            let fresh = co.routed == 0 && co.broken == 0;
+            if co.morale > BROKEN_MORALE {
+                continue;
+            }
+            // The shock falls on the company itself too, before it is judged.
+            if fresh {
+                self.side_shaken(false);
+            }
+            let co = &mut self.military.companies[c];
+            if co.morale <= SHATTERED_MORALE {
+                co.broken = co.broken.saturating_add(1);
+            } else {
+                co.routed = co.routed.saturating_add(1);
+            }
+            self.run_home(c);
+        }
+        self.check_enemy_morale();
+    }
+
+    /// The first break of a company (`invaders` false) or of a formation of invaders
+    /// shakes its side and heartens the other.
+    pub(crate) fn side_shaken(&mut self, invaders: bool) {
+        let (ours, theirs) = if invaders { (BREAK_SHOCK, -BREAK_SHOCK) } else { (-BREAK_SHOCK, BREAK_SHOCK) };
+        for c in 0..self.military.companies.len() {
+            if self.military.companies[c].fort != 0 {
+                self.change_morale(c, ours);
+            }
+        }
+        self.enemy_morale_all(theirs);
+    }
+
+    /// A broken company runs for its fort: the men not fighting at once, those in a
+    /// fight once it is over.
+    fn run_home(&mut self, company: usize) {
+        let Some(c) = self.military.companies.get_mut(company) else { return };
+        c.at_fort = true;
+        let (standard, soldiers, ground) = (c.standard, c.soldiers.clone(), c.ground);
+        let home = self.buildings.get(ground).map(|g| (g.x, g.y));
+        let map = &self.map;
+        if let (Some(f), Some(home)) = (self.figures.get_mut(standard), home) {
+            f.action = action::GOING_TO_FORT;
+            f.reroute(map, home);
+        }
+        for s in soldiers {
+            if self.figures.get(s).is_some_and(|f| !matches!(f.action, action::ATTACK | action::CORPSE)) {
+                self.send_to_post(s);
+            }
+        }
+    }
+
     pub(crate) fn update_morale_month(&mut self) {
+        self.enemy_morale_month();
         for c in &mut self.military.companies {
             if c.at_fort {
                 c.months_away = 0;
+                (c.routed, c.broken) = (0, 0);
                 c.morale = (c.morale + 5).min(morale_cap(c.kind, c.schooled));
             } else {
                 c.months_away += 1;
@@ -1547,7 +1796,8 @@ impl World {
         let target = if mine {
             self.nearest_foe(true, (x, y), range).or_else(|| self.nearest_city_ship((x, y), range))
         } else {
-            let near = |list: &[(FigureId, i32, i32)]| list.iter().filter(|o| (o.1 - x).abs() <= range && (o.2 - y).abs() <= range).min_by_key(|o| (o.1 - x).abs() + (o.2 - y).abs()).copied();
+            // Within the range, not at it (0x499b50).
+            let near = |list: &[(FigureId, i32, i32)]| list.iter().filter(|o| (o.1 - x).abs() < range && (o.2 - y).abs() < range).min_by_key(|o| (o.1 - x).abs() + (o.2 - y).abs()).copied();
             near(&self.combatants.invaders).or_else(|| near(&self.combatants.predators))
         };
         let Some((target, tx, ty)) = target else { return };
@@ -1668,6 +1918,19 @@ mod tests {
     }
 
     #[test]
+    fn alternative_tiles_spiral_out_as_the_originals() {
+        let tiles: Vec<(i32, i32)> = alternative_tiles().collect();
+        assert_eq!(tiles.len(), 168);
+        assert_eq!(&tiles[..10], &[(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -2), (1, -2)]);
+        assert_eq!(&tiles[22..25], &[(-2, -2), (-1, -2), (0, -3)]);
+        assert_eq!(tiles[167], (-1, -6));
+        let mut seen = tiles.clone();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(seen.len(), 168);
+    }
+
+    #[test]
     fn formations_place_every_man_once() {
         for (i, row) in LAYOUTS.iter().enumerate() {
             let mut seen = row.to_vec();
@@ -1676,8 +1939,11 @@ mod tests {
             // Every layout gives each man his own tile.
             assert_eq!(seen.len(), COMPANY_SIZE, "layout {i}");
         }
-        assert_eq!(slot_offset(15, Order::HoldTight, true), (1, -4));
-        assert_eq!(slot_offset(14, Order::HoldLoose, false), (8, 0));
+        assert_eq!(slot_offset(15, Order::HoldTight, true, INFANTRY), (1, -4));
+        assert_eq!(slot_offset(14, Order::HoldLoose, false, INFANTRY), (8, 0));
+        assert_eq!(slot_offset(1, Order::HoldTight, false, CHARIOTEER), (0, 2));
+        assert_eq!(slot_offset(15, Order::HoldTight, true, CHARIOTEER), (2, -4));
+        assert_eq!(slot_offset(14, Order::HoldLoose, false, CHARIOTEER), (8, 0));
     }
 
     #[test]
@@ -1690,10 +1956,17 @@ mod tests {
     /// west end, an archers' fort below it and, if `academy`, a military academy on
     /// the road 18 tiles east, everything staffed.
     fn barracks(academy: bool) -> Option<World> {
+        barracks_of(FORT_ARCHERS, academy)
+    }
+
+    fn barracks_of(fort: u16, academy: bool) -> Option<World> {
         use crate::world::{Command, Outcome};
         let mut w = crate::irrigation::tests::mission_world(2)?;
         w.invasions.planned.clear();
-        let mut steps = vec![Command::Road { start: (40, 70), end: (66, 70) }, Command::Build { kind: RECRUITER, x: 42, y: 71, x1: 42, y1: 71 }, Command::Build { kind: FORT_ARCHERS, x: 44, y: 75, x1: 44, y1: 75 }];
+        // The fighters' stats come from the difficulty's figure model.
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        w.balance = crate::balance::Balance::load_all(&data).ok()?[crate::difficulty::NORMAL as usize].clone();
+        let mut steps = vec![Command::Road { start: (40, 70), end: (66, 70) }, Command::Build { kind: RECRUITER, x: 42, y: 71, x1: 42, y1: 71 }, Command::Build { kind: fort, x: 44, y: 75, x1: 44, y1: 75 }];
         if academy {
             steps.push(Command::Build { kind: ACADEMIES[0], x: 60, y: 71, x1: 60, y1: 71 });
         }
@@ -1775,5 +2048,277 @@ mod tests {
         c.upgrade();
         assert_eq!((c.experience, c.schooled), (ACADEMY_EXPERIENCE, true));
         assert!(!rmp_serde::to_vec_named(&c).unwrap().windows(7).any(|w| w == b"trained"));
+    }
+
+    /// Ticks until company 0 has a full company of men with it, or panics.
+    fn muster(w: &mut World) {
+        for _ in 0..400 * crate::time::TICKS_PER_DAY {
+            w.tick();
+            if w.military.companies[0].soldiers.len() == COMPANY_SIZE {
+                return;
+            }
+        }
+        panic!("company never filled: {:?}", w.military.companies[0]);
+    }
+
+    /// Every man of company 0 stands at his own place: on the field around the
+    /// standard, or on the parade ground at the fort.
+    fn assert_in_formation(w: &World, state: u16) {
+        let c = &w.military.companies[0];
+        let mut tiles = Vec::new();
+        for &s in &c.soldiers {
+            let f = w.figures.get(s).expect("soldier");
+            assert_eq!(f.action, state, "soldier {s} at {:?}", (f.x, f.y));
+            assert_eq!(Some((f.x, f.y)), w.post_of(s), "soldier {s} in slot {} stands off his place", f.slot);
+            tiles.push((f.x, f.y));
+        }
+        tiles.sort();
+        tiles.dedup();
+        assert_eq!(tiles.len(), c.soldiers.len(), "men share a tile");
+    }
+
+    #[test]
+    fn a_company_musters_beats_an_army_and_goes_home() {
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 16 * crate::economy::LOAD);
+        muster(&mut w);
+        // A load of weapons went with each man.
+        assert_eq!(w.stored(recruiter, WEAPONS), 0);
+        assert_in_formation(&w, action::AT_REST);
+
+        // Twenty raiders come; the company is sent to mop them up.
+        w.invade_now(crate::invasions::invader::BEDOUIN, 20, 1);
+        for _ in 0..100 {
+            w.tick();
+        }
+        w.set_order(0, Order::MopUp);
+        assert!(w.move_company(0, (40, 60)));
+        let mut over = false;
+        for _ in 0..60 * crate::time::TICKS_PER_DAY {
+            w.tick();
+            let fighting = w.invasions.armies.iter().any(|a| a.figures.iter().any(|&f| w.figures.get(f).is_some_and(|f| !f.dead && !matches!(f.action, action::CORPSE | action::FLEEING))));
+            if !fighting && w.military.companies[0].soldiers.iter().all(|&s| w.figures.get(s).is_some_and(|f| f.action == action::AT_STANDARD)) {
+                over = true;
+                break;
+            }
+        }
+        assert!(over, "the battle never ended: {:?} men {:?} armies {:?}", w.military.companies[0], w.military.companies[0].soldiers.iter().filter_map(|&s| w.figures.get(s)).map(|f| (f.x, f.y, f.action, f.slot, f.destination, f.route.len())).collect::<Vec<_>>(), w.invasions.armies.iter().map(|a| (a.band_morale.clone(), a.figures.iter().filter_map(|&f| w.figures.get(f)).map(|f| (f.x, f.y, f.action)).collect::<Vec<_>>())).collect::<Vec<_>>());
+        let c = &w.military.companies[0];
+        assert!(c.experience > 0 && !c.soldiers.is_empty(), "{c:?}");
+        // Back in its lines, each man in his own place.
+        assert_in_formation(&w, action::AT_STANDARD);
+
+        w.return_company(0);
+        for _ in 0..10 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_in_formation(&w, action::AT_REST);
+    }
+
+    #[test]
+    fn a_company_marches_off_to_a_distant_battle_and_comes_home() {
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 16 * crate::economy::LOAD);
+        muster(&mut w);
+        // A city two months away by land calls for troops against 20, due in three.
+        let route = w.trade.routes.len();
+        w.trade.routes.push(crate::trade::TradeRoute { points: vec![(0, 0), (800, 0)], step: 5, ..Default::default() });
+        w.trade.cities.push(crate::trade::TradeCity { route: route as u8, ..Default::default() });
+        let i = w.scenario_events.request_troops_now(20);
+        let due = w.month_count() + 3;
+        let e = &mut w.scenario_events.list[i];
+        e.city = Some(w.trade.cities.len() - 1);
+        e.route = route as i32;
+        e.due = Some(due);
+        assert!(!w.request_by_sea(i));
+        assert!(!w.can_send_request(i), "no company is marked");
+        w.toggle_kingdom_service(0);
+        assert!(w.can_send_request(i));
+        assert!(w.dispatch_request(i));
+        // They march out of the city and are gone; the fort sends for no recruits
+        // while they are away.
+        for _ in 0..30 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert!(w.military.companies[0].soldiers.is_empty(), "{:?}", w.military.companies[0]);
+        assert_eq!(w.company_men(0), 16);
+        assert!(!w.recruits_wanted(recruiter));
+        // Infantry count two each: 32 against 20, 37% ahead, a quarter lost.
+        assert_eq!(w.military.battle_for(i).map(|b| b.strength), Some(32));
+        for _ in 0..8 * 31 * crate::time::TICKS_PER_DAY {
+            w.tick();
+            if w.military.battles.is_empty() {
+                break;
+            }
+        }
+        assert!(w.military.battles.is_empty());
+        assert_eq!(w.scenario_events.list[i].state, crate::scenario_events::state::RECEIVED);
+        assert!(w.notices.log.iter().any(|n| n.key == "message_troops_return_victorious"));
+        // The twelve left walk back to the fort and take their places.
+        for _ in 0..30 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_eq!(w.military.companies[0].soldiers.len(), 12, "{:?}", w.military.companies[0]);
+        assert_in_formation(&w, action::AT_REST);
+    }
+
+    #[test]
+    fn men_whose_places_are_built_on_stand_beside_them() {
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 16 * crate::economy::LOAD);
+        muster(&mut w);
+        // A tight line formed at the recruiter's west edge would put half the men on
+        // it: they stand round it instead, each on his own tile.
+        assert!(w.move_company(0, (41, 72)));
+        for _ in 0..10 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        let c = &w.military.companies[0];
+        let mut tiles = Vec::new();
+        for &s in &c.soldiers {
+            let f = w.figures.get(s).expect("soldier");
+            assert_eq!(f.action, action::AT_STANDARD, "{:?}", (f.x, f.y));
+            assert!(crate::figures::passable(&w.map, Travel::Land, f.x, f.y), "soldier on {:?}", (f.x, f.y));
+            assert!(w.map.building.at_or(f.x, f.y, 0) != recruiter);
+            tiles.push((f.x, f.y));
+        }
+        tiles.sort();
+        tiles.dedup();
+        assert_eq!(tiles.len(), COMPANY_SIZE, "men share a tile");
+    }
+
+    #[test]
+    fn charioteers_throw_javelins() {
+        let Some(mut w) = barracks_of(FORT_CHARIOTEERS, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, CHARIOTS, crate::economy::LOAD);
+        for _ in 0..30 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_eq!(w.military.companies[0].soldiers.len(), 1);
+        assert_eq!(w.stored(recruiter, CHARIOTS), 0);
+        assert!(w.move_company(0, (40, 60)));
+        for _ in 0..5 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        let man = w.military.companies[0].soldiers[0];
+        let (x, y) = w.figures.get(man).map(|f| (f.x, f.y)).expect("charioteer");
+        // An invader six tiles off, inside his range of 8.
+        w.invade_now(crate::invasions::invader::BEDOUIN, 1, 1);
+        let them = w.invasions.armies[0].figures[0];
+        let mut thrown = false;
+        for _ in 0..200 {
+            if let Some(f) = w.figures.get_mut(them) {
+                (f.x, f.y, f.action) = (x - 6, y, 0);
+                f.route.clear();
+                f.moving = false;
+            }
+            w.gather_combatants();
+            w.update_soldier(man);
+            thrown |= w.figures.iter().any(|f| f.kind == JAVELIN && f.formation == 1);
+        }
+        assert!(thrown, "{:?} {:?}", w.figures.get(man).map(|f| (f.action, f.attack_tick, f.x, f.y)), w.fighter_stats(man));
+    }
+
+    #[test]
+    fn mopping_up_ends_when_the_enemy_is_gone() {
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        w.set_order(0, Order::HoldLoose);
+        w.set_order(0, Order::MopUp);
+        assert!(w.move_company(0, (40, 60)));
+        w.invade_now(crate::invasions::invader::BEDOUIN, 4, 1);
+        w.update_companies();
+        assert_eq!(w.military.companies[0].order, Order::MopUp, "invaders about");
+        // The invaders and beasts gone, it takes its loose line again.
+        let ids: Vec<FigureId> = w.figures.iter().filter(|f| w.is_invader(f) || crate::predators::is_predator(f.kind)).map(|f| f.id).collect();
+        for id in ids {
+            w.figures.get_mut(id).expect("figure").dead = true;
+        }
+        w.update_companies();
+        assert_eq!(w.military.companies[0].order, Order::HoldLoose);
+    }
+
+    #[test]
+    fn a_fort_goes_with_its_ground_and_its_men_fall() {
+        use crate::world::{Command, Outcome};
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 3 * crate::economy::LOAD);
+        for _ in 0..40 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        let men = w.military.companies[0].soldiers.clone();
+        assert!(!men.is_empty());
+        // Clearing the parade ground takes the fort; its men fall and lie a while.
+        let (gx, gy) = (44 + GROUND_OFFSET.0, 75 + GROUND_OFFSET.1);
+        assert!(matches!(w.apply(&Command::Clear { x0: gx + 1, y0: gy + 1, x1: gx + 1, y1: gy + 1 }), Outcome::Done { .. }));
+        assert!(w.buildings.iter().all(|b| !matches!(b.kind, FORT_INFANTRY | FORT_GROUND)));
+        assert_eq!(w.military.companies[0].fort, 0);
+        assert!(men.iter().all(|&s| w.figures.get(s).is_some_and(|f| f.action == action::CORPSE)));
+        for _ in 0..CORPSE_TICKS {
+            w.tick();
+        }
+        assert!(men.iter().all(|&s| w.figures.get(s).is_none_or(|f| f.dead)));
+        // Six forts at most: once there are six, a seventh is refused anywhere.
+        let spots: Vec<(i32, i32)> = (40..140).step_by(8).flat_map(|y| (10..140).step_by(9).map(move |x| (x, y))).collect();
+        for &(x, y) in &spots {
+            if !w.forts_full() {
+                w.apply(&Command::Build { kind: FORT_ARCHERS, x, y, x1: x, y1: y });
+            }
+        }
+        assert!(w.forts_full());
+        assert_eq!(w.buildings.iter().filter(|b| fort_soldier(b.kind).is_some()).count(), 6);
+        assert!(spots.iter().all(|&(x, y)| w.can_place(FORT_ARCHERS, x, y) != Ok(())));
+        assert!(spots.iter().any(|&(x, y)| w.can_place(FORT_ARCHERS, x, y) == Err(FORTS_FULL)));
+    }
+
+    #[test]
+    fn broken_sides_run_once_a_day_and_shake_the_rest() {
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 4 * crate::economy::LOAD);
+        for _ in 0..60 * crate::time::TICKS_PER_DAY {
+            w.tick();
+        }
+        assert_eq!(w.military.companies[0].soldiers.len(), 4);
+        assert!(w.move_company(0, (40, 60)));
+        w.invade_now(crate::invasions::invader::BEDOUIN, 8, 1);
+        // An invaders' formation starts at 100; its first loss holds it to the
+        // Bedouin's 80.
+        assert_eq!(w.band_morale(0, 0), 100);
+        let invader = w.invasions.armies[0].figures[0];
+        w.army_loses(0, 0);
+        assert_eq!(w.band_morale(0, 0), 80);
+        // Broken: it leaves once the day's check comes, and the city's men take heart.
+        w.military.companies[0].morale = 40;
+        w.invasions.armies[0].band_morale[0] = 20;
+        w.check_morale();
+        assert!(w.invasions.armies[0].withdrawn.contains(&0));
+        assert_eq!(w.figures.get(invader).map(|f| f.action), Some(action::FLEEING));
+        assert_eq!(w.military.companies[0].morale, 50);
+        // A company broken in the field runs home, the shock of it bringing it to 5,
+        // badly broken, and its enemies take heart. It takes no orders.
+        w.military.companies[0].morale = 15;
+        let before = w.band_morale(0, 0);
+        w.check_morale();
+        let c = &w.military.companies[0];
+        assert!(c.at_fort && c.routed == 0 && c.broken == 1 && c.morale == 5, "{c:?}");
+        assert_eq!(w.band_morale(0, 0), (before + 10).min(80));
+        assert!(!w.move_company(0, (41, 60)));
+        // Broken a day, but not badly, an order rallies it (+10); two days, not.
+        (w.military.companies[0].routed, w.military.companies[0].broken) = (1, 0);
+        assert!(w.move_company(0, (40, 60)));
+        assert_eq!(w.military.companies[0].morale, 15);
+        assert!(!w.military.companies[0].at_fort);
+        w.military.companies[0].routed = 2;
+        assert!(!w.move_company(0, (41, 60)));
+        // A month at the fort sets it right.
+        w.return_company(0);
+        w.update_morale_month();
+        let c = &w.military.companies[0];
+        assert_eq!((c.routed, c.broken), (0, 0));
     }
 }
