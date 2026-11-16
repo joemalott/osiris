@@ -468,7 +468,23 @@ pub struct Military {
     /// Older saved games kept a single battle here; it moves to `battles` on load.
     #[serde(default, skip_serializing)]
     pub battle: Option<DistantBattle>,
+    /// Veterans of the last campaign mission waiting for a fort of their kind.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub carried: Vec<CarriedCompany>,
 }
+
+/// The best company of a kind a won campaign mission leaves for the next
+/// (FUN_004188f0): the one with the most experience, then the most men.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CarriedCompany {
+    pub kind: u16,
+    pub men: u8,
+    pub experience: i32,
+}
+
+/// The missions whose veterans of the mission before rejoin them (text group 307:
+/// the second field is 1, FUN_00418bf0).
+const KEEPS_ARMY: [i32; 6] = [42, 43, 44, 49, 51, 52];
 
 impl Military {
     /// The troops away for request `request`, if any.
@@ -677,13 +693,107 @@ impl World {
             }
         }
         let standard = self.figures.spawn(STANDARD_BEARER, gx, gy, Travel::Land);
-        let company = self.military.companies.len() as u16 + 1;
+        let c = self.free_company().unwrap_or(self.military.companies.len());
         if let Some(f) = self.figures.get_mut(standard) {
-            f.formation = company;
+            f.formation = c as u16 + 1;
             f.home = id;
             f.action = action::AT_REST;
         }
-        self.military.companies.push(Company { fort: id, ground, kind, standard, standard_tile: (gx, gy), at_fort: true, morale: 50, ..Default::default() });
+        let company = Company { fort: id, ground, kind, standard, standard_tile: (gx, gy), at_fort: true, morale: 50, ..Default::default() };
+        match self.military.companies.get_mut(c) {
+            Some(old) => *old = company,
+            None => self.military.companies.push(company),
+        }
+        self.rejoin(c);
+    }
+
+    /// The companies this mission, just won, leaves for the next: of each kind
+    /// (infantry, archers, charioteers), the one with the most experience, then the
+    /// most men, the first of equals (FUN_004188f0). Those with no men are left out.
+    pub fn companies_to_carry(&self) -> Vec<CarriedCompany> {
+        let men = |co: &Company| co.soldiers.iter().chain(&co.recruits).filter(|&&s| self.figures.get(s).is_some_and(|f| !f.dead && f.action != action::CORPSE)).count().min(COMPANY_SIZE) as u8;
+        [INFANTRY, ARCHER, CHARIOTEER]
+            .into_iter()
+            .filter_map(|kind| {
+                let mut best: Option<CarriedCompany> = None;
+                for co in self.military.companies.iter().filter(|co| co.fort != 0 && co.kind == kind) {
+                    let c = CarriedCompany { kind, men: men(co), experience: co.experience };
+                    if best.is_none_or(|b| (c.experience, c.men) > (b.experience, b.men)) {
+                        best = Some(c);
+                    }
+                }
+                best.filter(|b| b.men > 0)
+            })
+            .collect()
+    }
+
+    /// At a campaign mission's start, the companies the mission before left: kept
+    /// for the missions that take them (FUN_00418bf0), with the "Loyal Soldiers
+    /// Rejoin You" message naming the forts to build for those the mission allows
+    /// (FUN_00417b40). Returns how many are kept.
+    pub fn carry_in_companies(&mut self, carried: &[CarriedCompany]) -> usize {
+        self.military.carried.clear();
+        if !self.mission.as_ref().is_some_and(|m| KEEPS_ARMY.contains(&m.id)) {
+            return 0;
+        }
+        self.military.carried = carried.iter().filter(|c| c.men > 0).copied().collect();
+        let has = |w: &World, kind: u16, fort: u16| w.military.carried.iter().any(|c| c.kind == kind) && w.is_allowed(fort);
+        let reason = match (has(self, INFANTRY, FORT_INFANTRY), has(self, ARCHER, FORT_ARCHERS), has(self, CHARIOTEER, FORT_CHARIOTEERS)) {
+            (true, true, true) => "all_three",
+            (true, true, false) => "inf_arch",
+            (true, false, true) => "inf_char",
+            (false, true, true) => "arch_char",
+            (true, false, false) => "inf_only",
+            (false, true, false) => "arch_only",
+            (false, false, true) => "char_only",
+            (false, false, false) => return self.military.carried.len(),
+        };
+        self.post_event_text(crate::scenario_events::EventText {
+            title: "troopcarryover_title".into(),
+            body: "troopcarryover_initial_announcement".into(),
+            reason: format!("troopcarryover_{reason}"),
+            template: 131,
+            ..Default::default()
+        });
+        self.military.carried.len()
+    }
+
+    /// The first fort of a kind built in a mission that kept the last mission's
+    /// company of that kind takes its experience, and its men walk in from the
+    /// map's entry point (else its exit, else beside the fort) to the parade ground
+    /// (0x4709b0, FUN_00472790).
+    fn rejoin(&mut self, c: usize) {
+        let co = &self.military.companies[c];
+        let Some(i) = self.military.carried.iter().position(|v| v.kind == co.kind) else { return };
+        let v = self.military.carried.remove(i);
+        let (kind, fort, ground) = (co.kind, co.fort, co.standard_tile);
+        self.military.companies[c].experience = v.experience;
+        let beside = self.buildings.get(fort).map_or(ground, |b| (b.x + 4, b.y + 1));
+        let from = [self.entry_point, self.exit_point]
+            .into_iter()
+            .find(|&p| crate::figures::find_route(&self.map, Travel::Land, p, ground).is_some())
+            .unwrap_or(beside);
+        for slot in 0..v.men.min(COMPANY_SIZE as u8) {
+            let fid = self.figures.spawn(kind, from.0, from.1, Travel::Land);
+            if let Some(f) = self.figures.get_mut(fid) {
+                f.formation = c as u16 + 1;
+                f.slot = slot;
+                f.home = fort;
+            }
+            self.military.companies[c].recruits.push(fid);
+            self.send_to_post(fid);
+        }
+    }
+
+    /// The first company record a lost fort has freed, which a new fort takes, as the
+    /// original takes the first record not in use (FUN_004b6e10; FUN_004b82e0 clears
+    /// a lost fort's). Osiris passes over a record its men abroad or aboard a
+    /// transport still answer to.
+    fn free_company(&self) -> Option<usize> {
+        (0..self.military.companies.len()).find(|&c| {
+            let co = &self.military.companies[c];
+            co.fort == 0 && co.abroad == 0 && !self.military.sent_away(c) && self.company_ship(c).is_none()
+        })
     }
 
     /// Whether a tile of a fort's parade ground is free.
@@ -781,10 +891,25 @@ impl World {
         }
     }
 
+    /// Whether two road tiles are on one road network, as the original's buildings
+    /// keep a network number (+0x14) that its recruiter compares before sending a
+    /// sentry or taking a delivery.
+    pub(crate) fn same_road_network(&self, a: (i32, i32), b: (i32, i32)) -> bool {
+        a == b || crate::figures::find_route(&self.map, Travel::Roads, a, b).is_some()
+    }
+
+    /// Whether a cart with weapons or chariots on the road at `from` may take them
+    /// to recruiter `b` (FUN_0045f7b0 for workshops' carts, FUN_0045bf00 for storage
+    /// yards'): the recruiter is staffed, the city has a fort, and the recruiter's
+    /// road is on the cart's road network.
+    pub(crate) fn recruiter_takes_from(&self, b: &crate::buildings::Building, from: (i32, i32)) -> bool {
+        b.workers > 0 && self.military.companies.iter().any(|c| c.fort != 0) && b.road.is_some_and(|r| self.same_road_network(from, r))
+    }
+
     /// Whether this recruiter would enlist anyone: some fort is short of men it
     /// can outfit, or a tower lacks a sentry.
     pub fn recruits_wanted(&self, recruiter: BuildingId) -> bool {
-        self.company_to_recruit(recruiter).is_some() || self.tower_wanting_sentry().is_some()
+        self.company_to_recruit(recruiter).is_some() || self.tower_wanting_sentry(recruiter).is_some()
     }
 
     /// The company a recruiter enlists for next: of the companies at their forts
@@ -824,8 +949,10 @@ impl World {
         let Some(c) = self.company_to_recruit(recruiter) else { return };
         let Some(road) = self.buildings.get(recruiter).and_then(|b| b.road) else { return };
         if let Some(res) = outfit(self.military.companies[c].kind) {
-            let stock = &mut self.buildings.get_mut(recruiter).expect("present").stock[res as usize];
-            *stock = (*stock - crate::economy::LOAD).max(0);
+            // A whole load, without a floor at nothing (FUN_004b70c0 only checks there
+            // was some): its stock comes and goes a load at a time, so it never dips
+            // below.
+            self.buildings.get_mut(recruiter).expect("present").stock[res as usize] -= crate::economy::LOAD;
         }
         let company = &self.military.companies[c];
         let kind = company.kind;
@@ -2849,5 +2976,96 @@ mod tests {
         w.update_morale_month();
         let c = &w.military.companies[0];
         assert_eq!((c.routed, c.broken), (0, 0));
+    }
+
+    /// A recruiter serves only its own road network (FUN_004b7400, FUN_0045f7b0):
+    /// a tower on a road of its own gets no sentry from it, and weapons made on
+    /// another network go to a storage yard there instead of waiting on the
+    /// recruiter. Joining the roads puts both within its reach.
+    #[test]
+    fn a_recruiter_serves_only_its_road_network() {
+        use crate::world::{Command, Outcome};
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        let needed = w.workers_needed(RECRUITER);
+        w.buildings.get_mut(recruiter).expect("recruiter").workers = needed;
+        let o = w.apply(&Command::Road { start: (44, 62), end: (64, 62) });
+        assert!(matches!(o, Outcome::Done { items: 1.., .. }), "{o:?}");
+        let tower = w.create_building(crate::defenses::TOWER, 47, 63);
+        let yard = w.create_building(crate::buildings::kind::STORAGE_YARD, 54, 63);
+        for b in [tower, yard] {
+            let needed = w.workers_needed(w.buildings.get(b).expect("built").kind);
+            let b = w.buildings.get_mut(b).expect("built");
+            assert!(b.road.is_some_and(|r| r.1 == 62), "{:?}", b.road);
+            b.workers = needed;
+        }
+        assert_eq!(w.tower_wanting_sentry(recruiter), None);
+        assert_eq!(w.cart_destination(WEAPONS, (62, 62)), Some(yard));
+        assert!(matches!(w.apply(&Command::Road { start: (44, 63), end: (44, 69) }), Outcome::Done { items: 1.., .. }));
+        assert_eq!(w.tower_wanting_sentry(recruiter), Some(tower));
+        assert_eq!(w.cart_destination(WEAPONS, (62, 62)), Some(recruiter));
+        // With no fort the recruiter takes none.
+        let fort = w.military.companies[0].fort;
+        w.demolish(fort);
+        assert_eq!(w.cart_destination(WEAPONS, (62, 62)), Some(yard));
+    }
+
+    /// A fort built after one is lost takes the first company record free
+    /// (FUN_004b6e10), and its standard answers to it.
+    #[test]
+    fn a_new_fort_takes_a_lost_forts_company() {
+        use crate::world::{Command, Outcome};
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        assert!(matches!(w.apply(&Command::Build { kind: FORT_ARCHERS, x: 54, y: 75, x1: 54, y1: 75 }), Outcome::Done { items: 1.., .. }));
+        let first = w.military.companies[0].fort;
+        w.demolish(first);
+        assert_eq!(w.military.companies[0].fort, 0);
+        assert!(matches!(w.apply(&Command::Build { kind: FORT_CHARIOTEERS, x: 44, y: 75, x1: 44, y1: 75 }), Outcome::Done { items: 1.., .. }));
+        assert_eq!(w.military.companies.len(), 2);
+        let c = &w.military.companies[0];
+        assert_eq!((c.kind, c.morale, c.soldiers.len()), (CHARIOTEER, 50, 0));
+        assert_eq!(w.company_of(c.standard), Some(0));
+        assert_eq!(w.military.companies[1].kind, ARCHER);
+    }
+
+    /// A won mission's best company of each kind rejoins the next mission that
+    /// keeps them (FUN_004188f0, FUN_00418bf0): its first fort of that kind takes
+    /// the company's experience, and the men march in to the parade ground.
+    #[test]
+    fn veterans_rejoin_the_next_mission() {
+        use crate::world::{Command, Outcome};
+        let Some(mut w) = barracks_of(FORT_INFANTRY, false) else { return };
+        let recruiter = w.buildings.iter().find(|b| b.kind == RECRUITER).map(|b| b.id).expect("recruiter");
+        w.add_stored(recruiter, WEAPONS, 16 * crate::economy::LOAD);
+        muster(&mut w);
+        w.military.companies[0].experience = 30;
+        let carried = w.companies_to_carry();
+        assert_eq!(carried, vec![CarriedCompany { kind: INFANTRY, men: 16, experience: 30 }]);
+
+        // Mission 2 doesn't keep them; Qadesh (42) does.
+        let Some(mut next) = crate::economy::tests::mission(2) else { return };
+        next.invasions.planned.clear();
+        assert_eq!(next.carry_in_companies(&carried), 0);
+        next.mission.as_mut().expect("mission").id = 42;
+        assert_eq!(next.carry_in_companies(&carried), 1);
+        assert!(next.message_texts.back().is_some_and(|t| t.reason == "troopcarryover_inf_only"));
+        // An archers' fort leaves them waiting; the infantry fort takes them.
+        let fort = |kind| Command::Build { kind, x: 44, y: 75, x1: 44, y1: 75 };
+        assert!(matches!(next.apply(&Command::Road { start: (40, 70), end: (66, 70) }), Outcome::Done { items: 1.., .. }));
+        assert!(matches!(next.apply(&fort(FORT_ARCHERS)), Outcome::Done { items: 1.., .. }));
+        assert_eq!(next.military.carried.len(), 1);
+        let archers = next.military.companies[0].fort;
+        next.demolish(archers);
+        assert!(matches!(next.apply(&fort(FORT_INFANTRY)), Outcome::Done { items: 1.., .. }));
+        assert!(next.military.carried.is_empty());
+        let c = &next.military.companies[0];
+        assert_eq!((c.kind, c.experience, c.recruits.len()), (INFANTRY, 30, 16));
+        for _ in 0..60 * crate::time::TICKS_PER_DAY {
+            next.tick();
+            if next.military.companies[0].soldiers.len() == COMPANY_SIZE {
+                break;
+            }
+        }
+        assert_eq!(next.military.companies[0].soldiers.len(), COMPANY_SIZE, "{:?}", next.military.companies[0]);
     }
 }

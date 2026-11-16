@@ -392,12 +392,14 @@ impl World {
 
     /// The building using `r` that a load of it should go to: the one holding least,
     /// then with least on its way, then the nearest by road. It must have room for a
-    /// whole load beyond what it holds, and more than what is on its way.
+    /// whole load beyond what it holds, and more than what is on its way. The
+    /// recruiter takes its weapons and chariots only on its own road network.
     fn user_for(&self, r: u16, from: (i32, i32), staffed: bool) -> Option<BuildingId> {
         let users: Vec<((i32, i32), BuildingId)> = self
             .buildings
             .iter()
             .filter(|b| !storage::is_storage(b.kind) && (!staffed || b.workers > 0) && self.inputs_of(b.kind).contains(&r) && b.road.is_some())
+            .filter(|b| b.kind != crate::military::RECRUITER || self.recruiter_takes_from(b, from))
             .filter_map(|b| {
                 let (stock, cap) = (b.stock[r as usize], site_cap(b.kind));
                 let coming = self.incoming(b.id, r);
@@ -593,8 +595,14 @@ impl World {
             self.yard_cart(yard, r, 0, src, action::FETCHING);
             return;
         }
-        // 2. A load for a staffed building that uses a good it holds: workshops, schools,
-        // libraries, mortuaries, venues, guilds, the recruiter.
+        // 2. The recruiter's weapons and chariots, the one it has less of first.
+        if let Some((r, n, recruiter)) = self.recruiter_load(&held, from) {
+            let taken = self.take_stored(yard, r, n.min(LOAD));
+            self.yard_cart(yard, r, taken, recruiter, action::DELIVERING);
+            return;
+        }
+        // 3. A load for a staffed building that uses a good it holds: workshops, schools,
+        // libraries, mortuaries, venues, guilds.
         for &(r, n) in &held {
             if self.is_stockpiled(r) {
                 continue;
@@ -605,7 +613,7 @@ impl World {
                 return;
             }
         }
-        // 3. Goods on "empty": a cart of 400 (100 of heavy goods) to a building that uses
+        // 4. Goods on "empty": a cart of 400 (100 of heavy goods) to a building that uses
         // them, a granary for food, or another storage yard. (Monument material
         // leaves on work-camp laborers' sleds, not the yard's carts.)
         let b = self.buildings.get(yard).expect("present").clone();
@@ -630,6 +638,20 @@ impl World {
                 return;
             }
         }
+    }
+
+    /// What a yard holding `held` (good, amount) sends the recruiter, if anything: of
+    /// weapons and chariots, the one the recruiter has less of (weapons when it has as
+    /// many of each), else the other, so long as the yard holds it and the recruiter
+    /// has room for a load beyond what is on its way (FUN_0045bf00).
+    fn recruiter_load(&self, held: &[(u16, i32)], from: (i32, i32)) -> Option<(u16, i32, BuildingId)> {
+        use crate::military::{CHARIOTS, RECRUITER, WEAPONS};
+        let b = self.buildings.iter().find(|b| b.kind == RECRUITER && self.recruiter_takes_from(b, from))?;
+        let order = if b.stock[CHARIOTS as usize] < b.stock[WEAPONS as usize] { [CHARIOTS, WEAPONS] } else { [WEAPONS, CHARIOTS] };
+        order.into_iter().find_map(|r| {
+            let n = held.iter().find(|h| h.0 == r)?.1;
+            (!self.is_stockpiled(r) && b.stock[r as usize] + self.incoming(b.id, r) < site_cap(RECRUITER)).then_some((r, n, b.id))
+        })
     }
 
     /// A yard's goods on "get" it has room for and another storage building can supply,
@@ -988,6 +1010,50 @@ pub(crate) mod tests {
         assert_eq!(World::input_need(BRICKWORKS, resource::STRAW), 25);
         assert_eq!(World::input_need(BRICKWORKS, 11), LOAD);
         assert_eq!(World::input_need(114, 11), LOAD);
+    }
+
+    /// A storage yard holding weapons and chariots sends the recruiter the one it has
+    /// less of, weapons when it has as many of each, whatever order the yard keeps
+    /// them in (FUN_0045bf00); and nothing once it holds a full 200 of both.
+    #[test]
+    fn a_yard_sends_the_recruiter_what_it_has_least_of() {
+        use crate::military::{CHARIOTS, FORT_INFANTRY, RECRUITER, WEAPONS};
+        use crate::world::{Command, Outcome};
+        let Some(mut w) = mission(2) else { return };
+        w.invasions.planned.clear();
+        let steps = [
+            Command::Road { start: (40, 70), end: (66, 70) },
+            Command::Build { kind: RECRUITER, x: 42, y: 71, x1: 42, y1: 71 },
+            Command::Build { kind: FORT_INFANTRY, x: 44, y: 75, x1: 44, y1: 75 },
+            Command::Build { kind: kind::STORAGE_YARD, x: 56, y: 71, x1: 56, y1: 71 },
+        ];
+        for cmd in steps {
+            assert!(matches!(w.apply(&cmd), Outcome::Done { items: 1.., .. }), "{cmd:?}");
+        }
+        let id_of = |w: &World, k: u16| w.buildings.iter().find(|b| b.kind == k).expect("built").id;
+        let (recruiter, yard) = (id_of(&w, RECRUITER), id_of(&w, kind::STORAGE_YARD));
+        for id in [recruiter, yard] {
+            let needed = w.workers_needed(w.buildings.get(id).unwrap().kind);
+            w.buildings.get_mut(id).unwrap().workers = needed;
+        }
+        // Weapons fill the yard's first space.
+        w.add_stored(yard, WEAPONS, 400);
+        w.add_stored(yard, CHARIOTS, 400);
+        let sent = |w: &mut World| {
+            w.buildings.get_mut(yard).unwrap().walkers[2] = 0;
+            w.yard_errand(yard);
+            let cart = w.buildings.get(yard).unwrap().walkers[2];
+            let f = w.figures.get(cart).filter(|f| f.action == action::DELIVERING && f.target == recruiter)?;
+            let r = f.cargo;
+            w.figures.get_mut(cart).unwrap().dead = true;
+            w.buildings.get_mut(recruiter).unwrap().stock[r as usize] += LOAD;
+            Some(r)
+        };
+        assert_eq!(sent(&mut w), Some(WEAPONS), "as many of each");
+        assert_eq!(sent(&mut w), Some(CHARIOTS), "fewer chariots");
+        assert_eq!(sent(&mut w), Some(WEAPONS));
+        assert_eq!(sent(&mut w), Some(CHARIOTS));
+        assert_eq!(sent(&mut w), None, "200 of each");
     }
 
     /// The chariot maker (205) takes only timber, like the weaponsmith (112) takes

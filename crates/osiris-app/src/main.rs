@@ -601,6 +601,8 @@ struct App {
     /// The royal tombs the mission just won leaves for the Valley missions after it:
     /// as a family history notes them, and as a mission played on its own does.
     won_tombs: [Vec<osiris_sim::royal_tombs::CarriedTomb>; 2],
+    /// The companies the mission just won leaves for the next.
+    won_companies: Vec<osiris_sim::military::CarriedCompany>,
 }
 
 impl App {
@@ -967,6 +969,7 @@ impl App {
         if !self.family.is_empty() {
             let p = load_progress(&self.assets.campaign, &self.family);
             world.carry_in_tombs(&p.carried_tombs());
+            world.carry_in_companies(&p.companies);
         }
         Ok(world)
     }
@@ -988,6 +991,12 @@ impl App {
         p.record(m, result);
         let [history_tombs, single_tombs] = std::mem::take(&mut self.won_tombs);
         p.note_tombs(if matches!(self.run, Run::History) { &history_tombs } else { &single_tombs });
+        // A family history's win notes its best companies over the last ones noted
+        // (FUN_004188f0, from FUN_00418640).
+        let companies = std::mem::take(&mut self.won_companies);
+        if matches!(self.run, Run::History) {
+            p.companies = companies;
+        }
         if !self.family.is_empty() {
             if matches!(self.run, Run::History) {
                 let before = p.period(&c);
@@ -1687,6 +1696,7 @@ impl App {
                 if game.world.won && game.idle() {
                     finished = Some(mission.map(|m| (m, game.world.mission_result())));
                     self.won_tombs = [game.world.tombs_to_carry(true), game.world.tombs_to_carry(false)];
+                    self.won_companies = game.world.companies_to_carry();
                 }
                 // A lost mission waits on its screen's New Game or Replay mission.
                 if game.world.lost
@@ -2263,6 +2273,7 @@ fn run(mut args: Args) -> Result<()> {
         run: Run::Single,
         pending_path: None,
         won_tombs: Default::default(),
+        won_companies: Vec::new(),
         editor_waiting: None,
         // Replaced in `resumed`, once the window (and its monitor) exists.
         windowed_size: initial_size,
