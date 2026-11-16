@@ -15,11 +15,12 @@
 #      5-row block within the ALL ENEMIES section, except where noted otherwise.
 #
 # enemy_ids = values of ScenarioInfo.enemy_id (crates/osiris-formats/src/scenario.rs) that
-# select this nation for a scripted invasion. These equal the raw e_enemy_type enum value
-# (0=Barbarian, 1=Assyrian, 2=Canaanite, 3=Egyptian, 4=Hittite, 5=Hyksos, 6=Kushite, 7=Libian,
-# 8=Nubian, 9=Persian, 10=Phoenician, 11=Roman, 12=SeaPeople), confirmed by reading
-# scenario.cpp (`iob->bind(BIND_SIGNATURE_INT16, &g_scenario.enemy_id)`, cast straight to
-# e_enemy_type with no lookup table) and figure_type.h's enum block.
+# select this nation. The original takes the scenario's enemy straight as the nation's
+# number (FUN_004bc720): 0 Hyksos, 1 Sea People, 2 Hittite, 3 Mitani, 4 Kushite, 5 Libyan,
+# 6 Nubian, 7 Canaanite, 8 Assyrian, 9 Roman, 10 Phoenician, 11 Persian, anything higher
+# taken as 11. The same number names the nation (its names table at 0x5def84, text group
+# 37) and picks its five rows of ALL ENEMIES (5 x number = stats_row). Barbarians,
+# Bedouin and the Egyptians are not chosen by it.
 #
 # group = pack image-group index (as printed by `osiris-tools info`), frames = frames per
 # direction for walk/attack/swim/idle (8 directions), or total frames for death (1 direction).
@@ -28,15 +29,11 @@
 # fallback used when an archer is engaged at close range).
 #
 # [UNVERIFIED] items:
-#   - mitani: enemies.js defines NO figure_mitani_* blocks and no enemy_mitani{} entry, and
-#     e_enemy_type (0-12) has no Mitani value at all -- Mitani cannot be spawned as a scripted
-#     invader, despite Mitani.sg3 existing on disk and Figure_model.txt carrying
-#     a full ALL ENEMIES stats block (rows 15-19) for it. It appears to be diplomacy/text-only,
-#     consistent with the original game (Mitani never appears as an invasion nation in vanilla
-#     Pharaoh either). The group ids given here are INFERRED by analogy: Mitani.sg3's group
-#     layout is byte-for-byte identical (same start offsets) to Assyrian.sg3's, strongly
-#     suggesting a shared animation template, but this has not been confirmed against any
-#     source -- treat as a guess, not a fact.
+#   - mitani: the original's nation 3 (FUN_004bc720), so a scenario whose enemy is 3 fields
+#     it, with ALL ENEMIES rows 15-19. Akhenaten has no Mitani at all. The group ids given
+#     here are INFERRED by analogy: Mitani.sg3's group layout is byte-for-byte identical
+#     (same start offsets) to Assyrian.sg3's, strongly suggesting a shared animation
+#     template, but this has not been checked in the game: treat as a guess.
 #   - barbarian: has no entry in text group 37 (no dedicated nation name) and no ALL ENEMIES
 #     row; enemy_barbarian{} carries its own literal stat values (max_damage,
 #     attack_value, etc.) directly in enemies.js rather than referencing Figure_model.txt.
@@ -56,7 +53,7 @@
 key = "barbarian"
 name_text = []  # [UNVERIFIED] no dedicated nation-name text id found for generic barbarian invaders
 pack = "Enemy_1"
-enemy_ids = [0]
+enemy_ids = []
 stats_row = -1  # [UNVERIFIED] no ALL ENEMIES row for barbarian; enemies.js uses hardcoded fallback stats instead
 
 # No dedicated transport/warship in Enemy_1.sg3; barbarian invasions fall back to Hittite pack ids 7/8/9 (transport) and 10/11/12 (warship) (see figure_barbarian_transport_ship / figure_enemy_warship_generic in enemies.js).
@@ -76,7 +73,7 @@ attack = { group = 2, frames = 12 }
 key = "assyrian"
 name_text = [37, 8]
 pack = "Assyrian"
-enemy_ids = [1]
+enemy_ids = [8]
 stats_row = 40  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
 
 [nation.infantry]
@@ -111,7 +108,7 @@ idle = { group = 12, frames = 1 }
 key = "canaanite"
 name_text = [37, 7]
 pack = "Canaanite"
-enemy_ids = [2]
+enemy_ids = [7]
 stats_row = 35  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
 
 [nation.infantry]
@@ -147,7 +144,7 @@ idle = { group = 12, frames = 1 }
 key = "hittite"
 name_text = [37, 2]
 pack = "Hittite"
-enemy_ids = [4]
+enemy_ids = [2]
 stats_row = 10  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
 
 [nation.infantry]
@@ -181,7 +178,7 @@ idle = { group = 12, frames = 1 }
 key = "hyksos"
 name_text = [37, 0]
 pack = "Hyksos"
-enemy_ids = [5]
+enemy_ids = [0]
 stats_row = 0  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
 
 [nation.infantry]
@@ -216,7 +213,7 @@ idle = { group = 12, frames = 1 }
 key = "kushite"
 name_text = [37, 4]
 pack = "Kushite"
-enemy_ids = [6]
+enemy_ids = [4]
 stats_row = 20  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
 
 # JS figure_kushite_axeman = melee infantry (Figure_model row 20 "Kushite Axemen").
@@ -253,7 +250,7 @@ idle = { group = 12, frames = 1 }
 key = "libian"
 name_text = [37, 5]
 pack = "Libian"
-enemy_ids = [7]
+enemy_ids = [5]
 stats_row = 25  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
 army_title = [37, 33]  # group/id for the "a X army" phrase (distinct from the plain nation name)
 
@@ -290,7 +287,7 @@ idle = { group = 12, frames = 1 }
 key = "mitani"
 name_text = [37, 3]
 pack = "Mitani"
-enemy_ids = []
+enemy_ids = [3]
 stats_row = 15  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
 unverified = true
 
@@ -327,7 +324,7 @@ idle = { group = 12, frames = 1 }
 key = "nubian"
 name_text = [37, 6]
 pack = "Nubian"
-enemy_ids = [8]
+enemy_ids = [6]
 stats_row = 30  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
 
 # JS class name is figure_nubian_axeman; Figure_model row 30 labels it "Nubian Spearmen" -- cosmetic label mismatch only, same melee-infantry group.
@@ -364,7 +361,7 @@ idle = { group = 12, frames = 1 }
 key = "persian"
 name_text = [37, 11]
 pack = "Persian"
-enemy_ids = [9]
+enemy_ids = [11]
 stats_row = 55  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
 
 # JS class name is figure_persian_spearman; Figure_model row 55 labels it "Persian Swordsmen" -- cosmetic label mismatch only, same melee-infantry group.
@@ -438,7 +435,7 @@ idle = { group = 12, frames = 1 }
 key = "roman"
 name_text = [37, 9]
 pack = "Roman"
-enemy_ids = [11]
+enemy_ids = [9]
 stats_row = 45  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
 
 [nation.infantry]
@@ -474,7 +471,7 @@ idle = { group = 12, frames = 1 }
 key = "seapeople"
 name_text = [37, 1]
 pack = "SeaPeople"
-enemy_ids = [12]
+enemy_ids = [1]
 stats_row = 5  # ALL ENEMIES row (Infantry/Missile/Chariots/Warship/Transport block start)
 
 [nation.infantry]
@@ -523,7 +520,7 @@ idle = { group = 12, frames = 1 }
 key = "bedouin"
 name_text = [37, 13]
 pack = "Libian"
-enemy_ids = [7]
+enemy_ids = []
 stats_row = 25  # shared with the libian [[nation]] entry -- see ALL ENEMIES rows 25-29
 
 [bedouin.infantry]
@@ -565,7 +562,7 @@ idle = { group = 12, frames = 1 }
 key = "egyptian"
 name_text = [37, 12]
 pack = "Egyptian"
-enemy_ids = [3]
+enemy_ids = []
 stats_row_infantry = 54
 stats_row_archer = 55
 stats_row_chariot = 56

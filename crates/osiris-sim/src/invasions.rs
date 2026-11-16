@@ -200,7 +200,9 @@ impl Invasions {
             land_points: points(&info.invasion_points_land),
             sea_points: points(&info.invasion_points_sea),
             landings: points(&info.disembark_points),
-            nation: defs.armies.iter().position(|a| a.enemy_ids.contains(&(info.enemy_id as i64))).unwrap_or(0) as u16,
+            // The scenario's enemy is the nation's number, past the last (11) taken
+            // as the last (FUN_004bc720).
+            nation: defs.armies.iter().position(|a| a.enemy_ids.contains(&(info.enemy_id.clamp(0, 11) as i64))).unwrap_or(0) as u16,
             ..Default::default()
         }
     }
@@ -967,6 +969,21 @@ mod tests {
         world.start(&scenario);
         world.load_mission(n as i32);
         Some(world)
+    }
+
+    #[test]
+    fn a_scenarios_enemy_is_the_originals_nation_number() {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
+        let Ok(library) = osiris_formats::ImageLibrary::open(&data.join("Data")) else { return };
+        let defs = crate::defs::Defs::load(&library).expect("defs");
+        let Ok(mut scenario) = osiris_formats::MissionPak::open(&data.join("mission1.pak")).and_then(|p| p.scenario(1)) else { return };
+        // FUN_004bc720: the number picks the name (0x5def84) and five rows from 5 x number.
+        let names = ["hyksos", "seapeople", "hittite", "mitani", "kushite", "libian", "nubian", "canaanite", "assyrian", "roman", "phoenician", "persian", "persian", "persian"];
+        for (id, key) in names.iter().enumerate() {
+            scenario.info.enemy_id = id as i16;
+            let nation = &defs.armies[Invasions::from_scenario(&scenario, &defs).nation as usize];
+            assert_eq!((nation.key.as_str(), nation.stats_row), (*key, Some(5 * id.min(11))), "enemy {id}");
+        }
     }
 
     #[test]
