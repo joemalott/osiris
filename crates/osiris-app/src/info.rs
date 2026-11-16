@@ -15,6 +15,12 @@ use osiris_ui::{Font, panel};
 
 mod pages;
 
+/// Order button `i` (0-4) of a company's or ship's window whose corner is `(x, y)`:
+/// 84 pixels square, 85 apart, from (19, 139) (the hit boxes from 0x5c6788).
+fn order_button(x: f32, y: f32, i: usize) -> [f32; 4] {
+    [x + 19.0 + 85.0 * i as f32, y + 139.0, 84.0, 84.0]
+}
+
 const TEXT_GENERAL: usize = 8;
 const TEXT_FRAME: usize = 69;
 const TEXT_HOUSE: usize = 127;
@@ -68,6 +74,13 @@ impl InfoPanel {
 
     pub fn open_orders(&mut self) {
         self.orders = true;
+    }
+
+    /// The middle of order button `i` (0-4) of a company's or ship's window as last
+    /// drawn, for scripted clicks.
+    pub fn order_button_centre(&self, i: usize) -> [f32; 2] {
+        let r = order_button(self.rect[0], self.rect[1], i);
+        [r[0] + r[2] / 2.0, r[1] + r[3] / 2.0]
     }
 
     /// Whether `p` is on the window (or its orders window).
@@ -296,7 +309,7 @@ impl InfoPanel {
             Order::Engage => Some(2),
             Order::MopUp => Some(3),
         };
-        let rect = |i: usize| [x + 19.0 + 85.0 * i as f32, y + 139.0, 84.0, 84.0];
+        let rect = |i: usize| order_button(x, y, i);
         let hovered = (0..5).find(|&i| ui.hot(rect(i)));
         let base = ui.img.company_orders[buttons];
         for i in 0..5 {
@@ -409,55 +422,66 @@ impl InfoPanel {
                 mil::INFANTRY => 33,
                 _ => 32,
             };
-            let line = format!("{} {} {}", ui.t(G, arm), ui.t(138, c % 10).trim_matches('"'), ui.t(G, 34));
+            // "Archer Company, "The Lions" on board", the name in its quotes.
+            let line = format!("{} {} {}", ui.t(G, arm), ui.t(138, c % 10), ui.t(G, 34));
             ui.label(Font::NormalBlackOnLight, &line, x + 100.0, y + 60.0);
             let men = world.company_men(c) - co.abroad.max(0) as usize;
+            let health = ui.t(138, match world.company_wounds(c) {
+                p if p < 1 => 26,
+                p if p < 21 => 27,
+                p if p < 41 => 28,
+                p if p < 56 => 29,
+                p if p < 71 => 30,
+                p if p < 91 => 31,
+                _ => 32,
+            });
+            let rank = mil::experience_rank(co.experience);
+            // Strength, health, experience (with its icon) and morale, 16 apart from
+            // y+76 (FUN_0050f320); the count of men sits at x+294.
             let rows = [
-                (ui.t(138, 23), men.to_string()),
-                (ui.t(138, 24), ui.t(138, match world.company_wounds(c) {
-                    p if p < 1 => 26,
-                    p if p < 21 => 27,
-                    p if p < 41 => 28,
-                    p if p < 56 => 29,
-                    p if p < 71 => 30,
-                    p if p < 91 => 31,
-                    _ => 32,
-                })),
-                (format!("{} {}", ui.t(138, 73), ui.t(138, 25)), ui.t(138, 60 + mil::experience_rank(co.experience) as usize)),
-                (format!("{} {}", ui.t(138, 73), ui.t(138, 36)), ui.t(138, 37 + (co.morale / 5).clamp(0, 20) as usize)),
+                (ui.t(138, 23), men.to_string(), 294.0),
+                (ui.t(138, 24), health, 300.0),
+                (format!("{} {}", ui.t(138, 73), ui.t(138, 25)), ui.t(138, 60 + rank), 300.0),
+                (format!("{} {}", ui.t(138, 73), ui.t(138, 36)), ui.t(138, 37 + (co.morale / 5).clamp(0, 20) as usize), 300.0),
             ];
-            for (i, (label, value)) in rows.iter().enumerate() {
+            for (i, (label, value, vx)) in rows.iter().enumerate() {
                 let ry = y + 76.0 + 16.0 * i as f32;
                 ui.label(Font::NormalBlackOnLight, label, x + 100.0, ry);
-                ui.label(Font::NormalBlackOnLight, value, x + 300.0, ry);
+                ui.label(Font::NormalBlackOnLight, value, x + vx, ry);
             }
+            ui.image(ui.img.experience_icons + rank as u32, x + 275.0, y + 108.0);
         }
         // The buttons, all greyed while the ship is laid up for repairs, repair while
-        // the hull is whole, return while it is moored at its wharf.
+        // the hull is whole or the ship is already bound for repairs, return while it
+        // is moored at its wharf (FUN_0050fe50, FUN_0050f890).
         let to_yard = if warship { ship::WARSHIP_TO_YARD } else { ship::TRANSPORT_TO_YARD };
         let repairing = f.action == to_yard || f.action == ship::IN_REPAIR;
-        let current = match f.action {
-            ship::HOLD => Some(0),
-            ship::ENGAGE if warship => Some(1),
-            ship::SEEK if warship => Some(2),
-            ship::EVADE if !warship => Some(1),
-            ship::EMBARK | ship::DISEMBARK if !warship && !repairing => Some(2),
-            ship::WARSHIP_HOME if warship => Some(4),
-            ship::TRANSPORT_HOME if !warship => Some(4),
-            _ if repairing => Some(3),
-            _ => None,
+        // The standing order's button: anything else the ship is doing (sailing home,
+        // in repair, just launched) reads as Return to Wharf, as in the original. A
+        // warship Osiris has sent at an enemy shows the order it goes back to.
+        let act = if warship && f.action == ship::ATTACK { st.saved } else { f.action };
+        let standing = match (warship, act) {
+            (_, ship::HOLD) => 0,
+            (true, ship::ENGAGE) => 1,
+            (true, ship::SEEK) => 2,
+            (true, ship::WARSHIP_TO_YARD) => 3,
+            (false, ship::EVADE) => 1,
+            (false, ship::EMBARK | ship::DISEMBARK) => 2,
+            (false, ship::TRANSPORT_TO_YARD) => 3,
+            _ => 4,
         };
         let laid_up = world.ship_laid_up(s);
         let docked = world.ship_docked(s);
         let aboard = st.aboard.is_some();
-        let enabled = |i: usize| !laid_up && !(i == 3 && f.damage <= 0) && !(i == 4 && docked);
-        let rect = |i: usize| [x + 19.0 + 85.0 * i as f32, y + 139.0, 84.0, 84.0];
+        let enabled = |i: usize| !laid_up && !(i == 3 && (repairing || hull == 100)) && !(i == 4 && docked);
+        let rect = |i: usize| order_button(x, y, i);
         let hovered = (0..5).find(|&i| ui.hot(rect(i)));
+        // A greyed button hovered leaves the standing order lit.
+        let focus = hovered.filter(|&h| enabled(h)).unwrap_or(standing);
         let base = ui.img.ship_orders[if warship { 0 } else { 1 }];
         for i in 0..5 {
             let r = rect(i);
-            let focus = hovered.map_or(current == Some(i), |h| h == i);
-            panel::button_border(ui.r, ui.panels, r[0], r[1], 84, 84, focus && enabled(i));
+            panel::button_border(ui.r, ui.panels, r[0], r[1], 84, 84, focus == i && enabled(i));
             let image = match (warship, i) {
                 (true, 4) if docked => base + 5,
                 (true, i) => base + i as u32,
@@ -475,7 +499,7 @@ impl InfoPanel {
                 (true, 1) => Some(ShipOrder::Engage),
                 (true, 2) => Some(ShipOrder::Seek),
                 (false, 1) => Some(ShipOrder::Evade),
-                (false, _) if i == 2 => None,
+                (false, 2) => None,
                 (_, 3) => Some(ShipOrder::Repair),
                 _ => Some(ShipOrder::Return),
             };
@@ -483,28 +507,34 @@ impl InfoPanel {
                 None => Some(InfoAction::SelectShip(s, if aboard { ShipClick::Disembark } else { ShipClick::Embark })),
                 Some(order) => {
                     world.apply(&Command::ShipOrder { ship: s, order });
-                    // Holding, guarding, seeking or evading, the player may now click
-                    // where; repairs and the wharf need no more.
-                    Some(if matches!(order, ShipOrder::Repair | ShipOrder::Return) { InfoAction::Close } else { InfoAction::SelectShip(s, ShipClick::Move) })
+                    // Holding or guarding, the player may now click where (the
+                    // original's command modes 0x20 and 0x1f); seeking, evading,
+                    // repairs and the wharf need no more (FUN_00406c90, FUN_00406b40).
+                    Some(if matches!(order, ShipOrder::Hold | ShipOrder::Engage) { InfoAction::SelectShip(s, ShipClick::Move) } else { InfoAction::Close })
                 }
             };
         }
-        // What the hovered button, or else the standing order, means.
+        // What the hovered button (greyed or not), or else what the ship is doing,
+        // means.
         panel::inner_panel(ui.r, ui.panels, x + 16.0, y + 230.0, wb - 2, 5);
         let meaning = |i: usize| match (warship, i) {
             (true, i) => 9 + 2 * i,
             (false, 0) => 19,
             (false, 1) => 21,
-            (false, 2) if aboard || f.action == ship::DISEMBARK => 25,
+            (false, 2) if aboard => 25,
             (false, 2) => 23,
             (false, i) => 9 + 2 * i,
         };
-        if let Some(i) = hovered.or(current) {
-            let title = ui.t(G, meaning(i));
-            ui.label(Font::NormalWhiteOnDark, &title, x + 24.0, y + 236.0);
-            let text = ui.t(G, meaning(i) + 1);
-            ui.wrapped(Font::NormalBlackOnDark, &text, x + 24.0, y + 252.0, (wb - 4) as f32 * 16.0);
-        }
+        let words = match hovered {
+            Some(h) => meaning(h),
+            None if !warship && act == ship::EMBARK => 23,
+            None if !warship && act == ship::DISEMBARK => 25,
+            None => meaning(standing),
+        };
+        let title = ui.t(G, words);
+        ui.label(Font::NormalWhiteOnDark, &title, x + 24.0, y + 236.0);
+        let text = ui.t(G, words + 1);
+        ui.wrapped(Font::NormalBlackOnDark, &text, x + 24.0, y + 252.0, (wb - 4) as f32 * 16.0);
         action
     }
 

@@ -438,6 +438,11 @@ impl Game {
     }
 
 
+    /// Where the mouse last was on the screen.
+    pub fn cursor_point(&self) -> [f32; 2] {
+        self.cursor
+    }
+
     /// Nothing modal is open and no tool is in hand.
     pub fn idle(&self) -> bool {
         self.selected_ship.is_none()
@@ -1393,8 +1398,18 @@ impl Game {
                 ShipClick::Embark => self.company_at(x, y).map(|company| Command::Embark { ship, company }),
                 ShipClick::Disembark => Some(Command::Disembark { ship, x, y }),
             };
+            let before = self.world.figures.get(ship).map_or(0, |f| f.action);
             if let Some(cmd) = cmd {
                 self.world.apply(&cmd);
+            }
+            // A ship holding, guarding or sailing home stays in hand for the next
+            // click; one seeking or evading, or a warship sent at an enemy, is let go,
+            // as are embarking and landing (FUN_0040b830, FUN_0040ba40).
+            use osiris_sim::navy::ship as act;
+            let after = self.world.figures.get(ship).map(|f| f.action);
+            let stays = click == ShipClick::Move && !matches!(before, act::SEEK | act::LAUNCHED) && after.is_some_and(|a| a != act::ATTACK);
+            if stays {
+                self.selected_ship = Some((ship, click));
             }
             self.sound("BUTTON.WAV");
             return true;
