@@ -63,8 +63,8 @@ pub(crate) const ENEMY_FORMATION_SLOTS: usize = 40;
 /// Consecutive failed target searches (two a day) after which a formation gives up
 /// and goes home: the 49th (FUN_004b8cf0, its counter at formation +0x68).
 const GIVE_UP_AFTER: u8 = 48;
-/// Tiles within which soldiers of the city hold an army's attention, so it doesn't
-/// look for a building to attack (FUN_004ba290 with 16).
+/// Tiles within which ground the city's companies hold draws an army to it, rather
+/// than to a building (FUN_004ba290 with 16).
 const SOLDIERS_NEAR: i32 = 16;
 
 /// How the original splits an arm of an invading army into formations
@@ -78,6 +78,20 @@ fn formation_sizes(men: i32) -> Vec<i32> {
         _ => vec![men - 2 * (men / 3), men / 3, men / 3],
     }
 }
+
+/// The original's target lists (0x5deb9c, a hundred building types each): food,
+/// gold, the best houses, the military, and everything, each in order of how
+/// keenly invaders go for it.
+const TARGET_LISTS: [&[u16]; 5] = [
+    &[71, 72, 70, 191, 193, 190, 102, 103, 100, 101, 105, 194, 224, 104, 196],
+    &[85, 84, 87, 86, 184, 187, 188, 189],
+    &[187, 188, 189, 79, 78, 77, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10],
+    &[94, 185, 186, 55],
+    &[
+        187, 188, 189, 79, 78, 77, 29, 28, 27, 26, 25, 85, 84, 32, 33, 98, 65, 66, 67, 68, 69, 87, 86, 184, 30, 31, 47, 46, 53, 51, 24, 23, 22, 21, 20, 206, 114, 177, 178, 179, 231, 113, 112, 111, 110, 71, 72, 70, 74, 75, 76, 60, 61, 62, 63, 64, 34, 36, 37,
+        35, 94, 185, 186, 19, 18, 17, 16, 15, 49, 106, 107, 216, 161, 217, 162, 109, 108, 90, 102, 103, 104, 101, 100, 194, 105, 224, 55, 81, 180, 92, 14, 13, 12, 11, 10,
+    ],
+];
 
 /// An invasion point the scenario leaves unset.
 pub const NO_POINT: (i32, i32) = (-1, -1);
@@ -183,6 +197,10 @@ pub struct Army {
     /// Formations that have given up and are marching home.
     #[serde(default)]
     pub withdrawn: Vec<u8>,
+    /// Where the army heads for the city's soldiers, when they are near enough to
+    /// hold its attention (the original's army destination with no building).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<(i32, i32)>,
 }
 
 fn full_morale() -> i32 {
@@ -202,6 +220,13 @@ pub struct Invasions {
     pub nation: u16,
     pub peak_population: i32,
     pub lost: bool,
+    /// The ground the city's companies hold: tiles round each company and how
+    /// strongly held, rebuilt every fifth formation update (FUN_004ba090), sorted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held: Vec<((i32, i32), u8)>,
+    /// Formation updates since the held ground was last rebuilt.
+    #[serde(default)]
+    pub held_age: u8,
 }
 
 impl Invasions {
@@ -695,43 +720,125 @@ impl World {
         (b.y..b.y + h).any(|y| (b.x..b.x + w).any(|x| self.map.contains(x, y) && reach[(y * mw + x) as usize]))
     }
 
-    /// What an army goes for: the buildings its orders name, nearest first, among
-    /// those it can get at over land from `from` (FUN_004ba3b0 only looks at
-    /// buildings its "through everything" search from the army reached).
-    fn choose_target(&self, army: usize, from: (i32, i32)) -> Option<BuildingId> {
-        let priority = self.invasions.armies.get(army)?.priority;
-        let weight = |k: u16, level: u8| -> i32 {
-            match priority {
-                0 => matches!(k, kind::GRANARY | kind::STORAGE_YARD | kind::BAZAAR) as i32 * 10 + self.is_farm(k) as i32 * 8,
-                1 => (kind::PALACES.contains(&k) || k == kind::TAX_COLLECTOR) as i32 * 10,
-                2 => level as i32,
-                3 => matches!(k, crate::military::FORT_ARCHERS | crate::military::FORT_INFANTRY | crate::military::FORT_CHARIOTEERS | 55 | 94) as i32 * 10,
-                _ => 1,
-            }
-        };
+    /// Which of the original's target lists an army searches: its orders (0 food, 1
+    /// gold, 2 the best houses, 3 the military), a list picked at random for each
+    /// search when its orders are 4 (FUN_004ba3b0), and the list of everything for
+    /// any other.
+    fn target_list(&mut self, army: usize) -> usize {
+        match self.invasions.armies.get(army).map_or(-1, |a| a.priority) {
+            p @ 0..=3 => p as usize,
+            4 => self.rng.below(4) as usize,
+            _ => 4,
+        }
+    }
+
+    /// What an army goes for (FUN_004ba3b0): among the buildings it can get at over
+    /// land from `from` (its "through everything" search) that stand outside the
+    /// ground the city's companies hold, the one earliest in its target list, the
+    /// nearest of those by the longer of the two distances, the first built on a tie.
+    /// When the list finds none, the same from the list of everything.
+    fn choose_target(&self, list: usize, from: (i32, i32)) -> Option<BuildingId> {
         let reach = self.land_reach(from);
-        self.buildings
+        let candidates: Vec<(u16, BuildingId, i32)> = self
+            .buildings
             .iter()
-            .filter(|b| !matches!(b.kind, crate::military::FORT_GROUND | kind::ROAD | kind::BURNING_RUIN) && !crate::defenses::is_defense(b.kind))
-            .filter(|b| self.within_reach(b.id, &reach))
-            .map(|b| {
-                let level = b.house.as_ref().map_or(0, |h| h.level + 1);
-                let d = (b.x - from.0).abs() + (b.y - from.1).abs();
-                (weight(b.kind, level).max(1) * 100 - d, b.id)
-            })
-            .max_by_key(|&(score, id)| (score, std::cmp::Reverse(id)))
-            .map(|(_, id)| id)
+            .filter(|b| self.held_at((b.x, b.y)) == 0 && self.within_reach(b.id, &reach))
+            .map(|b| (b.kind, b.id, (b.x - from.0).abs().max((b.y - from.1).abs())))
+            .collect();
+        let best = |list: &[u16]| {
+            candidates
+                .iter()
+                .filter_map(|&(k, id, d)| list.iter().position(|&t| t == k).map(|rank| (rank, d, id)))
+                .min()
+                .map(|(_, _, id)| id)
+        };
+        best(TARGET_LISTS[list.min(4)]).or_else(|| best(TARGET_LISTS[4]))
+    }
+
+    /// How strongly the city's companies hold `tile`; 0 for ground they don't.
+    pub fn held_at(&self, tile: (i32, i32)) -> u8 {
+        let held = &self.invasions.held;
+        held.binary_search_by_key(&tile, |h| h.0).map_or(0, |i| held[i].1)
+    }
+
+    /// Every fifth formation update the ground the city's companies hold is marked
+    /// afresh (FUN_004ba090): round each company with men, at its fort or in the
+    /// field, squares of 7 tiles' reach, and of 6, 5, 4, 3 and 2 tiles as it has
+    /// at least 4, 7, 10, 13 and 16 men; each square adds 1 to each of its tiles,
+    /// or 3 where a soldier stands.
+    fn mark_held_ground(&mut self) {
+        let mut held: std::collections::BTreeMap<(i32, i32), u8> = Default::default();
+        let soldier_at: std::collections::HashSet<(i32, i32)> = self.figures.iter().filter(|f| crate::military::is_soldier(f.kind) && !f.dead && f.action != action::CORPSE).map(|f| (f.x, f.y)).collect();
+        for c in &self.military.companies {
+            let men = c.soldiers.iter().filter(|&&s| self.figures.get(s).is_some_and(|f| !f.dead && f.action != action::CORPSE)).count() as i32;
+            if men == 0 {
+                continue;
+            }
+            let (cx, cy) = c.standard_tile;
+            for (at_least, r) in [(1, 7), (4, 6), (7, 5), (10, 4), (13, 3), (16, 2)] {
+                if men < at_least {
+                    continue;
+                }
+                for y in (cy - r).max(0)..=(cy + r).min(self.map.height - 1) {
+                    for x in (cx - r).max(0)..=(cx + r).min(self.map.width - 1) {
+                        let v = held.entry((x, y)).or_default();
+                        *v = v.saturating_add(if soldier_at.contains(&(x, y)) { 3 } else { 1 });
+                    }
+                }
+            }
+        }
+        self.invasions.held = held.into_iter().collect();
+    }
+
+    /// The most strongly held tile within `r` tiles of `from` that an army there
+    /// can get to, the first by rows on a tie (FUN_004ba290).
+    fn held_ground_near(&self, from: (i32, i32), r: i32) -> Option<(i32, i32)> {
+        let reach = self.land_reach(from);
+        let w = self.map.width;
+        let mut best: Option<((i32, i32), u8)> = None;
+        for &(tile, v) in &self.invasions.held {
+            if (tile.0 - from.0).abs() > r || (tile.1 - from.1).abs() > r || !reach.get((tile.1 * w + tile.0) as usize).copied().unwrap_or(false) {
+                continue;
+            }
+            let better = match best {
+                None => true,
+                Some((t, bv)) => v > bv || v == bv && (tile.1, tile.0) < (t.1, t.0),
+            };
+            if better {
+                best = Some((tile, v));
+            }
+        }
+        best.map(|b| b.0)
     }
 
     /// Twice a day, as the original updates its formations (FUN_004b8cf0, at ticks 5
     /// and 29): each army looks again for something to attack from where its leading
-    /// formation stands, unless the city's soldiers are near. When a search finds no
+    /// formation stands. Ground the city's companies hold within 16 tiles draws it
+    /// there, unless it outnumbers their soldiers two to one; otherwise it takes the
+    /// best target its list offers, afresh each time. When a search finds no
     /// building it can get at, even by battering through walls (a city across water,
     /// or none left), the leading formation counts it, and at the 49th search in a
     /// row it gives up: its men march back to where they came in and leave the map
     /// (figure action 3 in FUN_004991a0, which removes them when they arrive or find
     /// no way there). The next formation then takes the lead and counts afresh.
     pub(crate) fn update_armies(&mut self) {
+        let invaders = self.figures.iter().filter(|f| is_invader_kind(f.kind) && !f.dead && f.action != action::CORPSE).count() as i32;
+        if invaders == 0 {
+            return;
+        }
+        self.invasions.held_age += 1;
+        if self.invasions.held_age > 4 {
+            self.invasions.held_age = 0;
+            self.mark_held_ground();
+        }
+        // An army more than twice the city's soldiers (infantry counting half again)
+        // pays them no mind and goes for the buildings (FUN_004b8cf0, with the counts
+        // of FUN_004b7c80).
+        let soldiers: i32 = self.military.companies.iter().map(|c| {
+            let men = c.soldiers.iter().filter(|&&s| self.figures.get(s).is_some_and(|f| !f.dead && f.action != action::CORPSE)).count() as i32;
+            if c.kind == crate::military::INFANTRY { men + men / 2 } else { men }
+        }).sum();
+        let heedless = 2 * soldiers < invaders;
         for a in 0..self.invasions.armies.len() {
             if self.invasions.armies[a].fleeing {
                 continue;
@@ -752,18 +859,18 @@ impl World {
                 }
             }
             let Some(&(_, band, _, x, y)) = members.iter().filter(|m| !withdrawn.contains(&m.1) && m.2 != FLEEING).min_by_key(|m| m.1) else { continue };
-            let soldiers_near = self.figures.iter().any(|f| crate::military::is_soldier(f.kind) && !f.dead && f.action != action::CORPSE && (f.x - x).abs() <= SOLDIERS_NEAR && (f.y - y).abs() <= SOLDIERS_NEAR);
-            if soldiers_near {
+            // Ground the city's companies hold near by draws the army to it.
+            let held = if heedless { None } else { self.held_ground_near((x, y), SOLDIERS_NEAR) };
+            self.invasions.armies[a].goal = held;
+            if held.is_some() {
+                self.invasions.armies[a].target = 0;
                 continue;
             }
-            let target = self.invasions.armies[a].target;
-            let found = if self.buildings.get(target).is_some() && self.within_reach(target, &self.land_reach((x, y))) {
-                true
-            } else {
-                let t = self.choose_target(a, (x, y));
-                self.invasions.armies[a].target = t.unwrap_or(0);
-                t.is_some()
-            };
+            // Otherwise it looks again for the best target, every time.
+            let list = self.target_list(a);
+            let t = self.choose_target(list, (x, y));
+            self.invasions.armies[a].target = t.unwrap_or(0);
+            let found = t.is_some();
             let army = &mut self.invasions.armies[a];
             if found {
                 army.failed_searches = 0;
@@ -916,12 +1023,27 @@ impl World {
             f.walk(map);
             return;
         }
+        // Drawn to the ground the city's companies hold, he marches there, his
+        // formation spread round the spot.
+        if let Some((gx, gy)) = self.invasions.armies.get(army).and_then(|a| a.goal) {
+            let slot = self.figures.get(fid).map_or(0, |f| f.slot as i32);
+            let to = (gx + slot % 4 - 1, gy + slot / 4 % 4 - 1);
+            let f = self.figures.get_mut(fid).expect("present");
+            if !f.moving && f.destination != Some(to) && (f.x, f.y) != to && !f.go_to(map, to) {
+                f.destination = Some(to);
+            }
+            if f.walk(map) == Step::Lost {
+                f.route.clear();
+            }
+            return;
+        }
         // March on the target.
         let target = self.invasions.armies.get(army).map_or(0, |a| a.target);
         let target = if self.buildings.get(target).is_some() {
             target
         } else {
-            let t = self.choose_target(army, (x, y)).unwrap_or(0);
+            let list = self.target_list(army);
+            let t = self.choose_target(list, (x, y)).unwrap_or(0);
             if let Some(a) = self.invasions.armies.get_mut(army) {
                 a.target = t;
             }
@@ -1252,6 +1374,35 @@ mod tests {
         world.update_invasions();
         assert!(world.invasions.planned[0].done && world.invasions.armies.is_empty());
         assert!(world.messages.iter().any(|m| m == "message_attack_called_off"));
+    }
+
+    #[test]
+    fn invaders_go_for_the_first_target_on_their_list() {
+        use crate::world::{Command, Outcome};
+        let Some(mut world) = mission(1) else { return };
+        let (w, h) = (world.map.width, world.map.height);
+        let mut built = Vec::new();
+        for k in [kind::WELL, kind::BAZAAR, kind::GRANARY] {
+            let (x, y) = (6..h - 6).flat_map(|y| (6..w - 6).map(move |x| (x, y))).find(|&(x, y)| world.can_place(k, x, y).is_ok()).expect("room");
+            assert!(matches!(world.apply(&Command::Build { kind: k, x, y, x1: x, y1: y }), Outcome::Done { .. }), "{k}");
+            built.push(world.map.building.at_or(x, y, 0));
+        }
+        let from = world.buildings.get(built[0]).map(|b| (b.x, b.y)).expect("well");
+        world.invasions.armies.push(Army { priority: 0, ..Default::default() });
+        // Food first: the granary before the bazaar wherever they stand.
+        assert_eq!(world.choose_target(0, from), Some(built[2]));
+        // Gold: none here, so the list of everything, where the bazaar comes after
+        // the granary too, and the well before neither.
+        assert_eq!(world.choose_target(1, from), Some(built[2]));
+        // Ground the city's companies hold is left alone.
+        let g = world.buildings.get(built[2]).map(|b| (b.x, b.y)).expect("granary");
+        world.invasions.held = vec![(g, 1)];
+        assert_eq!(world.choose_target(0, from), Some(built[1]));
+        // Orders 4 pick one of the four lists at random; other orders the last.
+        world.invasions.armies[0].priority = 7;
+        assert_eq!(world.target_list(0), 4);
+        world.invasions.armies[0].priority = 4;
+        assert!((0..20).all(|_| world.target_list(0) < 4));
     }
 
     #[test]
