@@ -34,6 +34,9 @@ pub struct Progress {
     /// that follow (see `osiris_sim::royal_tombs::CarriedTomb`); the original keeps
     /// these in the player file too.
     pub tombs: BTreeMap<u16, (i32, i32)>,
+    /// The best company of each kind the last family history mission won left for
+    /// the next (see `osiris_sim::military::CarriedCompany`).
+    pub companies: Vec<osiris_sim::military::CarriedCompany>,
 }
 
 /// A campaign entry, with the sections run together.
@@ -79,7 +82,7 @@ impl Progress {
     /// The start of period `k`: its first mission, or the choice it opens with. Explore
     /// History plays a period this way, from its beginning.
     pub fn at_period(c: &Campaign, k: usize) -> Self {
-        let mut p = Self { done: Vec::new(), path: 0, next: Next::End, results: BTreeMap::new(), save: None, tombs: BTreeMap::new() };
+        let mut p = Self { done: Vec::new(), path: 0, next: Next::End, results: BTreeMap::new(), save: None, tombs: BTreeMap::new(), companies: Vec::new() };
         let from = c.sections.iter().take(k).map(|s| s.entries.len()).sum();
         p.next = p.scan(c, from, true);
         p
@@ -221,6 +224,12 @@ impl Progress {
                         p.tombs.insert(k, (x, y));
                     }
                 }
+                (Some("company"), Some(k)) => {
+                    let v: Vec<i32> = words.by_ref().filter_map(|w| w.parse().ok()).collect();
+                    if let (Ok(kind), &[men, experience]) = (k.parse::<u16>(), v.as_slice()) {
+                        p.companies.push(osiris_sim::military::CarriedCompany { kind, men: men.clamp(0, 16) as u8, experience });
+                    }
+                }
                 (Some("result"), Some(m)) => {
                     let v: Vec<i32> = words.by_ref().filter_map(|w| w.parse().ok()).collect();
                     if let (Ok(m), &[culture, prosperity, kingdom, population, funds, months, score, difficulty]) = (m.parse::<usize>(), v.as_slice()) {
@@ -248,6 +257,9 @@ impl Progress {
         for (k, (x, y)) in &self.tombs {
             text += &format!("tomb {k} {x} {y}\n");
         }
+        for c in &self.companies {
+            text += &format!("company {} {} {}\n", c.kind, c.men, c.experience);
+        }
         for (m, r) in &self.results {
             text += &format!("result {m} {} {} {} {} {} {} {} {}\n", r.culture, r.prosperity, r.kingdom, r.population, r.funds, r.months, r.score, r.difficulty);
         }
@@ -269,7 +281,9 @@ mod tests {
         let mut p = Progress::new(&c);
         p.note_tombs(&[CarriedTomb { kind: 229, x: 46, y: 133 }]);
         p.note_tombs(&[CarriedTomb { kind: 234, x: 60, y: 70 }, CarriedTomb { kind: 229, x: 40, y: 120 }]);
+        p.companies = vec![osiris_sim::military::CarriedCompany { kind: 13, men: 12, experience: 40 }];
         let back = Progress::parse(&c, &p.to_text());
+        assert_eq!(back.companies, p.companies);
         assert_eq!(back.carried_tombs(), vec![CarriedTomb { kind: 229, x: 40, y: 120 }, CarriedTomb { kind: 234, x: 60, y: 70 }]);
     }
 
