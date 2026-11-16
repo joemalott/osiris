@@ -315,3 +315,44 @@ impl Editor {
         Ok(out)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn editor_scripts_start_with_an_edit_step() {
+        assert!(is_editor_script("editor; editnew 2"));
+        assert!(is_editor_script("  ; editnew 2; build house"));
+        assert!(!is_editor_script("build house 3,3; editor"));
+        assert!(!is_editor_script(""));
+    }
+
+    #[test]
+    fn step_names_pick_their_tools_and_fields() {
+        assert_eq!(tool("water", 0).unwrap(), Tool::Paint(Paint::Water));
+        assert_eq!(tool("ore", 0).unwrap(), Tool::Paint(Paint::Rock(bits::ROCK | bits::ORE)));
+        assert_eq!(tool("cliff", 0).unwrap().name_id(), Some(33));
+        assert_eq!(tool("invasion", 20).unwrap(), Tool::Point(Point::Invasion(15)), "clamped to the 16 points");
+        assert_eq!(tool("disembark", 9).unwrap(), Tool::Point(Point::Disembark(2)));
+        assert!(tool("lava", 0).is_err());
+        assert_eq!(ev_field("item2").unwrap(), EvField::Item(2));
+        assert_eq!(ev_field("link3").unwrap(), EvField::Link(3));
+        assert_eq!(ev_field("reason0").unwrap(), EvField::LinkReason(0));
+        assert_eq!(ev_field("yearhi").unwrap(), EvField::Year(true));
+        assert!(ev_field("colour").is_err());
+        assert_eq!(point(" 3, 4").unwrap(), (3, 4));
+        assert!(point("3").is_err());
+    }
+
+    #[test]
+    fn maps_are_found_by_name_or_path() {
+        let data = Path::new("/nowhere/game");
+        assert_eq!(map_path(data, "Warfare"), data.join("Maps/Warfare.map"));
+        assert_eq!(map_path(data, "Two Cities.MAP"), data.join("Maps/Two Cities.MAP"));
+        let here = std::env::temp_dir().join(format!("osiris-script-map-{}.map", std::process::id()));
+        std::fs::write(&here, b"").unwrap();
+        assert_eq!(map_path(data, here.to_str().unwrap()), here);
+        std::fs::remove_file(&here).ok();
+    }
+}

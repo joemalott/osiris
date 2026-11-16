@@ -287,6 +287,32 @@ impl ChunkFile {
         Ok(())
     }
 
+    /// The same file laid out as `version` lays its chunks out: each chunk keeps the
+    /// bytes it held, cut or padded with zeros to its size there (a chunk the new
+    /// layout doesn't have goes, a new one starts as zeros), and the version is
+    /// written into the `file_version` chunk. What a chunk's bytes mean in the new
+    /// version is the caller's to fix up (see `upgrade::map_as_saved`).
+    pub fn relaid(&self, version: i32) -> ChunkFile {
+        let chunks = schema(self.layout, version)
+            .into_iter()
+            .map(|spec| {
+                let old = self.chunks.iter().find(|c| c.name == spec.name);
+                let mut data = old.map_or_else(Vec::new, |c| c.data.clone());
+                data.resize(spec.size, 0);
+                if spec.name == "file_version" {
+                    data.copy_from_slice(&version.to_le_bytes());
+                }
+                let storage = match old {
+                    Some(c) => c.storage,
+                    None if spec.compressed => Storage::Zero,
+                    None => Storage::Plain,
+                };
+                Chunk { name: spec.name, data, storage }
+            })
+            .collect();
+        ChunkFile { layout: self.layout, version, chunks, trailing: self.trailing, tail: self.tail.clone() }
+    }
+
     pub fn require(&self, name: &'static str) -> Result<&[u8]> {
         self.get(name)
             .ok_or_else(|| Error::Invalid(format!("missing chunk {name}")))

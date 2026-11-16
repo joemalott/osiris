@@ -11,6 +11,8 @@
 pub mod events;
 pub mod kingdom;
 pub mod options;
+#[cfg(test)]
+mod playtest;
 pub mod script;
 pub mod terrain;
 pub mod view;
@@ -245,7 +247,9 @@ impl Editor {
     /// Opens the map at `path` for editing.
     pub fn open(path: &Path, defs: Arc<Defs>, text: Arc<TextTable>, maps_dir: PathBuf) -> Result<Self> {
         let bytes = std::fs::read(path).with_context(|| path.display().to_string())?;
-        let template = ChunkFile::parse(&bytes, Layout::Map)?;
+        // Saved in the original editor's own version, as the original's loader
+        // upgrades it: so a deben or a zoo set here means the same to the game.
+        let template = osiris_formats::upgrade::map_as_saved(&ChunkFile::parse(&bytes, Layout::Map)?)?;
         let mut scenario = Scenario::from_chunks(&template)?;
         scenario.fix_image_ids(0);
         let name = path.file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned());
@@ -474,7 +478,9 @@ impl Editor {
     /// fishing grounds on water; each climate's animals on the ground they live on;
     /// enemy transports land at the edge of deep water.
     pub fn allowed(&self, p: Point, x: i32, y: i32) -> bool {
-        if !self.map.contains(x, y) {
+        // Only on the map's diamond: the corners of its rectangle hold the water and
+        // trees of the grid around it, which no fish, ship or beast can reach.
+        if !self.map.contains(x, y) || !self.shown(x, y) {
             return false;
         }
         let t = self.map.terrain.at_or(x, y, 0);
@@ -686,6 +692,15 @@ fn herd_ground(t: u32, ground: u32) -> bool {
     kind & ground != 0
 }
 
+/// The game data the editor's tests read: `$OSIRIS_TEST_DATA`, else `PharaohData` at
+/// the top of the checkout; `None` (the tests pass without checking) when neither is
+/// there.
+#[cfg(test)]
+pub(crate) fn test_data() -> Option<PathBuf> {
+    let dir = std::env::var_os("OSIRIS_TEST_DATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData"));
+    dir.is_dir().then_some(dir)
+}
+
 /// Every `.map` the editor offers: the game's own, then the player's.
 pub fn list_maps(data: &Path, maps_dir: &Path) -> Vec<PathBuf> {
     let mut v = crate::list_files(&data.join("Maps"), "map");
@@ -698,8 +713,7 @@ mod tests {
     use super::*;
 
     fn data() -> Option<PathBuf> {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../PharaohData");
-        dir.is_dir().then_some(dir)
+        test_data()
     }
 
     fn editor(data: &Path, map: &str) -> Editor {
@@ -709,18 +723,45 @@ mod tests {
         Editor::open(&data.join("Maps").join(map), defs, text, std::env::temp_dir().join("osiris-editor-test")).unwrap()
     }
 
-    /// A map saved untouched reads back with the same terrain, info and chunks.
+    /// A shipped map saved untouched is written in the original editor's version
+    /// (160) and reads back as the original's loader reads the shipped file: the same
+    /// terrain, info, Kingdom and events, but for what the loader upgrades (deben and
+    /// troops renumbered after Cleopatra's goods, the zoo and the words after it
+    /// cleared, era 1, the faction toggle off). Saving that again changes nothing.
     #[test]
-    fn untouched_map_saves_as_it_was() {
+    fn untouched_map_saves_as_the_original_reads_it() {
         let Some(data) = data() else { return };
         let e = editor(&data, "Warfare.map");
         let bytes = e.to_bytes().unwrap();
-        let again = Scenario::from_chunks(&ChunkFile::parse(&bytes, Layout::Map).unwrap()).unwrap();
+        let file = ChunkFile::parse(&bytes, Layout::Map).unwrap();
+        assert_eq!(file.version, osiris_formats::upgrade::EDITOR_VERSION);
+        let again = Scenario::from_chunks(&file).unwrap();
         let before = Scenario::load_map(&data.join("Maps/Warfare.map")).unwrap();
-        assert_eq!(format!("{:?}", again.info), format!("{:?}", before.info));
+        assert!(before.version < 152);
+        let mut info = before.info.clone();
+        info.reserved[45..100].fill(0);
+        info.player_faction = 0;
+        info.alt_predator_type = 0;
+        assert_eq!(format!("{:?}", again.info), format!("{info:?}"));
+        assert_eq!(file.get("scenario_info").unwrap()[ERA_BYTE], 1);
         assert_eq!(again.terrain, before.terrain.iter().map(|t| t & !OSIRIS_BITS).collect::<Vec<_>>());
         assert_eq!(again.moisture, before.moisture);
-        assert_eq!(format!("{:?}", again.empire), format!("{:?}", before.empire));
+        let strip = |o: &osiris_formats::empire::EmpireObject| osiris_formats::empire::EmpireObject { raw: Vec::new(), ..o.clone() };
+        assert!(again.empire.objects.iter().map(strip).eq(before.empire.objects.iter().map(strip)));
+        assert_eq!(format!("{:?}{:?}", again.empire.routes, again.empire.prices), format!("{:?}{:?}", before.empire.routes, before.empire.prices));
+        assert_eq!(again.events.len(), before.events.len());
+        for (a, b) in again.events.iter().zip(&before.events) {
+            let item = if osiris_formats::upgrade::item_is_resource(b.kind) { osiris_formats::upgrade::upgrade_item(b.item) } else { b.item };
+            assert_eq!((a.kind, a.item, a.amount, a.year, a.on_completed), (b.kind, item, b.amount, b.year, b.on_completed));
+        }
+        // The deben Warfare's first request asks for, and the troops its event 27 does.
+        assert_eq!((again.events[0].item.fixed, again.events[27].item.fixed), (36, 37));
+
+        let path = std::env::temp_dir().join(format!("osiris-untouched-{}.map", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+        let reopened = Editor::open(&path, e.defs.clone(), e.text.clone(), e.maps_dir.clone()).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert!(reopened.to_bytes().unwrap() == bytes, "a map of version 160 saves as it was");
     }
 
     /// A new map of each size is its size, centred in the grid, and what is painted
@@ -834,7 +875,8 @@ mod tests {
         let Some(data) = data() else { return };
         let mut e = editor(&data, "Warfare.map");
         let lines: Vec<String> = (0..3).map(|i| summary(&e.text, &e.scenario.events, i)).collect();
-        assert_eq!(lines[0], " 0 Request Jan +7-14 500 Oil");
+        // Deben, 31 in a file this old, read as the original reads it (FUN_004d40c0).
+        assert_eq!(lines[0], " 0 Request Jan +7-14 500 Deben");
         assert_eq!(lines[1], " 1 Kingdom Increase *0 +1 5-10");
         let n = e.scenario.events.len();
 
@@ -894,5 +936,137 @@ mod tests {
         assert_eq!((r.location[1], r.location[2], r.location[3]), (-1, 2, 4));
         // The year the game reads is one the event allows.
         assert!((3..5).contains(&r.year), "year {}", r.year);
+    }
+
+    /// Each brush lays its terrain over what the original's lets it (FUN_00477960
+    /// and the brushes after it), and the floodplain keeps its shape (FUN_00478440's
+    /// checks): water and floodplain only on flat land, trees and water replacing
+    /// each other, grass taking everything away, rock of one kind not painted twice.
+    #[test]
+    fn brushes_paint_what_the_original_allows() {
+        let Some(data) = data() else { return };
+        let mut e = editor(&data, DEFAULT_MAP);
+        e.new_map(1);
+        e.brush = 0;
+        let t = |e: &Editor, x, y| e.map.terrain.at_or(x, y, 0);
+        let mut paint = |e: &mut Editor, p: Paint, x, y| {
+            e.tool = Tool::Paint(p);
+            e.apply(x, y)
+        };
+        assert!(paint(&mut e, Paint::Trees, 40, 40));
+        assert!(!paint(&mut e, Paint::Trees, 40, 40), "trees over trees change nothing");
+        assert!(paint(&mut e, Paint::Water, 40, 40));
+        assert_eq!(t(&e, 40, 40) & (bits::WATER | bits::TREE), bits::WATER, "water clears the trees");
+        assert!(paint(&mut e, Paint::Trees, 40, 40));
+        assert_eq!(t(&e, 40, 40) & (bits::WATER | bits::TREE), bits::TREE, "and trees the water");
+        e.map.elevation.set(41, 40, 2);
+        assert!(!paint(&mut e, Paint::Water, 41, 40) && !paint(&mut e, Paint::Floodplain, 41, 40), "nothing wet on raised land");
+        assert!(paint(&mut e, Paint::Rock(bits::ROCK), 42, 40));
+        assert!(!paint(&mut e, Paint::Rock(bits::ROCK), 42, 40));
+        assert!(paint(&mut e, Paint::Rock(bits::ROCK | bits::ORE), 42, 40));
+        assert_eq!(t(&e, 42, 40) & (bits::ROCK | bits::ORE | bits::CLIFF), bits::ROCK | bits::ORE);
+        assert!(paint(&mut e, Paint::Rock(bits::ROCK | bits::CLIFF), 42, 40));
+        assert_eq!(t(&e, 42, 40) & (bits::ROCK | bits::ORE | bits::CLIFF), bits::ROCK | bits::CLIFF, "a cliff isn't ore");
+        for p in [Paint::Meadow, Paint::Dunes, Paint::Marshland] {
+            assert!(paint(&mut e, p, 43, 40));
+            assert!(!paint(&mut e, p, 43, 40), "{p:?} twice");
+        }
+        assert_eq!(t(&e, 43, 40) & (bits::MEADOW | bits::DUNE | bits::MARSHLAND), bits::MARSHLAND, "each brush clears the last");
+        assert!(paint(&mut e, Paint::Grass, 43, 40));
+        assert_eq!(t(&e, 43, 40) & (bits::MEADOW | bits::DUNE | bits::MARSHLAND), 0);
+        assert!(!paint(&mut e, Paint::Grass, 30, 30), "grass on plain land changes nothing");
+
+        // A floodplain strip fills the land it hems in; trees push it back.
+        for y in 20..30 {
+            paint(&mut e, Paint::Floodplain, 20, y);
+            paint(&mut e, Paint::Floodplain, 22, y);
+        }
+        assert!(t(&e, 21, 25) & bits::FLOODPLAIN != 0, "the gap between two strips fills");
+        paint(&mut e, Paint::Trees, 23, 25);
+        assert!(t(&e, 22, 25) & bits::FLOODPLAIN == 0 && t(&e, 22, 24) & bits::FLOODPLAIN == 0, "no floodplain beside trees");
+
+        // Brushes of each size paint their diamond.
+        e.brush = 4;
+        assert!(paint(&mut e, Paint::Meadow, 60, 60));
+        let n = (50..71).flat_map(|y| (50..71).map(move |x| (x, y))).filter(|&(x, y)| t(&e, x, y) & bits::MEADOW != 0).count();
+        assert_eq!(n, 41);
+        assert!(e.map.fertility.at_or(60, 60, 0) > e.map.fertility.at_or(60, 64, 0), "meadow is richest at its heart");
+    }
+
+    /// Each point goes only where the original lets it (FUN_00478440, FUN_0046f9a0,
+    /// FUN_0047ed60, FUN_00477d40, FUN_004ec410), Ctrl+Z takes it back, and the
+    /// Resets menu clears each list.
+    #[test]
+    fn points_go_where_the_original_allows() {
+        let Some(data) = data() else { return };
+        let mut e = editor(&data, DEFAULT_MAP);
+        e.new_map(1);
+        let all: Vec<(i32, i32)> = (0..84).flat_map(|y| (0..84).map(move |x| (x, y))).collect();
+        let near = |e: &Editor, x, y| Diamond::new(e.map.width, e.map.height).near_edge(x, y, 4);
+        // On plain land: entry and exit at the edge only, nothing that needs water.
+        for &(x, y) in &all {
+            let edge = near(&e, x, y);
+            assert_eq!(e.allowed(Point::Entry, x, y), edge, "entry at {x},{y}");
+            assert_eq!(e.allowed(Point::Invasion(3), x, y), edge);
+            assert!(!e.allowed(Point::Invasion(8), x, y) && !e.allowed(Point::Fishing(0), x, y) && !e.allowed(Point::RiverIn, x, y) && !e.allowed(Point::Disembark(0), x, y));
+            assert!(!e.allowed(Point::Predator(0), x, y) || e.scenario.info.climate == 2 || e.scenario.info.alt_predator_type != 0, "the humid and normal beasts want marsh or water");
+        }
+        // The rectangle's corners, off the diamond, hold the grid's water and trees:
+        // no point goes there.
+        assert!(e.map.terrain.at_or(0, 0, 0) & bits::WATER != 0);
+        assert!(!e.allowed(Point::Fishing(0), 0, 0) && !e.allowed(Point::Predator(0), 0, 0) && !e.allowed(Point::Invasion(9), 0, 0));
+        // A lake reaching the edge.
+        e.tool = Tool::Paint(Paint::Water);
+        e.brush = 4;
+        for x in 0..30 {
+            for y in [38, 42, 46] {
+                e.apply(x, y);
+            }
+        }
+        let water: Vec<_> = all.iter().copied().filter(|&(x, y)| e.shown(x, y) && e.map.terrain.at_or(x, y, 0) & bits::WATER != 0).collect();
+        assert!(water.iter().all(|&(x, y)| e.allowed(Point::Fishing(1), x, y) && !e.allowed(Point::Entry, x, y)));
+        let sea = water.iter().copied().find(|&(x, y)| near(&e, x, y)).unwrap();
+        assert!(e.allowed(Point::Invasion(9), sea.0, sea.1));
+        let land_edge = all.iter().copied().find(|&(x, y)| near(&e, x, y) && e.map.terrain.at_or(x, y, 0) == 0).unwrap();
+        assert!(!e.allowed(Point::Invasion(9), land_edge.0, land_edge.1), "ships come in on water");
+        let river = all.iter().copied().find(|&(x, y)| e.allowed(Point::RiverIn, x, y)).expect("a river mouth");
+        assert!(near(&e, river.0, river.1));
+        let deep: Vec<_> = water.iter().copied().filter(|&(x, y)| e.map.terrain.at_or(x, y, 0) & bits::DEEPWATER != 0).collect();
+        assert!(!deep.is_empty());
+        let landing = deep.iter().copied().filter(|&(x, y)| e.allowed(Point::Disembark(0), x, y)).collect::<Vec<_>>();
+        assert!(!landing.is_empty() && landing.len() < deep.len(), "transports land at deep water's edge, not in its middle");
+        // Hippos (humid) in the water, not on dry land; asps anywhere open.
+        e.scenario.info.climate = 0;
+        assert!(e.allowed(Point::Predator(0), sea.0, sea.1) && !e.allowed(Point::Predator(0), 60, 60));
+        e.scenario.info.alt_predator_type = 1;
+        assert!(e.allowed(Point::Predator(0), 60, 60));
+        e.scenario.info.climate = 1;
+        assert!(e.allowed(Point::Prey(0), 60, 60), "ostriches on open land");
+
+        assert_eq!(e.missing_points(), vec!["no entry point", "no exit point", "no river points"]);
+        e.push_undo();
+        e.tool = Tool::Point(Point::Entry);
+        assert!(e.apply(land_edge.0, land_edge.1));
+        assert!(!e.apply(land_edge.0, land_edge.1), "placed again where it is: no change");
+        assert_eq!(e.missing_points().len(), 2);
+        e.undo();
+        assert!(!e.scenario.info.entry_point.is_valid(), "Ctrl+Z takes the point back");
+        assert_eq!(e.map.terrain.at_or(sea.0, sea.1, 0) & bits::WATER, bits::WATER, "and leaves the lake painted before it");
+
+        for (p, at) in [(Point::Fishing(2), sea), (Point::Invasion(1), land_edge), (Point::Invasion(9), sea), (Point::Disembark(1), landing[0])] {
+            e.tool = Tool::Point(p);
+            assert!(e.apply(at.0, at.1), "{p:?}");
+        }
+        e.scenario.info.alt_predator_type = 0;
+        e.scenario.info.climate = 0;
+        e.tool = Tool::Point(Point::Predator(1));
+        assert!(e.apply(sea.0, sea.1));
+        e.tool = Tool::Point(Point::Prey(0));
+        assert!(!e.apply(60, 60), "the humid north's game lives in marsh");
+        assert_eq!(e.points().len(), 5);
+        for which in 1..=5 {
+            e.clear_points(which);
+        }
+        assert!(e.points().is_empty());
     }
 }

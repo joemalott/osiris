@@ -981,3 +981,107 @@ impl Editor {
 fn popup_origin(screen: [f32; 2]) -> (f32, f32) {
     (((screen[0] - 640.0) / 2.0).floor() + 80.0, ((screen[1] - 480.0) / 2.0).floor() + 80.0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn editor() -> Option<Editor> {
+        let data = super::super::test_data()?;
+        let lib = osiris_formats::ImageLibrary::open(&data.join("Data")).unwrap();
+        let defs = Arc::new(osiris_sim::Defs::load(&lib).unwrap());
+        let maps = std::env::temp_dir().join(format!("osiris-view-test-{}", std::process::id()));
+        Some(Editor::open(&data.join("Maps").join(super::super::DEFAULT_MAP), defs, crate::lang::english_text(&data), maps).unwrap())
+    }
+
+    fn labels(e: &Editor, b: u8) -> Vec<String> {
+        submenu(e, b).unwrap().into_iter().map(|(s, _)| s).collect()
+    }
+
+    /// The tool buttons' submenus hold the original's entries (menus at 0x5ce3bc),
+    /// labelled from its text groups.
+    #[test]
+    fn submenus_are_the_originals() {
+        let Some(mut e) = editor() else { return };
+        assert_eq!(labels(&e, 2), vec!["Water", "Flood plain", "Marshland"]);
+        assert_eq!(labels(&e, 5).len(), 4);
+        assert_eq!(labels(&e, 14), vec![e.text.get(48, 5).unwrap().trim(), e.text.get(48, 6).unwrap().trim()]);
+        assert_eq!(labels(&e, 13).len(), 16);
+        assert_eq!(labels(&e, 13)[8], e.text.get(48, 48).unwrap().trim(), "sea point 1");
+        assert_eq!(labels(&e, 24).len(), 8 + 4 + 4 + 3);
+        assert_eq!(labels(&e, 8).len(), 5);
+        for (climate, first) in [(0, 84), (1, 82), (2, 83)] {
+            e.scenario.info.climate = climate;
+            assert_eq!(labels(&e, 32), vec![e.text.get(64, first).unwrap().trim(), e.text.get(64, 102 + climate as usize).unwrap().trim()]);
+        }
+        for b in [0, 1, 6, 10] {
+            assert!(submenu(&e, b).is_none(), "button {b} picks its tool");
+        }
+        // Every entry of every submenu picks something different.
+        for b in [2, 5, 13, 14, 17, 24, 8, 32] {
+            let items: Vec<Item> = submenu(&e, b).unwrap().into_iter().map(|(_, i)| i).collect();
+            let mut seen = items.clone();
+            seen.dedup();
+            assert_eq!(seen.len(), items.len(), "button {b}");
+            assert!(labels(&e, b).iter().all(|l| !l.is_empty()), "button {b} has a blank label");
+        }
+    }
+
+    #[test]
+    fn buttons_and_items_pick_tools() {
+        let Some(mut e) = editor() else { return };
+        e.press_button(1);
+        assert_eq!(e.tool, Tool::Paint(Paint::Trees));
+        e.press_button(10);
+        assert_eq!(e.tool, Tool::Road);
+        e.press_button(2);
+        assert!(e.view.menu.as_ref().is_some_and(|(b, _)| *b == 2));
+        e.press_button(2);
+        assert!(e.view.menu.is_none(), "a second press closes it");
+        e.press_button(8);
+        e.choose_item(Item::Brush(4));
+        assert_eq!((e.brush, e.view.menu.is_none()), (4, true));
+        e.dirty = false;
+        e.choose_item(Item::Killer(1));
+        assert_eq!((e.scenario.info.alt_predator_type, e.dirty), (1, true));
+        // Escape backs out: the submenu, then the tool.
+        e.press_button(24);
+        e.cancel();
+        assert!(e.view.menu.is_none() && e.tool != Tool::None);
+        e.cancel();
+        assert_eq!(e.tool, Tool::None);
+    }
+
+    /// Play and Save ask first when the entry, exit or river points are missing;
+    /// Exit and Load ask first with changes unsaved.
+    #[test]
+    fn the_menu_warns_before_losing_or_missing_things() {
+        let Some(mut e) = editor() else { return };
+        e.new_map(1);
+        e.menu_command(5);
+        assert!(e.view.confirm.is_some() && e.request.is_none(), "Play warns of the missing points");
+        let q = &e.view.confirm.as_ref().unwrap().0.question;
+        assert!(q.contains("entry") && q.contains("exit") && q.contains("river"), "{q}");
+        e.view.confirm = None;
+        e.menu_command(4);
+        assert!(e.view.confirm.as_ref().is_some_and(|(_, then)| *then == ConfirmThen::Exit), "unsaved: Exit asks");
+        e.run_confirm(ConfirmThen::Exit);
+        assert_eq!(e.request.take(), Some(Request::Exit));
+        e.view.confirm = None;
+        e.dirty = false;
+        e.menu_command(2);
+        assert_eq!(e.request.take(), Some(Request::Open), "nothing to lose: Load goes ahead");
+        e.menu_command(1);
+        assert!(matches!(e.view.popup, Some(Popup::Sizes)));
+        e.cancel();
+        assert!(e.view.popup.is_none());
+        // Saving under a typed name.
+        e.view.popup = Some(Popup::SaveName(String::new()));
+        assert!(e.wants_text());
+        e.type_text("My map\n");
+        let saved = e.maps_dir.join("My map.map");
+        assert!(saved.is_file() && !e.dirty && e.name == "My map");
+        std::fs::remove_dir_all(&e.maps_dir).ok();
+    }
+}
